@@ -488,6 +488,27 @@ class WakuNode:
             **kwargs,
         )
 
+    def messaging_subscribe(self, content_topics):
+        return self._api.messaging_subscribe(content_topics)
+
+    def messaging_unsubscribe(self, content_topics):
+        return self._api.messaging_unsubscribe(content_topics)
+
+    def messaging_send(self, message):
+        return self._api.messaging_send(message)
+
+    def messaging_send_events(self):
+        return self._api.messaging_send_events()
+
+    def messaging_send_events_by_id(self, request_id):
+        return self._api.messaging_send_events_by_id(request_id)
+
+    def messaging_received(self):
+        return self._api.messaging_received()
+
+    def messaging_received_response(self):
+        return self._api.messaging_received_response()
+
     def get_metrics(self):
         if self.is_nwaku():
             metrics = requests.get(f"http://localhost:{self._metrics_port}/metrics")

@@ -188,3 +188,27 @@ class REST(BaseClient):
     def get_peer(self, peer_id: str):
         resp = self.rest_call("get", f"admin/v1/peer/{peer_id}")
         return resp.json()
+
+    # Messaging API (/messaging/v1): mounted only with --entry-layer=messaging or channels.
+
+    def messaging_subscribe(self, content_topics):
+        return self.rest_call("post", "messaging/v1/subscriptions", json.dumps(content_topics))
+
+    def messaging_unsubscribe(self, content_topics):
+        return self.rest_call("delete", "messaging/v1/subscriptions", json.dumps(content_topics))
+
+    def messaging_send(self, message):
+        return self.rest_call("post", "messaging/v1/messages", json.dumps(message)).json()
+
+    def messaging_send_events(self):
+        return self.rest_call("get", "messaging/v1/events/send").json()
+
+    def messaging_send_events_by_id(self, request_id):
+        return self.rest_call("get", f"messaging/v1/events/send/{quote(request_id, safe='')}").json()
+
+    def messaging_received(self):
+        return self.rest_call("get", "messaging/v1/events/received").json()
+
+    def messaging_received_response(self):
+        """Returns the raw response of the received poll, with its X-Messaging-Dropped header."""
+        return self.rest_call("get", "messaging/v1/events/received")

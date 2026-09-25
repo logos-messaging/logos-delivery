@@ -7,6 +7,7 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 
 - `src/` — test framework (node wrappers, steps, helpers)
 - `tests/wrappers_tests/` — the API/e2e scenario tests (`test_s02…s31`)
+- `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
 - `vendor/logos-delivery-python-bindings/waku/wrapper.py` — CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`
 
 ## Run locally
@@ -24,6 +25,9 @@ cd tests-e2e
 pytest tests/wrappers_tests -m "not docker_required and not slow"   # 60 pure-binding tests, the CI selection
 pytest tests/wrappers_tests -m docker_required                      # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
 pytest tests/wrappers_tests -m slow                                 # 1 SDS-R repair test, minutes long
+# REST suites run docker nodes from DEFAULT_NWAKU (default: the nightly image, built from master).
+# To test local changes, build an image and set DEFAULT_NWAKU to it; the name must contain "nwaku".
+DEFAULT_NWAKU=<image> pytest tests/rest/messaging
 ```
 
 ## CI
