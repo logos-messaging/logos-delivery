@@ -704,6 +704,44 @@ suite "ExternalServiceDiscovery":
 
     check (await iface.stopDiscovery()).isOk()
 
+  asyncTest "an advert is re-signed when the node's addresses change":
+    ## The plugin publishes the record it was handed and never refreshes it,
+    ## so a record signed at start would advertise stale addresses for good.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    let peerInfo = provideNodeIdentity(ctx)
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check eventually(fake.advertTaken.load() == 1)
+
+    proc publishedAddrs(): seq[string] =
+      let bytes = @(fake.lastRecord)[0 ..< fake.lastRecordLen.load()]
+      let record = SignedExtendedPeerRecord.decode(bytes).expect("decodes")
+      record.data.addresses.mapIt($it.address)
+
+    check publishedAddrs() == @["/ip4/127.0.0.1/tcp/44002"]
+
+    ## What `PeerInfo.update` does after a changed commit.
+    peerInfo.addrs = @[MultiAddress.init("/ip4/203.0.113.7/tcp/44002").get()]
+    peerInfo.notifyObservers()
+
+    ## Taken back and published again, with the new address.
+    check eventually(fake.advertTaken.load() == 2)
+    check:
+      publishedAddrs() == @["/ip4/203.0.113.7/tcp/44002"]
+      fake.stopAdvertCalls.load() == 1
+      fake.advertRefusedAsHeld.load() == 0
+
+    ## Once stopped, the node no longer follows its addresses.
+    check (await iface.stopDiscovery()).isOk()
+    peerInfo.addrs = @[MultiAddress.init("/ip4/198.51.100.9/tcp/44002").get()]
+    peerInfo.notifyObservers()
+    await sleepAsync(chronos.seconds(2))
+    check fake.advertTaken.load() == 2
+
   asyncTest "an interest the plugin refuses is still looked up":
     ## A lookup does not depend on the interest, which only pre-warms the
     ## provider's table; a refused interest used to drop the key from the

@@ -21,6 +21,7 @@
 import std/[sequtils, strutils, tables]
 import chronos, chronicles, results
 import brokers/broker_implement
+import libp2p/peerinfo
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/peer_discovery_conversion,
@@ -91,6 +92,10 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   interests: Table[string, bool] ## key -> taken by the plugin
   announceWanted: AsyncEvent
   announceLoop: Future[void]
+  observedPeerInfo: PeerInfo
+  addressObserver: PeerInfoObserver
+    ## Set while running: the plugin publishes the record it was handed and
+    ## never refreshes it, so adverts are re-signed when the addresses move.
   serviceLookupInterval: Duration
   randomLookupInterval: Duration
   serviceLookupLoop: Future[void]
@@ -298,6 +303,28 @@ proc resignAll(self: ExternalServiceDiscovery) =
     inc advert.version
   self.announceWanted.fire()
 
+proc observeAddresses(self: ExternalServiceDiscovery) =
+  ## Libp2p calls observers after a commit that changed the node's addresses.
+  let peerInfo = GetNodePeerInfo.request(self.nodeCtx).valueOr:
+    debug "node peer info unreachable, adverts will not follow address changes",
+      reason = error
+    return
+  if peerInfo.isNil():
+    return
+  self.addressObserver = proc(p: PeerInfo) {.gcsafe, raises: [].} =
+    if self.running and self.adverts.len > 0:
+      debug "node addresses changed, re-signing external adverts",
+        adverts = self.adverts.len
+      self.resignAll()
+  self.observedPeerInfo = peerInfo
+  peerInfo.addObserver(self.addressObserver)
+
+proc unobserveAddresses(self: ExternalServiceDiscovery) =
+  if not self.observedPeerInfo.isNil():
+    self.observedPeerInfo.removeObserver(self.addressObserver)
+  self.observedPeerInfo = nil
+  self.addressObserver = nil
+
 proc sendAdvert(
     self: ExternalServiceDiscovery, key: string, advert: Advert
 ): Future[Result[void, string]] {.async: (raises: []).} =
@@ -497,6 +524,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     for taken in self.interests.mvalues():
       taken = false
     self.resignAll()
+    if self.observedPeerInfo.isNil():
+      self.observeAddresses()
     if self.announceLoop.isNil():
       self.announceLoop = self.runAnnounceLoop()
 
@@ -521,6 +550,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       return ok()
     self.running = false
 
+    self.unobserveAddresses()
     ## First, so none of its calls races the worker going away.
     if not self.announceLoop.isNil():
       await self.announceLoop.cancelAndWait()
