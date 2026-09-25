@@ -13,7 +13,7 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
-  libp2p/[multiaddress, multicodec, peerinfo, wire],
+  libp2p/[address_manager, multiaddress, multicodec, peerinfo, wire],
   libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,
@@ -144,6 +144,9 @@ type
       ## The configured addresses made concrete at start: bound ports
       ## substituted, wildcard hosts rewritten to the primary IP.
       ## The first mapper in the chain answers with this set.
+    baseMapper: AddressMapper
+      ## Answers with baseAnnounced. The switch's AddressManager drops its
+      ## mappers on stop, so start registers this again, ahead of NAT.
     explicitAnnounced: seq[MultiAddress]
       ## The configured addresses with a host the operator chose. A base
       ## entry that is not here stands in for a wildcard bind host.
@@ -272,7 +275,7 @@ proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
     if ma in node.explicitAnnounced or ma notin base:
       addrs.add(ma)
       continue
-    node.onLearnedHost(ma).withValue(moved):
+    node.onLearnedHost(ma).ifValue(moved):
       if moved notin addrs:
         addrs.add(moved)
   return addrs
@@ -385,13 +388,12 @@ proc new*(
 
   ## The base mapper answers with the resolved addresses.
   ## NAT and relay mappers run after it. Until then it drops zero-port entries.
-  let baseMapper = proc(
+  node.baseMapper = proc(
       listenAddrs: seq[MultiAddress]
   ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
     let base = node.baseAnnounced.valueOr:
       return listenAddrs.filterIt(not it.hasZeroPort())
     return base
-  switch.peerInfo.addressMappers.add(baseMapper)
   switch.peerInfo.addObserver(
     proc(p: PeerInfo) {.gcsafe, raises: [].} =
       node.copyCommittedAddresses()
@@ -883,6 +885,10 @@ proc start*(node: WakuNode) {.async.} =
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
+
+  ## Registered before the switch starts its services, so NATService
+  ## maps what the base mapper answers.
+  node.switch.addressManager.addMapper(node.baseMapper, AddrSource.Listen)
 
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()

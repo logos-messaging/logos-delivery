@@ -555,8 +555,8 @@
       }
     },
     "websock": {
-      "version": "#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
-      "vcsRevision": "387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+      "version": "#0432dc445c500b20963ef4b76e585c1a3943c254",
+      "vcsRevision": "0432dc445c500b20963ef4b76e585c1a3943c254",
       "url": "https://github.com/status-im/nim-websock",
       "downloadMethod": "git",
       "dependencies": [
@@ -571,7 +571,7 @@
         "zlib"
       ],
       "checksums": {
-        "sha1": "fd17a854686d9a19af40aba51f05d06b82fc30ec"
+        "sha1": "7c240c080f618855411bb0ee3984f6062123bcd4"
       }
     },
     "json_rpc": {
@@ -629,8 +629,8 @@
       }
     },
     "libp2p": {
-      "version": "2.3.5",
-      "vcsRevision": "05e8dfea23ce355b81c9ffc7df7dffdf9ce8106d",
+      "version": "#2643afbf06d310827a0e2c84e70cc3aff449612d",
+      "vcsRevision": "2643afbf06d310827a0e2c84e70cc3aff449612d",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
@@ -652,7 +652,7 @@
         "libplum"
       ],
       "checksums": {
-        "sha1": "e283d1299e90aee1eadf41352080b69d74c901db"
+        "sha1": "2a2e9205209a4c486517aefa61511e05b8ae1b07"
       }
     },
     "sds": {
@@ -676,8 +676,8 @@
       }
     },
     "libp2p_mix": {
-      "version": "#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94",
-      "vcsRevision": "39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94",
+      "version": "#abc20522408f0038266ce807bab46cd19c5a9a6a",
+      "vcsRevision": "abc20522408f0038266ce807bab46cd19c5a9a6a",
       "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
@@ -692,7 +692,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "053909f0933b725018f7d87b27403a4b06d7f23a"
+        "sha1": "4a6de60bd1b86b2ba33c6f4902408717cdef79a5"
       }
     },
     "eth": {

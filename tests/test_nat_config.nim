@@ -2,7 +2,7 @@
 
 import std/[net, sequtils, strutils]
 import testutils/unittests, chronos, results
-import libp2p/[multiaddress, switch, wire]
+import libp2p/[address_manager, multiaddress, switch, wire]
 import libp2p/services/natservice
 import libp2p/services/wildcardresolverservice
 import libp2p/protocols/connectivity/relay/relay
@@ -129,12 +129,12 @@ suite "NAT config - NATService pipeline":
     switch.services.keepItIf(it of NATService)
     ## The same shape as the production base mapper. It answers with
     ## the resolved private addresses.
-    switch.peerInfo.addressMappers.insert(
+    switch.addressManager.addMapper(
       proc(
           addrs: seq[MultiAddress]
       ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
         return privateBase,
-      0,
+      AddrSource.Listen,
     )
     let svc = NATService.new(
       natConfig(parseNatStrategy("pmp").get()).get(),
