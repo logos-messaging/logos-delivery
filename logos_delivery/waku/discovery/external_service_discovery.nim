@@ -616,7 +616,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       return err("external backend: only service: keys can be advertised")
     ## Signed now only to refuse a node with no identity to sign with; the
     ## record sent is signed when it is sent.
-    discard ?self.signRecord(key, data)
+    self.signRecord(key, data).isOkOr:
+      return err("external backend: cannot sign advert for: " & key & ": " & error)
     self.adverts.withValue(key, advert):
       if advert.data != data:
         ## The plugin holds the old data under this key.
