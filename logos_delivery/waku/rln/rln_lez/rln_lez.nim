@@ -118,7 +118,7 @@ proc toRlnPlugin*(lez: RlnLez): RlnPlugin =
 
   proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
     ## The membership gate, then the host's proof over `./transport`. A passed
-    ## gate is cached on `lez`, which the factory's startup check shares.
+    ## gate is cached on `lez`, which `nodeStarted` below also sets.
     if message.timestamp <= 0:
       return err(RlnError.permanent("the message has not been timestamped"))
     let timestamp = uint64(message.timestamp div 1_000_000_000)
@@ -133,6 +133,40 @@ proc toRlnPlugin*(lez: RlnLez): RlnPlugin =
       return err(toRlnError(error))
     return parseRlnGeneratedProof(response)
 
-  return RlnPlugin(name: "external", validateProof: validate, generateProof: generate)
+  proc nodeStarted(): Future[void] {.async.} =
+    ## Membership only gates sending, so verify it non-fatally: a validate-only
+    ## node is legitimate, and a Pending membership can settle later. A pass is
+    ## cached on `lez` so the send path skips the registry read; anything else
+    ## is retried per send.
+    let membershipRes =
+      try:
+        await lez.verifyMembership()
+      except CancelledError:
+        Result[MembershipStatus, string].err("cancelled")
+    if membershipRes.isErr():
+      notice "could not verify RLN membership at startup", error = membershipRes.error
+    elif not membershipRes.get().isUsable():
+      notice "node has no usable RLN membership; sends will fail until it is active",
+        status = $membershipRes.get()
+    else:
+      info "RLN membership verified", status = $membershipRes.get()
+
+  return RlnPlugin(
+    name: "external",
+    validateProof: validate,
+    generateProof: generate,
+    onNodeStarted: nodeStarted,
+  )
+
+proc rlnLezDescriptor*(): RlnPluginDescriptor =
+  ## Selected when the host has installed its RLN plugin over the C ABI
+  ## (`logosdelivery_rln_set_plugin`); the host owns the backend's parameters.
+  proc present(): bool =
+    rlnPluginRegistered()
+
+  proc mount(commonConf: RlnCommonConf): Future[Result[RlnPlugin, string]] {.async.} =
+    return ok(RlnLez.init().toRlnPlugin())
+
+  return RlnPluginDescriptor(name: "external", matches: present, mount: mount)
 
 {.pop.}

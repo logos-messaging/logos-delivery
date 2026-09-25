@@ -259,8 +259,9 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
   proc validate(
       message: WakuMessage
   ): Future[Result[ValidationResult, RlnError]] {.async.} =
-    ## Same steps as the on-chain relay validator before the seam moved; the
-    ## in-node nullifier log does duplicate and spam detection.
+    ## Drops nullifier-log epochs outside the accepted window, then validates
+    ## the proof and logs it if valid; the in-node nullifier log does duplicate
+    ## and spam detection.
     rlnEvm.clearNullifierLog()
 
     let msgProof = protocol_types.RateLimitProof.init(message.proof).valueOr:
@@ -283,9 +284,9 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
     return ok(ValidationResult(verdict: verdict))
 
   proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
-    ## Root-refreshing generator against the wall clock, as the send path used
-    ## before the seam moved: a message can wait in the send service's task
-    ## cache while the group root moves on chain.
+    ## Uses the wall clock and the root-refreshing generator: a message can
+    ## wait in the send service's task cache while the group root moves on
+    ## chain.
     let proof = (
       await rlnEvm.generateRLNProofWithRootRefresh(
         message.toRLNSignal(), float64(getTime().toUnix())
@@ -315,3 +316,44 @@ proc new*(
     return await mount(conf, registrationHandler)
   except CatchableError:
     return err("could not mount the rln-relay protocol: " & getCurrentExceptionMsg())
+
+proc mountOnchain*(
+    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
+): Future[Result[RlnEvm, string]] {.async.} =
+  ## `RlnEvm.new` plus the contract-limit check, shared by the factory's
+  ## descriptor and `setRlnValidator`.
+  let rln = ?(await RlnEvm.new(conf, registrationHandler))
+  if conf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit:
+    error "Rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+  return ok(rln)
+
+proc rlnEvmDescriptor*(
+    conf: Opt[RlnConf], onMounted: proc(rln: RlnEvm) {.gcsafe, raises: [].}
+): RlnPluginDescriptor =
+  ## Selected when on-chain RLN configuration came from the CLI or a preset.
+  ## `onMounted` receives the mounted instance before the record is returned.
+  proc present(): bool =
+    conf.isSome()
+
+  proc mount(commonConf: RlnCommonConf): Future[Result[RlnPlugin, string]] {.async.} =
+    let evmConf = conf.get()
+    let rlnConf = WakuRlnConfig(
+      dynamic: evmConf.dynamic,
+      credIndex: evmConf.credIndex,
+      ethContractAddress: evmConf.ethContractAddress,
+      chainId: evmConf.chainId,
+      ethClientUrls: evmConf.ethClientUrls,
+      creds: evmConf.creds,
+      userMessageLimit: evmConf.userMessageLimit,
+      epochSizeSec: evmConf.epochSizeSec,
+      onFatalErrorAction: commonConf.onFatalErrorAction,
+      disableValidation: commonConf.disableValidation,
+    )
+    let rln = (await mountOnchain(rlnConf)).valueOr:
+      return err(
+        "failed to mount waku RLN relay protocol: failed to set rln validator: " & error
+      )
+    onMounted(rln)
+    return ok(rln.toRlnPlugin())
+
+  return RlnPluginDescriptor(name: "onchain", matches: present, mount: mount)

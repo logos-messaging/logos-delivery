@@ -27,7 +27,6 @@ import
   ../rln,
   ../rln/rln_plugin,
   ../rln/rln_lez/rln_lez,
-  ../rln/rln_lez/transport,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
@@ -338,54 +337,13 @@ proc setupProtocols(
   # whether its own source is present — host callbacks installed over the C
   # ABI (`logosdelivery_rln_set_plugin`) for the external backend, CLI/preset
   # configuration for the on-chain one. 
-  proc externalRlnPresent(): bool =
-    rlnPluginRegistered()
+  proc setNodeRln(rln: RlnEvm) {.gcsafe, raises: [].} =
+    ## Stores the mounted on-chain backend on the node (`node.rln`), where
+    ## lightpush, the REST relay handlers and `api/rln.nim` call it directly.
+    node.rln = rln
 
-  proc mountExternalRln(
-      commonConf: RlnCommonConf
-  ): Future[Result[RlnPlugin, string]] {.async.} =
-    node.rlnLez = RlnLez.init()
-    let plugin = node.rlnLez.toRlnPlugin()
-    node.registerRlnValidator(plugin, commonConf)
-    return ok(plugin)
-
-  proc onchainRlnPresent(): bool =
-    conf.rlnEvmConf.isSome()
-
-  proc mountOnchainRln(
-      commonConf: RlnCommonConf
-  ): Future[Result[RlnPlugin, string]] {.async.} =
-    let rlnEvmConf = conf.rlnEvmConf.get()
-    let rlnConf = WakuRlnConfig(
-      dynamic: rlnEvmConf.dynamic,
-      credIndex: rlnEvmConf.credIndex,
-      ethContractAddress: rlnEvmConf.ethContractAddress,
-      chainId: rlnEvmConf.chainId,
-      ethClientUrls: rlnEvmConf.ethClientUrls,
-      creds: rlnEvmConf.creds,
-      userMessageLimit: rlnEvmConf.userMessageLimit,
-      epochSizeSec: rlnEvmConf.epochSizeSec,
-      onFatalErrorAction: commonConf.onFatalErrorAction,
-      disableValidation: commonConf.disableValidation,
-    )
-    try:
-      await node.setRlnValidator(rlnConf)
-    except CatchableError:
-      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
-
-    # setRlnValidator mounts the backend and records its handle on the node
-    let plugin = node.rlnPlugin.valueOr:
-      return err("on-chain RLN backend mounted without a plugin record")
-    return ok(plugin)
-
-  let rlnDescriptors = [
-    RlnPluginDescriptor(
-      name: "external", matches: externalRlnPresent, mount: mountExternalRln
-    ),
-    RlnPluginDescriptor(
-      name: "onchain", matches: onchainRlnPresent, mount: mountOnchainRln
-    ),
-  ]
+  let rlnDescriptors =
+    [rlnLezDescriptor(), rlnEvmDescriptor(conf.rlnEvmConf, setNodeRln)]
 
   let selectedRln = selectRlnPlugin(rlnDescriptors).valueOr:
     return err(error)
@@ -404,6 +362,7 @@ proc setupProtocols(
       let mounted = (await descriptor.mount(rlnCommonConf)).valueOr:
         return err(error)
       node.rlnPlugin = Opt.some(mounted)
+      node.registerRlnValidator(mounted, rlnCommonConf)
 
   # NOTE Must be mounted after relay
   if conf.lightPush:
@@ -484,23 +443,12 @@ proc startNode*(
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
 
-  # Membership only gates sending, so verify it non-fatally: a validate-only
-  # node is legitimate, and a Pending membership can settle later. A pass is
-  # cached on the handle so the send path (`attachRlnProof`) skips the
-  # registry read; anything else is retried per send.
-  if not node.rlnLez.isNil():
-    let membershipRes =
-      try:
-        await node.rlnLez.verifyMembership()
-      except CancelledError:
-        Result[MembershipStatus, string].err("cancelled")
-    if membershipRes.isErr():
-      notice "could not verify RLN membership at startup", error = membershipRes.error
-    elif not membershipRes.get().isUsable():
-      notice "node has no usable RLN membership; sends will fail until it is active",
-        status = $membershipRes.get()
-    else:
-      info "RLN membership verified", status = $membershipRes.get()
+  # Backend work that needs a running node, such as a membership check.
+  if node.rlnPlugin.isSome() and not node.rlnPlugin.get().onNodeStarted.isNil():
+    try:
+      await node.rlnPlugin.get().onNodeStarted()
+    except CatchableError:
+      notice "RLN backend start hook failed", error = getCurrentExceptionMsg()
 
   # Connect to configured static nodes
   if conf.staticNodes.len > 0:

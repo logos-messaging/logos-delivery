@@ -42,6 +42,9 @@ type
     .}
       ## Proof for an outgoing message, as the bytes its `proof` field carries.
       ## Each backend derives the epoch its own way.
+    onNodeStarted*: proc(): Future[void] {.gcsafe, raises: [].}
+      ## Called once the node has started. Nil for backends with nothing to do
+      ## at that point.
 
   RlnCommonConf* = object
     ## Node-local settings shared by every backend. A backend's own
