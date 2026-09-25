@@ -103,18 +103,3 @@ method dial*(
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
   await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
-
-method dialAndUpgrade*(
-    self: DeliveryDialer,
-    peerId: Opt[PeerId],
-    addrs: seq[MultiAddress],
-    dir = Direction.Out,
-): Future[Muxer] {.
-    async: (raises: [CancelledError, MaError, TransportAddressError, LPError])
-.} =
-  await procCall Dialer(self).dialAndUpgrade(peerId, sortQuicFirst(addrs), dir)
-
-method tryDial*(
-    self: DeliveryDialer, peerId: PeerId, addrs: seq[MultiAddress]
-): Future[Opt[MultiAddress]] {.async: (raises: [DialFailedError, CancelledError]).} =
-  await procCall Dialer(self).tryDial(peerId, sortQuicFirst(addrs))
