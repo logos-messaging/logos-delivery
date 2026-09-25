@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/[sequtils, strutils]
-import chronos, results
+import chronos, chronicles, results
 import
   libp2p/dial,
   libp2p/dialer,
@@ -13,12 +13,24 @@ import
 
 export dialer
 
+logScope:
+  topics = "waku dialer"
+
+const QuicDialTimeout* = 3.seconds
+  ## Budget for the quic attempt before falling back to the other addresses.
+  ## An unreachable quic address stalls for lsquic's 10s handshake timeout,
+  ## which would otherwise consume the whole dial budget.
+
+proc isQuic(ma: MultiAddress): bool =
+  "/quic-v1" in $ma
+
 proc sortQuicFirst(addrs: seq[MultiAddress]): seq[MultiAddress] =
-  addrs.filterIt("/quic-v1" in $it) & addrs.filterIt("/quic-v1" notin $it)
+  addrs.filterIt(it.isQuic()) & addrs.filterIt(not it.isQuic())
 
 type DeliveryDialer* = ref object of Dialer
   ## Logos Delivery dial policy layer. Replaces the switch dialer; every
-  ## dial in the process goes through here. Dials quic addresses before tcp.
+  ## dial in the process goes through here. Dials quic addresses before tcp,
+  ## and falls back to tcp when quic does not connect within QuicDialTimeout.
 
 proc install*(T: typedesc[DeliveryDialer], switch: Switch) =
   switch.dialer = DeliveryDialer.new(
@@ -34,8 +46,24 @@ method connect*(
     reuseConnection = true,
     dir = Direction.Out,
 ) {.async: (raises: [DialFailedError, CancelledError]).} =
+  let quicAddrs = addrs.filterIt(it.isQuic())
+  let otherAddrs = addrs.filterIt(not it.isQuic())
+  if quicAddrs.len == 0 or otherAddrs.len == 0:
+    await procCall Dialer(self).connect(peerId, addrs, forceDial, reuseConnection, dir)
+    return
+
+  try:
+    await procCall Dialer(self)
+      .connect(peerId, quicAddrs, forceDial, reuseConnection, dir)
+      .wait(QuicDialTimeout)
+    return
+  except AsyncTimeoutError:
+    debug "quic dial timed out, falling back", peerId, quicAddrs
+  except DialFailedError as e:
+    debug "quic dial failed, falling back", peerId, quicAddrs, error = e.msg
+
   await procCall Dialer(self).connect(
-    peerId, sortQuicFirst(addrs), forceDial, reuseConnection, dir
+    peerId, otherAddrs, forceDial, reuseConnection, dir
   )
 
 method dial*(
@@ -45,7 +73,9 @@ method dial*(
     protos: seq[string],
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
-  await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
+  # connect first so the stream dial goes through the quic fallback above
+  await self.connect(peerId, addrs, forceDial)
+  await procCall Dialer(self).dial(peerId, protos)
 
 method dialAndUpgrade*(
     self: DeliveryDialer,

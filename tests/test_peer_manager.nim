@@ -173,6 +173,68 @@ procSuite "Peer Manager":
 
     await allFutures(dialer.stop(), server.stop())
 
+  asyncTest "quic dialer connects to a tcp-only peer":
+    let dialer = newTestWakuNode(generateSecp256k1Key())
+    let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
+    await allFutures(dialer.start(), server.start())
+
+    let peer = server.peerInfo.toRemotePeerInfo()
+    require peer.addrs.allIt("/quic-v1" notin $it)
+    require await dialer.peerManager.connectPeer(peer)
+    let conns = dialer.peerManager.switch.connManager.getConnections().getOrDefault(
+        server.peerInfo.peerId
+      )
+    require conns.len >= 1
+    check "/quic-v1" notin $conns[0].connection.observedAddr.get()
+
+    await allFutures(dialer.stop(), server.stop())
+
+  asyncTest "quic dialer falls back to tcp when the peer's quic port is closed":
+    ## A stale or wrong quic-v1 address for a tcp-only peer: nothing listens
+    ## on that udp port.
+    let dialer = newTestWakuNode(generateSecp256k1Key())
+    let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
+    await allFutures(dialer.start(), server.start())
+
+    let closedUdp = newDatagramTransport(
+      proc(t: DatagramTransport, a: TransportAddress) {.async: (raises: []).} =
+        discard,
+      local = initTAddress("127.0.0.1:0"),
+    )
+    let closedPort = closedUdp.localAddress().port
+    await closedUdp.closeWait()
+
+    let fakeQuic =
+      MultiAddress.init("/ip4/127.0.0.1/udp/" & $closedPort & "/quic-v1").tryGet()
+    let peer = RemotePeerInfo.init(
+      server.peerInfo.peerId, @[fakeQuic] & server.peerInfo.toRemotePeerInfo().addrs
+    )
+    check await dialer.peerManager.connectPeer(peer)
+
+    await allFutures(dialer.stop(), server.stop())
+
+  asyncTest "quic dialer falls back to tcp when the peer's quic packets are dropped":
+    ## A firewall that drops udp silently: a socket that reads and ignores.
+    let dialer = newTestWakuNode(generateSecp256k1Key())
+    let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
+    await allFutures(dialer.start(), server.start())
+
+    let blackhole = newDatagramTransport(
+      proc(t: DatagramTransport, a: TransportAddress) {.async: (raises: []).} =
+        discard,
+      local = initTAddress("127.0.0.1:0"),
+    )
+    let fakeQuic = MultiAddress
+      .init("/ip4/127.0.0.1/udp/" & $blackhole.localAddress().port & "/quic-v1")
+      .tryGet()
+    let peer = RemotePeerInfo.init(
+      server.peerInfo.peerId, @[fakeQuic] & server.peerInfo.toRemotePeerInfo().addrs
+    )
+    check await dialer.peerManager.connectPeer(peer)
+
+    await blackhole.closeWait()
+    await allFutures(dialer.stop(), server.stop())
+
   asyncTest "Peer manager tracks active store request state":
     let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))
 
