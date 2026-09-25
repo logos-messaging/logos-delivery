@@ -1,11 +1,24 @@
-## FFI transport to the external RLN module: one typed C callback per RLN
-## function; every result returns as JSON via `logosdelivery_rln_response`.
-## Wire contract: `library/liblogosdelivery_rln.h`.
-## `node_api.nim` imports this module to keep the C entry points compiled in.
+## RLN module wire — how the RLN API backend (`./rln_lez`) asks the host
+## its RLN questions, and the decoders for the module's replies.
 ##
-## Host callbacks may complete on a foreign thread, so the crossing uses
-## `ThreadSignalPtr` + `allocShared` only, with one `Lock` over the callback
-## table and in-flight list.
+## Each question is a nim-ffi reverse call: `{.ffiReverse.}` encodes the
+## parameters as a CBOR map, queues a REVERSE_CALL the host polls
+## (`logosdelivery_poll`), and resolves the Future when the host answers
+## through `logosdelivery_reverse_reply`. The host owns the registry and the
+## membership: it forwards each question to the RLN module over logos-core
+## and replies with the module's JSON verbatim, so the parsers below see
+## exactly the module's two dialects. Wire names are the proc names in snake
+## case. Nothing here owns a thread, a lock or shared memory; a question the
+## host never answers fails with a timeout.
+##
+## Whether a host answers at all is declared at node creation
+## (`rlnPluginRegistered`): the constructor's `rlnPlugin` flag replaces the
+## callback table the host used to install, and it is what enables RLN.
+##
+## A build without the poll model (the apps, the tests) has no host to ask:
+## every question fails NotReady, unless a test installed `rlnFakeHost`.
+
+{.push raises: [].}
 
 import std/[json, locks]
 import chronos, chronos/threadsync, results
@@ -20,226 +33,88 @@ from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 export types
 
 type
-  LogosDeliveryRlnGetMembershipStateFn* =
-    proc(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].}
+  RlnAnswer* = Future[Result[string, string]]
+    ## What a question resolves to: the module's JSON reply text, or a
+    ## wire-level failure.
+  RlnReply* = Future[Result[string, string]].Raising([CancelledError])
 
-  LogosDeliveryRlnGetEpochQuotaFn* = proc(
-    reqId: uint64, timestamp: uint64, userData: pointer
-  ) {.cdecl, gcsafe, raises: [].}
+const NotRegistered* = "RLN module not registered"
 
-  LogosDeliveryRlnGenerateProofFn* = proc(
-    reqId: uint64, signalHex: cstring, timestamp: uint64, userData: pointer
-  ) {.cdecl, gcsafe, raises: [].}
+var gRlnPlugin: bool
+  ## Set once at node creation, on the host's thread; read when the node is
+  ## built. A bool needs no lock.
 
-  LogosDeliveryRlnValidateProofFn* = proc(
-    reqId: uint64,
-    signalHex: cstring,
-    timestamp: uint64,
-    proofJson: cstring,
-    userData: pointer,
-  ) {.cdecl, gcsafe, raises: [].}
-
-  LogosDeliveryRlnPlugin* = object
-    get_membership_state*: LogosDeliveryRlnGetMembershipStateFn
-    get_epoch_quota*: LogosDeliveryRlnGetEpochQuotaFn
-    generate_proof*: LogosDeliveryRlnGenerateProofFn
-    validate_proof*: LogosDeliveryRlnValidateProofFn
-
-  Pending = object
-    reqId: uint64
-    signal: ThreadSignalPtr # how the awaiting call gets woken
-    resultBuf: cstring # allocShared copy of the host's JSON result; nil until answered
-    completed: bool
-    next: ptr Pending # intrusive in-flight list — no GC memory, cross-thread safe
-
-var
-  gLock: Lock
-  gPlugin: LogosDeliveryRlnPlugin # all-nil struct = "no plugin installed"
-  gUserData: pointer
-  gPending: ptr Pending # head of the in-flight request list
-  gNextReqId: uint64
-  gRegistered: bool # a plugin has been installed
-
-initLock(gLock)
-
-# --- transport primitives -----------------------------------------------------
-
-proc newPending(): ptr Pending =
-  ## Allocate a pending node with a fresh signal. nil on signal-alloc failure.
-  let p = cast[ptr Pending](allocShared0(sizeof(Pending)))
-  p.signal = ThreadSignalPtr.new().valueOr:
-    deallocShared(p)
-    return nil
-  p
-
-proc linkPending(p: ptr Pending) =
-  ## Assign `p` a req id and link it into the in-flight list. Caller holds gLock.
-  p.reqId = gNextReqId
-  inc gNextReqId
-  p.next = gPending
-  gPending = p
-
-proc unlinkPending(target: ptr Pending) =
-  ## Remove `target` from the in-flight list. Caller holds gLock. Safe if unlinked.
-  if gPending == target:
-    gPending = target.next
-    return
-  var p = gPending
-  while not p.isNil and p.next != target:
-    p = p.next
-  if not p.isNil:
-    p.next = target.next
-
-const
-  # Per-call response budgets. Add 10s to each request's documented worst case.
-  RlnLocalTimeout = 10.seconds
-  RlnRegistryReadTimeout = 80.seconds
-
-proc awaitResult(
-    p: ptr Pending, timeout: Duration
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  ## Await the host's response for an already-registered node; always unlinks + frees.
-  defer:
-    withLock gLock:
-      unlinkPending(p)
-    discard p.signal.close()
-    if not p.resultBuf.isNil:
-      deallocShared(p.resultBuf)
-    deallocShared(p)
-
-  let answered = await p.signal.wait().withTimeout(timeout)
-  if not answered:
-    return err("timeout")
-  if not p.completed:
-    return err("RLN module unregistered while awaiting response")
-  return ok($p.resultBuf)
-
-# --- outbound calls (one per RLN function) ------------------------------------
-# Each: allocate + register a pending node, capture its callback + userData under
-# the lock, fire the callback (outside the lock, so a synchronous host response
-# can't deadlock), then await the JSON result.
-
-proc rlnGetMembershipState*(): Future[Result[string, string]] {.
-    async: (raises: [CancelledError])
-.} =
-  var cb: LogosDeliveryRlnGetMembershipStateFn
-  var ud: pointer
-  let pending = newPending()
-  if pending.isNil:
-    return err("failed to allocate RLN request")
-  withLock gLock:
-    cb = gPlugin.get_membership_state
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, ud)
-  return await awaitResult(pending, RlnRegistryReadTimeout)
-
-proc rlnGetEpochQuota*(
-    timestamp: uint64
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  var cb: LogosDeliveryRlnGetEpochQuotaFn
-  var ud: pointer
-  let pending = newPending()
-  if pending.isNil:
-    return err("failed to allocate RLN request")
-  withLock gLock:
-    cb = gPlugin.get_epoch_quota
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, timestamp, ud)
-  return await awaitResult(pending, RlnLocalTimeout)
-
-proc rlnGenerateProof*(
-    signalHex: string, timestamp: uint64
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  var cb: LogosDeliveryRlnGenerateProofFn
-  var ud: pointer
-  let pending = newPending()
-  if pending.isNil:
-    return err("failed to allocate RLN request")
-  withLock gLock:
-    cb = gPlugin.generate_proof
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, signalHex.cstring, timestamp, ud)
-  return await awaitResult(pending, RlnRegistryReadTimeout)
-
-proc rlnValidateProof*(
-    signalHex: string, timestamp: uint64, proofJson: string
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  var cb: LogosDeliveryRlnValidateProofFn
-  var ud: pointer
-  let pending = newPending()
-  if pending.isNil:
-    return err("failed to allocate RLN request")
-  withLock gLock:
-    cb = gPlugin.validate_proof
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, signalHex.cstring, timestamp, proofJson.cstring, ud)
-  return await awaitResult(pending, RlnLocalTimeout)
-
-# --- C entry points -----------------------------------------------------------
-
-proc logosdelivery_rln_set_plugin*(
-    plugin: ptr LogosDeliveryRlnPlugin, userData: pointer
-): cint {.exportc, cdecl, dynlib.} =
-  # copy the struct (or clear on nil), stash userData; nil fails all pending
-  withLock gLock:
-    if plugin.isNil:
-      gPlugin = LogosDeliveryRlnPlugin()
-      gUserData = nil
-      gRegistered = false
-      var p = gPending
-      while not p.isNil:
-        p.completed = false # signals "module cleared", not a real completion
-        discard p.signal.fireSync()
-        p = p.next
-    else:
-      gPlugin = plugin[]
-      gUserData = userData
-      gRegistered = true
-    return 0
+proc setRlnPluginRegistered*(registered: bool) =
+  gRlnPlugin = registered
 
 proc rlnPluginRegistered*(): bool =
-  ## Whether the host has installed an RLN plugin. This is what enables RLN
-  ## over it: there is no separate configuration switch.
-  withLock gLock:
-    return gRegistered
+  ## Whether the host answers RLN questions. This is what enables RLN over
+  ## the wire: there is no separate configuration switch.
+  gRlnPlugin
 
-proc logosdelivery_rln_response*(
-    reqId: uint64, resultJson: cstring
-): cint {.exportc, cdecl, dynlib.} =
-  # under lock: find pending by reqId, copy the JSON in, fireSync the signal.
-  # unknown reqId → non-zero (late response after timeout)
-  withLock gLock:
-    var p = gPending
-    while not p.isNil and p.reqId != reqId:
-      p = p.next
-    if p.isNil:
-      return 1
-    let n = resultJson.len()
-    p.resultBuf = cast[cstring](allocShared0(n + 1)) # shared heap: safe on any thread
-    copyMem(p.resultBuf, resultJson, n)
-    p.completed = true
-    discard p.signal.fireSync()
-    return 0
+when defined(ffiPollMode):
+  import ffi
+
+  # `{.ffiReverse.}` reads the return type as written: spelled out, not the alias.
+  proc rlnGetMembershipState*(): Future[Result[string, string]] {.ffiReverse.}
+  proc rlnGetEpochQuota*(timestamp: uint64): Future[Result[string, string]] {.ffiReverse.}
+  proc rlnGenerateProof*(
+    signalHex: string, timestamp: uint64
+  ): Future[Result[string, string]] {.ffiReverse.}
+  proc rlnValidateProof*(
+    signalHex: string, timestamp: uint64, proofJson: string
+  ): Future[Result[string, string]] {.ffiReverse.}
+else:
+  type RlnFakeHost* = object
+    ## A test's stand-in for the host: an entry left nil answers NotReady.
+    getMembershipState*: proc(): RlnAnswer {.gcsafe, raises: [].}
+    getEpochQuota*: proc(timestamp: uint64): RlnAnswer {.gcsafe, raises: [].}
+    generateProof*: proc(signalHex: string, timestamp: uint64): RlnAnswer {.gcsafe, raises: [].}
+    validateProof*:
+      proc(signalHex: string, timestamp: uint64, proofJson: string): RlnAnswer {.gcsafe, raises: [].}
+
+  var rlnFakeHost*: RlnFakeHost
+
+  proc notRegistered(): RlnAnswer =
+    let fut = newFuture[Result[string, string]]("rln wire: not registered")
+    fut.complete(Result[string, string].err(NotRegistered))
+    return fut
+
+  template host(): RlnFakeHost =
+    {.cast(gcsafe).}:
+      rlnFakeHost
+
+  proc rlnGetMembershipState*(): RlnAnswer =
+    if host().getMembershipState.isNil: notRegistered() else: host().getMembershipState()
+  proc rlnGetEpochQuota*(timestamp: uint64): RlnAnswer =
+    if host().getEpochQuota.isNil: notRegistered() else: host().getEpochQuota(timestamp)
+  proc rlnGenerateProof*(signalHex: string, timestamp: uint64): RlnAnswer =
+    if host().generateProof.isNil: notRegistered()
+    else: host().generateProof(signalHex, timestamp)
+  proc rlnValidateProof*(signalHex: string, timestamp: uint64, proofJson: string): RlnAnswer =
+    if host().validateProof.isNil: notRegistered()
+    else: host().validateProof(signalHex, timestamp, proofJson)
+
+proc ask*(question: RlnAnswer): RlnReply =
+  ## The generated procs answer with a plain Future; the backend's procs only
+  ## raise CancelledError, so a failure becomes the Result's error and
+  ## cancelling the backend's future cancels the question. Goes away once
+  ## nim-ffi annotates the reverse procs' raises.
+  let fut = RlnReply.init("rln question")
+  question.addCallback(
+    proc(udata: pointer) {.gcsafe, raises: [].} =
+      if fut.finished():
+        return
+      if question.completed():
+        fut.complete(question.value())
+      elif question.cancelled():
+        fut.complete(Result[string, string].err("cancelled"))
+      else:
+        fut.complete(Result[string, string].err(question.error.msg))
+  )
+  fut.cancelCallback = proc(udata: pointer) {.gcsafe, raises: [].} =
+    question.cancelSoon()
+  return fut
 
 # --- reply parsing ------------------------------------------------------------
 # Two dialects (see liblogosdelivery_rln.h): `result` methods answer with the

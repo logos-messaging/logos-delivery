@@ -26,7 +26,7 @@ import
   ../waku_core/codecs,
   ../rln,
   ../rln/rln_lez/rln_lez,
-  ../rln/rln_lez/transport,
+  ../rln/rln_lez/wire,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,

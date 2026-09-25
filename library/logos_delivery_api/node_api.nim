@@ -12,7 +12,7 @@ import
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
-  logos_delivery/waku/rln/rln_lez/transport,
+  logos_delivery/waku/rln/rln_lez/wire,
   ../declare_lib,
   ../json_event
 
@@ -179,8 +179,12 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
 
 proc logosdelivery_create_node(
-    configJson: string
+    configJson: string, rlnPlugin: bool
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
+  ## `rlnPlugin` is the host saying it answers the RLN questions this node
+  ## asks (nim-ffi reverse calls); it replaces the callback table the host
+  ## used to install before creating the node, and it is what mounts RLN.
+  setRlnPluginRegistered(rlnPlugin)
   let conf = parseLogosDeliveryConf(configJson).valueOr:
     error "Failed to parse Logos Delivery configuration JSON",
       error = error, configJson = configJson

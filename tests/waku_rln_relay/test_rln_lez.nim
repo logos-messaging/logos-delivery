@@ -1,16 +1,16 @@
 {.used.}
 
-## Drives `RlnLez` (the RlnInterface backend over the RLN plugin FFI crossing)
-## against a fake host: real C entry points, canned wire replies answered
-## synchronously through `logosdelivery_rln_response`. Covers both wire
-## dialects, both error paths (transport-level and module-level), and the
+## Drives `RlnLez` (the RlnInterface backend over the RLN wire) against a fake
+## host: the wire's `rlnFakeHost` (a build without the poll model has no real
+## host), whose entries answer canned module replies at once. Covers both wire
+## dialects, both error paths (wire-level and module-level), and the
 ## canonical-proof round trip.
 
 import std/strutils
 import testutils/unittests, chronos
 
 import logos_delivery/waku/rln/rln_lez/rln_lez
-import logos_delivery/waku/rln/rln_lez/transport
+import logos_delivery/waku/rln/rln_lez/wire
 
 const
   QuotaReply =
@@ -30,61 +30,51 @@ let
     """{"error":null,"success":true,"value":{"verdict":"rate_limit_violation","recovered_secret":"""" &
     repeat("cd", 32) & """"}}"""
 
-# The fake host: each callback answers its canned reply immediately, on the
-# caller's thread (the crossing explicitly supports a synchronous response).
-# No callback carries a registry, a membership or any configuration.
+# The fake host: each wire entry answers its canned reply immediately, as an
+# already-completed Future. No entry carries a registry, a membership or any
+# configuration: the host owns those.
 var
   gQuotaReply = QuotaReply
   gValidateReply = ViolationReply
 
-proc fakeGetState(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, StateReply.cstring)
+proc canned(reply: string): RlnAnswer =
+  let fut = newFuture[Result[string, string]]("fake rln host")
+  fut.complete(Result[string, string].ok(reply))
+  return fut
 
-proc fakeGetQuota(
-    reqId: uint64, timestamp: uint64, userData: pointer
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, gQuotaReply.cstring)
+proc fakeHost(): RlnFakeHost =
+  RlnFakeHost(
+    getMembershipState: proc(): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(StateReply),
+    getEpochQuota: proc(timestamp: uint64): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(gQuotaReply),
+    generateProof: proc(signalHex: string, timestamp: uint64): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(GenerateReply),
+    validateProof: proc(signalHex: string, timestamp: uint64, proofJson: string): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(gValidateReply),
+  )
 
-proc fakeGenerate(
-    reqId: uint64, signalHex: cstring, timestamp: uint64, userData: pointer
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, GenerateReply.cstring)
-
-proc fakeValidate(
-    reqId: uint64,
-    signalHex: cstring,
-    timestamp: uint64,
-    proofJson: cstring,
-    userData: pointer,
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, gValidateReply.cstring)
-
-var gPlugin = LogosDeliveryRlnPlugin(
-  get_membership_state: fakeGetState,
-  get_epoch_quota: fakeGetQuota,
-  generate_proof: fakeGenerate,
-  validate_proof: fakeValidate,
-)
-
-suite "RlnLez - RlnInterface over the RLN plugin FFI crossing":
+suite "RlnLez - RlnInterface over the RLN wire":
   let
     timestamp = 1_700_000_000'u64
     rlnLez = RlnLez.init()
 
-  test "no plugin installed fails NotReady":
-    check logosdelivery_rln_set_plugin(nil, nil) == 0
+  test "no host fails NotReady":
+    setRlnPluginRegistered(false)
+    rlnFakeHost = RlnFakeHost()
     check not rlnPluginRegistered()
     let res = waitFor rlnLez.getEpochQuota(timestamp)
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady
 
-  test "installing the plugin enables the backend":
-    check logosdelivery_rln_set_plugin(addr gPlugin, nil) == 0
+  test "a host that answers enables the backend":
+    setRlnPluginRegistered(true)
+    rlnFakeHost = fakeHost()
     check rlnPluginRegistered()
 
   test "module-level failure decodes into the typed error":
@@ -148,7 +138,8 @@ suite "RlnLez - RlnInterface over the RLN plugin FFI crossing":
       valid.recoveredSecret.isNone()
 
   test "clearing the plugin returns the backend to NotReady":
-    check logosdelivery_rln_set_plugin(nil, nil) == 0
+    setRlnPluginRegistered(false)
+    rlnFakeHost = RlnFakeHost()
     let res = waitFor rlnLez.getEpochQuota(timestamp)
     check:
       res.isErr()

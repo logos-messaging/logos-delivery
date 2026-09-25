@@ -95,7 +95,14 @@ let
     else "so";
 
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
-  libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
+  # nim-ffi's poll model: every export answers through logosdelivery_poll, and
+  # the RLN questions are reverse calls with a 200 s backstop (the host
+  # enforces the real per-op deadlines).
+  libDefineArgs = [
+    "--define:discv5_protocol_id=d5waku"
+    "--define:ffiPollMode"
+    "--define:ffiReverseCallTimeoutMs=200000"
+  ];
 
   # The .dll belongs in bin/: nixpkgs' win-dll-link hook only stages a PE's
   # dependency DLLs under $prefix/bin, so one in lib/ cannot load.
@@ -293,22 +300,26 @@ ${lib.optionalString isWindows ''
 ${installLibpq "$out/${dllDir}"}
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
-    cp library/liblogosdelivery_rln.h    $out/include/
+    cp library/liblogosdelivery_poll.h   $out/include/
     cp library/logosdelivery_service_discovery.h $out/include/
 
-    # The public header includes the generated binding, which in turn includes
-    # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
-    for header in logosdelivery.h nim_ffi_cbor.h nim_ffi_prelude.h; do
-      if [ ! -f ${cBindingsDir}/$header ]; then
-        echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
-        echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
-        echo "       Contents of ${cBindingsDir}:" >&2
-        ls -la ${cBindingsDir} >&2 || true
-        exit 1
-      fi
-    done
-    mkdir -p $out/include/generated
-    cp ${cBindingsDir}/*.h $out/include/generated/
+    # nim-ffi's C backend describes the callback ABI and emits nothing under
+    # the poll model; liblogosdelivery_poll.h is the hand-written ABI then.
+    if [ -f ${cBindingsDir}/logosdelivery.h ]; then
+      # The public header includes the generated binding, which in turn includes
+      # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
+      for header in logosdelivery.h nim_ffi_cbor.h nim_ffi_prelude.h; do
+        if [ ! -f ${cBindingsDir}/$header ]; then
+          echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
+          echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
+          echo "       Contents of ${cBindingsDir}:" >&2
+          ls -la ${cBindingsDir} >&2 || true
+          exit 1
+        fi
+      done
+      mkdir -p $out/include/generated
+      cp ${cBindingsDir}/*.h $out/include/generated/
+    fi
     runHook postInstall
   '';
 

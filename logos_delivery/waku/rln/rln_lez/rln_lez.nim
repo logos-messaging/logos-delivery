@@ -10,7 +10,7 @@
 import std/json
 import chronos, chronicles, results
 import stew/byteutils
-import ./types, ./transport, ./config
+import ./types, ./wire, ./config
 import ../rln_api
 
 export types, config
@@ -41,21 +41,21 @@ proc toRlnError(transportErr: string): RlnError =
 proc getMembershipState*(
     m: RlnLez
 ): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (await rlnGetMembershipState()).valueOr:
+  let response = (await ask rlnGetMembershipState()).valueOr:
     return err(toRlnError(error))
   return parseRlnMembershipState(response)
 
 proc getEpochQuota*(
     m: RlnLez, timestamp: uint64
 ): Future[Result[EpochQuota, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (await rlnGetEpochQuota(timestamp)).valueOr:
+  let response = (await ask rlnGetEpochQuota(timestamp)).valueOr:
     return err(toRlnError(error))
   return parseRlnEpochQuota(response)
 
 proc generateProof*(
     m: RlnLez, signal: seq[byte], timestamp: uint64
 ): Future[Result[RateLimitProof, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (await rlnGenerateProof(signal.toHex(), timestamp)).valueOr:
+  let response = (await ask rlnGenerateProof(signal.toHex(), timestamp)).valueOr:
     return err(toRlnError(error))
   let blob = ?parseRlnGeneratedProof(response)
   if blob.len != RlnProofSize:
@@ -74,7 +74,7 @@ proc validateProof*(
     m: RlnLez, signal: seq[byte], timestamp: uint64, proof: RateLimitProof
 ): Future[Result[ValidationResult, RlnError]] {.async: (raises: [CancelledError]).} =
   let proofJson = $(%*{"proof": proof.proof.toHex()})
-  let response = (await rlnValidateProof(signal.toHex(), timestamp, proofJson)).valueOr:
+  let response = (await ask rlnValidateProof(signal.toHex(), timestamp, proofJson)).valueOr:
     return err(toRlnError(error))
   return parseRlnValidationResult(response)
 
