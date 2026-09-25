@@ -1,3 +1,8 @@
-import ./message/message, ./message/default_values, ./message/codec, ./message/digest
+import
+  ./message/message,
+  ./message/default_values,
+  ./message/codec,
+  ./message/digest,
+  ./message/path_counters
 
-export message, default_values, codec, digest
+export message, default_values, codec, digest, path_counters
