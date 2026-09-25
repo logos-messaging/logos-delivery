@@ -15,8 +15,6 @@ def get_env_var(var_name, default=None):
 
 # Configuration constants. Need to be upercase to appear in reports
 DEFAULT_NWAKU = get_env_var("DEFAULT_NWAKU", "quay.io/wakuorg/nwaku-pr:nightly")
-STRESS_ENABLED = False
-USE_WRAPPERS = True
 NODE_1 = get_env_var("NODE_1", DEFAULT_NWAKU)
 NODE_2 = get_env_var("NODE_2", DEFAULT_NWAKU)
 ADDITIONAL_NODES = get_env_var("ADDITIONAL_NODES", f"{DEFAULT_NWAKU},{DEFAULT_NWAKU},{DEFAULT_NWAKU}")
@@ -26,7 +24,6 @@ NETWORK_NAME = get_env_var("NETWORK_NAME", "waku")
 SUBNET = get_env_var("SUBNET", "172.18.0.0/16")
 IP_RANGE = get_env_var("IP_RANGE", "172.18.0.0/24")
 GATEWAY = get_env_var("GATEWAY", "172.18.0.1")
-RUNNING_IN_CI = get_env_var("CI")
 API_REQUEST_TIMEOUT = get_env_var("API_REQUEST_TIMEOUT", 20)
 RLN_CREDENTIALS = get_env_var("RLN_CREDENTIALS")
 PG_USER = get_env_var("POSTGRES_USER", "postgres")

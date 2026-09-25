@@ -1,4 +1,3 @@
-import pytest
 from src.env_vars import NODE_1, NODE_2
 from src.libs.common import wait_until
 from src.node.waku_node import WakuNode
@@ -6,7 +5,6 @@ from src.steps.store import StepsStore
 
 
 class TestRunningNodes(StepsStore):
-    @pytest.mark.smoke
     def test_store_lightpushed_message(self):
         self.setup_first_publishing_node(store="true", relay="true", lightpush="true")
         self.setup_second_publishing_node(store="false", relay="true")
@@ -15,7 +13,6 @@ class TestRunningNodes(StepsStore):
         self.publish_message(via="lightpush", sender=self.store_node1)
         self.check_published_message_is_stored(page_size=5, ascending="true")
 
-    @pytest.mark.smoke
     def test_store_filter_interaction_with_six_nodes(self):
         self.node1 = WakuNode(NODE_2, f"node1_{self.test_id}")
         self.node2 = WakuNode(NODE_1, f"node2_{self.test_id}")

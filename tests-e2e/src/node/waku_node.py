@@ -10,13 +10,13 @@ import pytest
 import requests
 from src.libs.common import delay
 from src.libs.custom_logger import get_custom_logger
-from tenacity import retry, stop_after_delay, wait_fixed, sleep
+from tenacity import retry, retry_if_not_exception_type, stop_after_delay, wait_fixed, sleep
 from docker.errors import NotFound as DockerNotFound
 from src.node.api_clients.rest import REST
 from src.node.docker_mananger import DockerManager
 from src.env_vars import DOCKER_LOG_DIR
 from src.data_storage import DS
-from src.test_data import DEFAULT_CLUSTER_ID, LOG_ERROR_KEYWORDS, VALID_PUBSUB_TOPICS
+from src.test_data import DEFAULT_CLUSTER_ID, DEFAULT_SHARD, LOG_ERROR_KEYWORDS
 
 logger = get_custom_logger(__name__)
 
@@ -75,22 +75,11 @@ def peer_info2id(peer, is_nwaku=True):
     return peer_info2multiaddr(peer, is_nwaku).split("/")[-1]
 
 
-def multiaddr2id(multiaddr):
-    return multiaddr.split("/")[-1]
-
-
 def resolve_sharding_flags(kwargs):
-    if "pubsub_topic" in kwargs and kwargs["pubsub_topic"]:
-        pubsub_topic = kwargs["pubsub_topic"]
-        if not "cluster_id" in kwargs:
-            try:
-                if isinstance(pubsub_topic, list):
-                    pubsub_topic = pubsub_topic[0]
-                cluster_id = pubsub_topic.split("/")[4]
-                logger.debug(f"Cluster id was resolved to: {cluster_id}")
-                kwargs["cluster_id"] = cluster_id
-            except Exception as ex:
-                raise Exception("Could not resolve cluster_id from pubsub_topic")
+    if "pubsub_topic" in kwargs:
+        raise ValueError(f"pubsub_topic {kwargs['pubsub_topic']} is not a node flag, pass cluster_id and shard")
+    if "shard" not in kwargs and "cluster_id" not in kwargs:
+        kwargs["shard"] = DEFAULT_SHARD
     return kwargs
 
 
@@ -105,7 +94,7 @@ class WakuNode:
         self._rln_creds_set = False
         logger.debug(f"WakuNode instance initialized with log path {self._log_path}")
 
-    @retry(stop=stop_after_delay(60), wait=wait_fixed(1), reraise=True)
+    @retry(stop=stop_after_delay(60), wait=wait_fixed(1), retry=retry_if_not_exception_type(ValueError), reraise=True)
     def start(self, wait_for_node_sec=20, **kwargs):
         logger.debug("Starting Node...")
         default_args, remove_container = self._prepare_start_context(**kwargs)
@@ -166,7 +155,6 @@ class WakuNode:
 
         if self.is_nwaku():
             nwaku_args = {
-                "shard": "0",
                 "metrics-server": "true",
                 "metrics-server-address": "0.0.0.0",
                 "metrics-server-port": self._metrics_port,
@@ -185,10 +173,6 @@ class WakuNode:
         kwargs = resolve_sharding_flags(kwargs)
 
         default_args.update(sanitize_docker_flags(kwargs))
-
-        if self.is_nwaku() and "pubsub-topic" in default_args:
-            logger.debug("Removing pubsub-topic from nwaku args")
-            del default_args["pubsub-topic"]
 
         rln_args, rln_creds_set, keystore_path = self.parse_rln_credentials(default_args, False)
         self._rln_creds_set = rln_creds_set
@@ -311,18 +295,6 @@ class WakuNode:
             self._container = None
             logger.debug("Container stopped.")
 
-    @retry(stop=stop_after_delay(5), wait=wait_fixed(0.1), reraise=True)
-    def kill(self):
-        if self._container:
-            logger.debug(f"Killing container with id {self._container.short_id}")
-            self._container.kill()
-            try:
-                self._container.remove()
-            except:
-                pass
-            self._container = None
-            logger.debug("Container killed.")
-
     def restart(self, wait_for_node_sec=20):
         if self._container:
             logger.debug(f"Restarting container with id {self._container.short_id}")
@@ -396,15 +368,6 @@ class WakuNode:
     def get_tcp_address(self):
         return f"/ip4/{self._ext_ip}/tcp/{self._tcp_port}"
 
-    def subscribe_content_topic(self, content_topic: str):
-        return self._api.set_relay_auto_subscriptions([content_topic])
-
-    def unsubscribe_content_topic(self, content_topic: str):
-        return self._api.delete_relay_auto_subscriptions([content_topic])
-
-    def send_message(self, message: dict):
-        return self._api.send_relay_auto_message(message)
-
     def info(self):
         return self._api.info()
 
@@ -422,9 +385,6 @@ class WakuNode:
 
     def set_relay_auto_subscriptions(self, content_topics):
         return self._api.set_relay_auto_subscriptions(content_topics)
-
-    def delete_relay_subscriptions(self, pubsub_topics):
-        return self._api.delete_relay_subscriptions(pubsub_topics)
 
     def delete_relay_auto_subscriptions(self, content_topics):
         return self._api.delete_relay_auto_subscriptions(content_topics)
@@ -446,18 +406,6 @@ class WakuNode:
 
     def set_filter_subscriptions(self, subscription):
         return self._api.set_filter_subscriptions(subscription)
-
-    def update_filter_subscriptions(self, subscription):
-        return self._api.update_filter_subscriptions(subscription)
-
-    def delete_filter_subscriptions(self, subscription):
-        return self._api.delete_filter_subscriptions(subscription)
-
-    def delete_all_filter_subscriptions(self, request_id):
-        return self._api.delete_all_filter_subscriptions(request_id)
-
-    def ping_filter_subscriptions(self, request_id):
-        return self._api.ping_filter_subscriptions(request_id)
 
     def get_filter_messages(self, content_topic, pubsub_topic=None):
         return self._api.get_filter_messages(content_topic, pubsub_topic)
@@ -626,9 +574,6 @@ class WakuNode:
         random_key = "".join(random.choice(hex_chars) for _ in range(64))
         return random_key
 
-    def search_waku_log_for_string(self, search_pattern, use_regex=False):
-        return self._docker_manager.search_log_for_keywords(self._log_path, [search_pattern], use_regex)
-
     def check_waku_log_errors(self, whitelist=None):
         keywords = LOG_ERROR_KEYWORDS
 
@@ -642,47 +587,11 @@ class WakuNode:
     def set_log_level(self, log_level):
         return self._api.set_log_level(log_level)
 
-    def get_service_peers(self):
-        return self._api.get_service_peers()
-
-    def get_connected_peers(self):
-        return self._api.get_connected_peers()
-
-    def get_connected_peers_on_shard(self, shard_id):
-        return self._api.get_connected_peers_on_shard(shard_id)
-
-    def get_relay_peers(self):
-        return self._api.get_relay_peers()
-
     def get_relay_peers_on_shard(self, shard_id):
         return self._api.get_relay_peers_on_shard(shard_id)
-
-    def get_mesh_peers(self):
-        return self._api.get_mesh_peers()
 
     def get_mesh_peers_on_shard(self, shard_id):
         return self._api.get_mesh_peers_on_shard(shard_id)
 
-    def get_peer_stats(self):
-        return self._api.get_peer_stats()
-
-    def get_filter_subscriptions(self):
-        return self._api.get_filter_subscriptions()
-
-    def get_info(self):
-        return self._api.get_info()
-
-    def get_version(self):
-        return self._api.get_version()
-
     def get_debug_version(self):
         return self._api.get_debug_version()
-
-    def get_peer_info(self, peer_id: str):
-        return self._api.get_peer(peer_id)
-
-    @property
-    def container_id(self) -> str:
-        if not self._container:
-            raise RuntimeError("Node container not started yet")
-        return self._container.id

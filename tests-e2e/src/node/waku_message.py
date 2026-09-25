@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from marshmallow_dataclass import class_schema
-from typing import Optional, Union
+from typing import Optional
 import math
-import allure
 
 
 @dataclass
@@ -24,7 +23,6 @@ class WakuMessage:
         self.received_messages = message_response
         self.message_rpc_response_schema = class_schema(self.schema)()
 
-    @allure.step
     def assert_received_message(self, sent_message, index=0):
         message = self.message_rpc_response_schema.load(self.received_messages[index])
 
