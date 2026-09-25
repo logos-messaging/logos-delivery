@@ -29,11 +29,12 @@ import
     waku_store_sync,
     rln,
     rln/rln_lez/config as rln_lez_config,
+    rln/rln_lez/types as rln_api_types,
+    rln/rln_lez/rln_lez,
     node/waku_node,
     node/subscription_manager,
     node/peer_manager,
     rln/rln_evm/protocol_types,
-    requests/rln_requests,
   ]
 import logos_delivery/api/events/kernel_events # MessageSeenEvent
 
@@ -199,14 +200,18 @@ proc setRlnValidator*(
       info "WakuRelay not mounted; RLN validator not set"
       return
 
+    if node.rlnLez.isNil():
+      info "RlnLez not mounted; RLN validator not set"
+      return
+
     let
-      registryId = rlnConf.registryId
-      rlnIdentifier = rlnConf.identifier
+      rlnLez = node.rlnLez
+      scope = MembershipScope.init(rlnConf.registryId, rlnConf.identifier)
 
     ## Bridges the external RLN module's validation into a relay (gossipsub)
-    ## validator. The verdict is produced by the module answering
-    ## `RequestValidateRlnProof`; this maps it to `pubsub.ValidationResult`
-    ## so the validator can be installed on WakuRelay's validator chain.
+    ## validator. The verdict is produced by the module through `RlnLez`;
+    ## this maps it to `pubsub.ValidationResult` so the validator can be
+    ## installed on WakuRelay's validator chain.
     proc validator(
         topic: string, message: WakuMessage
     ): Future[pubsub.ValidationResult] {.async.} =
@@ -218,19 +223,25 @@ proc setRlnValidator*(
       if message.proof.len == 0:
         trace "Rln-lez validator reject", error = "Message has no RLN proof"
         return pubsub.ValidationResult.Reject
+      if message.proof.len != RlnProofSize:
+        trace "Rln-lez validator reject", error = "Unexpected RLN proof size"
+        return pubsub.ValidationResult.Reject
       let timestamp = uint64(message.timestamp div 1_000_000_000)
 
+      var rateLimitProof = rln_api_types.RateLimitProof()
+      rateLimitProof.proof[0 ..< RlnProofSize] = message.proof
+
       let res = (
-        await RequestValidateRlnProof.request(
-          node.brokerCtx, message, registryId, rlnIdentifier, timestamp
+        await rlnLez.validateProof(
+          scope, message.toRLNSignal(), timestamp, rateLimitProof
         )
       ).valueOr:
         # no verdict from the module — don't score the peer down for our own failure
-        trace "rln-lez validator ignore", error = error
+        trace "rln-lez validator ignore", error = $error
         return pubsub.ValidationResult.Ignore
 
       let proof = byteutils.toHex(message.proof)
-      case res.validation.verdict
+      case res.verdict
       of ProofVerdict.Valid:
         trace "Message validity is verified, relaying", proof = proof
         logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])

@@ -446,8 +446,8 @@
       }
     },
     "ffi": {
-      "version": "#07ee8e1d6500762bab290465457a8d23559de546",
-      "vcsRevision": "07ee8e1d6500762bab290465457a8d23559de546",
+      "version": "#fafe56fb7a42514d1d0d1d5c2e1c6f8ff59fffdf",
+      "vcsRevision": "fafe56fb7a42514d1d0d1d5c2e1c6f8ff59fffdf",
       "url": "https://github.com/logos-messaging/nim-ffi",
       "downloadMethod": "git",
       "dependencies": [

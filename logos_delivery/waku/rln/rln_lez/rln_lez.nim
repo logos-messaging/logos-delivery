@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 ## `RlnInterface` backend over the external RLN module's FFI crossing
-## (`./transport`). Each call maps the concept's typed surface onto the wire
+## (`./wire`). Each call maps the concept's typed surface onto the wire
 ## procs and decodes the module's reply dialects back into typed results; the
 ## conformance assert at the bottom is the compile-time firewall check.
 ##
@@ -11,7 +11,7 @@
 import std/json
 import chronos, chronicles, results
 import stew/byteutils
-import ./types, ./transport, ./config
+import ./types, ./wire, ./config
 import ../rln_api
 
 export types, config
@@ -40,7 +40,7 @@ proc toRlnError(transportErr: string): RlnError =
   ## Transport-level failures never carry a wire error object: no callbacks
   ## installed yet is NotReady by the contract; timeouts and alloc failures
   ## are retryable.
-  if transportErr == "RLN module not registered":
+  if transportErr == NotRegistered:
     RlnError.notReady(transportErr)
   else:
     RlnError.transient(transportErr)
@@ -50,7 +50,7 @@ proc start*(
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   ## `config` is the module's start config JSON (the node_factory shape:
   ## epoch_size_sec, registries).
-  let response = (await rlnStart(config)).valueOr:
+  let response = (await ask(rlnStart(config))).valueOr:
     return err(toRlnError(error))
   discard ?parseRlnResultEnvelope(response)
   return ok()
@@ -58,7 +58,7 @@ proc start*(
 proc stop*(
     m: RlnLez
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (await rlnStop()).valueOr:
+  let response = (await ask(rlnStop())).valueOr:
     return err(toRlnError(error))
   discard ?parseRlnResultEnvelope(response)
   return ok()
@@ -70,7 +70,7 @@ proc registerMembership*(
   for opt in options:
     optionsJson.add(%*{"key": opt.key, "value": opt.value})
   let response = (
-    await rlnRegister(scope.registryId, scope.rlnIdentifier.toHex(), $optionsJson)
+    await ask rlnRegisterMembership(scope.registryId, scope.rlnIdentifier.toHex(), $optionsJson)
   ).valueOr:
     return err(toRlnError(error))
   return parseRlnMembershipState(response)
@@ -79,7 +79,7 @@ proc getMembershipState*(
     m: RlnLez, scope: MembershipScope
 ): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
   let response = (
-    await rlnGetMembershipState(scope.registryId, scope.rlnIdentifier.toHex())
+    await ask rlnGetMembershipState(scope.registryId, scope.rlnIdentifier.toHex())
   ).valueOr:
     return err(toRlnError(error))
   return parseRlnMembershipState(response)
@@ -88,7 +88,7 @@ proc getEpochQuota*(
     m: RlnLez, scope: MembershipScope, timestamp: uint64
 ): Future[Result[EpochQuota, RlnError]] {.async: (raises: [CancelledError]).} =
   let response = (
-    await rlnGetEpochQuota(scope.registryId, scope.rlnIdentifier.toHex(), timestamp)
+    await ask rlnGetEpochQuota(scope.registryId, scope.rlnIdentifier.toHex(), timestamp)
   ).valueOr:
     return err(toRlnError(error))
   return parseRlnEpochQuota(response)
@@ -97,20 +97,22 @@ proc generateProof*(
     m: RlnLez, scope: MembershipScope, signal: seq[byte], timestamp: uint64
 ): Future[Result[RateLimitProof, RlnError]] {.async: (raises: [CancelledError]).} =
   let response = (
-    await rlnGenerateProof(
+    await ask rlnGenerateProof(
       scope.registryId, scope.rlnIdentifier.toHex(), signal.toHex(), timestamp
     )
   ).valueOr:
     return err(toRlnError(error))
   let blob = ?parseRlnGeneratedProof(response)
   if blob.len != RlnProofSize:
-    return err(RlnError.transient(
-      "proof_canonical is " & $blob.len & " bytes, expected " & $RlnProofSize
-    ))
+    return err(
+      RlnError.transient(
+        "proof_canonical is " & $blob.len & " bytes, expected " & $RlnProofSize
+      )
+    )
   # `proof` is the authoritative canonical serialization; the decoded
   # public-value view stays zeroed — the module recomputes it on verification.
   var proof = RateLimitProof()
-  copyMem(addr proof.proof[0], unsafeAddr blob[0], RlnProofSize)
+  proof.proof[0 ..< RlnProofSize] = blob
   return ok(proof)
 
 proc validateProof*(
@@ -122,8 +124,11 @@ proc validateProof*(
 ): Future[Result[ValidationResult, RlnError]] {.async: (raises: [CancelledError]).} =
   let proofJson = $(%*{"proof": proof.proof.toHex()})
   let response = (
-    await rlnValidateProof(
-      scope.registryId, scope.rlnIdentifier.toHex(), signal.toHex(), timestamp,
+    await ask rlnValidateProof(
+      scope.registryId,
+      scope.rlnIdentifier.toHex(),
+      signal.toHex(),
+      timestamp,
       proofJson,
     )
   ).valueOr:

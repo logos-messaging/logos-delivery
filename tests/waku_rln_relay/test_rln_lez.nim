@@ -1,16 +1,16 @@
 {.used.}
 
-## Drives `RlnLez` (the RlnInterface backend over the module-API FFI
-## crossing) against a fake host: real C entry points, canned wire replies
-## answered synchronously through `logosdelivery_rln_response`. Covers both
-## wire dialects, both error paths (transport-level and module-level), and the
+## Drives `RlnLez` (the RlnInterface backend over the RLN wire) against a fake
+## host: the wire's `rlnFakeHost` (a build without the poll model has no real
+## host), whose entries answer canned module replies at once. Covers both wire
+## dialects, both error paths (wire-level and module-level), and the
 ## canonical-proof round trip.
 
 import std/strutils
 import testutils/unittests, chronos
 
 import logos_delivery/waku/rln/rln_lez/rln_lez
-import logos_delivery/waku/rln/rln_lez/transport
+import logos_delivery/waku/rln/rln_lez/wire
 
 const
   OkEnvelope = """{"error":null,"success":true,"value":{"started":true}}"""
@@ -32,69 +32,51 @@ let
     """{"error":null,"success":true,"value":{"verdict":"rate_limit_violation","recovered_secret":"""" &
     repeat("cd", 32) & """"}}"""
 
-# The fake host: each callback answers its canned reply immediately, on the
-# caller's thread (the crossing explicitly supports a synchronous response).
+# The fake host: each wire entry answers its canned reply immediately, as an
+# already-completed Future (the host may well answer before the caller awaits).
 var
   gStartReply = OkEnvelope
   gValidateReply = ViolationReply
   gLastRegistryId = ""
 
-proc fakeStart(
-    reqId: uint64, configJson: cstring, userData: pointer
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, gStartReply.cstring)
+proc canned(reply: string): RlnAnswer =
+  let fut = newFuture[Result[string, string]]("fake rln host")
+  fut.complete(Result[string, string].ok(reply))
+  return fut
 
-proc fakeStop(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, OkEnvelope.cstring)
+proc fakeHost(): RlnFakeHost =
+  RlnFakeHost(
+    start: proc(configJson: string): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(gStartReply),
+    stop: proc(): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(OkEnvelope),
+    register: proc(registryId, rlnIdentifierHex, optionsJson: string): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        gLastRegistryId = registryId
+      canned(RegisterReply),
+    getMembershipState: proc(registryId, rlnIdentifierHex: string): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(StateReply),
+    getEpochQuota: proc(registryId, rlnIdentifierHex: string, timestamp: uint64): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(QuotaReply),
+    generateProof: proc(
+        registryId, rlnIdentifierHex, signalHex: string, timestamp: uint64
+    ): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(GenerateReply),
+    validateProof: proc(
+        registryId, rlnIdentifierHex, signalHex: string,
+        timestamp: uint64,
+        proofJson: string,
+    ): RlnAnswer {.gcsafe.} =
+      {.cast(gcsafe).}:
+        canned(gValidateReply),
+  )
 
-proc fakeRegister(
-    reqId: uint64, registryId, rlnIdentifier: cstring, optionsJson: cstring,
-    userData: pointer,
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    gLastRegistryId = $registryId
-    discard logosdelivery_rln_response(reqId, RegisterReply.cstring)
-
-proc fakeGetState(
-    reqId: uint64, registryId, rlnIdentifier: cstring, userData: pointer
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, StateReply.cstring)
-
-proc fakeGetQuota(
-    reqId: uint64, registryId, rlnIdentifier: cstring, timestamp: uint64,
-    userData: pointer,
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, QuotaReply.cstring)
-
-proc fakeGenerate(
-    reqId: uint64, registryId, rlnIdentifier, signalHex: cstring, timestamp: uint64,
-    userData: pointer,
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, GenerateReply.cstring)
-
-proc fakeValidate(
-    reqId: uint64, registryId, rlnIdentifier, signalHex: cstring, timestamp: uint64,
-    proofJson: cstring, userData: pointer,
-) {.cdecl, gcsafe, raises: [].} =
-  {.cast(gcsafe), cast(raises: []).}:
-    discard logosdelivery_rln_response(reqId, gValidateReply.cstring)
-
-var gCallbacks = LogosDeliveryRlnCallbacks(
-  start: fakeStart,
-  stop: fakeStop,
-  register_membership: fakeRegister,
-  get_membership_state: fakeGetState,
-  get_epoch_quota: fakeGetQuota,
-  generate_proof: fakeGenerate,
-  validate_proof: fakeValidate,
-)
-
-suite "RlnLez - RlnInterface over the module FFI crossing":
+suite "RlnLez - RlnInterface over the RLN wire":
   var rlnId: RlnIdentifier
   rlnId[0] = 1'u8
   let
@@ -110,7 +92,7 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
       res.error.kind == RlnErrorKind.NotReady
 
   test "start and stop round-trip the result envelope":
-    check logosdelivery_rln_set_callbacks(addr gCallbacks, nil) == 0
+    rlnFakeHost = fakeHost()
     check:
       (waitFor m.start(configJson)).isOk()
       (waitFor m.stop()).isOk()
@@ -178,8 +160,8 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
       valid.verdict == ProofVerdict.Valid
       valid.recoveredSecret.isNone()
 
-  test "clearing the host callbacks returns the backend to NotReady":
-    check logosdelivery_rln_set_callbacks(nil, nil) == 0
+  test "an empty host returns the backend to NotReady":
+    rlnFakeHost = RlnFakeHost()
     let res = waitFor m.getEpochQuota(scope, timestamp)
     check:
       res.isErr()

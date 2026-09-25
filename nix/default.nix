@@ -60,7 +60,14 @@ let
     else "so";
 
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
-  libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
+  # nim-ffi's poll model: every export answers through logosdelivery_poll, and
+  # the RLN questions are reverse calls with a 200 s backstop (the host
+  # enforces the real per-op deadlines).
+  libDefineArgs = [
+    "--define:discv5_protocol_id=d5waku"
+    "--define:ffiPollMode"
+    "--define:ffiReverseCallTimeoutMs=200000"
+  ];
 
   # Must match the nimble task: library/liblogosdelivery.h includes this path.
   cBindingsDir = "library/generated";
@@ -185,8 +192,12 @@ pkgs.stdenv.mkDerivation {
     cp build/liblogosdelivery.a         $out/lib/
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
-    cp library/liblogosdelivery_rln.h    $out/include/
-    cp ${cBindingsDir}/logosdelivery.h   $out/include/generated/
+    cp library/liblogosdelivery_poll.h   $out/include/
+    # nim-ffi's C backend describes the callback ABI; a poll-mode build emits
+    # none, and liblogosdelivery_poll.h is the hand-written ABI instead.
+    if [ -f ${cBindingsDir}/logosdelivery.h ]; then
+      cp ${cBindingsDir}/logosdelivery.h $out/include/generated/
+    fi
     runHook postInstall
   '';
 

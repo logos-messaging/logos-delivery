@@ -220,10 +220,12 @@
     fetchSubmodules = true;
   };
 
+  # nim-ffi dual/6-reverse (poll model) plus two chronos-4.2.5 fixes
+  # (branch dual/6-reverse-dcbor), until the dual/* PRs land.
   ffi = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "07ee8e1d6500762bab290465457a8d23559de546";
-    sha256 = "04q5gmldyxd8jawrnjfws007zpyr4h08ijphp943iypbpblflfmz";
+    rev = "fafe56fb7a42514d1d0d1d5c2e1c6f8ff59fffdf";
+    sha256 = "0gnz0gsw480qbidf3nzj0h4f55anxd4k27xlclvlz8nvgfzsknby";
     fetchSubmodules = true;
   };
 

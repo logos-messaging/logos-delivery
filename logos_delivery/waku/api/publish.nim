@@ -25,7 +25,6 @@ import
     waku_lightpush/client,
     waku_lightpush/callbacks,
     waku_mix,
-    requests/rln_requests,
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
@@ -88,14 +87,11 @@ proc attachRlnProof*(
         return err("The node does not have a usable RLN membership: " & $status)
 
     let generated = (
-      await RequestGenerateRlnProof.request(
-        self.brokerCtx, message, rlnLez.scope.registryId, rlnLez.scope.rlnIdentifier,
-        timestamp,
-      )
+      await rlnLez.generateProof(rlnLez.scope, message.toRLNSignal(), timestamp)
     ).valueOr:
-      return err("Failed to attach RLN proof: " & error)
+      return err("Failed to attach RLN proof: " & $error)
     var msgWithProof = message
-    msgWithProof.proof = generated.proof
+    msgWithProof.proof = @(generated.proof)
     return ok(msgWithProof)
 
   if self.node.rln.isNil():

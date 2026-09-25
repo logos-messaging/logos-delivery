@@ -1,5 +1,6 @@
 import std/json
 import chronos, chronicles, results, ffi
+import stew/byteutils
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import logos_delivery/waku/common/base64
@@ -11,7 +12,6 @@ import
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
-  logos_delivery/waku/rln/rln_lez/transport,
   ../declare_lib,
   ../json_event
 
@@ -193,11 +193,6 @@ proc logosdelivery_create_node(
     return err(errMsg)
 
   lib.registerFFIEventListeners().isOkOr:
-    await lib.teardownFFIEventScope()
-    return err(error)
-
-  let lez = lib.waku.conf.rlnLezConf.isSome()
-  registerRlnModuleProviders(lib.waku.brokerCtx, lez).isOkOr:
     await lib.teardownFFIEventScope()
     return err(error)
 

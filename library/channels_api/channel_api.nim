@@ -72,3 +72,22 @@ proc logosdelivery_channel_close(
     return err("ChannelClose failed: " & $error)
 
   return ok("")
+
+when not defined(ffiPollMode):
+  # Function pointers cannot ride a CBOR request; the poll build has no
+  # encryption hook until one is designed for it.
+  proc logosdelivery_channel_set_encryption_callbacks(
+      self: LogosDelivery,
+      channelIdStr: string,
+      encryptCallback: proc (message: cstring, messageLen: cint, userData: pointer): cstring {.cdecl.},
+      decryptCallback: proc (message: cstring, messageLen: cint, userData: pointer): cstring {.cdecl.},
+      userData: pointer
+  ): Result[string, string] {.ffi.} =
+    requireChannels(self, "ChannelSetEncryptionCallbacks"):
+      return err(errMsg)
+
+    self.reliableChannelManager.setEncryptionCallbacks(
+      encryptCallback, decryptCallback, userData
+    )
+
+    return ok("")

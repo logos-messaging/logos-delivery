@@ -10,8 +10,7 @@ import
   web3/eth_api_types,
   eth/keys,
   results,
-  stew/[byteutils, arrayops],
-  brokers/broker_context
+  stew/[byteutils, arrayops]
 
 import
   ./group_manager,
@@ -26,10 +25,7 @@ import
   ./proof,
   ./nullifier_log
 
-import
-  logos_delivery/waku/
-    [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
-import logos_delivery/waku/rln/rln_lez/types as rln_api_types
+import logos_delivery/waku/[common/error_handling, waku_core, waku_keystore]
 
 # Re-export the submodules so existing `import rln`
 # callers see the moved symbols
@@ -48,7 +44,6 @@ proc stop*(rlnEvm: RlnEvm) {.async: (raises: [Exception]).} =
 
   # stop the group sync, and flush data to tree db
   info "stopping rln"
-  RequestGenerateRlnProof.clearProvider(rlnEvm.brokerCtx)
   await rlnEvm.groupManager.stop()
 
 proc validateMessage*(
@@ -223,28 +218,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
-    brokerCtx: globalBrokerContext(),
   )
-
-  RequestGenerateRlnProof.setProvider(
-    rlnEvm.brokerCtx,
-    proc(
-        message: WakuMessage,
-        registryId: rln_api_types.RegistryId,
-        rlnIdentifier: rln_api_types.RlnIdentifier,
-        timestamp: uint64,
-    ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      # The legacy zerokit path keeps its registry/identifier in the group
-      # manager, so only the signal and the sender epoch time are used here.
-      let proofBytes = (
-        await rlnEvm.generateRLNProofWithRootRefresh(
-          message.toRLNSignal(), float64(timestamp)
-        )
-      ).valueOr:
-        return err("Could not create RLN proof: " & error)
-      return ok(RequestGenerateRlnProof(proof: proofBytes)),
-  ).isOkOr:
-    return err("Proof generator provider cannot be set: " & $error)
 
   # Start epoch monitoring in the background
   rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)

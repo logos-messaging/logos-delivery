@@ -147,6 +147,10 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if not dirExists "build":
     mkDir "build"
   mkDir cBindingsDir
+  # nim-ffi's C header backend describes the callback ABI; a poll-mode build
+  # (-d:ffiPollMode in NIM_PARAMS) ships a hand-written header instead.
+  let cBindingsFlags =
+    if "ffiPollMode" in getNimParams(): "" else: cBindingsFlags
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
