@@ -208,7 +208,3 @@ class REST(BaseClient):
 
     def messaging_received(self):
         return self.rest_call("get", "messaging/v1/events/received").json()
-
-    def messaging_received_response(self):
-        """Returns the raw response of the received poll."""
-        return self.rest_call("get", "messaging/v1/events/received")

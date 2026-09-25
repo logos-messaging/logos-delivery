@@ -506,9 +506,6 @@ class WakuNode:
     def messaging_received(self):
         return self._api.messaging_received()
 
-    def messaging_received_response(self):
-        return self._api.messaging_received_response()
-
     def get_metrics(self):
         if self.is_nwaku():
             metrics = requests.get(f"http://localhost:{self._metrics_port}/metrics")

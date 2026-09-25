@@ -65,8 +65,7 @@ class TestMessagingRestNodeConfig(StepsMessaging):
             self.send_and_get_request_id(self.node1, f"cap-{i}")
         # the metric counts deliveries without a poll
         self.wait_for_live_received_count(self.node2, 15)
-        response = self.node2.messaging_received_response()
-        records = response.json()
+        records = self.node2.messaging_received()
         assert len(records) == 10, f"the buffer keeps the newest 10 of 15, got {len(records)}"
         assert all(self.decode_payload(record).startswith("cap-") for record in records)
         # seq gap and metric each show 5 evictions
