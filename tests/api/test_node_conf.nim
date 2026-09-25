@@ -449,3 +449,25 @@ suite "QUIC port defaults":
     let explicit = parseLogosDeliveryConf("""{"tcpPort": 0, "quicPort": 40404}""").valueOr:
       raiseAssert error
     check WakuNodeConf(explicit.kernelConf).quicPortOf() == Port(40404)
+
+  test "listen-port sets the tcp and quic ports and wins over tcp-port":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.tcpPort = Port(30304)
+    conf.listenPort = Opt.some(Port(40404))
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+    check:
+      wakuConf.endpointConf.p2pTcpPort == Port(40404)
+      wakuConf.quicConf.get().port == Port(40404)
+
+  test "an explicit quic port wins over listen-port":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.listenPort = Opt.some(Port(40404))
+    conf.quicPort = Opt.some(Port(50505))
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+    check:
+      wakuConf.endpointConf.p2pTcpPort == Port(40404)
+      wakuConf.quicConf.get().port == Port(50505)

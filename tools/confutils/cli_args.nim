@@ -197,7 +197,19 @@ type WakuNodeConf* = object
     name: "listen-address"
   .}: IpAddress
 
-  tcpPort* {.desc: "TCP listening port.", defaultValue: 60000, name: "tcp-port".}: Port
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
+  listenPort* {.
+    desc:
+      "Listening port for LibP2P: TCP, and QUIC over UDP. Takes precedence over --tcp-port. Default is --tcp-port.",
+    defaultValue: Opt.none(Port),
+    name: "listen-port"
+  .}: Opt[Port]
+
+  tcpPort* {.
+    desc: "TCP listening port. Kept for backward compatibility, prefer --listen-port.",
+    defaultValue: 60000,
+    name: "tcp-port"
+  .}: Port
 
   portsShift* {.
     desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
@@ -735,7 +747,8 @@ hence would have reachability issues.""",
 
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   quicPort* {.
-    desc: "QUIC (UDP) listening port. Default is the TCP port (--tcp-port).",
+    desc:
+      "QUIC (UDP) listening port. Default is the TCP port (--listen-port or --tcp-port).",
     defaultValue: Opt.none(Port),
     name: "quic-port"
   .}: Opt[Port]
@@ -1044,7 +1057,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.withNodeKey(n.nodeKey.get())
 
   b.withP2pListenAddress(n.listenAddress)
-  b.withP2pTcpPort(n.tcpPort)
+  b.withP2pTcpPort(n.listenPort.get(n.tcpPort))
   b.withPortsShift(n.portsShift)
   ## Library code builds WakuNodeConf directly and zero means unset there.
   ## An explicit --nat-discovery-timeout-ms=0 selects the default.
