@@ -10,10 +10,10 @@
 import std/json
 import chronos, chronicles, results
 import stew/byteutils
-import ../types, ./transport, ./config
+import ../types, ./transport
 import ../rln_api
 
-export types, config
+export types
 
 logScope:
   topics = "waku rln lez"

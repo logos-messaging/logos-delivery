@@ -25,6 +25,7 @@ import
   ../waku_core,
   ../waku_core/codecs,
   ../rln,
+  ../rln/rln_plugin,
   ../rln/rln_lez/rln_lez,
   ../rln/rln_lez/transport,
   ../discovery/waku_dnsdisc,
@@ -333,34 +334,29 @@ proc setupProtocols(
   except CatchableError:
     return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
 
-  # The RLN module backend is selected by the host installing an RLN plugin over
-  # FFI (`logosdelivery_rln_set_plugin`), not by configuration. The plugin is
-  # implementation-agnostic: the host owns its parameters and its lifecycle.
-  let rlnPlugin = rlnPluginRegistered()
+  # RLN backend selected by configuration source: each descriptor probes
+  # whether its own source is present — host callbacks installed over the C
+  # ABI (`logosdelivery_rln_set_plugin`) for the external backend, CLI/preset
+  # configuration for the on-chain one. 
+  proc externalRlnPresent(): bool =
+    rlnPluginRegistered()
 
-  if rlnPlugin and conf.rlnEvmConf.isSome():
-    return err(
-      "two RLN backends requested: an RLN plugin is installed and RLN relay is " &
-        "also configured for the embedded EVM backend"
-    )
-
-  if rlnPlugin or conf.rlnEvmConf.isSome():
-    when defined(disable_rln):
-      return
-        err("the configuration enables RLN relay, but this build has -d:disable_rln")
-
-  if rlnPlugin:
-    info "Mounting RLN plugin backend"
+  proc mountExternalRln(
+      commonConf: RlnCommonConf
+  ): Future[Result[RlnPlugin, string]] {.async.} =
     node.rlnLez = RlnLez.init()
-    let validatorConf = WakuRlnLezConfig(
-      onFatalErrorAction: onFatalErrorAction,
-      disableValidation: conf.rlnDisableValidation,
-    )
     try:
-      await node.setRlnValidator(validatorConf)
+      await node.setRlnValidator(commonConf)
     except CatchableError:
       return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
-  elif conf.rlnEvmConf.isSome():
+    return ok(RlnPlugin(name: "external"))
+
+  proc onchainRlnPresent(): bool =
+    conf.rlnEvmConf.isSome()
+
+  proc mountOnchainRln(
+      commonConf: RlnCommonConf
+  ): Future[Result[RlnPlugin, string]] {.async.} =
     let rlnEvmConf = conf.rlnEvmConf.get()
     let rlnConf = WakuRlnConfig(
       dynamic: rlnEvmConf.dynamic,
@@ -371,13 +367,41 @@ proc setupProtocols(
       creds: rlnEvmConf.creds,
       userMessageLimit: rlnEvmConf.userMessageLimit,
       epochSizeSec: rlnEvmConf.epochSizeSec,
-      onFatalErrorAction: onFatalErrorAction,
-      disableValidation: conf.rlnDisableValidation,
+      onFatalErrorAction: commonConf.onFatalErrorAction,
+      disableValidation: commonConf.disableValidation,
     )
     try:
       await node.setRlnValidator(rlnConf)
     except CatchableError:
       return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    return ok(RlnPlugin(name: "onchain"))
+
+  let rlnDescriptors = [
+    RlnPluginDescriptor(
+      name: "external", matches: externalRlnPresent, mount: mountExternalRln
+    ),
+    RlnPluginDescriptor(
+      name: "onchain", matches: onchainRlnPresent, mount: mountOnchainRln
+    ),
+  ]
+
+  let selectedRln = selectRlnPlugin(rlnDescriptors).valueOr:
+    return err(error)
+
+  if selectedRln.isSome():
+    when defined(disable_rln):
+      return
+        err("the configuration enables RLN relay, but this build has -d:disable_rln")
+    else:
+      let descriptor = selectedRln.get()
+      info "Mounting RLN backend", backend = descriptor.name
+      let rlnCommonConf = RlnCommonConf(
+        onFatalErrorAction: onFatalErrorAction,
+        disableValidation: conf.rlnDisableValidation,
+      )
+      let mounted = (await descriptor.mount(rlnCommonConf)).valueOr:
+        return err(error)
+      node.rlnPlugin = Opt.some(mounted)
 
   # NOTE Must be mounted after relay
   if conf.lightPush:

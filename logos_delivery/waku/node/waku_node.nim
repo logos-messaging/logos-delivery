@@ -51,6 +51,7 @@ import
     waku_enr,
     waku_peer_exchange,
     rln,
+    rln/rln_plugin,
     rln/rln_lez/rln_lez,
     common/rate_limit/setting,
     common/callbacks,
@@ -112,6 +113,7 @@ type
     wakuFilterClient*: filter_client.WakuFilterClient
     rln*: RlnEvm
     rlnLez*: RlnLez
+    rlnPlugin*: Opt[RlnPlugin]
     wakuLegacyLightPush*: WakuLegacyLightPush
     wakuLegacyLightpushClient*: WakuLegacyLightPushClient
     wakuLightPush*: WakuLightPush

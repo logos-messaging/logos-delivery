@@ -16,7 +16,7 @@ import
   ../net/nat_strategy,
   ../net/net_config,
   ../rln/rln_evm/rln_evm,
-  ../rln/rln_lez/config as rln_lez_config,
+  ../rln/rln_plugin,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
   ../discovery/waku_kademlia,
@@ -29,7 +29,7 @@ import
   ./conf_builder/kademlia_discovery_conf_builder
 
 export
-  RlnConf, RlnCreds, WakuRlnLezConfig, RestServerConf, Discv5Conf, MetricsServerConf
+  RlnConf, RlnCreds, RlnCommonConf, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.
 # The mapper machinery stays in net/nat_config.
 export nat_strategy

@@ -28,7 +28,7 @@ import
     waku_archive,
     waku_store_sync,
     rln,
-    rln/rln_lez/config as rln_lez_config,
+    rln/rln_plugin,
     node/waku_node,
     node/subscription_manager,
     node/peer_manager,
@@ -188,13 +188,13 @@ proc mountRelay*(
 
 proc setRlnValidator*(
     node: WakuNode,
-    rlnConf: WakuRlnConfig | WakuRlnLezConfig,
+    rlnConf: WakuRlnConfig | RlnCommonConf,
     spamHandler = Opt.none(SpamHandler),
     registrationHandler = Opt.none(RegistrationHandler),
 ) {.async.} =
   info "Setting rln validator"
 
-  when rlnConf is WakuRlnLezConfig:
+  when rlnConf is RlnCommonConf:
     if node.wakuRelay.isNil():
       info "WakuRelay not mounted; RLN validator not set"
       return
