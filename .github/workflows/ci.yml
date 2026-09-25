@@ -173,6 +173,9 @@ jobs:
       - name: make liblogosdelivery
         run: make V=1 -j1 liblogosdelivery
 
+      - name: Check liblogosdelivery exports no OpenSSL symbols
+        run: scripts/check_lib_exports.sh build/liblogosdelivery.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
+
   build-windows:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' }}
