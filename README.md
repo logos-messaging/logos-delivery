@@ -40,12 +40,6 @@ export PATH="$(make print-nimble-path):$PATH"
 
 > Some distributions (Fedora, for example) don't ship the `which` utility by default. The Makefile relies on it, so install it separately.
 
-The easiest way to install Rust is `rustup`:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
 ### logosdeliverynode
 
 ```bash
