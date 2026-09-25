@@ -93,13 +93,16 @@ at startup or after a connectivity gap. The node buffers only the content topics
 through `/messaging/v1/subscriptions`. A relay subscription to the shard is not sufficient. A
 send subscribes the node to its content topic, so the sender also receives its own messages.
 
-A poll clears what it returns. The received buffer keeps the newest
+A poll clears what it returns, for every client. The received buffer keeps the newest
 `--rest-messaging-cache-capacity` messages (default 50) and drops the oldest when full. These
 signals report evictions:
 
-* each received record has a `seq`, from 1 without gaps; a gap between two polls is the number
-  of evicted records
+* each received record has a `seq`, from 1 without gaps
 * the metric `logos_delivery_rest_received_dropped_total`
+
+With one polling client, a gap in `seq` between two polls is the number of evicted records.
+With more clients, a gap can also be records that another client polled. `seq` starts again at
+1 when the node restarts.
 
 An eviction is an observation loss of the client, not a network loss. To stop it, poll faster
 or increase the capacity. The `Message received` log line and the

@@ -2,7 +2,6 @@ import base64
 import inspect
 from time import sleep, time
 
-import allure
 import pytest
 from src.env_vars import NODE_1, NODE_2
 from src.libs.common import to_base64
@@ -41,14 +40,12 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         args.update(kwargs)
         return args
 
-    @allure.step
     def setup_store_messaging_node(self, **kwargs):
         self.node1 = WakuNode(NODE_1, f"node1_{self.test_id}")
         self.node1.start(**self.messaging_args(store="true", **kwargs))
         self.multiaddr_with_id = self.node1.get_multiaddr_with_id()
         self.main_nodes.append(self.node1)
 
-    @allure.step
     def setup_client_messaging_node(self, **kwargs):
         self.node2 = WakuNode(NODE_2, f"node2_{self.test_id}")
         self.node2.start(**self.messaging_args(staticnode=self.multiaddr_with_id, storenode=self.multiaddr_with_id, **kwargs))
@@ -60,13 +57,11 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         message.update(kwargs)
         return message
 
-    @allure.step
     def send_and_get_request_id(self, node, text=None, **kwargs):
         response = node.messaging_send(self.messaging_message(text, **kwargs))
         assert response.get("requestId"), f"no requestId in send response {response}"
         return response["requestId"]
 
-    @allure.step
     def collect_received(self, node, count, timeout=30):
         """Polls the received endpoint until it has `count` records."""
         records = []
@@ -78,7 +73,6 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         assert len(records) >= count, f"collected {len(records)} received records, expected {count}"
         return records
 
-    @allure.step
     def collect_send_kinds(self, node, request_id, kinds, timeout=30):
         """Polls the send events of `request_id` until every kind in `kinds` appears.
 
@@ -99,7 +93,6 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         assert set(kinds) <= seen, f"send events for {request_id}: saw {sorted(seen)}, expected {kinds}"
         return seen
 
-    @allure.step
     def collect_sent_request_ids(self, node, count, timeout=60):
         """Polls all send events until `count` request ids have a "sent" event."""
         sent = set()
@@ -113,7 +106,6 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         assert len(sent) == count, f"{len(sent)} of {count} sends confirmed 'sent' within {timeout}s"
         return sent
 
-    @allure.step
     def wait_for_live_received_count(self, node, count, timeout=30):
         """Waits until the metrics of `node` report `count` live deliveries."""
         self.wait_for_metric(node, 'logos_delivery_recv_messages_total{source="live"}', count, timeout_duration=timeout)

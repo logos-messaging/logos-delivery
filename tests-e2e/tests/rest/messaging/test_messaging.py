@@ -6,7 +6,6 @@ from src.steps.messaging import StepsMessaging
 
 @pytest.mark.usefixtures("setup_main_messaging_nodes")
 class TestMessagingRest(StepsMessaging):
-    @pytest.mark.smoke
     def test_subscribe_send_receive(self):
         self.node2.messaging_subscribe([self.test_content_topic])
         self.send_and_get_request_id(self.node1, "hello messaging")
@@ -42,9 +41,10 @@ class TestMessagingRest(StepsMessaging):
         self.node2.messaging_unsubscribe([self.test_content_topic])
         request_id = self.send_and_get_request_id(self.node1, "after unsubscribe")
         self.collect_send_kinds(self.node1, request_id, ["propagated"])
-        # node2 receives the sentinel after the message that it must drop
         self.send_and_get_request_id(self.node1, "sentinel", contentTopic=sentinel_topic)
-        records = self.collect_received(self.node2, 1)
+        # 2 live deliveries: the message before the unsubscribe and the sentinel
+        self.wait_for_live_received_count(self.node2, 2)
+        records = self.node2.messaging_received()
         assert [self.decode_payload(record) for record in records] == ["sentinel"]
 
     def test_malformed_input_is_rejected_as_bad_request(self):
