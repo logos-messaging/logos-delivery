@@ -779,6 +779,40 @@ suite "ExternalServiceDiscovery":
 
     check (await iface.stopDiscovery()).isOk()
 
+  asyncTest "a cancelled caller's queued plugin call never reaches the plugin":
+    ## Plugin calls go out as cancellable (mt) requests: cancelling the caller
+    ## tombstones a request still queued for the worker, so the provider is
+    ## never invoked for it.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    discard provideNodeIdentity(ctx)
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+
+    ## Occupy the worker: the advert call sits in the plugin for 1.5 s.
+    fake.advertDelayMs.store(1500)
+    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check eventually(fake.advertDelayMs.load() == 0)
+
+    ## Queued behind it, then cancelled while still queued. The yield only
+    ## makes sure the request is in the worker's queue before the cancel.
+    let lookup = iface.lookupServicePeers("service:y", 1)
+    await sleepAsync(chronos.milliseconds(50))
+    await lookup.cancelAndWait()
+
+    ## The worker serves its queue in order, so once a later call answers,
+    ## the cancelled lookup has been passed over: only this one handed back
+    ## plugin JSON.
+    check (await iface.lookupRandom()).isOk()
+    check:
+      fake.lastLimit.load() == 0 # set by a lookup the plugin ran
+      fake.freed.load() == 1
+      fake.advertTaken.load() == 1
+
+    check (await iface.stopDiscovery()).isOk()
+
   asyncTest "an interest the plugin refuses is still looked up":
     ## A lookup does not depend on the interest, which only pre-warms the
     ## provider's table; a refused interest used to drop the key from the

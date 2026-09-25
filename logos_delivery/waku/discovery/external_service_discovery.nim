@@ -113,49 +113,6 @@ proc readyPlugin(
       err("external backend: configured but no service discovery plugin registered")
   ok(plugin)
 
-template pluginCall(
-    T: typedesc, op: string, request: untyped, budget: Duration = ZeroDuration
-): untyped =
-  ## Awaits one (mt) plugin request, bounded by the timeout the plugin
-  ## declared at registration, or by `budget` when the caller knows the verb
-  ## needs longer than the per-verb contract. The worker is not interrupted on
-  ## timeout — the entry point runs to completion there — the caller just stops
-  ## waiting. `T` is the payload type, so every branch stays correctly typed;
-  ## the template yields a value rather than returning, which keeps it usable
-  ## inside the async transform.
-  block:
-    let plugRes = readyPlugin(self)
-    if plugRes.isErr():
-      Result[T, string].err(plugRes.error())
-    else:
-      let plugin = plugRes.get()
-      let deadline =
-        if budget > ZeroDuration:
-          budget
-        else:
-          plugin.requestTimeout()
-      let fut = request
-      var cancelled = false
-      let answered =
-        try:
-          await fut.withTimeout(deadline)
-        except CancelledError:
-          cancelled = true
-          false
-      if cancelled:
-        Result[T, string].err("external backend: " & op & " cancelled")
-      elif not answered:
-        Result[T, string].err(
-          "external backend: plugin did not answer " & op & " in time"
-        )
-      else:
-        try:
-          fut.read()
-        except CatchableError:
-          Result[T, string].err(
-            "external backend: " & op & " failed: " & getCurrentExceptionMsg()
-          )
-
 proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
   ## Hands discovered peers to the PeerManager, which decides what to dial.
   ## The in-process backend does this inside `processRecords`, so every lookup
@@ -348,15 +305,13 @@ proc sendAdvert(
   if advert.resign:
     ## Its failure is not fatal: the start below says whether the plugin
     ## still holds an older record.
-    pluginCall(
-      void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
-    ).isOkOr:
+    (await PluginStopAdvertising.requestCancellable(self.workerCtx, key).respFut).isOkOr:
       debug "external discovery could not stop the advert before re-sending it",
         key = key, reason = error
-  let res = pluginCall(
-    void,
-    "startAdvertising",
-    PluginStartAdvertising.request(self.workerCtx, key, advert.data, record),
+  let res = (
+    await PluginStartAdvertising.requestCancellable(
+      self.workerCtx, key, advert.data, record
+    ).respFut
   )
   if res.isErr() and not advert.resign and AlreadyAdvertised in res.error:
     return ok()
@@ -398,9 +353,8 @@ proc announcePending(
       return false
     if key notin self.interests or self.interests.getOrDefault(key):
       continue
-    let res = pluginCall(
-      void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
-    )
+    let res =
+      (await PluginRegisterInterest.requestCancellable(self.workerCtx, key).respFut)
     if key notin self.interests:
       continue
     if res.isOk():
@@ -528,14 +482,29 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       self.workerCtx = NewBrokerContext()
       return err(error)
 
-    ## `start` is the one verb that brings a whole backend up, so it gets its
-    ## own budget on both fences: nim-brokers' (mt) lane, which otherwise
-    ## enforces its 5 s default and would abandon the worker mid-bring-up, and
-    ## the wrapper below, which otherwise uses the plugin's per-verb contract.
-    ## Every other verb keeps that contract, so a wedged lookup is still
-    ## noticed quickly.
+    ## Every plugin call is a cancellable (mt) request, awaited as is: the
+    ## broker bounds it by the timeout set here, answers a timeout or a
+    ## cancellation itself, and releases the response slot. Cancelling the
+    ## caller -- a loop stopped with `cancelAndWait` -- cancels the request;
+    ## one already inside the plugin runs to completion there, since the entry
+    ## point is a blocking C call. Errors name what failed: the worker's the
+    ## plugin verb, the broker's the request type.
+    ##
+    ## Every verb gets the timeout the plugin declared; `start`, which brings a
+    ## whole backend up, gets its own budget, so a wedged lookup is still
+    ## noticed quickly. The timeout is per request type, so per process: this
+    ## backend lives on the global broker context, so there is one plugin to
+    ## take it from.
+    let verbTimeout = plugin.requestTimeout()
     PluginStart.setRequestTimeout(PluginStartTimeout)
-    ?pluginCall(void, "start", PluginStart.request(self.workerCtx), PluginStartTimeout)
+    PluginStop.setRequestTimeout(verbTimeout)
+    PluginLookup.setRequestTimeout(verbTimeout)
+    PluginRandomLookup.setRequestTimeout(verbTimeout)
+    PluginStartAdvertising.setRequestTimeout(verbTimeout)
+    PluginStopAdvertising.setRequestTimeout(verbTimeout)
+    PluginRegisterInterest.setRequestTimeout(verbTimeout)
+    PluginUnregisterInterest.setRequestTimeout(verbTimeout)
+    ?(await PluginStart.requestCancellable(self.workerCtx).respFut)
 
     self.running = true
 
@@ -585,7 +554,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The plugin is still there: `startDiscovery` required one, and clearing
     ## is refused while discovery runs, so there is nothing to guard against.
-    let stopRes = pluginCall(void, "stop", PluginStop.request(self.workerCtx))
+    let stopRes = (await PluginStop.requestCancellable(self.workerCtx).respFut)
 
     ## The worker exists to serve this discovery session, so it goes with it.
     ## Its thread hands the (mt) buckets back on the way out, which is what
@@ -610,9 +579,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let peers = ?pluginCall(
-      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.workerCtx, key, limit)
-    )
+    let peers =
+      ?(await PluginLookup.requestCancellable(self.workerCtx, key, limit).respFut)
     self.admitPeers(peers)
     ok(peers)
 
@@ -621,9 +589,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let peers = ?pluginCall(
-      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.workerCtx)
-    )
+    let peers = ?(await PluginRandomLookup.requestCancellable(self.workerCtx).respFut)
     self.admitPeers(peers)
     ok(peers)
 
@@ -657,9 +623,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort: a plugin that is not up yet cannot hold the advert either.
     self.adverts.del(key)
     if self.running:
-      pluginCall(
-        void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
-      ).isOkOr:
+      (await PluginStopAdvertising.requestCancellable(self.workerCtx, key).respFut).isOkOr:
         debug "external discovery could not stop the advert", key = key, reason = error
     ok()
 
@@ -678,11 +642,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort, like `stopAdvertising`.
     self.interests.del(key)
     if self.running:
-      pluginCall(
-        void,
-        "unregisterInterest",
-        PluginUnregisterInterest.request(self.workerCtx, key),
-      ).isOkOr:
+      (await PluginUnregisterInterest.requestCancellable(self.workerCtx, key).respFut).isOkOr:
         debug "external discovery could not unregister the interest",
           key = key, reason = error
     ok()
