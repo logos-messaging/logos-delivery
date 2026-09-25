@@ -530,6 +530,18 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
       lc.messagingConf.isSome() # full stack
       lc.channelsConf.isSome()
 
+  test "a flat blob carries the messaging REST cache capacity by switch or field name":
+    let bySwitch = parseLogosDeliveryConf(
+      """{"rest": true, "rest-messaging-cache-capacity": 7}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(bySwitch.kernelConf).restMessagingCacheCapacity == 7'u32
+    let byField = parseLogosDeliveryConf(
+      """{"rest": true, "restMessagingCacheCapacity": 9}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(byField.kernelConf).restMessagingCacheCapacity == 9'u32
+
   test "flat blob carrying mode: mode expands to flags, explicit flags override":
     let lc = parseLogosDeliveryConf(
       """{"mode": "Edge", "relay": true, "clusterId": 7}"""

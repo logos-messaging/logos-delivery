@@ -479,3 +479,24 @@ suite "Waku external config - environment variables":
 
     ## Then
     check conf.tcpPort == Port(8080)
+
+suite "Waku external config - REST server caches":
+  test "messaging cache capacity must be at least 1":
+    var conf = defaultWakuNodeConf().get()
+    conf.rest = true
+    conf.restMessagingCacheCapacity = 0
+    check conf.toWakuConf().isErr()
+
+  test "messaging cache capacity flows into the REST server conf":
+    var conf = defaultWakuNodeConf().get()
+    conf.rest = true
+    conf.restMessagingCacheCapacity = 1
+    let res = conf.toWakuConf()
+    check res.isOk()
+    check res.get().restServerConf.get().messagingCacheCapacity == 1'u32
+
+  test "relay cache capacity must be at least 1":
+    var conf = defaultWakuNodeConf().get()
+    conf.rest = true
+    conf.restRelayCacheCapacity = 0
+    check conf.toWakuConf().isErr()

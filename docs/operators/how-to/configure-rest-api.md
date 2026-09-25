@@ -9,9 +9,10 @@ These are the relevant command line options:
 |`--rest` | Enable Waku REST HTTP server. | `false` |
 |`--rest-address` | Listening address of the REST HTTP server. | `127.0.0.1` |
 |`--rest-port` | Listening port of the REST HTTP server. | `8645` |
-|`--rest-relay-cache-capacity` | Capacity of the Relay REST API message cache. | `30` |
+|`--rest-relay-cache-capacity` | Capacity of the Relay REST API message cache. | `50` |
+|`--rest-messaging-cache-capacity` | Capacity of the messaging REST received cache (`GET /messaging/v1/events/received`). The cache keeps the newest messages until a poll, and one poll returns all of them. Minimum 1. Each record's `seq`, the `X-Messaging-Dropped` header and the `logos_delivery_rest_received_dropped_total` metric report evictions. Used only with `--entry-layer=messaging` or `--entry-layer=channels`. | `50` |
 |`--rest-admin` | Enable access to REST HTTP Admin API. | `false` |
-|`--rest-private` | Enable access to REST HTTP Private API. | `false` |
+|`--rest-allow-origin` | Allow cross-origin requests from the given origin (`*` and `?` wildcards; may be repeated). | none |
 
 Note that these command line options have their counterpart option in the node configuration file.
 
