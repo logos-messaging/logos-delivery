@@ -6,8 +6,7 @@
 ##   * received messages
 ##
 ## Both surfaces are evict-after-poll: a GET returns the buffered data and clears
-## it. A generous overflow cap bounds memory if nobody polls. Each eviction adds
-## to the `dropped` count of the next poll and to a metric. All access happens
+## it. A generous overflow cap bounds memory if nobody polls. All access happens
 ## on the single chronos event loop (broker listeners + REST handlers), so the
 ## synchronous (no-await) ops below need no locking.
 
@@ -20,8 +19,6 @@ import ./types
 
 declarePublicCounter logos_delivery_rest_received_dropped,
   "received messages evicted from the messaging REST buffer before a poll took them"
-declarePublicCounter logos_delivery_rest_send_status_dropped,
-  "send statuses (request ids) evicted from the messaging REST buffer before a poll took them"
 
 const
   DefaultMaxReceived* = 50 ## Received messages kept between polls (spec default).
@@ -34,12 +31,10 @@ type MessagingEventCache* = ref object
   sendByReqId: Table[string, SendStatus]
   sendOrder: Deque[string]
   maxSendRequests: int
-  sendDropped: uint64 ## request ids evicted since the last poll of all statuses
   # Received messages, bounded ring. Cleared on poll.
   received: Deque[ReceivedMessageRecord]
   maxReceived: int
-  nextReceivedSeq: uint64 ## the `seq` the next received record gets, from 1
-  receivedDropped: uint64 ## records evicted since the last poll
+  nextReceivedSeq: uint64 ## the `seq` of the newest received record; 0 before the first
 
 proc new*(
     T: type MessagingEventCache,
@@ -77,8 +72,6 @@ proc recordSend*(
     while self.sendOrder.len > self.maxSendRequests:
       let evicted = self.sendOrder.popFirst()
       self.sendByReqId.del(evicted)
-      inc self.sendDropped
-      logos_delivery_rest_send_status_dropped.inc()
 
   self.sendByReqId.withValue(requestId, status):
     status[].events.add(record)
@@ -102,23 +95,15 @@ proc recordReceived*(
 
   while self.received.len > self.maxReceived:
     discard self.received.popFirst()
-    inc self.receivedDropped
     logos_delivery_rest_received_dropped.inc()
 
-proc pollAllSend*(
-    self: MessagingEventCache
-): tuple[statuses: seq[SendStatus], dropped: uint64] =
-  ## Return all buffered send statuses and clear the store (evict-after-poll),
-  ## with the number of request ids evicted since the previous poll.
-  var statuses: seq[SendStatus]
+proc pollAllSend*(self: MessagingEventCache): seq[SendStatus] =
+  ## Return all buffered send statuses and clear the store (evict-after-poll).
   for reqId in self.sendOrder:
     self.sendByReqId.withValue(reqId, status):
-      statuses.add(status[])
+      result.add(status[])
   self.sendByReqId.clear()
   self.sendOrder.clear()
-  let dropped = self.sendDropped
-  self.sendDropped = 0
-  return (statuses, dropped)
 
 proc pollSend*(self: MessagingEventCache, requestId: string): Opt[SendStatus] =
   ## Return one request id's send status and remove it (evict-after-poll).
@@ -135,17 +120,10 @@ proc pollSend*(self: MessagingEventCache, requestId: string): Opt[SendStatus] =
 
   return Opt.some(status)
 
-proc pollReceived*(
-    self: MessagingEventCache
-): tuple[records: seq[ReceivedMessageRecord], dropped: uint64] =
-  ## Return buffered received messages (oldest first) and clear (evict-after-poll),
-  ## with the number of records evicted since the previous poll.
-  var records: seq[ReceivedMessageRecord]
+proc pollReceived*(self: MessagingEventCache): seq[ReceivedMessageRecord] =
+  ## Return buffered received messages (oldest first) and clear (evict-after-poll).
   for record in self.received:
-    records.add(record)
+    result.add(record)
   self.received.clear()
-  let dropped = self.receivedDropped
-  self.receivedDropped = 0
-  return (records, dropped)
 
 {.pop.}

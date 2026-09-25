@@ -39,13 +39,6 @@ proc jsonResponse*(
   let encoded = ?encodeIntoJsonBytes(data)
   ok(RestApiResponse.response(encoded, status, $MIMETYPE_JSON))
 
-proc jsonResponse*(
-    t: typedesc[RestApiResponse], data: auto, status: HttpCode, headers: HttpTable
-): SerdesResult[RestApiResponse] =
-  ## As above, with extra response headers.
-  let encoded = ?encodeIntoJsonBytes(data)
-  ok(RestApiResponse.response(encoded, status, $MIMETYPE_JSON, headers))
-
 proc textResponse*(
     t: typedesc[RestApiResponse], data: string, status: HttpCode = Http200
 ): RestApiResponse =

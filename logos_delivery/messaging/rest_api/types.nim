@@ -167,7 +167,8 @@ type
 
   ReceivedMessageRecord* = object
     seq*: uint64
-      ## position in the node's received stream, from 1; a gap is evicted records
+      ## position in the node's received stream, from 1 at node start; with one
+      ## polling client, a gap is evicted records
     messageHash*: string
     message*: RelayWakuMessage ## the received WakuMessage, full fidelity
     source*: MessageSource ## `live` from the network, `history` from Store
@@ -282,7 +283,7 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var ReceivedMessageRecord
 ) {.raises: [SerializationError, IOError].} =
   var
-    seq = uint64(0)
+    seqNum = uint64(0)
     messageHash = ""
     message = RelayWakuMessage()
     source = Opt.none(MessageSource)
@@ -290,7 +291,7 @@ proc readValue*(
   for fieldName in readObjectFields(reader):
     case fieldName
     of "seq":
-      seq = reader.readValue(uint64)
+      seqNum = reader.readValue(uint64)
     of "messageHash":
       messageHash = reader.readValue(string)
     of "message":
@@ -304,5 +305,5 @@ proc readValue*(
     reader.raiseUnexpectedValue("Field `source` is missing")
 
   value = ReceivedMessageRecord(
-    seq: seq, messageHash: messageHash, message: message, source: source.get()
+    seq: seqNum, messageHash: messageHash, message: message, source: source.get()
   )

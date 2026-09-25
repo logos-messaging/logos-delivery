@@ -30,14 +30,6 @@ const ROUTE_MESSAGING_EVENTS_SENDV1* = "/messaging/v1/events/send"
 const ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1* = "/messaging/v1/events/send/{requestId}"
 const ROUTE_MESSAGING_EVENTS_RECEIVEDV1* = "/messaging/v1/events/received"
 
-const DroppedHeader* = "X-Messaging-Dropped"
-  ## Number of items evicted since the previous poll, on the two poll-all GETs.
-
-proc droppedHeaders(dropped: uint64): HttpTable =
-  var headers = HttpTable.init()
-  headers.add(DroppedHeader, $dropped)
-  return headers
-
 const AutoshardingRequiredMsg =
   "autosharding is not configured: content-topic subscriptions and sends need --preset or --num-shards-in-network"
 
@@ -189,11 +181,8 @@ proc installMessagingApiHandlers*(
 
   router.api(MethodGet, ROUTE_MESSAGING_EVENTS_SENDV1) do() -> RestApiResponse:
     ## Returns all buffered send events grouped by request id, then clears them.
-    let (data, dropped) = eventCache.pollAllSend()
-    if dropped > 0:
-      debug "Messaging REST client fell behind: send statuses were evicted before being polled",
-        dropped = dropped, capacity = DefaultMaxSendRequests
-    return RestApiResponse.jsonResponse(data, Http200, droppedHeaders(dropped)).valueOr:
+    let data = eventCache.pollAllSend()
+    return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
       error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
@@ -220,13 +209,10 @@ proc installMessagingApiHandlers*(
     return RestApiResponse.ok()
 
   router.api(MethodGet, ROUTE_MESSAGING_EVENTS_RECEIVEDV1) do() -> RestApiResponse:
-    ## Returns buffered received messages (oldest first), then clears them.
-    ## The header counts evictions since the previous poll.
-    let (data, dropped) = eventCache.pollReceived()
-    if dropped > 0:
-      debug "Messaging REST client fell behind: received messages were evicted before being polled",
-        dropped = dropped, capacity = maxReceived
-    return RestApiResponse.jsonResponse(data, Http200, droppedHeaders(dropped)).valueOr:
+    ## Returns buffered received messages (up to the cache capacity, oldest
+    ## first), then clears them — optimized for polling.
+    let data = eventCache.pollReceived()
+    return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
       error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 

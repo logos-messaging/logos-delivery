@@ -226,16 +226,6 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  test "a send status eviction is reported by the next poll only":
-    let cache = MessagingEventCache.new(maxSendRequests = 2)
-    for i in 0 ..< 3:
-      cache.recordSend("req-" & $i, "0x" & $i, SendEventKind.Propagated)
-    let (statuses, dropped) = cache.pollAllSend()
-    check:
-      statuses.len == 2
-      dropped == 1
-      cache.pollAllSend().dropped == 0
-
   asyncTest "received cache capacity follows --rest-messaging-cache-capacity":
     var conf = restNodeConf()
     conf.restMessagingCacheCapacity = 5
