@@ -40,7 +40,7 @@ export PATH="$(make print-nimble-path):$PATH"
 
 > Some distributions (Fedora, for example) don't ship the `which` utility by default. The Makefile relies on it, so install it separately.
 
-### logosdeliverynode
+### Node
 
 ```bash
 # The first `make` invocation will initialize the local dependency state.
