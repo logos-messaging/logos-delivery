@@ -9,6 +9,9 @@
 , libpqPackage         ? null
 , enableNimDebugDlOpen ? true
 , chroniclesLogLevel   ? null
+  # The Logos Core module image: the library plus the logos_module_* exports
+  # (library/logos_module), built as liblogosdelivery_module.<ext>.
+, moduleImage          ? false
 }:
 
 let
@@ -180,7 +183,7 @@ let
 in
 assert !isWindows || !enablePostgres || libpqPackage != null;
 pkgs.stdenv.mkDerivation {
-  pname = if buildApp then appTarget else "liblogosdelivery";
+  pname = if buildApp then appTarget else if moduleImage then "liblogosdelivery_module" else "liblogosdelivery";
   version = "dev";
 
   inherit src;
@@ -244,6 +247,24 @@ pkgs.stdenv.mkDerivation {
       extraArgs = [ "--path:." ];
     }}
     '' else ''
+    ${lib.optionalString moduleImage ''
+    echo "== Building liblogosdelivery_module (the Logos Core module image) =="
+    ${nimCompile {
+      outFile = "build/liblogosdelivery_module.${libExt}";
+      sourceFile = "library/logos_module/liblogosdelivery_module.nim";
+      extraArgs = [
+        "--app:lib"
+        "--opt:size"
+        "--noMain"
+        "--nimMainPrefix:liblogosdelivery"
+        "--define:logosModule"
+        # The lp_* symbols resolve against the host at load, as the module
+        # glue's own do.
+        (if hostPlatform.isDarwin then "--passL:-Wl,-undefined,dynamic_lookup"
+         else "--passL:-Wl,--unresolved-symbols=ignore-in-object-files")
+      ] ++ libDefineArgs;
+    }}
+    ''}
     echo "== Building liblogosdelivery (dynamic) =="
     ${nimCompile {
       outFile = "build/liblogosdelivery.${libExt}";
@@ -287,6 +308,7 @@ ${installLibpq "$out/bin"}
     runHook preInstall
     mkdir -p $out/lib $out/include${lib.optionalString isWindows " $out/bin"}
     cp build/liblogosdelivery.${libExt} $out/${dllDir}/
+    ${lib.optionalString moduleImage "cp build/liblogosdelivery_module.${libExt} $out/${dllDir}/"}
     cp build/liblogosdelivery.a         $out/lib/
 ${lib.optionalString isWindows ''
     # The import library belongs in lib/ (a link-time input), beside the static

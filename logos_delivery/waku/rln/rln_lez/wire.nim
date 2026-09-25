@@ -52,7 +52,93 @@ proc rlnPluginRegistered*(): bool =
   ## the wire: there is no separate configuration switch.
   gRlnPlugin
 
-when defined(ffiPollMode):
+when defined(logosModule):
+  # The module image: the node asks liblogos_rln_module itself, through
+  # logos-core's lp_* C ABI, from its own thread. The completion arrives on a
+  # protocol thread, so the answer crosses back over a ThreadSignal.
+  import std/os
+  import chronos/threadsync
+  import sdk/lp_client # just the lp client: logos_sdk as a whole brings ok/err overloads the parsers must not see
+
+  const
+    RlnTarget = "liblogos_rln_module"
+    RlnOrigin = "delivery_module"
+    RlnLocalTimeoutMs = 10_000
+    RlnRegistryReadTimeoutMs = 70_000
+
+  var
+    gRegistryId: string
+    gRlnIdentifier: string
+
+  proc setRlnScope*(registryId, rlnIdentifier: string) =
+    ## The registry and identifier every question carries; the host's preset
+    ## decided them. Set before the node is created.
+    gRegistryId = registryId
+    gRlnIdentifier = rlnIdentifier
+
+  type Pending = object
+    signal: ThreadSignalPtr
+    ok: bool
+    reply: cstring # allocShared copy; nil until answered
+
+  proc onLpReply(ok: cint, json: cstring, userData: pointer) {.cdecl.} =
+    let p = cast[ptr Pending](userData)
+    p.ok = ok != 0
+    if not json.isNil:
+      let n = json.len
+      p.reply = cast[cstring](allocShared0(n + 1))
+      copyMem(p.reply, json, n)
+    discard p.signal.fireSync()
+
+  proc unwrap(text: string): string =
+    ## lp may hand a JSON string containing the module's JSON; one level off,
+    ## so the parsers see the module's dialects themselves.
+    try:
+      let j = parseJson(text)
+      if j.kind == JString:
+        return j.getStr()
+    except CatchableError:
+      discard
+    return text
+
+  proc askRln(meth: string, args: JsonNode, timeoutMs: int): Future[Result[string, string]] {.async.} =
+    let p = cast[ptr Pending](allocShared0(sizeof(Pending)))
+    p.signal = ThreadSignalPtr.new().valueOr:
+      deallocShared(p)
+      return err("failed to allocate RLN request")
+    defer:
+      discard p.signal.close()
+      if not p.reply.isNil:
+        deallocShared(p.reply)
+      deallocShared(p)
+    callModuleAsync(RlnTarget, RlnOrigin, meth, args, timeoutMs, onLpReply, p).isOkOr:
+      return err(error)
+    let answered = await p.signal.wait().withTimeout(chronos.milliseconds(timeoutMs + 10_000))
+    if not answered:
+      return err("timeout")
+    let text = if p.reply.isNil: "" else: $p.reply
+    if not p.ok:
+      return err(text)
+    return ok(unwrap(text))
+
+  template scope(): (string, string) =
+    # set once, before the node exists; read from the node's thread after
+    {.cast(gcsafe).}:
+      (gRegistryId, gRlnIdentifier)
+
+  proc rlnGetMembershipState*(): RlnAnswer {.gcsafe, raises: [].} =
+    let (reg, id) = scope()
+    askRln("get_membership_state", %[reg, id], RlnRegistryReadTimeoutMs)
+  proc rlnGetEpochQuota*(timestamp: uint64): RlnAnswer {.gcsafe, raises: [].} =
+    let (reg, id) = scope()
+    askRln("get_epoch_quota", %[reg, id, $timestamp], RlnLocalTimeoutMs)
+  proc rlnGenerateProof*(signalHex: string, timestamp: uint64): RlnAnswer {.gcsafe, raises: [].} =
+    let (reg, id) = scope()
+    askRln("generate_proof", %[reg, id, signalHex, $timestamp], RlnRegistryReadTimeoutMs)
+  proc rlnValidateProof*(signalHex: string, timestamp: uint64, proofJson: string): RlnAnswer {.gcsafe, raises: [].} =
+    let (reg, id) = scope()
+    askRln("validate_proof", %[reg, id, signalHex, $timestamp, proofJson], RlnLocalTimeoutMs)
+elif defined(ffiPollMode):
   import ffi
 
   # `{.ffiReverse.}` reads the return type as written: spelled out, not the alias.

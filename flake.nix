@@ -79,6 +79,14 @@
 
           # `-d:postgres` binds libpq before main(), so each Windows artifact
           # receives the cross-built runtime through libpqPackage.
+          # The Logos Core module image (see library/logos_module).
+          liblogosdelivery_module = pkgs.callPackage ./nix/default.nix {
+            inherit pkgs;
+            src = ./.;
+            inherit zerokitRln libpqPackage;
+            gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
+            moduleImage = true;
+          };
           wakucanary = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
@@ -94,7 +102,7 @@
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
         in {
-          inherit liblogosdelivery wakucanary logosdeliverynode;
+          inherit liblogosdelivery liblogosdelivery_module wakucanary logosdeliverynode;
           # Expose librln so downstream consumers link the exact same build.
           rln = zerokitRln;
         };

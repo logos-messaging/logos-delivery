@@ -1,6 +1,8 @@
 import ffi
 import results
 import logos_delivery
+when defined(logosModule):
+  import ./logos_module/events
 
 declareLibrary("logosdelivery", LogosDelivery)
 
@@ -12,8 +14,12 @@ template emitEvent*(eventName: string, body: untyped) =
   ## logs: a defect raised while rendering one event must not take the node down,
   ## and it cannot be re-raised without breaking the `raises: []` contract.
   try:
-    dispatchFFIEvent(eventName):
-      body
+    when defined(logosModule):
+      # The module image: straight to the host's emit callback, on this thread.
+      emitLibraryEvent(body)
+    else:
+      dispatchFFIEvent(eventName):
+        body
   except Exception as e:
     chronicles.error "failed to emit FFI event", event = eventName, err = e.msg
 

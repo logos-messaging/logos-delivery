@@ -474,6 +474,19 @@ task liblogosdelivery, "Build liblogosdelivery for the host platform":
   else:
     buildLibDynamicLinux("liblogosdelivery", "library")
 
+
+task liblogosdeliveryModule, "Build the Logos Core module image: liblogosdelivery plus the logos_module_* exports":
+  ## logos-delivery as a Logos Core module in one image (library/logos_module).
+  ## Needs logos-nim-sdk on the path and nim-ffi's poll model; the lp_* symbols
+  ## resolve against the host at load.
+  let unresolved =
+    when defined(macosx): " --passL:\"-Wl,-undefined,dynamic_lookup\""
+    else: " --passL:-Wl,--unresolved-symbols=ignore-in-object-files"
+  buildLibrary(
+    "liblogosdelivery_module" & (when defined(macosx): ".dylib" else: ".so"),
+    "library/logos_module", " -d:ffiPollMode -d:logosModule" & unresolved, "dynamic",
+    "liblogosdelivery_module.nim",
+  )
 task liblogosdeliveryDynamicWindows, "Generate bindings":
   buildLibDynamicWindows("liblogosdelivery", "library")
 

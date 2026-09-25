@@ -217,14 +217,23 @@ proc logosdelivery_create_node(
 
   return ok(lib)
 
+proc lifecycleEvent(eventType: string, success: bool, message: string): string =
+  ## `node_started` / `node_stopped`: the outcome of start and stop, as events,
+  ## so a host that does not wait for the reply still learns it.
+  return $(%*{"eventType": eventType, "success": success, "message": message})
+
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
   (await self.start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
+    emitEvent("onNodeStarted"):
+      lifecycleEvent("node_started", false, errMsg)
     return err("failed to start: " & errMsg)
 
+  emitEvent("onNodeStarted"):
+    lifecycleEvent("node_started", true, "")
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
@@ -239,7 +248,11 @@ proc logosdelivery_stop_node(
   (await self.stopNode()).isOkOr:
     let errMsg = $error
     chronicles.error "STOP_NODE failed", err = errMsg
+    emitEvent("onNodeStopped"):
+      lifecycleEvent("node_stopped", false, errMsg)
     return err("failed to stop: " & errMsg)
+  emitEvent("onNodeStopped"):
+    lifecycleEvent("node_stopped", true, "")
   return ok("")
 
 proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =

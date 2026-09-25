@@ -348,4 +348,13 @@
     fetchSubmodules = true;
   };
 
+
+  # Hand-added (not in nimble.lock yet): the provider half of logos-nim-sdk
+  # (branch feat/poll-host), which library/logos_module builds on.
+  logos_nim_sdk = pkgs.fetchgit {
+    url = "https://github.com/logos-co/logos-nim-sdk";
+    rev = "0c8646f10e87f734f4e8266ef962286e2de36d8e";
+    sha256 = "071dizhvc9qn7ikwdb8jyd0x8s4pxfj8v57vbc6rqgsz8csnw9zp";
+    fetchSubmodules = false;
+  };
 }
