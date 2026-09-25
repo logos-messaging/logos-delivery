@@ -696,11 +696,8 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.peerManager.stop()
 
-  if not node.rln.isNil():
-    try:
-      await node.rln.stop() ## this can raise an exception
-    except Exception:
-      error "exception stopping the node", error = getCurrentExceptionMsg()
+  if node.rlnPlugin.isSome() and not node.rlnPlugin.get().stop.isNil():
+    await node.rlnPlugin.get().stop()
 
   if not node.wakuArchive.isNil():
     await node.wakuArchive.stopWait()
@@ -719,7 +716,9 @@ proc stop*(node: WakuNode) {.async.} =
   node.baseAnnounced = Opt.none(seq[MultiAddress])
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
-  if node.rln == nil:
+  let plugin = node.rlnPlugin.valueOr:
     return true
-  return await node.rln.isReady()
+  if plugin.isReady.isNil():
+    return true
+  return await plugin.isReady()
   ## TODO: add other protocol `isReady` checks

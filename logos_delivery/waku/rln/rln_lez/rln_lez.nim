@@ -10,8 +10,10 @@
 import std/json
 import chronos, chronicles, results
 import stew/byteutils
+import logos_delivery/waku/waku_core/message/message
+from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 import ../types, ./transport
-import ../rln_api
+import ../rln_api, ../rln_plugin
 
 export types
 
@@ -91,5 +93,48 @@ proc verifyMembership*(
   if state.status.isUsable():
     w.membershipVerified = true
   return ok(state.status)
+
+proc toRlnPlugin*(lez: RlnLez): RlnPlugin =
+  ## The node's handle on this backend (`node.rlnPlugin`). The host owns the
+  ## backend's lifecycle, health and proof refresh, so those closures stay nil.
+  proc validate(
+      message: WakuMessage
+  ): Future[Result[ValidationResult, RlnError]] {.async.} =
+    ## Local checks, then the host's verdict (the same calls as the
+    ## `RequestValidateRlnProof` provider in `./transport`).
+    if message.timestamp < 0:
+      trace "RLN validator reject", error = "Negative message timestamp"
+      return ok(ValidationResult(verdict: ProofVerdict.Invalid))
+    if message.proof.len == 0:
+      trace "RLN validator reject", error = "Message has no RLN proof"
+      return ok(ValidationResult(verdict: ProofVerdict.Invalid))
+    let timestamp = uint64(message.timestamp div 1_000_000_000)
+
+    let proofJson = $(%*{"proof": message.proof.toHex()})
+    let response = (
+      await rlnValidateProof(message.toRLNSignal().toHex(), timestamp, proofJson)
+    ).valueOr:
+      return err(toRlnError(error))
+    return parseRlnValidationResult(response)
+
+  proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+    ## The membership gate, then the host's proof (the same calls as the
+    ## `RequestGenerateRlnProof` provider in `./transport`). A passed gate is
+    ## cached on `lez`, which the factory's startup check shares.
+    if message.timestamp <= 0:
+      return err(RlnError.permanent("the message has not been timestamped"))
+    let timestamp = uint64(message.timestamp div 1_000_000_000)
+
+    if not lez.membershipVerified:
+      let status = (await lez.verifyMembership()).valueOr:
+        return err(RlnError.transient("could not verify the RLN membership: " & error))
+      if not lez.membershipVerified:
+        return err(RlnError.notReady("no usable RLN membership: " & $status))
+
+    let response = (await rlnGenerateProof(message.toRLNSignal().toHex(), timestamp)).valueOr:
+      return err(toRlnError(error))
+    return parseRlnGeneratedProof(response)
+
+  return RlnPlugin(name: "external", validateProof: validate, generateProof: generate)
 
 {.pop.}

@@ -18,6 +18,7 @@ import
     api/events/health_events,
     api/events/peer_events,
     rln,
+    rln/rln_plugin,
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,
@@ -121,12 +122,14 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getRlnRelayHealth(hm: NodeHealthMonitor): Future[ProtocolHealth] {.async.} =
   var p = ProtocolHealth.init(WakuProtocol.RlnRelayProtocol)
-  if isNil(hm.node.rln):
+  let plugin = hm.node.rlnPlugin.valueOr:
+    return p.notMounted()
+  if plugin.isReady.isNil():
     return p.notMounted()
 
   const FutIsReadyTimout = 5.seconds
 
-  let isReadyStateFut = hm.node.rln.isReady()
+  let isReadyStateFut = plugin.isReady()
   if not await isReadyStateFut.withTimeout(FutIsReadyTimout):
     return p.notReady("Ready state check timed out")
 

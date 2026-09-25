@@ -30,6 +30,7 @@ import
   logos_delivery/waku/
     [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
 import logos_delivery/waku/rln/types as rln_api_types
+import logos_delivery/waku/rln/rln_plugin
 
 # Re-export the submodules so existing `import rln`
 # callers see the moved symbols
@@ -183,7 +184,9 @@ proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
     await sleepAsync(sleepDuration)
 
 proc mount(
-    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
+    conf: WakuRlnConfig,
+    registrationHandler = Opt.none(RegistrationHandler),
+    brokerCtx = globalBrokerContext(),
 ): Future[Result[RlnEvm, string]] {.async.} =
   var
     groupManager: RlnEvmGroupManagerBase
@@ -223,7 +226,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
-    brokerCtx: globalBrokerContext(),
+    brokerCtx: brokerCtx,
   )
 
   RequestGenerateRlnProof.setProvider(
@@ -260,15 +263,80 @@ proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
       err = getCurrentExceptionMsg()
     return false
 
+proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
+  ## The node's handle on this backend (`node.rlnPlugin`). The closures
+  ## capture this instance, so each node reaches only its own backend.
+  proc stopBackend(): Future[void] {.async.} =
+    try:
+      await rlnEvm.stop() ## this can raise an exception
+    except Exception:
+      error "exception stopping the node", error = getCurrentExceptionMsg()
+
+  proc backendReady(): Future[bool] {.async.} =
+    return await rlnEvm.isReady()
+
+  proc proofRejected() =
+    rlnEvm.groupManager.scheduleMerkleProofRefresh()
+
+  proc validate(
+      message: WakuMessage
+  ): Future[Result[ValidationResult, RlnError]] {.async.} =
+    ## Same steps as the on-chain relay validator before the seam moved; the
+    ## in-node nullifier log does duplicate and spam detection.
+    rlnEvm.clearNullifierLog()
+
+    let msgProof = protocol_types.RateLimitProof.init(message.proof).valueOr:
+      trace "Rln validator reject", error = error
+      return ok(ValidationResult(verdict: ProofVerdict.Invalid))
+
+    let validationRes = await rlnEvm.validateMessageAndUpdateLog(message)
+    trace "Rln proof checked",
+      validation = validationRes,
+      root = inHex(msgProof.merkleRoot),
+      shareX = inHex(msgProof.shareX),
+      shareY = inHex(msgProof.shareY),
+      nullifier = inHex(msgProof.nullifier)
+
+    let verdict =
+      case validationRes
+      of MessageValidationResult.Valid: ProofVerdict.Valid
+      of MessageValidationResult.Invalid: ProofVerdict.Invalid
+      of MessageValidationResult.Spam: ProofVerdict.RateLimitViolation
+    return ok(ValidationResult(verdict: verdict))
+
+  proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+    ## Root-refreshing generator against the wall clock, as the send path used
+    ## before the seam moved: a message can wait in the send service's task
+    ## cache while the group root moves on chain.
+    let proof = (
+      await rlnEvm.generateRLNProofWithRootRefresh(
+        message.toRLNSignal(), float64(getTime().toUnix())
+      )
+    ).valueOr:
+      return err(RlnError.transient(error))
+    return ok(proof)
+
+  return RlnPlugin(
+    name: "onchain",
+    stop: stopBackend,
+    isReady: backendReady,
+    onProofRejected: proofRejected,
+    validateProof: validate,
+    generateProof: generate,
+  )
+
 proc new*(
     T: type RlnEvm,
     conf: WakuRlnConfig,
     registrationHandler = Opt.none(RegistrationHandler),
+    brokerCtx = globalBrokerContext(),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.
+  ## `brokerCtx` scopes the backend's broker providers; pass the node's
+  ## context so validation requests find this instance's providers.
   try:
-    return await mount(conf, registrationHandler)
+    return await mount(conf, registrationHandler, brokerCtx)
   except CatchableError:
     return err("could not mount the rln-relay protocol: " & getCurrentExceptionMsg())

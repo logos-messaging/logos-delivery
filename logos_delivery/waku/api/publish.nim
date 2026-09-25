@@ -7,7 +7,7 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/[random, tables, times, strutils]
+import std/[random, tables, strutils]
 import results, chronos, libp2p_mix/pool
 
 import logos_delivery/waku/waku
@@ -15,17 +15,16 @@ import
   logos_delivery/waku/[
     waku_core,
     node/waku_node,
+    rln/rln_plugin,
     node/waku_node/lightpush,
     node/peer_manager,
     waku_relay/protocol,
     rln,
-    rln/rln_lez/rln_lez,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/client,
     waku_lightpush/callbacks,
     waku_mix,
-    requests/rln_requests,
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
@@ -64,45 +63,19 @@ proc attachRlnProof*(
   ## returned untouched, so retrying a task neither redraws a nonce nor changes
   ## the bytes. Without RLN mounted the message passes through unproven.
   ##
-  ## Uses the root-refreshing generator: a message can wait in the send
-  ## service's task cache while the group root moves on chain, so the proof is
-  ## validated against the acceptable-root window and regenerated once against a
-  ## refetched merkle path if it went stale.
+  ## How the proof is built (its epoch source, whether a stale merkle root is
+  ## refreshed) is the mounted backend's business.
   if message.proof.len > 0:
     return ok(message)
 
-  if not self.node.rlnLez.isNil():
-    let rlnLez = self.node.rlnLez
-    if message.timestamp <= 0:
-      return
-        err("Cannot attach an RLN proof to a message that has not been timestamped")
-    let timestamp = uint64(message.timestamp div 1_000_000_000)
-
-    if not rlnLez.membershipVerified:
-      let status = (await rlnLez.verifyMembership()).valueOr:
-        return err("Failed to verify RLN membership: " & error)
-      if not rlnLez.membershipVerified:
-        return err("The node does not have a usable RLN membership: " & $status)
-
-    let generated = (
-      await RequestGenerateRlnProof.request(self.brokerCtx, message, timestamp)
-    ).valueOr:
-      return err("Failed to attach RLN proof: " & error)
-    var msgWithProof = message
-    msgWithProof.proof = generated.proof
-    return ok(msgWithProof)
-
-  if self.node.rln.isNil():
+  let plugin = self.node.rlnPlugin.valueOr:
+    return ok(message)
+  if plugin.generateProof.isNil():
     return ok(message)
 
   var msgWithProof = message
-  msgWithProof.proof = (
-    await self.node.rln.generateRLNProofWithRootRefresh(
-      message.toRLNSignal(), float64(getTime().toUnix())
-    )
-  ).valueOr:
-    return err("failed to attach RLN proof: " & error)
-
+  msgWithProof.proof = (await plugin.generateProof(message)).valueOr:
+    return err("Failed to attach RLN proof: " & $error)
   return ok(msgWithProof)
 
 func isRlnRejection*(error: ErrorStatus): bool =
@@ -121,14 +94,15 @@ func isRlnRejection*(error: ErrorStatus): bool =
     )
 
 proc onRlnProofRejected*(self: Waku) =
-  ## Called when a publish was rejected as RLN-invalid. Starts refetching the
-  ## merkle path in the background, so the next proof generated for the message
-  ## is built against a fresh one. Non-blocking: the send service's own loop is
-  ## what retries, and it must not stall waiting on an RPC round trip.
-  if self.node.rln.isNil():
+  ## Called when a publish was rejected as RLN-invalid. Lets the mounted RLN
+  ## backend refresh whatever the proof was built against, so the next proof
+  ## generated for the message is built fresh. Non-blocking: the send
+  ## service's own loop is what retries, and it must not stall waiting on an
+  ## RPC round trip. A backend without a refresh concept installs no hook.
+  let plugin = self.node.rlnPlugin.valueOr:
     return
-
-  self.node.rln.groupManager.scheduleMerkleProofRefresh()
+  if not plugin.onProofRejected.isNil():
+    plugin.onProofRejected()
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
