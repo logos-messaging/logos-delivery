@@ -730,9 +730,7 @@ hence would have reachability issues.""",
 
   ## quic config
   quicSupport* {.
-    desc: "Enable QUIC transport:  true|false",
-    defaultValue: true,
-    name: "quic-support"
+    desc: "Enable QUIC transport:  true|false", defaultValue: true, name: "quic-support"
   .}: bool
 
   quicPort* {.
