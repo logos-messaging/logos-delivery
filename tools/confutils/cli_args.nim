@@ -733,9 +733,12 @@ hence would have reachability issues.""",
     desc: "Enable QUIC transport:  true|false", defaultValue: true, name: "quic-support"
   .}: bool
 
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   quicPort* {.
-    desc: "QUIC (UDP) listening port.", defaultValue: 60000, name: "quic-port"
-  .}: Port
+    desc: "QUIC (UDP) listening port. Default is the TCP port (--tcp-port).",
+    defaultValue: Opt.none(Port),
+    name: "quic-port"
+  .}: Opt[Port]
 
   ## Rate limitation config, if not set, rate limit checks will not be performed
   rateLimits* {.
@@ -1177,7 +1180,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
 
   b.quicConf.withEnabled(n.quicSupport)
-  b.quicConf.withQuicPort(n.quicPort)
+  if n.quicPort.isSome():
+    b.quicConf.withQuicPort(n.quicPort.get())
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)

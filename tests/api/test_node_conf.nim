@@ -413,3 +413,39 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
     check:
       c.wakuFlags.isServiceNode()
       not c.kademliaDiscoveryConf.get().clientMode
+
+suite "QUIC port defaults":
+  proc quicPortOf(conf: WakuNodeConf): Port =
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+    return wakuConf.quicConf.get().port
+
+  test "an unset quic port follows the tcp port":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    check conf.quicPortOf() == conf.tcpPort
+    conf.tcpPort = Port(30304)
+    check conf.quicPortOf() == Port(30304)
+
+  test "an explicit quic port wins over the tcp port":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.tcpPort = Port(30304)
+    conf.quicPort = Opt.some(Port(40404))
+    check conf.quicPortOf() == Port(40404)
+
+  test "ports-shift moves a defaulted quic port with the tcp port":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.tcpPort = Port(30304)
+    conf.portsShift = 2
+    check conf.quicPortOf() == Port(30306)
+
+  test "a json tcpPort of 0 auto-assigns quic too, and quicPort parses":
+    let auto = parseLogosDeliveryConf("""{"tcpPort": 0}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(auto.kernelConf).quicPortOf() == Port(0)
+
+    let explicit = parseLogosDeliveryConf("""{"tcpPort": 0, "quicPort": 40404}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(explicit.kernelConf).quicPortOf() == Port(40404)

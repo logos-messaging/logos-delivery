@@ -206,7 +206,7 @@ proc toWakuNodeConf*(
   conf.tcpPort = self.p2pTcpPort.get(Port(0))
   conf.discv5UdpPort = self.discv5UdpPort.get(Port(0))
   conf.websocketPort = self.websocketPort.get(Port(0))
-  conf.quicPort = self.quicPort.get(Port(0))
+  conf.quicPort = self.quicPort
   conf.websocketSupport = self.websocketSupport.get(false)
   conf.quicSupport = self.quicSupport.get(true)
 

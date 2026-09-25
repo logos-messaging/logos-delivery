@@ -704,9 +704,6 @@ proc build*(
   var webSocketConf = builder.webSocketConf.build().valueOr:
     return err("WebSocket Conf building failed: " & $error)
 
-  var quicConf = builder.quicConf.build().valueOr:
-    return err("QUIC Conf building failed: " & $error)
-
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
@@ -778,6 +775,9 @@ proc build*(
     return err("natDiscoveryTimeoutMs must be greater than 0")
 
   var p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
+
+  var quicConf = builder.quicConf.build(p2pTcpPort).valueOr:
+    return err("QUIC Conf building failed: " & $error)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():

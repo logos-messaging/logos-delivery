@@ -4,9 +4,6 @@ import logos_delivery/waku/factory/waku_conf
 logScope:
   topics = "waku conf builder quic"
 
-# same value as tcp default port. quic is udp, no conflict.
-const DefaultQuicPort*: Port = Port(60000)
-
 #########################
 ## QUIC Config Builder ##
 #########################
@@ -26,8 +23,10 @@ proc withQuicPort*(b: var QuicConfBuilder, quicPort: Port) =
 proc withQuicPort*(b: var QuicConfBuilder, quicPort: uint16) =
   b.quicPort = Opt.some(Port(quicPort))
 
-proc build*(b: QuicConfBuilder): Result[Opt[QuicConf], string] =
+proc build*(b: QuicConfBuilder, tcpPort: Port): Result[Opt[QuicConf], string] =
+  ## An unset quic port follows the tcp port: quic is udp so the numbers don't
+  ## clash, and the tcp port is already unique per host (0 auto-assigns both).
   if not b.enabled.get(false):
     return ok(Opt.none(QuicConf))
 
-  return ok(Opt.some(QuicConf(port: b.quicPort.get(DefaultQuicPort))))
+  return ok(Opt.some(QuicConf(port: b.quicPort.get(tcpPort))))
