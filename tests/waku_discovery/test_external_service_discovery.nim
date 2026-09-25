@@ -34,6 +34,7 @@ type FakeState = object
   advertLive: Atomic[bool]
     ## Whether the plugin holds the advert. Like libp2p, it refuses to
     ## advertise a key it already holds.
+  advertCalls: Atomic[int] ## every startAdvertising call, taken or not
   advertTaken: Atomic[int]
   advertRefusedAsHeld: Atomic[int]
   stopAdvertCalls: Atomic[int]
@@ -153,6 +154,9 @@ proc fakeStartAdvertising(
     errBuf: cstring,
     errBufLen: csize_t,
 ): cint {.cdecl, gcsafe, raises: [].} =
+  ## Recorded on entry, so a test can tell which advert a call in flight is for.
+  setKey(key)
+  discard fake.advertCalls.fetchAdd(1)
   if refused(errBuf, errBufLen):
     return LdDiscoError
   if fake.advertLive.load():
@@ -163,7 +167,6 @@ proc fakeStartAdvertising(
   let delay = fake.advertDelayMs.exchange(0)
   if delay > 0:
     sleep(delay)
-  setKey(key)
   let dn = min(dataLen.int, fake.lastData.len)
   for i in 0 ..< dn:
     fake.lastData[i] = data[i]
@@ -746,6 +749,35 @@ suite "ExternalServiceDiscovery":
     check:
       backend.pendingAnnouncements() == 0
       fake.advertTaken.load() == 2
+
+  asyncTest "a key removed while a pass is out is not sent":
+    ## A pass walks a snapshot of the keys. One removed during an earlier call
+    ## of the same pass must be skipped, not sent as an empty default entry.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    discard provideNodeIdentity(ctx)
+
+    let iface: IPeerDiscovery = backend
+    ## Both wanted before start, so the first pass has both in its snapshot.
+    check (await iface.startAdvertising("service:a", @[1'u8])).isOk()
+    check (await iface.startAdvertising("service:b", @[2'u8])).isOk()
+    fake.advertDelayMs.store(500)
+    check (await iface.startDiscovery()).isOk()
+
+    ## The first advert's call is inside the plugin (it consumed the delay);
+    ## stop the other one meanwhile.
+    check eventually(fake.advertDelayMs.load() == 0)
+    let other = if lastKey() == "service:a": "service:b" else: "service:a"
+    check (await iface.stopAdvertising(other)).isOk()
+
+    check eventually(backend.pendingAnnouncements() == 0)
+    check:
+      fake.advertCalls.load() == 1
+      fake.advertTaken.load() == 1
+      fake.advertRefusedAsHeld.load() == 0
+
+    check (await iface.stopDiscovery()).isOk()
 
   asyncTest "an interest the plugin refuses is still looked up":
     ## A lookup does not depend on the interest, which only pre-warms the

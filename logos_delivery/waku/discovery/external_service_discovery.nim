@@ -368,6 +368,10 @@ proc announcePending(
   for key in toSeq(self.adverts.keys()):
     if not self.running:
       return false
+    ## The keys are a snapshot: one may have been stopped during an earlier
+    ## call of this pass, and must not be sent as a default entry.
+    if key notin self.adverts:
+      continue
     let advert = self.adverts.getOrDefault(key)
     if advert.taken:
       continue
@@ -388,7 +392,7 @@ proc announcePending(
   for key in toSeq(self.interests.keys()):
     if not self.running:
       return false
-    if self.interests.getOrDefault(key):
+    if key notin self.interests or self.interests.getOrDefault(key):
       continue
     let res = pluginCall(
       void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
