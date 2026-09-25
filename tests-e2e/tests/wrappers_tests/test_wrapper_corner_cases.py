@@ -1,5 +1,6 @@
 import pytest
 from src.steps.common import StepsCommon
+from src.libs.common import delay
 from src.libs.custom_logger import get_custom_logger
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
@@ -16,6 +17,10 @@ from tests.wrappers_tests.conftest import build_node_config, free_port
 logger = get_custom_logger(__name__)
 
 PROPAGATED_TIMEOUT_S = 30.0
+
+# The library calls a request's callback within 5 s: the final answer or the
+# first progress tick. This wait covers it three times.
+LATE_REPLY_WAIT_S = 15
 
 # The five service ports covered by logos-messaging/logos-delivery#3828:
 # (config field, key in MyBoundPorts, config to enable the service, default port)
@@ -128,3 +133,17 @@ class TestWrapperAutoPortAllocation(StepsCommon):
             enr_result = node.get_node_info("MyENR")
             assert enr_result.is_ok(), f"MyENR query failed: {enr_result.err()}"
             assert enr_udp_port(enr_result.ok_value.strip()) == discv5_port, "ENR was not rebuilt after discv5 startup"
+
+
+class TestWrapperLateReply(StepsCommon):
+    """The library calls a request's callback after the wrapper stops waiting.
+    A wrapper that frees the callback on timeout crashes this process."""
+
+    def test_reply_after_timeout(self, node_config):
+        result = WrapperManager.create_and_start(config=node_config)
+        assert result.is_ok(), f"create_and_start failed: {result.err()}"
+
+        with result.ok_value as node:
+            stop_result = node.stop_node(timeout_s=0.0)
+            assert stop_result.is_err(), "stop_node must time out at once"
+            delay(LATE_REPLY_WAIT_S)
