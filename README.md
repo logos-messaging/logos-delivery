@@ -34,14 +34,14 @@ export PATH="$(make print-nimble-path):$PATH"
 
 ### Prerequisites
 
-The standard developer tools, including a C compiler, GNU Make, Bash, and Git.
+- The standard developer tools: a C/C++ compiler, GNU Make, Bash and Git.
+- CMake.
+- Rust (`rustc` and `cargo`).
 
 > Some distributions (Fedora, for example) don't ship the `which` utility by default. The Makefile relies on it, so install it separately.
 
-You'll also need an installation of Rust and its toolchain (specifically `rustc` and `cargo`).
-The easiest way to install them is `rustup`:
+The easiest way to install Rust is `rustup`:
 
-Rust:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
