@@ -278,8 +278,8 @@
 
   websock = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-websock";
-    rev = "387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d";
-    sha256 = "1v0m3x96fbp9jdzsys6mbxxc2xw3k3dqiv7wksfla89gc6z8w377";
+    rev = "0432dc445c500b20963ef4b76e585c1a3943c254";
+    sha256 = "17kdlywwrlnqx8chf8l1b5gsbix5mmgkpgcwrxgj58af029h4yhr";
     fetchSubmodules = true;
   };
 
@@ -306,8 +306,8 @@
 
   libp2p = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-libp2p";
-    rev = "05e8dfea23ce355b81c9ffc7df7dffdf9ce8106d";
-    sha256 = "0p43mbihrnhy2mw9hwnhkbb0vcljcfzq3b8ygjs0b5y3f2pd1hjk";
+    rev = "2643afbf06d310827a0e2c84e70cc3aff449612d";
+    sha256 = "03x3cdihpvpry61w84gvmds2h5n5z92ypkjd9mnqdfgjn4jbx3qn";
     fetchSubmodules = true;
   };
 

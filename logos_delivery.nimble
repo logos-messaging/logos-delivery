@@ -32,7 +32,8 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.5",
+  # No tag at pinning time; nim-libp2p master at version 2.4.0.
+  "https://github.com/vacp2p/nim-libp2p#2643afbf06d310827a0e2c84e70cc3aff449612d",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -41,7 +42,8 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+  # v0.4.1, the minimum nim-libp2p 2.4.0 accepts.
+  "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
