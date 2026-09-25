@@ -233,7 +233,7 @@ logosdeliverynode --websocket-secure-support=true --websocket-secure-key-path=".
 
 QUIC is a UDP-based transport that peers can use to connect to your node. It is enabled by default.
 
-The default port for QUIC is 60000.
+By default, QUIC listens on the same port number as TCP (`--tcp-port`), over UDP. Make sure that UDP port is reachable, or disable QUIC.
 
 To listen on a different UDP port, use `--quic-port`:
 
