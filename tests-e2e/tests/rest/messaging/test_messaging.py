@@ -69,8 +69,7 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         records = response.json()
         assert len(records) == 10, f"the buffer keeps the newest 10 of 15, got {len(records)}"
         assert all(self.decode_payload(record).startswith("cap-") for record in records)
-        # header, seq gap and metric each show 5 evictions
-        assert int(response.headers["X-Messaging-Dropped"]) == 5
+        # seq gap and metric each show 5 evictions
         assert [record["seq"] for record in records] == list(range(6, 16))
         self.check_metric(self.node2, "logos_delivery_rest_received_dropped_total", 5, exact=True)
 

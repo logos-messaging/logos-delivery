@@ -65,7 +65,7 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"requestId":"..."}` |
 | `GET /messaging/v1/events/send` | | every buffered send status, then cleared |
 | `GET /messaging/v1/events/send/{requestId}` | | the send status of one request, then cleared; `404` while nothing is buffered for it |
-| `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq`; the `X-Messaging-Dropped` header counts the evictions since the previous poll |
+| `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
 A send is asynchronous. `200` means that the node accepted the message. The result arrives as
 send events with the same `requestId`:
@@ -99,10 +99,7 @@ signals report evictions:
 
 * each received record has a `seq`, from 1 without gaps; a gap between two polls is the number
   of evicted records
-* both poll-all responses have an `X-Messaging-Dropped` header with the number of evictions
-  since the previous poll
-* the metrics `logos_delivery_rest_received_dropped_total` and
-  `logos_delivery_rest_send_status_dropped_total`
+* the metric `logos_delivery_rest_received_dropped_total`
 
 An eviction is an observation loss of the client, not a network loss. To stop it, poll faster
 or increase the capacity. The `Message received` log line and the
