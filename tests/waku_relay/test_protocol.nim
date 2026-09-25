@@ -1134,22 +1134,20 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg5)
 
-      # Then the message is received in self, because there's no checking, but not in other node
+      # Then gossipsub rejects it before delivery, so no node receives it
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg5) == handlerFuture.read()
 
       # When sending the 'DefaultMaxWakuMessageSize' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg6)
 
-      # Then the message is received in self, because there's no checking, but not in other node
+      # Then gossipsub rejects it before delivery, so no node receives it
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg6) == handlerFuture.read()
 
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())
