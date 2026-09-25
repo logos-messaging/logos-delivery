@@ -35,6 +35,10 @@ type NetworkPresetConf* = object
   kadBootstrapNodes*: seq[string]
   entryNodes*: seq[string]
   mix*: bool
+  mixnodes*: seq[string]
+    ## Mix bootstrap nodes as `multiaddr:mixPublicKey`, the `--mixnode` form. The
+    ## addresses are `dns4` names, which stay valid when a fleet node moves hosts;
+    ## the node resolves them in the background after the mount.
   p2pReliability*: bool
   maxPureLibp2pPeers*: int
 
@@ -83,6 +87,14 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
     enableKadDiscovery: true,
     mix: true,
+    mixnodes: @[
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby:c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH:9d92279057940efd2e5e98c8922c079c24e45c083b00360c8dc6a298b1661716",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397:fe60e95c50f70db9015525064e1fff962ccc982dde480f8faae30262710ece58",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH:312335324231ba7963c0c7524e042d1beac2927dbf810513a7fc8d901ab4e812",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP:7d683767f23f5132a79c70587fec877575460122ebd459bb29c887b7b7a32110",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE:0894b2852890d244e045f2ff5875e03a6b18f233ccd2e5297f62f7546e93884d",
+    ],
     maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
@@ -113,6 +125,14 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
     enableKadDiscovery: true,
     mix: true,
+    mixnodes: @[
+      "/dns4/node-01.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmQ9X2xDfPG3uL77V9piYDhjq14JhKCtcmNYsTMKNqrKCj:f4451493c120b6ea29fe81041d86c73cc5cf51f3ab0245b91bac6415ed73f414",
+      "/dns4/node-02.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmB8NYprrfQrgWVzsJtYWkfjsXbmJEGNMG6othXsQ53BwG:a7213a0c15f148f5845998be7191834fdabf0cd384f93b29fbe9f426215a923c",
+      "/dns4/node-01.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmF8WtwGPmeGHgYAX2277jHgy5cW9F7zsB8EqUjBZQAZQ3:77f7b2fff4e3e6f39c9cfe8cc6f944e67235b9501a80b73689ed48fa370f715a",
+      "/dns4/node-02.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmUuXhUW9bdJpzN1kfDziFiUZo4bszTk66cvr7uuyCHXR7:3e90943b68f0e35a0182f9e369f9fb2f3239949d36e5642a0030794d7cb98314",
+      "/dns4/node-01.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmL3oU95jh1BZHozn3uNhx8HEneirgr8M1jEAapzXGDqRF:0573cca393d50bca75a34e4fe5d3f9e703c7ef0f8b94af199ff05e9b21c76201",
+      "/dns4/node-02.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAm28CoBZjpyxsanC8tQpbvZ7bZJnVYuB1EgFzb571qpWsV:9b6f8e546762eaaa863778701f1a6f6dca37e7f03e64c9e35307b05018444a17",
+    ],
     maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,

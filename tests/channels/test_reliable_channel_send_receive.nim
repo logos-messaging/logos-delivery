@@ -14,6 +14,7 @@ import logos_delivery/api/events/messaging_client_events as waku_message_events
 import logos_delivery/api/messaging_client_api
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
+import logos_delivery/api/conf/modes
 
 import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/waku/persistency/keys
@@ -1493,5 +1494,51 @@ suite "Reliable Channel - content topic subscription":
 
       (await manager.closeChannel(preStartChannelId)).expect("closeChannel pre-start")
       check not waku.waku.isSubscribed(preStartTopic).expect("isSubscribed")
+
+    (await waku.stop()).expect("stop")
+
+suite "Reliable Channel - a mix fail-fast reaches the sender":
+  asyncTest "a Required send that mix cannot attempt finalises the channel request":
+    ## The send service fails a `Required` send that mix cannot attempt with no
+    ## network round trip, and `onMessageFinal` ignores an id not yet registered.
+    ## This case drives the real `MessagingSend` provider: the order is the subject.
+    const
+      channelId = ChannelId("mix-failfast-channel")
+      contentTopic = ContentTopic("/reliable-channel/1/mix-failfast/proto")
+
+    var waku: LogosDelivery
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (
+        await LogosDelivery.new(
+          KernelConf(createApiNodeConf()),
+          MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Required)),
+          ReliableChannelManagerConf(),
+        )
+      ).expect("LogosDelivery.new")
+      (await waku.start()).expect("start")
+
+    discard waku.reliableChannelManager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    let errFut = newFuture[RequestId]("channel-error")
+    discard ChannelMessageErrorEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageErrorEvent) {.async: (raises: []).} =
+          if not errFut.finished() and evt.channelId == channelId:
+            errFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageErrorEvent")
+
+    let channelReqId =
+      (await waku.reliableChannelManager.send(channelId, "hi".toBytes())).expect("send")
+
+    check await errFut.withTimeout(TestTimeout)
+    if errFut.finished():
+      check errFut.read() == channelReqId
 
     (await waku.stop()).expect("stop")

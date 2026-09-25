@@ -18,6 +18,7 @@ import
     waku_core/topics/pubsub_topic,
     waku_enr/capabilities,
     persistency/persistency,
+    waku_mix,
   ],
   tools/confutils/entry_nodes
 
@@ -483,9 +484,23 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
     builder.kademliaDiscoveryConf.bootstrapNodes, networkPresetConf.kadBootstrapNodes
   )
 
-  checkSetPresetValueToField(
-    builder.mix, networkPresetConf.mix, "Mix was provided alongside a network conf"
-  )
+  # Mounting and the ENR bit read `mixConf`, so the preset's `mix` value only
+  # feeds this `info` line. The user decides whether this node mounts mix.
+  if builder.mix.isSome() and builder.mix.get() != networkPresetConf.mix:
+    info "Mix setting differs from the network conf, the user's setting wins",
+      used = builder.mix.get(), preset = networkPresetConf.mix
+
+  # The preset's mix nodes seed the pool after the mount, so a preset node can
+  # build a path before discovery finds `MinMixPoolSize` peers with a mix key.
+  var presetMixNodes: seq[MixNodePubInfo]
+  for entry in networkPresetConf.mixnodes:
+    let mixNode = parseMixNode(entry).valueOr:
+      # A preset entry is compiled in: a malformed one is the node's own fault.
+      error "Skipping a malformed mix node in the network conf",
+        entry = entry, error = error
+      continue
+    presetMixNodes.add(mixNode)
+  builder.mixConf.withMixNodes(presetMixNodes)
 
   checkSetPresetValueToField(
     builder.maxPureLibp2pPeers, networkPresetConf.maxPureLibp2pPeers,
@@ -623,13 +638,6 @@ proc build*(
     else:
       debug "Whether to mount rendezvous is not specified, defaulting to not mounting"
       DefaultRendezvous
-
-  let mix =
-    if builder.mix.isSome():
-      builder.mix.get()
-    else:
-      debug "Whether to mount mix is not specified, defaulting to not mounting"
-      DefaultMix
 
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
 
@@ -852,7 +860,9 @@ proc build*(
     store = storeServiceConf.isSome,
     relay = relay,
     sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
-    mix = mix,
+    # Advertise Mix only when `mixConf` mounts it, so a preset alone does not
+    # make a node claim a capability it does not run.
+    mix = mixConf.isSome(),
   )
 
   ## A node that serves nothing has no reason to hold routing state for

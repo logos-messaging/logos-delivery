@@ -19,5 +19,9 @@ type EntryLayer* {.pure.} = enum
 
 type AnonymityLevel* {.pure.} = enum
   None ## Never use Mix. Send over the plain path, relay then lightpush.
-  Preferred ## Try Mix first. Use the plain path after the Mix window expires.
-  Required ## Use Mix only. Never use the plain path.
+  Preferred
+    ## Try Mix first. Take the plain path at once when Mix cannot attempt the
+    ## send, and after the Mix window when Mix gets no answer.
+  Required
+    ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
+    ## try again on the next `MixUnusableRetries` service passes, then fail.

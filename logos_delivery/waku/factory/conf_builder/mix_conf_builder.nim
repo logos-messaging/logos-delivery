@@ -1,4 +1,5 @@
 import
+  std/sequtils,
   chronicles,
   results,
   libp2p/crypto/crypto,
@@ -29,7 +30,9 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
   b.mixKey = Opt.some(mixKey)
 
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
-  b.mixNodes = mixNodes
+  ## Appends, so a preset's mix nodes and the ones given on the command line
+  ## both end up in the pool.
+  b.mixNodes = concat(b.mixNodes, mixNodes)
 
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):

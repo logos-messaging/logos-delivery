@@ -1,12 +1,12 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
-import std/sequtils, results, chronos, chronicles
+import std/[sequtils, times], results, chronos, chronicles
 import
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[publish, health],
+  logos_delivery/waku/api/[publish, health, rln],
   logos_delivery/waku/node/health_monitor,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
   logos_delivery/waku/persistency/persistency,
@@ -28,14 +28,18 @@ const
   SendQueueCapacityLimit = 1_000_000'u
 
 proc rlnQuotaProvider(waku: Waku): QuotaProvider =
-  ## Sources the rate limit manager's epoch and limit from RLN. The closure
+  ## Sources the rate limit manager's epoch budget from RLN. The closure
   ## queries `waku` on each admission, so a node whose RLN mounts after
-  ## construction upgrades from the wall-clock fallback automatically.
-  return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    let q = waku.currentRlnEpochQuota().valueOr:
+  ## construction upgrades from the local fallback automatically.
+  return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+    let res =
+      try:
+        await waku.rlnEpochQuota(MembershipScope(), uint64(getTime().toUnix()))
+      except CatchableError:
+        return Opt.none(EpochQuota)
+    let quota = res.valueOr:
       return Opt.none(EpochQuota)
-    return
-      Opt.some(EpochQuota(epochIndex: q.epochIndex, userMessageLimit: q.messageLimit))
+    return Opt.some(quota)
 
 proc requireMixReady*(
     status: ConnectionStatus, protocols: seq[ProtocolHealth]

@@ -1,11 +1,12 @@
 ## Rate Limit Manager for the Messaging API.
 ##
-## Rate-limits message transmissions against the per-epoch user message limit,
-## rejecting admission once the epoch's budget is spent. The epoch rolling
-## over refills the budget.
+## Rate-limits message transmissions against the per-epoch budget, rejecting
+## admission once the epoch's budget is spent. The epoch rolling over refills
+## the budget.
 ##
-## The epoch and limit come from a `QuotaProvider` when RLN is mounted;
-## otherwise a wall-clock window and the configured limit stand in. Parking and
+## When RLN is mounted, the epoch and the remaining budget come from the RLN
+## Module's `EpochQuota` via a `QuotaProvider`; otherwise a wall-clock window
+## and locally counted admissions against the configured cap stand in. Parking and
 ## retrying over-budget messages is the send service's job — this module only
 ## answers whether one more transmission fits the current epoch, and how close
 ## the epoch is to running out (`quotaState`).
@@ -51,14 +52,19 @@ proc new*(
     )
   )
 
-proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
+proc currentQuota(
+    self: RateLimitManager
+): Future[Opt[EpochQuota]] {.async: (raises: []).} =
   if self.quotaProvider.isNil():
     return Opt.none(EpochQuota)
-  return self.quotaProvider()
+  return await self.quotaProvider()
 
-proc refreshEpoch(self: RateLimitManager): uint64 =
-  ## Rolls the window when the epoch has advanced and returns the epoch's limit.
-  let quota = self.currentQuota()
+proc refreshEpoch(
+    self: RateLimitManager
+): Future[(uint64, Opt[EpochQuota])] {.async: (raises: []).} =
+  ## Rolls the window when the epoch has advanced and returns the epoch's limit
+  ## together with RLN's budget snapshot, if any.
+  let quota = await self.currentQuota()
 
   let epochIndex =
     if quota.isSome():
@@ -66,17 +72,18 @@ proc refreshEpoch(self: RateLimitManager): uint64 =
     else:
       wallClockEpochIndex(self.config.epochPeriodSec)
 
-  # RLN can only tighten the configured cap, never widen it: exceeding RLN's
-  # limit would fail later at proof generation.
-  var limit = self.config.messagesPerEpoch
-  if quota.isSome() and quota.get().userMessageLimit < limit:
-    limit = quota.get().userMessageLimit
-
   if epochIndex != self.currentEpochIndex:
     self.currentEpochIndex = epochIndex
     self.sentInCurrentEpoch = 0
 
-  return limit
+  # RLN's remaining budget is authoritative: it also sees message ids spent
+  # outside this manager. The local count still covers admissions whose proof
+  # has not drawn a message id yet, so it is capped by RLN's rate limit too.
+  var limit = self.config.messagesPerEpoch
+  if quota.isSome():
+    limit = min(limit, quota.get().rateLimit)
+
+  return (limit, quota)
 
 proc approachedAt(self: RateLimitManager, limit: uint64): uint64 =
   ## Sent count at which the quota is approached: ceil(limit * percent / 100),
@@ -88,18 +95,27 @@ proc approachedAt(self: RateLimitManager, limit: uint64): uint64 =
       self.config.approachedThresholdPercent
   return (limit div 100) * percent + ((limit mod 100) * percent + 99) div 100
 
-proc quotaState*(self: RateLimitManager): QuotaState =
-  ## Where the current epoch's budget stands. A disabled config is always
-  ## `Normal`.
+proc stateOf(self: RateLimitManager, used, limit: uint64): QuotaState =
+  if used >= limit:
+    return QuotaState.Exhausted
+  if used >= self.approachedAt(limit):
+    return QuotaState.Approached
+  return QuotaState.Normal
+
+proc quotaState*(self: RateLimitManager): Future[QuotaState] {.async: (raises: []).} =
+  ## Where the current epoch's budget stands: the tighter of the local count
+  ## against the local cap and RLN's consumption against RLN's own limit. A
+  ## disabled config is always `Normal`.
   if not self.config.enabled:
     return QuotaState.Normal
 
-  let limit = self.refreshEpoch()
-  if self.sentInCurrentEpoch >= limit:
-    return QuotaState.Exhausted
-  if self.sentInCurrentEpoch >= self.approachedAt(limit):
-    return QuotaState.Approached
-  return QuotaState.Normal
+  let (limit, quota) = await self.refreshEpoch()
+  var state = self.stateOf(self.sentInCurrentEpoch, limit)
+  if quota.isSome():
+    let q = quota.get()
+    let rlnUsed = q.rateLimit - min(q.remaining, q.rateLimit)
+    state = max(state, self.stateOf(rlnUsed, q.rateLimit))
+  return state
 
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
@@ -109,8 +125,8 @@ proc admit*(
   if not self.config.enabled:
     return ok()
 
-  let limit = self.refreshEpoch()
-  if self.sentInCurrentEpoch >= limit:
+  let (limit, quota) = await self.refreshEpoch()
+  if self.sentInCurrentEpoch >= limit or (quota.isSome() and quota.get().remaining == 0):
     return err(RateLimitError.OverBudget)
 
   self.sentInCurrentEpoch.inc()

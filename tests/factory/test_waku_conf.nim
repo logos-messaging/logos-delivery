@@ -2,9 +2,10 @@
 
 import
   libp2p/crypto/[crypto, secp],
+  libp2p/crypto/curve25519,
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[net, random, sequtils],
+  std/[net, random, sequtils, strutils],
   results,
   stew/byteutils,
   testutils/unittests
@@ -12,8 +13,9 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/conf_builder/conf_builder,
   logos_delivery/waku/factory/networks_config,
-  logos_delivery/waku/common/utils/parse_size_units,
-  logos_delivery/waku/waku_enr/capabilities
+  logos_delivery/waku/waku_mix,
+  logos_delivery/waku/waku_enr/capabilities,
+  logos_delivery/waku/common/utils/parse_size_units
 
 suite "Waku Conf - build with cluster conf":
   test "ext-multiaddr-only fails conf build without ext-multiaddrs":
@@ -453,3 +455,210 @@ suite "Waku Conf - pure-libp2p peers budget":
     var builder = WakuConfBuilder.init()
     builder.withMaxPureLibp2pPeers(-1)
     check builder.build().isErr()
+
+suite "Waku Conf - mix nodes from a network preset":
+  ## A preset that turns mix on seeds at least `MinMixPoolSize` nodes, the fewest
+  ## that a path can use.
+
+  test "the presets that enable mix ship a pool that can build a path":
+    for preset in [NetworkPresetConf.LogosDevConf(), NetworkPresetConf.LogosTestConf()]:
+      check:
+        preset.mix
+        preset.mixnodes.len >= MinMixPoolSize
+        # count distinct nodes, so a duplicate line counts once
+        preset.mixnodes.mapIt(parseMixNode(it).get().multiAddr).deduplicate().len >=
+          MinMixPoolSize
+
+  test "a preset's mix nodes are its entry nodes":
+    ## The mix list and the entry list name the same fleet nodes, so an edit to
+    ## one list fails this test until the other matches.
+    for preset in [NetworkPresetConf.LogosDevConf(), NetworkPresetConf.LogosTestConf()]:
+      for entry in preset.mixnodes:
+        check parseMixNode(entry).get().multiAddr in preset.entryNodes
+
+  test "every mix node a preset ships parses":
+    for preset in [NetworkPresetConf.LogosDevConf(), NetworkPresetConf.LogosTestConf()]:
+      for entry in preset.mixnodes:
+        check parseMixNode(entry).isOk()
+
+  test "the presets that do not enable mix ship no mix nodes":
+    for preset in [
+      NetworkPresetConf.TheWakuNetworkConf(), NetworkPresetConf.StatusProdConf()
+    ]:
+      check:
+        not preset.mix
+        preset.mixnodes.len == 0
+
+  test "a preset's mix nodes reach the built conf":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    # An anonymity level enables the mix conf, which decides the mount.
+    builder.mixConf.withEnabled(true)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check conf.mixConf.isSome()
+    check conf.mixConf.get().mixnodes.len ==
+      NetworkPresetConf.LogosDevConf().mixnodes.len
+
+  test "mix nodes given by the user are kept alongside the preset's":
+    let extra = MixNodePubInfo(
+      multiAddr:
+        "/ip4/203.0.113.9/tcp/30303/p2p/" &
+        "16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
+      pubKey: intoCurve25519Key(
+        utils.fromHex(
+          "c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
+        )
+      ),
+    )
+
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.mixConf.withEnabled(true)
+    builder.mixConf.withMixNodes(@[extra])
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check conf.mixConf.get().mixnodes.len ==
+      NetworkPresetConf.LogosDevConf().mixnodes.len + 1
+
+suite "Waku Conf - mix node entries":
+  const Key = "c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
+  const PeerId = "16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby"
+
+  test "a name is accepted, because a preset pins names":
+    ## The fleets publish `dns4`; the node resolves the names after the mount.
+    check parseMixNode(
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/" & PeerId & ":" & Key
+    )
+      .isOk()
+
+  test "a literal address is accepted too":
+    check parseMixNode("/ip4/203.0.113.9/tcp/30303/p2p/" & PeerId & ":" & Key).isOk()
+
+  test "a malformed entry is rejected rather than raised on":
+    check:
+      parseMixNode("no-separator").isErr()
+      # a key with a valid hex prefix and trailing junk must fail
+      parseMixNode("/ip4/203.0.113.9/tcp/30303/p2p/" & PeerId & ":" & Key & "zz").isErr()
+      parseMixNode("/ip4/203.0.113.9/tcp/30303/p2p/" & PeerId & ":" & Key & "00").isErr()
+      # a multiaddress without a /p2p/<peer id> must fail at parse
+      parseMixNode("/ip4/203.0.113.9/tcp/30303:" & Key).isErr()
+      parseMixNode("/ip4/203.0.113.9/tcp/30303:" & Key & ":extra").isErr()
+      parseMixNode("not-a-multiaddress:" & Key).isErr()
+      parseMixNode("/ip4/203.0.113.9/tcp/30303/p2p/" & PeerId & ":abcd").isErr()
+
+  test "an entry on a transport mix cannot route is refused, with the reason":
+    ## The peer info parser takes WebSocket, IPv6, dns6, dns and dnsaddr, and the
+    ## pool routes none of them, so the entry fails at config.
+    for address in [
+      "/ip4/203.0.113.9/tcp/30303/ws", "/ip6/2001:db8::1/tcp/30303",
+      "/dns6/delivery-01.example.invalid/tcp/30303",
+      "/dns/delivery-01.example.invalid/tcp/30303",
+      "/dnsaddr/delivery-01.example.invalid/tcp/30303",
+    ]:
+      let res = parseMixNode(address & "/p2p/" & PeerId & ":" & Key)
+      check:
+        res.isErr()
+        res.error.contains("IPv4")
+
+  test "a circuit relay over a routable transport is accepted, as the pool routes it":
+    ## The pool matches the base transport with the `/p2p/<relay>/p2p-circuit`
+    ## suffix stripped, and the encoder carries the relay id; the parser judges
+    ## the relay's address the same way.
+    const RelayId = "16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH"
+    check:
+      parseMixNode(
+        "/ip4/203.0.113.9/tcp/30303/p2p/" & RelayId & "/p2p-circuit/p2p/" & PeerId & ":" &
+          Key
+      )
+        .isOk()
+      parseMixNode(
+        "/ip4/203.0.113.9/udp/30303/quic-v1/p2p/" & RelayId & "/p2p-circuit/p2p/" &
+          PeerId & ":" & Key
+      )
+        .isOk()
+
+  test "a dns4 name over QUIC-v1 is accepted too":
+    check parseMixNode(
+      "/dns4/delivery-01.example.invalid/udp/30303/quic-v1/p2p/" & PeerId & ":" & Key
+    )
+      .isOk()
+
+  test "a QUIC-v1 entry is accepted, because mix routes QUIC-v1":
+    ## The peer info parser and the mix pool both take QUIC-v1.
+    check parseMixNode("/ip4/203.0.113.9/udp/30303/quic-v1/p2p/" & PeerId & ":" & Key)
+      .isOk()
+
+  test "an entry on a transport the peer info parser refuses is refused with its reason":
+    ## The error carries the peer info parser's own reason.
+    let res = parseMixNode("/ip4/203.0.113.9/udp/30303/p2p/" & PeerId & ":" & Key)
+    check:
+      res.isErr()
+      res.error.contains("no supported transport")
+
+suite "Waku Conf - the Mix capability follows the mount":
+  ## The ENR `Mix` bit follows the mix conf, which mounts mix. A preset's
+  ## `mix: true` does not mount mix, so it must not advertise it.
+
+  test "a preset that enables mix does not advertise Mix by itself":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.mixConf.isNone()
+      not conf.wakuFlags.supportsCapability(Capabilities.Mix)
+
+  test "a node that mounts mix advertises Mix":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.mixConf.withEnabled(true)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.mixConf.isSome()
+      conf.wakuFlags.supportsCapability(Capabilities.Mix)
+
+  test "the user turning mix off on a preset that enables it keeps the bit off":
+    ## `--mix=false` sets the bare flag to false and disables the mix conf. The
+    ## build discards the conf with the preset's mix nodes and advertises nothing.
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withMix(false)
+    builder.mixConf.withEnabled(false)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.mixConf.isNone()
+      not conf.wakuFlags.supportsCapability(Capabilities.Mix)
+
+  test "the bare mix flag does not decide the mount, and does not reach the ENR":
+    ## The bare `mix` flag and the mix conf disagree here, and the conf decides:
+    ## mix is mounted and advertised.
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withMix(false)
+    builder.mixConf.withEnabled(true)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.mixConf.isSome()
+      conf.wakuFlags.supportsCapability(Capabilities.Mix)

@@ -506,12 +506,10 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "Store validation times out without event":
-    ## The message propagates successfully, but the only reachable store peer never
-    ## receives/archives it (it is outside the relay propagation path), so store
-    ## validation never confirms. After MaxTimeInCache the task must be dropped with a
-    ## warn log and NO app event: Propagated fires, but neither Sent nor Error - the
-    ## missing Sent event is the signal that delivery could not be validated.
+  asyncTest "Store validation times out with an error event":
+    ## The message propagates, but the only reachable store node is outside the
+    ## relay mesh and never holds it. Once the validation window elapses the send
+    ## reports Propagated, then Error, and never Sent.
     var isolatedStoreNode: WakuNode
     lockNewGlobalBrokerContext:
       isolatedStoreNode = newTestWakuNode(generateSecp256k1Key())
@@ -541,6 +539,9 @@ suite "Waku API - Send":
         @[relayNode1PeerInfo, isolatedStoreNodePeerInfo]
       )
 
+    # Longer than the 3 s archive delay, so the store node is queried first.
+    node.messagingClient.sendService.maxValidationAge = 5.seconds
+
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
       await eventManager.teardown()
@@ -552,11 +553,11 @@ suite "Waku API - Send":
     let requestId = (await node.messagingClient.send(envelope)).valueOr:
       raiseAssert error
 
-    # Must outlive MaxTimeInCache (1 min) so the store-validation timeout drop fires.
-    const eventTimeout = 65.seconds
-    discard await eventManager.waitForEvents(eventTimeout)
+    check await eventManager.errorFuture.withTimeout(30.seconds)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate(
+      {SendEventOutcome.Propagated, SendEventOutcome.Error}, requestId
+    )
 
     await isolatedStoreNode.stop()
     (await node.stop()).isOkOr:

@@ -8,8 +8,11 @@ import std/times
 import results, chronos
 
 import logos_delivery/waku/waku
-import logos_delivery/waku/[node/waku_node, rln, rln/protocol_types, rln/nonce_manager]
+import
+  logos_delivery/waku/
+    [node/waku_node, rln, rln/rln_evm/protocol_types, rln/rln_evm/nonce_manager]
 import logos_delivery/waku/rln/rln_lez/types as rln_api_types
+import logos_delivery/waku/rln/rln_lez/rln_lez
 
 export rln_api_types
 
@@ -34,6 +37,11 @@ proc rlnEpochQuota*(
   ## The mounted implementation has a single implicit membership, so `scope`
   ## does not select one yet, and spent budget is only tracked for the
   ## current epoch.
+  if not self.node.rlnLez.isNil():
+    let quota = (await self.node.rlnLez.getEpochQuota(timestamp)).valueOr:
+      return err("rlnEpochQuota: " & error.message)
+    return ok(quota)
+
   if self.node.rln.isNil():
     return err("rlnEpochQuota: RLN not mounted")
 

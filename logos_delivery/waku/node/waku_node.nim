@@ -14,6 +14,7 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/[multiaddress, multicodec, peerinfo, wire],
+  libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
@@ -91,7 +92,14 @@ const clientId* = "Nimbus Waku v2 node"
 
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
+const MixNodeResolveTimeout = chronos.seconds(10)
+  ## The time the background lookup may spend on all mix node names at once.
+  ## `DnsResolver` gives each query 5 s per name server, and a node has two by
+  ## default, so one name can take 10 s.
+
 type
+  MixNodeName = tuple[entry: MixNodePubInfo, address: MultiAddress]
+
   # TODO: Move to application instance (e.g., the node app)
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
     listenAddresses*: seq[string]
@@ -158,6 +166,10 @@ type
       ## Kernel API Relay appHandlers (if any)
     subscriptionManager*: SubscriptionManager
     wakuMix*: WakuMix
+    mixNodeResolution*: Future[void].Raising([CancelledError])
+      ## The background lookup of the `dns4` mix node names; `nil` when none.
+    mixNodeNames: seq[MixNodeName]
+      ## The names without an answer yet; `start` resumes them after a stop.
     wakuKademlia*: WakuKademlia
     discoveries*: seq[IPeerDiscovery]
       ## Attached IPeerDiscovery backends; started after the node is up,
@@ -177,6 +189,7 @@ type
     ownsEdgeFilterPeerCountProvider*: bool
 
 import ./subscription_manager
+import ../waku_mix/protocol_metrics
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -278,19 +291,54 @@ proc enrBaseline*(node: WakuNode): EnrBaseline =
       Opt.none(Port)
   return (ip: node.enrHost, tcp: bound)
 
+proc updateMixSelfHop(node: WakuNode) =
+  ## Sets mix's own hop, which closes every reply path, to the first address mix
+  ## can encode, in this order: a direct address known from outside, the ENR
+  ## endpoint, a relay route known from outside, then the announced set.
+  if node.wakuMix.isNil():
+    return
+  let before = node.wakuMix.localMixPubInfo().multiAddr
+  let wasMissing = node.wakuMix.selfHopMissing()
+  let outside = node.enrAddresses()
+  var preferred = outside.filterIt(not it.isCircuitRelayMA())
+  let baseline = node.enrBaseline()
+  if baseline.ip.isSome() and baseline.tcp.isSome():
+    let endpoint =
+      MultiAddress.init(initTAddress(baseline.ip.get(), baseline.tcp.get()))
+    if endpoint.isOk() and endpoint.get() notin outside:
+      preferred.add(endpoint.get())
+  preferred.add(outside.filterIt(it.isCircuitRelayMA()))
+  let chosen = node.wakuMix.updateSelfHop(preferred, node.announcedAddresses)
+  if chosen.isNone():
+    # Warn once, when the hop goes missing; later commits log at debug.
+    if wasMissing:
+      debug "Still no announced address can carry mix replies",
+        announced = $node.announcedAddresses
+    else:
+      warn "No announced address can carry mix replies, so this node's mixed sends fail. " &
+        "Announce an IPv4 TCP or QUIC-v1 address that peers can reach",
+        announced = $node.announcedAddresses
+    return
+  if chosen.get() != before or wasMissing:
+    info "Mix self hop set", hop = $chosen.get(), before = $before
+
 proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
   ## A dns4 name can answer differently at start, so the scalars follow that
   ## resolution rather than the one from construction.
   node.enrHost = netConfig.enrIp
   node.enrPort = netConfig.enrPort
+  # The hop follows the scalars once start has resolved the addresses.
+  if node.baseAnnounced.isSome():
+    node.updateMixSelfHop()
 
 proc copyCommittedAddresses*(node: WakuNode) =
-  ## Copy the committed peerInfo addresses into announcedAddresses and refresh
-  ## the ENR, once start has resolved the addresses. A `Waku` installs its own
-  ## refresh, which also keeps the live discv5 record.
+  ## Copy the committed peerInfo addresses into announcedAddresses, update mix's
+  ## own hop, and refresh the ENR, once start has resolved the addresses.
+  ## A `Waku` installs its own refresh, which also keeps the live discv5 record.
   if node.baseAnnounced.isNone():
     return
   node.announcedAddresses = node.switch.peerInfo.addrs
+  node.updateMixSelfHop()
   if not node.onCommittedAddresses.isNil():
     node.onCommittedAddresses()
   else:
@@ -419,7 +467,121 @@ proc mountAutoSharding*(
   return ok()
 
 proc getMixNodePoolSize*(node: WakuNode): int =
+  ## The number of mix pool members a path can use; zero when mix is not mounted.
+  if node.wakuMix.isNil():
+    return 0
   return node.wakuMix.poolSize()
+
+proc splitMixNodes(
+    node: WakuNode, mixnodes: seq[MixNodePubInfo]
+): tuple[literals: seq[MixNodePubInfo], names: seq[MixNodeName], dropped: int] =
+  ## Splits a mix node list into literal entries, which the pool takes as they
+  ## are, and `dns4` names to resolve. Drops a bad multiaddress, and a name when
+  ## the node has no resolver.
+  var
+    literals: seq[MixNodePubInfo]
+    names: seq[MixNodeName]
+    dropped = 0
+  for mixnode in mixnodes:
+    let address = MultiAddress.init(mixnode.multiAddr).valueOr:
+      debug "Skipping a mix node with an invalid multiaddress",
+        multiAddr = mixnode.multiAddr, error = error
+      logos_delivery_mix_bootnode_resolve_failures.inc()
+      dropped.inc()
+      continue
+    if not DNS.matchPartial(address):
+      literals.add(mixnode)
+    elif node.switch.nameResolver.isNil():
+      debug "Skipping a mix node given by name: the node has no name resolver",
+        multiAddr = mixnode.multiAddr
+      logos_delivery_mix_bootnode_resolve_failures.inc()
+      dropped.inc()
+    else:
+      names.add((entry: mixnode, address: address))
+  return (literals, names, dropped)
+
+proc literalMixNodes(
+    mixnode: MixNodePubInfo, addresses: seq[MultiAddress]
+): seq[MixNodePubInfo] =
+  ## The pool entries for the addresses one name resolved to. They belong to one
+  ## peer and make one member. An answer that is still a name, as a `dnsaddr`
+  ## record can return, is skipped: the pool holds literals only.
+  var entries: seq[MixNodePubInfo]
+  for address in addresses:
+    if DNS.matchPartial(address):
+      debug "A mix node name resolved to another name, skipping that address",
+        multiAddr = mixnode.multiAddr, resolved = $address
+      continue
+    entries.add(MixNodePubInfo(multiAddr: $address, pubKey: mixnode.pubKey))
+  return entries
+
+proc resolveMixNodeName(
+    node: WakuNode, name: MixNodeName
+): Future[bool] {.async: (raises: [CancelledError]).} =
+  ## Resolves one mix node name and adds the node to the pool as soon as it
+  ## answers. `false` when the lookup failed or gave no literal address.
+  let addresses =
+    try:
+      await node.switch.nameResolver.resolveMAddress(name.address)
+    except CancelledError as exc:
+      raise exc
+    except CatchableError as exc:
+      debug "Failed to resolve a mix node name, skipping it",
+        multiAddr = name.entry.multiAddr, error = exc.msg
+      return false
+  let entries = literalMixNodes(name.entry, addresses)
+  if entries.len == 0:
+    debug "A mix node name resolved to no literal address, skipping it",
+      multiAddr = name.entry.multiAddr
+    return false
+  if not node.wakuMix.isNil():
+    node.wakuMix.addBootNodes(entries)
+  return true
+
+proc resolveMixNodeNames(node: WakuNode) {.async: (raises: [CancelledError]).} =
+  ## Resolves `mixNodeNames` in the background. Each node joins the pool when its
+  ## own name answers, and all lookups share one `MixNodeResolveTimeout`.
+  let names = node.mixNodeNames
+  let lookups = names.mapIt(node.resolveMixNodeName(it))
+  var timedOut = false
+
+  # `allFutures(...).withTimeout` does not cancel its children, so cancel every
+  # pending lookup here, also when node stop cancels this task. Keep the names
+  # still pending first, so `start` can resume them.
+  try:
+    timedOut = not (
+      await allFutures(lookups.mapIt(FutureBase(it))).withTimeout(MixNodeResolveTimeout)
+    )
+  finally:
+    var pending: seq[MixNodeName]
+    for i, lookup in lookups:
+      if not lookup.finished():
+        pending.add(names[i])
+    node.mixNodeNames = pending
+    for lookup in lookups:
+      if not lookup.finished():
+        await lookup.cancelAndWait()
+
+  var resolved = 0
+  for i, lookup in lookups:
+    if lookup.completed() and lookup.value():
+      resolved.inc()
+    elif lookup.cancelled():
+      debug "Gave up resolving a mix node name, skipping it",
+        multiAddr = names[i].entry.multiAddr
+  let dropped = names.len - resolved
+  if dropped > 0:
+    logos_delivery_mix_bootnode_resolve_failures.inc(dropped.int64)
+    warn "Dropped mix node names that could not be resolved",
+      dropped = dropped,
+      resolved = resolved,
+      timedOut = timedOut,
+      timeout = MixNodeResolveTimeout
+
+proc mixNodesResolved*(node: WakuNode) {.async: (raises: [CancelledError]).} =
+  ## Waits until the background lookup of the mix node names has finished.
+  if not node.mixNodeResolution.isNil():
+    await node.mixNodeResolution.join()
 
 proc mountMix*(
     node: WakuNode,
@@ -436,8 +598,10 @@ proc mountMix*(
     return err("Failed to convert multiaddress to string.")
   info "local addr", localaddr = localaddrStr
 
+  let (literals, names, dropped) = node.splitMixNodes(mixnodes)
+
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return
@@ -447,6 +611,14 @@ proc mountMix*(
     node.switch.mount(node.wakuMix)
   catchRes.isOkOr:
     return err(error.msg)
+
+  if dropped > 0:
+    warn "Dropped mix nodes that cannot be resolved", dropped = dropped
+
+  # In the background, so a slow or dead DNS server does not hold the start.
+  if names.len > 0:
+    node.mixNodeNames = names
+    node.mixNodeResolution = node.resolveMixNodeNames()
   return ok()
 
 proc mountKademlia*(
@@ -725,6 +897,10 @@ proc start*(node: WakuNode) {.async.} =
   # and must not block startup.
   node.relayReconnectFut = node.reconnectRelayPeers()
 
+  # Resume the mix node names that a stop left without an answer.
+  if not node.mixNodeResolution.isNil() and node.mixNodeResolution.cancelled():
+    node.mixNodeResolution = node.resolveMixNodeNames()
+
   node.started = true
 
   for discovery in node.discoveries:
@@ -750,6 +926,10 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel the background relay reconnection (may still be in its backoff wait).
   if not node.relayReconnectFut.isNil():
     await node.relayReconnectFut.cancelAndWait()
+
+  # Cancel a mix node name lookup that is still pending.
+  if not node.mixNodeResolution.isNil():
+    await node.mixNodeResolution.cancelAndWait()
 
   await node.subscriptionManager.stop()
 

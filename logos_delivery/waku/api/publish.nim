@@ -7,8 +7,8 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/[random, tables, times, strutils]
-import results, chronos, libp2p_mix/pool
+import std/[tables, times, strutils]
+import results, chronos, libp2p/crypto/rng, libp2p_mix/pool
 
 import logos_delivery/waku/waku
 import
@@ -45,17 +45,6 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## ensures relay is mounted. The handler validates and republishes; the
   ## proof is attached by the messaging layer via `attachRlnProof`.
   return getRelayPushHandler(self.node.wakuRelay)
-
-proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint64]] =
-  ## RLN's current epoch index and user message limit, read together so the
-  ## pair cannot straddle an epoch boundary.
-  if self.node.rln.isNil():
-    return Opt.none(tuple[epochIndex, messageLimit: uint64])
-
-  let limit = self.node.rln.groupManager.userMessageLimit.valueOr:
-    return Opt.none(tuple[epochIndex, messageLimit: uint64])
-
-  return Opt.some((fromEpoch(self.node.rln.getCurrentEpoch()), uint64(limit)))
 
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
@@ -138,7 +127,7 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   ## Selects a lightpush service peer for `shard` that mix can route to. With
   ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
   ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
-  ## first, then the rest of the pool in random order.
+  ## first, then draws one usable pool member uniformly.
   let peerStore = self.node.peerManager.switch.peerStore
   let pool = MixNodePool.new(peerStore)
 
@@ -149,24 +138,41 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   let shardInfo = RelayShard.parse(shard).valueOr:
     return Opt.none(RemotePeerInfo)
 
-  var mixPeers = pool.peerIds()
-  shuffle(mixPeers)
-  for peerId in mixPeers:
+  var exits: seq[PeerId]
+  for peerId in pool.peerIds():
     if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
       continue
     if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
       continue
     if pool.get(peerId).isSome():
-      return Opt.some(peerStore.getPeer(peerId))
-  return Opt.none(RemotePeerInfo)
+      exits.add(peerId)
+
+  # The exit choice must not be predictable, so draw it from the node's CSPRNG,
+  # as the mix delay strategy and the mix library's hop selection do. `pickOne`
+  # is rejection-sampled and uniform.
+  let exit = self.rng.pickOne(exits).valueOr:
+    return Opt.none(RemotePeerInfo)
+  return Opt.some(peerStore.getPeer(exit))
 
 proc mixReady*(self: Waku): bool =
-  ## True when mix is mounted and the pool has enough nodes for a path. This
-  ## proc does not look for an exit node. `lightpushPublishToAny` selects one
-  ## and reports SERVICE_NOT_AVAILABLE when it finds none.
+  ## True when mix is mounted, mix can encode this node's own hop, and the pool
+  ## has enough nodes for a path. `lightpushPublishToAny` selects the exit and
+  ## reports SERVICE_NOT_AVAILABLE when it finds none.
   if self.node.wakuMix.isNil():
     return false
+  if not self.node.wakuMix.selfHopUsable():
+    return false
   return self.node.getMixNodePoolSize() >= MinMixPoolSize
+
+proc mixMounted*(self: Waku): bool =
+  ## True when mix is mounted. A short pool or a missing exit can clear with
+  ## time; a node without mix never sends over mix.
+  return not self.node.wakuMix.isNil()
+
+proc mixSelfHopUsable*(self: Waku): bool =
+  ## True when mix is mounted and can encode this node's own hop. `mixReady`
+  ## also checks this; the send path reads it alone to name the reason.
+  return not self.node.wakuMix.isNil() and self.node.wakuMix.selfHopUsable()
 
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage, mixify: bool = false
