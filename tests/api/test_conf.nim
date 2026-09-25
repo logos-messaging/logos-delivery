@@ -55,14 +55,14 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.numShardsInNetwork == 4
       kc.maxMessageSize == "150KiB"
 
-  test "messaging transport defaults: ephemeral ports, websocket off, quic off":
+  test "messaging transport defaults: ephemeral ports, websocket off, quic on":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
     check:
       kc.tcpPort == Port(0)
       kc.discv5UdpPort == Port(0)
       kc.websocketSupport == false
-      kc.quicSupport == false
+      kc.quicSupport == true
 
   test "nat and storage defaults are the CLI defaults":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
@@ -84,14 +84,14 @@ suite "MessagingClientConf - field mapping + transport policy":
     let mc = MessagingClientConf(
       p2pTcpPort: Opt.some(Port(1234)),
       websocketSupport: Opt.some(true),
-      quicSupport: Opt.some(true),
+      quicSupport: Opt.some(false),
     )
     let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
       raiseAssert error
     check:
       kc.tcpPort == Port(1234)
       kc.websocketSupport == true
-      kc.quicSupport == true
+      kc.quicSupport == false
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":
