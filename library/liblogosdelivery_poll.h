@@ -13,47 +13,11 @@
  * while a message waits. Both may be called from any host thread; so may
  * logosdelivery_reverse_reply(). */
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
+#include "nim_ffi.h"  /* the poll model itself, installed from nim-ffi's host/ beside this file */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-enum {
-    RET_OK = 0, RET_ERR = 1, RET_MISSING_CALLBACK = 2, RET_STALE_WARN = 3, RET_TIMEOUT = 4,
-    RET_CLOSED = 5, RET_INVALID_CTX = 6, RET_BUSY = 7, RET_QUEUE_FULL = 8, RET_TOO_LARGE = 9
-};
-enum {
-    NIMFFI_MSG_REPLY = 1,          /* id: the request; OK: payload is its CBOR, ERR: UTF-8 text */
-    NIMFFI_MSG_EVENT = 2,          /* name_id names it; payload is its CBOR */
-    NIMFFI_MSG_STALE_WARN = 3,     /* progress tick on a long call; not terminal */
-    NIMFFI_MSG_REVERSE_CALL = 4,   /* id: the call; name_id names it; payload: CBOR args */
-    NIMFFI_MSG_NOT_RESPONDING = 5,
-    NIMFFI_MSG_RESPONDING = 6,
-    NIMFFI_MSG_CLOSED = 7          /* the context is gone; nothing more will come */
-};
-
-typedef struct {
-    uint32_t struct_size;
-    uint32_t kind;
-    uint64_t seq;
-    uint64_t id;
-    uint64_t name_id;     /* FNV-1a 64 of the wire name */
-    uint64_t aux;
-    int32_t ret_code;
-    uint32_t flags;
-    const uint8_t* payload;   /* borrowed until the next poll on this ctx; never NULL */
-    size_t len;
-} NimFfiMsg;
-
-/* name_id of an event or reverse-call wire name. */
-static inline uint64_t logosdelivery_name_id(const char* wire)
-{
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (; *wire; ++wire) h = (h ^ (uint64_t)(unsigned char)*wire) * 0x100000001b3ULL;
-    return h;
-}
 
 /* Lifecycle. The constructor returns the context at once; its REPLY (id_out)
  * says whether the node came up. */

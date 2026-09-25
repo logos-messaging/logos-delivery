@@ -301,6 +301,9 @@ ${installLibpq "$out/${dllDir}"}
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_poll.h   $out/include/
+    # nim-ffi's host side of the poll model: the C declaration the header above
+    # includes, and a header-only C++ host a module can use as is.
+    cp ${deps.ffi}/host/nim_ffi.h ${deps.ffi}/host/nim_ffi_host.hpp $out/include/
     cp library/logosdelivery_service_discovery.h $out/include/
 
     # nim-ffi's C backend describes the callback ABI and emits nothing under
