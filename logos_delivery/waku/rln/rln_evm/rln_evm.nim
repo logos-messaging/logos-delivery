@@ -10,8 +10,7 @@ import
   web3/eth_api_types,
   eth/keys,
   results,
-  stew/[byteutils, arrayops],
-  brokers/broker_context
+  stew/[byteutils, arrayops]
 
 import
   ./group_manager,
@@ -26,9 +25,7 @@ import
   ./proof,
   ./nullifier_log
 
-import
-  logos_delivery/waku/
-    [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
+import logos_delivery/waku/[common/error_handling, waku_core, waku_keystore]
 import logos_delivery/waku/rln/types as rln_api_types
 import logos_delivery/waku/rln/rln_plugin
 
@@ -49,7 +46,6 @@ proc stop*(rlnEvm: RlnEvm) {.async: (raises: [Exception]).} =
 
   # stop the group sync, and flush data to tree db
   info "stopping rln"
-  RequestGenerateRlnProof.clearProvider(rlnEvm.brokerCtx)
   await rlnEvm.groupManager.stop()
 
 proc validateMessage*(
@@ -184,9 +180,7 @@ proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
     await sleepAsync(sleepDuration)
 
 proc mount(
-    conf: WakuRlnConfig,
-    registrationHandler = Opt.none(RegistrationHandler),
-    brokerCtx = globalBrokerContext(),
+    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
 ): Future[Result[RlnEvm, string]] {.async.} =
   var
     groupManager: RlnEvmGroupManagerBase
@@ -226,23 +220,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
-    brokerCtx: brokerCtx,
   )
-
-  RequestGenerateRlnProof.setProvider(
-    rlnEvm.brokerCtx,
-    proc(
-        message: WakuMessage, timestamp: uint64
-    ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      let proofBytes = (
-        await rlnEvm.generateRLNProofWithRootRefresh(
-          message.toRLNSignal(), float64(timestamp)
-        )
-      ).valueOr:
-        return err("Could not create RLN proof: " & error)
-      return ok(RequestGenerateRlnProof(proof: proofBytes)),
-  ).isOkOr:
-    return err("Proof generator provider cannot be set: " & $error)
 
   # Start epoch monitoring in the background
   rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
@@ -329,14 +307,11 @@ proc new*(
     T: type RlnEvm,
     conf: WakuRlnConfig,
     registrationHandler = Opt.none(RegistrationHandler),
-    brokerCtx = globalBrokerContext(),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.
-  ## `brokerCtx` scopes the backend's broker providers; pass the node's
-  ## context so validation requests find this instance's providers.
   try:
-    return await mount(conf, registrationHandler, brokerCtx)
+    return await mount(conf, registrationHandler)
   except CatchableError:
     return err("could not mount the rln-relay protocol: " & getCurrentExceptionMsg())

@@ -62,9 +62,7 @@ proc attachRlnProof*(
   ## Returns `message` carrying an RLN proof. A message that already has one is
   ## returned untouched, so retrying a task neither redraws a nonce nor changes
   ## the bytes. Without RLN mounted the message passes through unproven.
-  ##
-  ## How the proof is built (its epoch source, whether a stale merkle root is
-  ## refreshed) is the mounted backend's business.
+
   if message.proof.len > 0:
     return ok(message)
 

@@ -10,12 +10,7 @@
 import std/[json, locks]
 import chronos, chronos/threadsync, results
 import stew/byteutils
-import brokers/broker_context
-import
-  logos_delivery/waku/waku_core/message/message,
-  logos_delivery/waku/requests/rln_requests,
-  ../types
-from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
+import ../types
 
 export types
 
@@ -409,53 +404,3 @@ proc parseRlnMembershipState*(resultJson: string): Result[MembershipState, RlnEr
       )
     )
   return ok(state)
-
-# --- broker providers ---------------------------------------------------------
-
-proc registerRlnModuleProviders*(
-    ctx: BrokerContext, plugin: bool
-): Result[void, string] =
-  ## Bridges the waku layer's RLN requests onto the FFI plugin surface.
-  ## Providers are registered at create time; the underlying calls only succeed
-  ## once the host has installed its plugin.
-  RequestGetRlnMembershipState.setProvider(
-    ctx,
-    proc(): Future[Result[RequestGetRlnMembershipState, string]] {.async.} =
-      let response = ?await rlnGetMembershipState()
-      let state = parseRlnMembershipState(response).valueOr:
-        return err($error)
-      return ok(RequestGetRlnMembershipState(state: state)),
-  ).isOkOr:
-    return err("Failed to set RequestGetRlnMembershipState provider: " & error)
-
-  RequestValidateRlnProof.setProvider(
-    ctx,
-    proc(
-        message: WakuMessage, timestamp: uint64
-    ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
-      let signalHex = message.toRLNSignal().toHex()
-      let proofJson = $(%*{"proof": message.proof.toHex()})
-      let response = ?await rlnValidateProof(signalHex, timestamp, proofJson)
-      let validation = parseRlnValidationResult(response).valueOr:
-        return err($error)
-      return ok(RequestValidateRlnProof(validation: validation)),
-  ).isOkOr:
-    return err("Failed to set RequestValidateRlnProof provider: " & error)
-
-  # plugin-gated: the legacy zerokit path registers its own provider for this
-  # request type
-  if plugin:
-    RequestGenerateRlnProof.setProvider(
-      ctx,
-      proc(
-          message: WakuMessage, timestamp: uint64
-      ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-        let signalHex = message.toRLNSignal().toHex()
-        let response = ?await rlnGenerateProof(signalHex, timestamp)
-        let blob = parseRlnGeneratedProof(response).valueOr:
-          return err($error)
-        return ok(RequestGenerateRlnProof(proof: blob)),
-    ).isOkOr:
-      return err("Failed to set RequestGenerateRlnProof provider: " & error)
-
-  return ok()

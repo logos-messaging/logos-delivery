@@ -1,7 +1,6 @@
 {.push raises: [].}
 
 import std/tables, chronos, results
-import brokers/broker_context
 
 import ./group_manager_base, ./nonce_manager, ./protocol_types
 
@@ -19,4 +18,3 @@ type RlnEvm* = ref object of RootObj
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[Result[void, string]]
-  brokerCtx*: BrokerContext

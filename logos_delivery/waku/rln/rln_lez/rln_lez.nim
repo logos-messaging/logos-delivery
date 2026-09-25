@@ -100,8 +100,7 @@ proc toRlnPlugin*(lez: RlnLez): RlnPlugin =
   proc validate(
       message: WakuMessage
   ): Future[Result[ValidationResult, RlnError]] {.async.} =
-    ## Local checks, then the host's verdict (the same calls as the
-    ## `RequestValidateRlnProof` provider in `./transport`).
+    ## Local checks, then the host's verdict over `./transport`.
     if message.timestamp < 0:
       trace "RLN validator reject", error = "Negative message timestamp"
       return ok(ValidationResult(verdict: ProofVerdict.Invalid))
@@ -118,9 +117,8 @@ proc toRlnPlugin*(lez: RlnLez): RlnPlugin =
     return parseRlnValidationResult(response)
 
   proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
-    ## The membership gate, then the host's proof (the same calls as the
-    ## `RequestGenerateRlnProof` provider in `./transport`). A passed gate is
-    ## cached on `lez`, which the factory's startup check shares.
+    ## The membership gate, then the host's proof over `./transport`. A passed
+    ## gate is cached on `lez`, which the factory's startup check shares.
     if message.timestamp <= 0:
       return err(RlnError.permanent("the message has not been timestamped"))
     let timestamp = uint64(message.timestamp div 1_000_000_000)

@@ -207,10 +207,6 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
-  registerRlnModuleProviders(lib.waku.brokerCtx, rlnPluginRegistered()).isOkOr:
-    await lib.teardownFFIEventScope()
-    return err(error)
-
   return ok(lib)
 
 proc logosdelivery_start_node(

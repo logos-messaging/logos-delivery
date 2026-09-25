@@ -251,7 +251,7 @@ proc setRlnValidator*(
   ## Compatibility entry for callers that construct the on-chain backend
   ## inline (tests, example apps): mounts it, records its handle on the node
   ## and registers the RLN validator.
-  let rln = (await RlnEvm.new(rlnConf, registrationHandler, node.brokerCtx)).valueOr:
+  let rln = (await RlnEvm.new(rlnConf, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
   if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
     error "Rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"

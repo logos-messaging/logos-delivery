@@ -9,8 +9,7 @@
 ## (the factory's descriptor list); nothing here enumerates them.
 ##
 ## Node core reaches the per-message operations (`validateProof`,
-## `generateProof`) through the record as well; it never uses the RLN request
-## brokers.
+## `generateProof`) through the record as well.
 
 import chronos, results
 
