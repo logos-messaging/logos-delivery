@@ -95,8 +95,8 @@ requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# Temporary pin to the mix commit that widens its libp2p requirement.
-requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
+# Temporary pin: logos-co/nim-libp2p-mix#61 (no withValue, libp2p >= 2.2.0).
+requires "https://github.com/logos-co/nim-libp2p-mix#abc20522408f0038266ce807bab46cd19c5a9a6a"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
