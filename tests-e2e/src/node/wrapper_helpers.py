@@ -181,23 +181,25 @@ def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
 def get_node_multiaddr(node) -> str:
     """Return the TCP multiaddr (with peer-id) from a WrapperManager node.
 
-    Asserts that the wrapper returned exactly one address. If the wrapper ever
-    starts returning multiple addresses (newline/comma-separated or a JSON
-    list), this fails loudly instead of silently passing a malformed string
-    downstream to staticnodes / add_peers.
+    MyMultiaddresses is comma-separated and also lists the QUIC address when
+    QUIC is enabled. Asserts that exactly one TCP address is present, so a
+    malformed or ambiguous answer fails loudly instead of silently passing a
+    bad string downstream to staticnodes / add_peers.
     """
     result = node.get_node_info("MyMultiaddresses")
     if result.is_err():
         raise RuntimeError(f"get_node_info failed: {result.err()}")
 
-    addr = result.ok_value.strip()
-    if not addr or not addr.startswith("/"):
-        raise RuntimeError(f"Unexpected multiaddr format: {addr!r}")
+    raw = result.ok_value.strip()
+    addrs = [a.strip() for a in raw.split(",") if a.strip()]
+    if not addrs or not all(a.startswith("/") for a in addrs):
+        raise RuntimeError(f"Unexpected multiaddr format: {raw!r}")
 
-    if "\n" in addr or "," in addr or addr.startswith("["):
-        raise AssertionError(f"Expected a single multiaddr from MyMultiaddresses, got multiple: {addr!r}")
+    tcp_addrs = [a for a in addrs if "/tcp/" in a and "/ws" not in a]
+    if len(tcp_addrs) != 1:
+        raise AssertionError(f"Expected a single TCP multiaddr from MyMultiaddresses, got: {raw!r}")
 
-    return addr
+    return tcp_addrs[0]
 
 
 # Matches the /tcp/<port>/ segment in a libp2p multiaddr.
