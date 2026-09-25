@@ -7,7 +7,7 @@
 
 ## Introduction
 
-This repository implements a set of libp2p protocols aimed at
+This implements a set of libp2p protocols aimed at
 private communication.
 
 - Nim implementation of [these specs](https://github.com/logos-co/logos-lips/tree/master/docs/messaging).
