@@ -128,5 +128,8 @@ class REST(BaseClient):
     def get_relay_peers_on_shard(self, shard_id):
         return self.rest_call("get", f"admin/v1/peers/relay/on/{quote(str(shard_id))}").json()
 
+    def get_mesh_peers_on_shard(self, shard_id):
+        return self.rest_call("get", f"admin/v1/peers/mesh/on/{quote(str(shard_id))}").json()
+
     def get_debug_version(self):
         return self.rest_call("get", "debug/v1/version").text.strip()

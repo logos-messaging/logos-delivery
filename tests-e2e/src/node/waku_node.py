@@ -590,5 +590,8 @@ class WakuNode:
     def get_relay_peers_on_shard(self, shard_id):
         return self._api.get_relay_peers_on_shard(shard_id)
 
+    def get_mesh_peers_on_shard(self, shard_id):
+        return self._api.get_mesh_peers_on_shard(shard_id)
+
     def get_debug_version(self):
         return self._api.get_debug_version()
