@@ -272,7 +272,7 @@ proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
     if ma in node.explicitAnnounced or ma notin base:
       addrs.add(ma)
       continue
-    node.onLearnedHost(ma).withValue(moved):
+    node.onLearnedHost(ma).ifValue(moved):
       if moved notin addrs:
         addrs.add(moved)
   return addrs
