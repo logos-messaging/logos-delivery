@@ -10,7 +10,7 @@
 import std/json
 import chronos, chronicles, results
 import stew/byteutils
-import ./types, ./transport, ./config
+import ../types, ./transport, ./config
 import ../rln_api
 
 export types, config

@@ -14,7 +14,7 @@ import brokers/broker_context
 import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/requests/rln_requests,
-  ./types
+  ../types
 from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 
 export types

@@ -2,14 +2,11 @@
 
 import chronos
 
-import ./rln_lez/types
+import ./types
 
 export chronos, types
 
-## Client-facing surface of the RLN Module API. All types carried here
-## (`RlnError`, `MembershipScope`, `MembershipState`, …) are the spec's own
-## vocabulary — logos-lips `docs/anoncomms/raw/rln-api.md` — mirrored in
-## `./rln_lez/types`, not defined by this repo.
+## Client-facing surface of the RLN Module API.
 ##
 ## The surface is implementation-agnostic: no membership, registry or epoch
 ## size appears in it. Starting, configuring and registering the backend belong
