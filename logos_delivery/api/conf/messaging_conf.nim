@@ -203,10 +203,10 @@ proc toWakuNodeConf*(
   if self.nodeKey.isSome():
     conf.nodekey = self.nodeKey
 
-  conf.tcpPort = self.p2pTcpPort.get(Port(0))
+  conf.tcpPort = Opt.some(self.p2pTcpPort.get(Port(0)))
   conf.discv5UdpPort = self.discv5UdpPort.get(Port(0))
   conf.websocketPort = self.websocketPort.get(Port(0))
-  conf.quicPort = self.quicPort
+  conf.quicPort = Opt.some(self.quicPort.get(Port(0)))
   conf.websocketSupport = self.websocketSupport.get(false)
   conf.quicSupport = self.quicSupport.get(true)
 

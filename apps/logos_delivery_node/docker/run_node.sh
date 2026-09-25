@@ -85,7 +85,7 @@ exec /usr/local/bin/logosdeliverynode\
     --discv5-udp-port=9005\
     --discv5-enr-auto-update=True\
     --log-level=DEBUG\
-    --tcp-port=30304\
+    --listen-port=30304\
     --metrics-server=True\
     --metrics-server-port=8003\
     --metrics-server-address=0.0.0.0\

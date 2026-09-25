@@ -59,7 +59,7 @@ suite "MessagingClientConf - field mapping + transport policy":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
     check:
-      kc.tcpPort == Port(0)
+      kc.tcpPort == Opt.some(Port(0))
       kc.discv5UdpPort == Port(0)
       kc.websocketSupport == false
       kc.quicSupport == true
@@ -89,7 +89,7 @@ suite "MessagingClientConf - field mapping + transport policy":
     let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
       raiseAssert error
     check:
-      kc.tcpPort == Port(1234)
+      kc.tcpPort == Opt.some(Port(1234))
       kc.websocketSupport == true
       kc.quicSupport == false
 
@@ -328,7 +328,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       kc.clusterId == Opt.some(7'u16)
       lc.messagingConf.get().reliabilityEnabled == Opt.some(true) # messaging-only
-      kc.tcpPort == Port(1234)
+      kc.tcpPort == Opt.some(Port(1234))
 
   test "unknown keys inside an overrides body are rejected":
     check parseLogosDeliveryConf("""{"messagingOverrides": {"bogusKey": 1}}""").isErr()
@@ -565,7 +565,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     ).valueOr:
       raiseAssert error
     check:
-      WakuNodeConf(lc.kernelConf).tcpPort == Port(0)
+      WakuNodeConf(lc.kernelConf).tcpPort == Opt.some(Port(0))
       WakuNodeConf(lc.kernelConf).discv5UdpPort == Port(0)
 
   test "port 0 is accepted in structured messagingOverrides":

@@ -15,6 +15,8 @@ def build_node_config(**overrides):
         "logLevel": "DEBUG",
         "listenAddress": "0.0.0.0",
         "tcpPort": free_port(),
+        # QUIC defaults to --listen-port (60000), not tcpPort; 0 lets nodes share a host
+        "quicPort": 0,
         "discv5UdpPort": free_port(),
         "restPort": free_port(),
         "restAddress": "0.0.0.0",

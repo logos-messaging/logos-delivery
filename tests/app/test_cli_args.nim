@@ -478,4 +478,4 @@ suite "Waku external config - environment variables":
         raiseAssert getCurrentExceptionMsg()
 
     ## Then
-    check conf.tcpPort == Port(8080)
+    check conf.tcpPort == Opt.some(Port(8080))

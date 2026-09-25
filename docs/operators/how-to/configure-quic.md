@@ -1,9 +1,11 @@
 # Configure QUIC transport
 
 QUIC is a UDP-based transport. It is enabled by default and allows peers to connect to your node over QUIC, in addition to the TCP transport.
-By default, QUIC listens on the same port number as TCP (`--tcp-port`, 60000 unless set), over UDP.
+By default, QUIC listens on the same port number as TCP, over UDP: `--listen-port` sets both (60000 unless set). `--tcp-port` and `--quic-port` override it for one transport only.
 
 When upgrading a node that ran without QUIC, open that UDP port in your firewall or port mappings, or run with `--quic-support=false`. Otherwise the node announces a QUIC address nobody can reach, and every peer dialing it waits a few seconds before falling back to TCP.
+
+If you run several nodes on one host and give each its own `--tcp-port`, switch to `--listen-port` (or also set `--quic-port`): `--tcp-port` no longer moves QUIC, so the nodes would otherwise all try to bind UDP 60000.
 
 To listen on a different UDP port, use `--quic-port`:
 
