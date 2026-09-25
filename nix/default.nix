@@ -140,7 +140,7 @@ let
       ${lib.concatStringsSep " \\\n      " leopardDefineArgs} \
       ${lib.concatStringsSep " \\\n      " natDefineArgs} \
       --threads:on \
-      --mm:refc \
+      --mm:orc \
       --nimcache:$NIMCACHE \
       --out:${outFile} \
       ${lib.concatStringsSep " \\\n      " extraArgs} \
