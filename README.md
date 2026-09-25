@@ -149,7 +149,7 @@ make test tests/common/test_enr_builder.nim
 ### Testing against `js-waku`
 Refer to [logos-delivery-js repo](https://github.com/logos-messaging/logos-delivery-js/tree/master/packages/tests) for instructions.
 
-### Formatting
+## Formatting
 
 Nim files are expected to be formatted using [`nph`](https://github.com/arnetheduck/nph). `make build-nph` installs one if it is not already on your PATH.
 
