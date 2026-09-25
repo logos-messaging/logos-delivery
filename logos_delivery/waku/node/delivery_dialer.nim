@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/[sequtils, strutils]
-import chronos, chronicles, results
+import chronos, results
 import
   libp2p/dial,
   libp2p/dialer,
@@ -9,33 +9,78 @@ import
   libp2p/peerid,
   libp2p/multiaddress,
   libp2p/stream/connection,
-  libp2p/muxers/muxer
+  libp2p/muxers/muxer,
+  libp2p/transports/transport,
+  libp2p/transports/quictransport
 
 export dialer
 
-logScope:
-  topics = "waku dialer"
-
 const QuicDialTimeout* = 3.seconds
-  ## Budget for the quic attempt before falling back to the other addresses.
-  ## An unreachable quic address stalls for lsquic's 10s handshake timeout,
-  ## which would otherwise consume the whole dial budget.
+  ## Budget for an outgoing quic handshake before libp2p moves on to the next
+  ## address. An unreachable quic address otherwise stalls for lsquic's 10s
+  ## handshake timeout, which is the peer manager's whole dial budget.
 
 proc isQuic(ma: MultiAddress): bool =
   "/quic-v1" in $ma
 
 proc sortQuicFirst(addrs: seq[MultiAddress]): seq[MultiAddress] =
-  addrs.filterIt(it.isQuic()) & addrs.filterIt(not it.isQuic())
+  ## Keeps a single quic address when there is something to fall back to, so a
+  ## peer listing several dead quic addresses costs one QuicDialTimeout.
+  let quicAddrs = addrs.filterIt(it.isQuic())
+  let otherAddrs = addrs.filterIt(not it.isQuic())
+  if quicAddrs.len > 0 and otherAddrs.len > 0:
+    return quicAddrs[0 .. 0] & otherAddrs
+  return quicAddrs & otherAddrs
+
+type QuicDialBudget = ref object of Transport
+  ## The dialer's view of the quic transport: bounds the outgoing handshake
+  ## only. Identify and metadata then run on an established connection, outside
+  ## the budget. The switch keeps the unwrapped transport for listening.
+  quic: Transport
+
+method handles*(
+    self: QuicDialBudget, address: MultiAddress
+): bool {.gcsafe, raises: [].} =
+  self.quic.handles(address)
+
+method dial*(
+    self: QuicDialBudget,
+    hostname: string,
+    address: MultiAddress,
+    peerId: Opt[PeerId] = Opt.none(PeerId),
+    dir: Direction = Direction.Out,
+): Future[RawConn] {.async: (raises: [transport.TransportError, CancelledError]).} =
+  # An inbound-direction dial is DCUtR's hole punch, which loops until DCUtR
+  # cancels it.
+  if dir != Direction.Out:
+    return await self.quic.dial(hostname, address, peerId, dir)
+  try:
+    return await self.quic.dial(hostname, address, peerId, dir).wait(QuicDialTimeout)
+  except AsyncTimeoutError as e:
+    raise newException(
+      TransportDialError, "quic dial timed out after " & $QuicDialTimeout, e
+    )
+
+method upgrade*(
+    self: QuicDialBudget, conn: RawConn, peerId: Opt[PeerId]
+): Future[Muxer] {.async: (raises: [CancelledError, LPError], raw: true).} =
+  self.quic.upgrade(conn, peerId)
 
 type DeliveryDialer* = ref object of Dialer
-  ## Logos Delivery dial policy layer. Replaces the switch dialer; every
-  ## dial in the process goes through here. Dials quic addresses before tcp,
-  ## and falls back to tcp when quic does not connect within QuicDialTimeout.
+  ## Logos Delivery dial policy layer. Replaces the switch dialer, so connect
+  ## and dial go through here. Dials quic addresses before tcp, and bounds the
+  ## quic handshake so tcp is still tried when quic does not answer.
 
 proc install*(T: typedesc[DeliveryDialer], switch: Switch) =
+  let transports = switch.transports.mapIt(
+    if it of QuicTransport:
+      Transport(QuicDialBudget(quic: it))
+    else:
+      it
+  )
   switch.dialer = DeliveryDialer.new(
-    switch.peerInfo.peerId, switch.connManager, switch.peerStore, switch.transports,
-    switch.ms, switch.nameResolver,
+    switch.peerInfo.peerId, switch.connManager, switch.peerStore, transports, switch.ms,
+    switch.nameResolver,
   )
 
 method connect*(
@@ -46,24 +91,8 @@ method connect*(
     reuseConnection = true,
     dir = Direction.Out,
 ) {.async: (raises: [DialFailedError, CancelledError]).} =
-  let quicAddrs = addrs.filterIt(it.isQuic())
-  let otherAddrs = addrs.filterIt(not it.isQuic())
-  if quicAddrs.len == 0 or otherAddrs.len == 0:
-    await procCall Dialer(self).connect(peerId, addrs, forceDial, reuseConnection, dir)
-    return
-
-  try:
-    await procCall Dialer(self)
-      .connect(peerId, quicAddrs, forceDial, reuseConnection, dir)
-      .wait(QuicDialTimeout)
-    return
-  except AsyncTimeoutError:
-    debug "quic dial timed out, falling back", peerId, quicAddrs
-  except DialFailedError as e:
-    debug "quic dial failed, falling back", peerId, quicAddrs, error = e.msg
-
   await procCall Dialer(self).connect(
-    peerId, otherAddrs, forceDial, reuseConnection, dir
+    peerId, sortQuicFirst(addrs), forceDial, reuseConnection, dir
   )
 
 method dial*(
@@ -73,9 +102,7 @@ method dial*(
     protos: seq[string],
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
-  # connect first so the stream dial goes through the quic fallback above
-  await self.connect(peerId, addrs, forceDial)
-  await procCall Dialer(self).dial(peerId, protos)
+  await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
 
 method dialAndUpgrade*(
     self: DeliveryDialer,

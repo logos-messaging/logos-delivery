@@ -20,6 +20,7 @@ import
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,
+    node/delivery_dialer,
     node/peer_manager/peer_manager,
     node/peer_manager/peer_store/waku_peer_storage,
     waku_node,
@@ -42,6 +43,20 @@ proc syncToBoundPort(node: WakuNode, key: keys.PrivateKey) =
   node.announcedAddresses = addrs
   node.enr.update(key, tcpPort = Opt.some(node.boundTcpPort())).isOkOr:
     raiseAssert "failed to sync node ENR to bound tcp port: " & $error
+
+proc withDeadQuicFirst(server: WakuNode, udpPort: Port): RemotePeerInfo =
+  ## The server's own addresses behind a quic-v1 address on `udpPort`.
+  let deadQuic =
+    MultiAddress.init("/ip4/127.0.0.1/udp/" & $udpPort & "/quic-v1").tryGet()
+  return RemotePeerInfo.init(
+    server.peerInfo.peerId, @[deadQuic] & server.peerInfo.toRemotePeerInfo().addrs
+  )
+
+proc connectedOverTcpOnly(dialer, server: WakuNode): bool =
+  let conns = dialer.peerManager.switch.connManager.getConnections().getOrDefault(
+      server.peerInfo.peerId
+    )
+  return conns.len > 0 and conns.allIt("/tcp/" in $it.connection.observedAddr.get())
 
 procSuite "Peer Manager":
   asyncTest "connectPeer() works":
@@ -201,15 +216,14 @@ procSuite "Peer Manager":
         discard,
       local = initTAddress("127.0.0.1:0"),
     )
-    let closedPort = closedUdp.localAddress().port
+    let peer = withDeadQuicFirst(server, closedUdp.localAddress().port)
     await closedUdp.closeWait()
 
-    let fakeQuic =
-      MultiAddress.init("/ip4/127.0.0.1/udp/" & $closedPort & "/quic-v1").tryGet()
-    let peer = RemotePeerInfo.init(
-      server.peerInfo.peerId, @[fakeQuic] & server.peerInfo.toRemotePeerInfo().addrs
-    )
-    check await dialer.peerManager.connectPeer(peer)
+    let started = Moment.now()
+    require await dialer.peerManager.connectPeer(peer)
+    check:
+      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      dialer.connectedOverTcpOnly(server)
 
     await allFutures(dialer.stop(), server.stop())
 
@@ -224,14 +238,39 @@ procSuite "Peer Manager":
         discard,
       local = initTAddress("127.0.0.1:0"),
     )
-    let fakeQuic = MultiAddress
-      .init("/ip4/127.0.0.1/udp/" & $blackhole.localAddress().port & "/quic-v1")
-      .tryGet()
-    let peer = RemotePeerInfo.init(
-      server.peerInfo.peerId, @[fakeQuic] & server.peerInfo.toRemotePeerInfo().addrs
-    )
-    check await dialer.peerManager.connectPeer(peer)
+    let peer = withDeadQuicFirst(server, blackhole.localAddress().port)
 
+    let started = Moment.now()
+    require await dialer.peerManager.connectPeer(peer)
+    check:
+      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      dialer.connectedOverTcpOnly(server)
+
+    await blackhole.closeWait()
+    await allFutures(dialer.stop(), server.stop())
+
+  asyncTest "quic dialer opens a stream over tcp when the peer's quic packets are dropped":
+    ## The stream path (peerManager.dialPeer) goes through the dialer's `dial`,
+    ## not `connect`.
+    let dialer = newTestWakuNode(generateSecp256k1Key())
+    let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
+    await allFutures(dialer.start(), server.start())
+
+    let blackhole = newDatagramTransport(
+      proc(t: DatagramTransport, a: TransportAddress) {.async: (raises: []).} =
+        discard,
+      local = initTAddress("127.0.0.1:0"),
+    )
+    let peer = withDeadQuicFirst(server, blackhole.localAddress().port)
+
+    let started = Moment.now()
+    let conn = await dialer.peerManager.dialPeer(peer, "/ipfs/id/1.0.0")
+    require conn.isSome()
+    check:
+      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      dialer.connectedOverTcpOnly(server)
+
+    await conn.get().close()
     await blackhole.closeWait()
     await allFutures(dialer.stop(), server.stop())
 
