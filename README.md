@@ -1,15 +1,20 @@
-# Logos Messaging Nim
+# Logos Delivery
+
+[![ci](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
+[![Daily CI](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml?query=event%3Aschedule)
+[![Nightly pre-release](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml?query=event%3Aschedule)
+[![Nightly REST e2e](https://github.com/logos-messaging/logos-delivery/actions/workflows/e2e-rest-tests.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/e2e-rest-tests.yml?query=event%3Aschedule)
 
 ## Introduction
 
-This repository implements a set of libp2p protocols aimed to bring
-private communications.
+This repository implements a set of libp2p protocols aimed at
+private communication.
 
 - Nim implementation of [these specs](https://github.com/logos-co/logos-lips/tree/master/docs/messaging).
 - C library that exposes the implemented protocols.
 - CLI application that allows you to run a logos-delivery node.
 - Examples.
-- Various tests of above.
+- Tests for all of the above.
 
 For more details see the [source code](logos_delivery/waku/README.md)
 
@@ -31,17 +36,17 @@ export PATH="$(make print-nimble-path):$PATH"
 
 The standard developer tools, including a C compiler, GNU Make, Bash, and Git.
 
-> In some distributions (Fedora linux for example), you may need to install `which` utility separately. Nimbus build system is relying on it.
+> Some distributions (Fedora, for example) don't ship the `which` utility by default. The Makefile relies on it, so install it separately.
 
 You'll also need an installation of Rust and its toolchain (specifically `rustc` and `cargo`).
-The easiest way to install these, is using `rustup`:
+The easiest way to install them is `rustup`:
 
 Rust:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Wakunode
+### logosdeliverynode
 
 ```bash
 # The first `make` invocation will initialize the local dependency state.
@@ -52,7 +57,7 @@ make logosdeliverynode
 make logosdeliverynode NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative"
 
 # Run with DNS bootstrapping
-./build/logosdeliverynode --dns-discovery --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
+./build/logosdeliverynode --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
 
 # Run with the QUIC transport enabled
 ./build/logosdeliverynode --quic-support=true
@@ -63,7 +68,7 @@ make logosdeliverynode NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative
 To join the network, you need to know the address of at least one bootstrap node.
 Please refer to the [Waku README](https://github.com/logos-messaging/logos-delivery/blob/master/logos_delivery/waku/README.md) for more information.
 
-For more on how to run `logosdeliverynode`, refer to:
+For more on running a node, refer to the guides below. They were written for nwaku and still use the old `wakunode2` binary name:
 - [Run using binaries](https://docs.waku.org/run-node/build-source)
 - [Run using docker](https://docs.waku.org/run-node/run-docker)
 - [Run using docker-compose](https://docs.waku.org/run-node/run-docker-compose)
@@ -72,9 +77,7 @@ For more on how to run `logosdeliverynode`, refer to:
 ##### WSL
 If you encounter difficulties building the project on WSL, consider placing the project within WSL's filesystem, avoiding the `/mnt/` directory.
 
-### How to Build & Run ( Windows )
-
-### Windows Build Instructions
+## How to Build & Run ( Windows )
 
 #### 1. Install Required Tools
 - **Git Bash Terminal**: Download and install from https://git-scm.com/download/win  
@@ -108,7 +111,7 @@ which upx gcc g++ make cmake cargo rustc python nasm nim
 nim --version
 ```
 
-#### 3. Build Wakunode
+#### 3. Build logosdeliverynode
 - Open Git Bash as administrator  
 - clone the repository and cd into it
 - Execute: `./scripts/build_windows.sh`
@@ -116,24 +119,19 @@ nim --version
 #### 4. Troubleshooting
 If `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  
 - **Missing Dependencies**: Verify with:  
-  `which make cmake gcc g++ rustc cargo python3 upx nasm nim`  
+  `which make cmake gcc g++ rustc cargo python upx nasm nim`  
   If missing, revisit Step 2 or ensure MSYS2 is at `C:\`  
 - **Installation Conflicts**: Remove existing MinGW/MSYS2/Git Bash installations and perform fresh install
 
-### Developing
+## Developing
 
-#### Nim Runtime
-This repository is bundled with a Nim runtime that includes the necessary dependencies for the project.
-
-Before you can utilize the runtime you'll need to build the project, as detailed in a previous section.
-This will generate a `nimbledeps/pkgs2` directory containing various dependencies.
-
-If everything went well, you should see your prompt suffixed with `[SuccessX]`. Now you can run `nim` commands as usual.
+### Nim and dependencies
+The first `make` run installs Nim into `~/.nim/nim-<version>` (linked from `~/.nimble/bin`) unless the right version is already on PATH, and installs the project dependencies into `nimbledeps/pkgs2`.
 
 ### Test Suite
 
 ```bash
-# Run all the Waku tests
+# Run all the tests
 make test
 
 # Run a specific test file
@@ -147,60 +145,53 @@ make test <test_file_path> <test_name>
 
 ### Building single test files
 
-During development it is helpful to build and run a single test file.
-To support this make has a specific target:
-
-targets:
-- `build/<relative path to your test file.nim>`
-- `test/<relative path to your test file.nim>`
-
-Binary will be created as `<path to your test file.nim>.bin` under the `build` directory .
+`make test <file>` builds the file to `build/<file>.bin` and runs it. To re-run it without rebuilding, run the binary directly:
 
 ```bash
-# Build and run your test file separately
-make test/tests/common/test_enr_builder.nim
+make test tests/common/test_enr_builder.nim
+./build/tests/common/test_enr_builder.nim.bin
 ```
 
 ### Testing against `js-waku`
 Refer to [logos-delivery-js repo](https://github.com/logos-messaging/logos-delivery-js/tree/master/packages/tests) for instructions.
 
-## Formatting
+### Formatting
 
 Nim files are expected to be formatted using [`nph`](https://github.com/arnetheduck/nph). `make build-nph` installs one if it is not already on your PATH.
 
-You can easily format file with the `make nph/<relative path to nim> file` command.
+To format a single file, run `make nph/<path to the .nim file>`.
 For example:
 
 ```
-make nph/waku/waku_core.nim
+make nph/logos_delivery/waku/waku_core.nim
 ```
 
-A convenient git hook is provided to automatically format file at commit time.
+A pre-commit hook is provided to format staged files at commit time.
 Run the following command to install it:
 
 ```shell
 make install-nph
 ```
 
-### Examples
+## Examples
 
-Examples can be found in the examples folder.
-This includes a fully featured chat example.
+Examples can be found in the `examples` folder.
+The chat apps (`chat2`, `chat2mix`, `chat2bridge`) live in `apps`.
 
-### Tools
+## Tools
 
-Different tools and their corresponding how-to guides can be found in the `tools` folder.
+Tools such as `wakucanary`, `networkmonitor` and `liteprotocoltester` live in the `apps` folder, each with its own README. `tools/rln_keystore_generator` holds the RLN keystore generator.
 
-### Bugs, Questions & Features
+## Bugs, Questions & Features
 
 For an inquiry, or if you would like to propose new features, feel free to [open a general issue](https://github.com/logos-messaging/logos-delivery/issues/new).
 
-For bug reports, please [tag your issue with the `bug` label](https://github.com/logos-messaging/logos-delivery/issues/new).
+For bug reports, please [tag your issue with the `bug` label](https://github.com/logos-messaging/logos-delivery/issues/new?labels=bug).
 
 If you believe the reported issue requires critical attention, please [use the `critical` label](https://github.com/logos-messaging/logos-delivery/issues/new?labels=critical,bug) to assist with triaging.
 
 To get help, or participate in the conversation, join the [Logos Discord](https://discord.gg/logosnetwork) server.
 
-### Docs
+## Docs
 
 * [REST API Documentation](https://logos-messaging.github.io/logos-delivery-rest-api/)
