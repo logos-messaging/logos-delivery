@@ -346,9 +346,13 @@ proc sendAdvert(
   ## here, from the node's current addresses, and publishes it verbatim.
   let record = ?self.signRecord(key, advert.data)
   if advert.resign:
-    discard pluginCall(
+    ## Its failure is not fatal: the start below says whether the plugin
+    ## still holds an older record.
+    pluginCall(
       void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
-    )
+    ).isOkOr:
+      debug "external discovery could not stop the advert before re-sending it",
+        key = key, reason = error
   let res = pluginCall(
     void,
     "startAdvertising",
@@ -653,9 +657,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort: a plugin that is not up yet cannot hold the advert either.
     self.adverts.del(key)
     if self.running:
-      discard pluginCall(
+      pluginCall(
         void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
-      )
+      ).isOkOr:
+        debug "external discovery could not stop the advert", key = key, reason = error
     ok()
 
   method registerInterest(
@@ -673,11 +678,13 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort, like `stopAdvertising`.
     self.interests.del(key)
     if self.running:
-      discard pluginCall(
+      pluginCall(
         void,
         "unregisterInterest",
         PluginUnregisterInterest.request(self.workerCtx, key),
-      )
+      ).isOkOr:
+        debug "external discovery could not unregister the interest",
+          key = key, reason = error
     ok()
 
   method addBootstrapEntries(
