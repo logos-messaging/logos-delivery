@@ -617,15 +617,14 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Signed now only to refuse a node with no identity to sign with; the
     ## record sent is signed when it is sent.
     discard ?self.signRecord(key, data)
-    if key in self.adverts:
-      self.adverts.withValue(key, advert):
-        if advert.data != data:
-          ## The plugin holds the old data under this key.
-          advert.data = data
-          advert.taken = false
-          advert.resign = true
-          inc advert.version
-    else:
+    self.adverts.withValue(key, advert):
+      if advert.data != data:
+        ## The plugin holds the old data under this key.
+        advert.data = data
+        advert.taken = false
+        advert.resign = true
+        inc advert.version
+    do:
       self.adverts[key] = Advert(data: data)
     self.announceWanted.fire()
     ok()
