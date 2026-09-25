@@ -12,8 +12,13 @@
 ## The one thing this backend does that the internal one does not: it signs
 ## this node's own peer record before advertising, because the provider's
 ## discovery node is not this node. That is its only libp2p dependency.
+##
+## Adverts and interests are kept as what the node wants, not sent once. The
+## node cannot tell when the provider is ready -- a plugin can start before its
+## libp2p switch has, and libp2p then refuses both -- so a loop hands them to
+## the plugin and retries until each is taken.
 
-import std/[sequtils, strutils]
+import std/[sequtils, strutils, tables]
 import chronos, chronicles, results
 import brokers/broker_implement
 import
@@ -47,6 +52,26 @@ const
     ## worker to come back on stop. The declared timeout bounds how long a verb
     ## may run; this margin covers the hand-back after it returns. A worker
     ## still inside a call past the sum is abandoned, not waited on further.
+  AnnounceBackoffMin = chronos.seconds(1)
+  AnnounceBackoffMax = chronos.seconds(60)
+    ## Retry schedule for what the plugin has not taken yet. The provider is
+    ## local to this node, so there is no herd to spread and no jitter.
+  AlreadyAdvertised = "already advertised"
+    ## libp2p's refusal of a service it already advertises
+    ## (`addProvidedService`), passed through verbatim by the plugin. The ABI
+    ## has no error codes, so this text is the only signal that the plugin
+    ## holds the key -- for instance after a call that timed out on our side
+    ## but completed there. Should libp2p reword it, the key is retried and
+    ## warned about, never silently left stale.
+
+type Advert = object
+  data: seq[byte]
+  taken: bool ## the plugin holds this advert; no call until something changes
+  resign: bool
+    ## The plugin may hold an older record for the key -- the node's addresses
+    ## or `data` changed, or this is a new session -- so it is stopped before it
+    ## is sent, and "already advertised" does not count as taken.
+  version: int ## bumped on every change, so a reply to an older send is ignored
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
@@ -62,7 +87,10 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
     ## Workers whose thread never came back from a plugin call. Kept alive on
     ## purpose: the thread still owns the Thread object inside.
   nodeCtx: BrokerContext
-  interests: seq[string]
+  adverts: Table[string, Advert]
+  interests: Table[string, bool] ## key -> taken by the plugin
+  announceWanted: AsyncEvent
+  announceLoop: Future[void]
   serviceLookupInterval: Duration
   randomLookupInterval: Duration
   serviceLookupLoop: Future[void]
@@ -214,7 +242,9 @@ proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).
       return
 
     var found = 0
-    for key in self.interests:
+    ## Every wanted key, taken by the plugin or not: a lookup does not need the
+    ## interest, which only pre-warms the provider's table.
+    for key in toSeq(self.interests.keys()):
       if not self.running:
         return
       let peers = (await self.lookupServicePeers(key, 0)).valueOr:
@@ -248,6 +278,119 @@ proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).}
       continue
     self.emitPeers("", peers)
 
+proc signRecord(
+    self: ExternalServiceDiscovery, key: string, data: seq[byte]
+): Result[seq[byte], string] =
+  ## This node's record listing exactly this service, from its current
+  ## identity and addresses. Identity and key come from the node-state getters,
+  ## the way the discv5 backend gets its ENR and key.
+  let serviceId = key[ServiceKeyPrefix.len ..^ 1]
+  let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
+  let nodeKey = ?GetNodeKey.request(self.nodeCtx)
+  signedServiceRecord(peerInfo, nodeKey, serviceId, data)
+
+proc resignAll(self: ExternalServiceDiscovery) =
+  ## Every advert is handed to the plugin again, stopped first and signed
+  ## afresh.
+  for advert in self.adverts.mvalues():
+    advert.taken = false
+    advert.resign = true
+    inc advert.version
+  self.announceWanted.fire()
+
+proc sendAdvert(
+    self: ExternalServiceDiscovery, key: string, advert: Advert
+): Future[Result[void, string]] {.async: (raises: []).} =
+  ## The plugin's discovery node is not this node: left to itself it would
+  ## publish its own identity under our service. So it gets a record signed
+  ## here, from the node's current addresses, and publishes it verbatim.
+  let record = ?self.signRecord(key, advert.data)
+  if advert.resign:
+    discard pluginCall(
+      void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
+    )
+  let res = pluginCall(
+    void,
+    "startAdvertising",
+    PluginStartAdvertising.request(self.workerCtx, key, advert.data, record),
+  )
+  if res.isErr() and not advert.resign and AlreadyAdvertised in res.error:
+    return ok()
+  res
+
+proc announcePending(
+    self: ExternalServiceDiscovery
+): Future[bool] {.async: (raises: []).} =
+  ## Sends every advert and interest the plugin has not taken. True when it
+  ## has taken them all.
+  var allTaken = true
+
+  for key in toSeq(self.adverts.keys()):
+    if not self.running:
+      return false
+    let advert = self.adverts.getOrDefault(key)
+    if advert.taken:
+      continue
+    let res = await self.sendAdvert(key, advert)
+    ## Changed or dropped while the call was out: that change woke the loop,
+    ## and this reply is about a version nobody wants any more.
+    self.adverts.withValue(key, cur):
+      if cur.version == advert.version:
+        if res.isOk():
+          cur.taken = true
+          cur.resign = false
+          info "external discovery took the advert", key = key
+        else:
+          allTaken = false
+          debug "external discovery refused the advert, will retry",
+            key = key, reason = res.error
+
+  for key in toSeq(self.interests.keys()):
+    if not self.running:
+      return false
+    if self.interests.getOrDefault(key):
+      continue
+    let res = pluginCall(
+      void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
+    )
+    if key notin self.interests:
+      continue
+    if res.isOk():
+      self.interests[key] = true
+      info "external discovery took the interest", key = key
+    else:
+      allTaken = false
+      debug "external discovery refused the interest, will retry",
+        key = key, reason = res.error
+
+  allTaken
+
+proc runAnnounceLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
+  ## Sends what the plugin has not taken, then sleeps until something changes.
+  ## While the plugin refuses, it retries on a doubling backoff; a change
+  ## wakes it and starts the backoff over. Warns once when the backoff reaches
+  ## its cap: a healthy provider takes everything well before that.
+  var backoff = AnnounceBackoffMin
+  var warned = false
+  while self.running:
+    self.announceWanted.clear()
+    let allTaken = await self.announcePending()
+    try:
+      if allTaken:
+        backoff = AnnounceBackoffMin
+        warned = false
+        await self.announceWanted.wait()
+      elif await self.announceWanted.wait().withTimeout(backoff):
+        backoff = AnnounceBackoffMin
+      else:
+        backoff = min(backoff * 2, AnnounceBackoffMax)
+        if backoff == AnnounceBackoffMax and not warned:
+          warned = true
+          warn "external discovery keeps refusing adverts or interests, retrying",
+            every = AnnounceBackoffMax
+    except CancelledError:
+      return
+
 BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   proc new(
       T: typedesc[ExternalServiceDiscovery],
@@ -258,6 +401,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       nodeCtx: globalBrokerContext(),
       worker: ServiceDiscoveryWorker.new(),
       workerCtx: NewBrokerContext(),
+      announceWanted: newAsyncEvent(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
@@ -346,6 +490,16 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ?pluginCall(void, "start", PluginStart.request(self.workerCtx), PluginStartTimeout)
 
     self.running = true
+
+    ## A new session: everything wanted, including what a verb recorded before
+    ## this start, is handed over again. libp2p outlives our session, so it may
+    ## still hold a record from the last one, with old addresses.
+    for taken in self.interests.mvalues():
+      taken = false
+    self.resignAll()
+    if self.announceLoop.isNil():
+      self.announceLoop = self.runAnnounceLoop()
+
     if self.serviceLookupLoop.isNil():
       self.serviceLookupLoop = self.runServiceLookupLoop()
 
@@ -367,6 +521,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       return ok()
     self.running = false
 
+    ## First, so none of its calls races the worker going away.
+    if not self.announceLoop.isNil():
+      await self.announceLoop.cancelAndWait()
+      self.announceLoop = nil
     if not self.serviceLookupLoop.isNil():
       await self.serviceLookupLoop.cancelAndWait()
       self.serviceLookupLoop = nil
@@ -421,47 +579,58 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    ## The plugin's discovery node is not this node: left to itself it would
-    ## publish its own identity under our service. So sign a record for this
-    ## node listing exactly this service, and let the plugin publish it
-    ## verbatim. Identity and key come from the node-state getters, the way
-    ## the discv5 backend gets its ENR and key.
+    ## Ok means taken on, not yet published: the announce loop hands it to the
+    ## plugin and logs when the plugin takes it. What can never succeed is
+    ## refused here instead of being kept.
     if not key.startsWith(ServiceKeyPrefix):
       return err("external backend: only service: keys can be advertised")
-    let serviceId = key[ServiceKeyPrefix.len ..^ 1]
-    let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
-    let nodeKey = ?GetNodeKey.request(self.nodeCtx)
-    let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)
-    pluginCall(
-      void,
-      "startAdvertising",
-      PluginStartAdvertising.request(self.workerCtx, key, data, record),
-    )
+    ## Signed now only to refuse a node with no identity to sign with; the
+    ## record sent is signed when it is sent.
+    discard ?self.signRecord(key, data)
+    if key in self.adverts:
+      self.adverts.withValue(key, advert):
+        if advert.data != data:
+          ## The plugin holds the old data under this key.
+          advert.data = data
+          advert.taken = false
+          advert.resign = true
+          inc advert.version
+    else:
+      self.adverts[key] = Advert(data: data)
+    self.announceWanted.fire()
+    ok()
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    pluginCall(
-      void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
-    )
+    ## Best effort: a plugin that is not up yet cannot hold the advert either.
+    self.adverts.del(key)
+    if self.running:
+      discard pluginCall(
+        void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
+      )
+    ok()
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?pluginCall(
-      void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
-    )
+    ## Ok means taken on; see `startAdvertising`.
     if key notin self.interests:
-      self.interests.add(key)
+      self.interests[key] = false
+      self.announceWanted.fire()
     ok()
 
   method unregisterInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?pluginCall(
-      void, "unregisterInterest", PluginUnregisterInterest.request(self.workerCtx, key)
-    )
-    self.interests.keepItIf(it != key)
+    ## Best effort, like `stopAdvertising`.
+    self.interests.del(key)
+    if self.running:
+      discard pluginCall(
+        void,
+        "unregisterInterest",
+        PluginUnregisterInterest.request(self.workerCtx, key),
+      )
     ok()
 
   method addBootstrapEntries(
