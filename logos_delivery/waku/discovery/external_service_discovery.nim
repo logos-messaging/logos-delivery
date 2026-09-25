@@ -191,6 +191,19 @@ proc abandonedWorkerCount*(self: ExternalServiceDiscovery): int =
   ## outran its own declared timeout.
   self.abandonedWorkers.len
 
+proc pendingAnnouncements*(self: ExternalServiceDiscovery): int =
+  ## Adverts and interests the plugin has not taken yet. Zero means the
+  ## announce loop is parked: it calls the plugin again only when a verb or an
+  ## address change wakes it.
+  var pending = 0
+  for advert in self.adverts.values():
+    if not advert.taken:
+      inc pending
+  for taken in self.interests.values():
+    if not taken:
+      inc pending
+  pending
+
 proc reapAbandoned(self: ExternalServiceDiscovery) =
   ## Joins abandoned threads that have since left the plugin, and forgets them.
   ##

@@ -571,12 +571,11 @@ suite "ExternalServiceDiscovery":
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
     check (await iface.registerInterest("service:y")).isOk()
 
-    check eventually(fake.advertTaken.load() == 1 and fake.interestTaken.load() == 1)
-    check fake.refuseVerbs.load() == 0
-
-    ## Taken once and left alone: no further calls once the plugin has it.
-    await sleepAsync(chronos.seconds(3))
+    ## Taken once and left alone: with nothing pending the loop is parked, and
+    ## calls the plugin again only when something wakes it.
+    check eventually(backend.pendingAnnouncements() == 0)
     check:
+      fake.refuseVerbs.load() == 0
       fake.advertTaken.load() == 1
       fake.interestTaken.load() == 1
       fake.advertLive.load()
@@ -599,9 +598,9 @@ suite "ExternalServiceDiscovery":
 
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
 
-    check eventually(fake.advertRefusedAsHeld.load() == 1)
-    ## Taken: no stop, no republish, and no further calls.
-    await sleepAsync(chronos.seconds(3))
+    ## Taken through "already advertised": no stop, no republish, and nothing
+    ## left pending that could call again.
+    check eventually(backend.pendingAnnouncements() == 0)
     check:
       fake.advertTaken.load() == 1
       fake.advertRefusedAsHeld.load() == 1
@@ -647,8 +646,9 @@ suite "ExternalServiceDiscovery":
     check eventually(fake.advertTaken.load() == 1)
 
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    await sleepAsync(chronos.seconds(1))
+    ## The same data leaves the advert taken, so there is nothing to send.
     check:
+      backend.pendingAnnouncements() == 0
       fake.advertTaken.load() == 1
       fake.stopAdvertCalls.load() == 0
 
@@ -676,10 +676,12 @@ suite "ExternalServiceDiscovery":
     ## Once it has been tried, the plugin may hold it, so it gets withdrawn.
     check eventually(fake.refuseVerbs.load() < 1000)
     check (await iface.stopAdvertising("service:x")).isOk()
+    ## Gone from what the node wants, so nothing can send it any more.
+    check:
+      backend.pendingAnnouncements() == 0
+      fake.stopAdvertCalls.load() == 1 # the best-effort stop
 
     fake.refuseVerbs.store(0)
-    check eventually(fake.stopAdvertCalls.load() >= 1)
-    await sleepAsync(chronos.seconds(3))
     check:
       fake.advertTaken.load() == 0
       not fake.advertLive.load()
@@ -735,12 +737,15 @@ suite "ExternalServiceDiscovery":
       fake.stopAdvertCalls.load() == 1
       fake.advertRefusedAsHeld.load() == 0
 
-    ## Once stopped, the node no longer follows its addresses.
+    ## Once stopped, the node no longer follows its addresses. Observers run
+    ## synchronously, so one still attached would have marked the advert
+    ## pending by the time `notifyObservers` returns.
     check (await iface.stopDiscovery()).isOk()
     peerInfo.addrs = @[MultiAddress.init("/ip4/198.51.100.9/tcp/44002").get()]
     peerInfo.notifyObservers()
-    await sleepAsync(chronos.seconds(2))
-    check fake.advertTaken.load() == 2
+    check:
+      backend.pendingAnnouncements() == 0
+      fake.advertTaken.load() == 2
 
   asyncTest "an interest the plugin refuses is still looked up":
     ## A lookup does not depend on the interest, which only pre-warms the
