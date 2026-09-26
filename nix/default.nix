@@ -255,7 +255,7 @@ pkgs.stdenv.mkDerivation {
       # protocol layer of the same image. A separate dylib could not reach
       # them: the host loads plugins RTLD_LOCAL.
       outFile = "build/liblogosdelivery_module.a";
-      sourceFile = "library/logos_module/liblogosdelivery_module.nim";
+      sourceFile = "library/liblogosdelivery.nim";
       extraArgs = [
         "--app:staticlib"
         "--opt:size"

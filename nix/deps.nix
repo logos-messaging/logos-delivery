@@ -238,8 +238,8 @@
   # (branch dual/6-reverse-dcbor), until the dual/* PRs land.
   ffi = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "e7a13351bba8263424309daa29c4328286b9ae1f";
-    sha256 = "1ll36n46ay6hnlma3sz5635v7q8gl50csvs06xdhjizvyqqk8y54";
+    rev = "ea8a41a80f96e79cde6f4aa93220a06da5d76e30";
+    sha256 = "03h8bb91f9ify77391c6x3k6kqd3pf04arkz6bw4nh2bz88qhniq";
     fetchSubmodules = true;
   };
 

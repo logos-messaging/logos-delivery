@@ -484,8 +484,8 @@ task liblogosdeliveryModule, "Build the Logos Core module image: liblogosdeliver
     else: " --passL:-Wl,--unresolved-symbols=ignore-in-object-files"
   buildLibrary(
     "liblogosdelivery_module" & (when defined(macosx): ".dylib" else: ".so"),
-    "library/logos_module", " -d:ffiPollMode -d:logosModule" & unresolved, "dynamic",
-    "liblogosdelivery_module.nim",
+    "library", " -d:ffiPollMode -d:logosModule" & unresolved, "dynamic",
+    "liblogosdelivery.nim",
   )
 task liblogosdeliveryDynamicWindows, "Generate bindings":
   buildLibDynamicWindows("liblogosdelivery", "library")
