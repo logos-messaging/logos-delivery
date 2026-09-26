@@ -19,7 +19,6 @@ import results
 import logos_sdk
 from ../declare_lib import initializeLibrary # declareLibrary's once-only runtime init
 import cbor_serialization # the request encoders instantiate here
-import ffi/ffi_msg
 import ffi/poll_host
 import ./events, ./presets
 import ../../logos_delivery/waku/rln/rln_lez/wire
@@ -35,24 +34,6 @@ var
   rlnStateName = "Disabled"
   rlnStateMessage = ""
 
-# --- the library's exports, by C name --------------------------------------------
-proc ldCreateNode(req: ptr byte, len: csize_t, ctxOut: ptr pointer, idOut: ptr uint64): cint {.importc: "logosdelivery_create_node", cdecl, gcsafe, raises: [].}
-proc ldDestroy(ctx: pointer): cint {.importc: "logosdelivery_destroy", cdecl, gcsafe, raises: [].}
-proc ldPoll(ctx: pointer, timeoutMs: int32, msg: ptr ptr NimFfiMsg): cint {.importc: "logosdelivery_poll", cdecl, gcsafe, raises: [].}
-proc ldStartNode(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_start_node", cdecl, gcsafe, raises: [].}
-proc ldStopNode(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_stop_node", cdecl, gcsafe, raises: [].}
-proc ldSend(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_send", cdecl, gcsafe, raises: [].}
-proc ldSubscribe(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_subscribe", cdecl, gcsafe, raises: [].}
-proc ldUnsubscribe(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_unsubscribe", cdecl, gcsafe, raises: [].}
-proc ldStoreQuery(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "waku_store_query", cdecl, gcsafe, raises: [].}
-proc ldChannelCreate(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_channel_create", cdecl, gcsafe, raises: [].}
-proc ldChannelExists(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_channel_exists", cdecl, gcsafe, raises: [].}
-proc ldChannelSend(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_channel_send", cdecl, gcsafe, raises: [].}
-proc ldChannelClose(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_channel_close", cdecl, gcsafe, raises: [].}
-proc ldGetAvailableNodeInfoIds(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_get_available_node_info_ids", cdecl, gcsafe, raises: [].}
-proc ldGetNodeInfo(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_get_node_info", cdecl, gcsafe, raises: [].}
-proc ldGetAvailableConfigs(ctx: pointer, req: ptr byte, len: csize_t, idOut: ptr uint64): cint {.importc: "logosdelivery_get_available_configs", cdecl, gcsafe, raises: [].}
-
 # Events bypass the queue in this image (declare_lib's emitEvent), so the host
 # sees replies only; one that did arrive here would still reach the callback.
 proc onLibraryEvent(nameId: uint64, payload: seq[byte]) {.gcsafe, raises: [].} =
@@ -62,7 +43,7 @@ proc onLibraryEvent(nameId: uint64, payload: seq[byte]) {.gcsafe, raises: [].} =
   emitLibraryEvent(text)
 
 let host = newHost(
-  Library(create: ldCreateNode, destroy: ldDestroy, poll: ldPoll), onEvent = onLibraryEvent
+  importLibrary("logosdelivery", ctor = "logosdelivery_create_node"), onEvent = onLibraryEvent
 )
 
 # --- request shapes: the exports' parameter names -------------------------------
@@ -192,42 +173,42 @@ proc start(): LogosResult {.dispatchAs: "start".} =
   ## Returns once the start is under way; the outcome is the nodeStarted
   ## event, which the node emits itself (start can take a while).
   requireNode()
-  discard host.submit(ldStartNode, encode(Empty())).valueOr:
+  discard host.submit("logosdelivery_start_node", encode(Empty())).valueOr:
     return logosFail("failed to initiate start: " & error)
   return logosOk()
 
 proc stop(): LogosResult {.dispatchAs: "stop".} =
   requireNode()
-  discard host.submit(ldStopNode, encode(Empty())).valueOr:
+  discard host.submit("logosdelivery_stop_node", encode(Empty())).valueOr:
     return logosFail("failed to initiate stop: " & error)
   return logosOk()
 
 proc send(contentTopic: string, payload: seq[byte]): LogosResult {.dispatchAs: "send".} =
   requireNode()
   let msg = %*{"contentTopic": contentTopic, "payload": base64.encode(payload), "ephemeral": false}
-  return textResult("send", host.call(ldSend, encode(MessageReq(messageJson: $msg)), CallTimeoutMs))
+  return textResult("send", host.call("logosdelivery_send", encode(MessageReq(messageJson: $msg)), CallTimeoutMs))
 
 proc subscribe(contentTopic: string): LogosResult {.dispatchAs: "subscribe".} =
   requireNode()
-  return voidResult("subscribe", host.call(ldSubscribe, encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
+  return voidResult("subscribe", host.call("logosdelivery_subscribe", encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
 
 proc unsubscribe(contentTopic: string): LogosResult {.dispatchAs: "unsubscribe".} =
   requireNode()
-  return voidResult("unsubscribe", host.call(ldUnsubscribe, encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
+  return voidResult("unsubscribe", host.call("logosdelivery_unsubscribe", encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
 
 proc storeQuery(jsonQuery: string, peerAddr: string, timeoutMs: int64): LogosResult {.dispatchAs: "storeQuery".} =
   requireNode()
   let budget = max(CallTimeoutMs, int(timeoutMs) + 5_000)
-  return textResult("store_query", host.call(ldStoreQuery, encode(StoreQueryReq(jsonQuery: jsonQuery, peerAddr: peerAddr, timeoutMs: int32(timeoutMs))), budget))
+  return textResult("store_query", host.call("waku_store_query", encode(StoreQueryReq(jsonQuery: jsonQuery, peerAddr: peerAddr, timeoutMs: int32(timeoutMs))), budget))
 
 proc channelCreate(channelId: string, contentTopic: string, senderId: string): LogosResult {.dispatchAs: "channelCreate".} =
   requireNode()
   # zero cipher callbacks and user data: an unencrypted channel
-  return textResult("channel_create", host.call(ldChannelCreate, encode(ChannelCreateReq(channelIdStr: channelId, contentTopicStr: contentTopic, senderIdStr: senderId)), CallTimeoutMs))
+  return textResult("channel_create", host.call("logosdelivery_channel_create", encode(ChannelCreateReq(channelIdStr: channelId, contentTopicStr: contentTopic, senderIdStr: senderId)), CallTimeoutMs))
 
 proc channelExists(channelId: string): LogosResult {.dispatchAs: "channelExists".} =
   requireNode()
-  let r = host.call(ldChannelExists, encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs)
+  let r = host.call("logosdelivery_channel_exists", encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs)
   if r.ret != RET_OK:
     return failed("channel_exists", r)
   return logosOk(%r.decode(bool).valueOr(false))
@@ -235,28 +216,28 @@ proc channelExists(channelId: string): LogosResult {.dispatchAs: "channelExists"
 proc channelSend(channelId: string, payload: seq[byte]): LogosResult {.dispatchAs: "channelSend".} =
   requireNode()
   let msg = %*{"payload": base64.encode(payload), "ephemeral": false}
-  return textResult("channel_send", host.call(ldChannelSend, encode(ChannelSendReq(channelIdStr: channelId, messageJson: $msg)), CallTimeoutMs))
+  return textResult("channel_send", host.call("logosdelivery_channel_send", encode(ChannelSendReq(channelIdStr: channelId, messageJson: $msg)), CallTimeoutMs))
 
 proc channelClose(channelId: string): LogosResult {.dispatchAs: "channelClose".} =
   requireNode()
-  return voidResult("channel_close", host.call(ldChannelClose, encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs))
+  return voidResult("channel_close", host.call("logosdelivery_channel_close", encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs))
 
 proc getAvailableNodeInfoIDs(): LogosResult {.dispatchAs: "getAvailableNodeInfoIDs".} =
   requireNode()
-  return textResult("get_available_node_info_ids", host.call(ldGetAvailableNodeInfoIds, encode(Empty()), CallTimeoutMs))
+  return textResult("get_available_node_info_ids", host.call("logosdelivery_get_available_node_info_ids", encode(Empty()), CallTimeoutMs))
 
 proc getNodeInfo(nodeInfoId: string): LogosResult {.dispatchAs: "getNodeInfo".} =
   requireNode()
-  return textResult("get_node_info", host.call(ldGetNodeInfo, encode(NodeInfoReq(nodeInfoId: nodeInfoId)), CallTimeoutMs))
+  return textResult("get_node_info", host.call("logosdelivery_get_node_info", encode(NodeInfoReq(nodeInfoId: nodeInfoId)), CallTimeoutMs))
 
 proc getAvailableConfigs(): LogosResult {.dispatchAs: "getAvailableConfigs".} =
   requireNode()
-  return textResult("get_available_configs", host.call(ldGetAvailableConfigs, encode(Empty()), CallTimeoutMs))
+  return textResult("get_available_configs", host.call("logosdelivery_get_available_configs", encode(Empty()), CallTimeoutMs))
 
 proc collectOpenMetricsText(): string {.dispatchAs: "collectOpenMetricsText".} =
   if host.ctx.isNil:
     return ""
-  let r = host.call(ldGetNodeInfo, encode(NodeInfoReq(nodeInfoId: "Metrics")), CallTimeoutMs)
+  let r = host.call("logosdelivery_get_node_info", encode(NodeInfoReq(nodeInfoId: "Metrics")), CallTimeoutMs)
   return r.decode(string).valueOr("")
 
 proc rlnBridgeEnable(): LogosResult {.dispatchAs: "rlnBridgeEnable".} =
