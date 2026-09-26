@@ -182,6 +182,18 @@ suite "LM API health checking":
 
     check isConnected == true
 
+  asyncTest "getConnectionStatus, reads the last reported status":
+    check (await client.getConnectionStatus()).get() == ConnectionStatus.Disconnected
+
+    let connectFuture = waitForConnectionStatus(
+      client.waku.brokerCtx, ConnectionStatus.PartiallyConnected
+    )
+    await client.waku.node.connectToNodes(@[servicePeerInfo])
+    await connectFuture
+
+    check (await client.getConnectionStatus()).get() ==
+      ConnectionStatus.PartiallyConnected
+
   asyncTest "EventConnectionStatusChange, detect connect and disconnect":
     let connectFuture = waitForConnectionStatus(
       client.waku.brokerCtx, ConnectionStatus.PartiallyConnected

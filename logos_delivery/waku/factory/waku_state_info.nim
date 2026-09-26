@@ -19,6 +19,7 @@ type
     MyBoundPorts
     MyMixPubKey
     MaxMessageSize
+    IsRunning
 
   WakuStateInfo* {.requiresInit.} = object
     node: WakuNode
@@ -58,6 +59,9 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.MaxMessageSize:
     ## Configured max message size (in bytes) for this node.
     return $self.conf.maxMessageSizeBytes
+  of NodeInfoId.IsRunning:
+    ## "true" between a successful start and stop, "false" otherwise.
+    return $self.node.started
   else:
     return "unknown info item id"
 

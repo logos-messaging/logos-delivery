@@ -236,6 +236,13 @@ proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
     return err("Waku node is not initialized")
   return await self.waku.isOnline()
 
+proc getConnectionStatus*(
+    self: LogosDelivery
+): Future[Result[ConnectionStatus, string]] {.async.} =
+  if self.waku.isNil():
+    return err("Waku node is not initialized")
+  return await self.waku.getConnectionStatus()
+
 proc ensureMessaging*(self: LogosDelivery): Result[void, string] =
   ## Fails if the node has no messaging client (a kernel-only node).
   if self.isNil() or self.messagingClient.isNil():

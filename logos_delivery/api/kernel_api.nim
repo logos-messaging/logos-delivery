@@ -78,4 +78,5 @@ type KernelApi* = concept w
   myPeerId(w) is Future[Result[string, string]]
   metrics(w) is Future[Result[string, string]]
   isOnline(w) is Future[Result[bool, string]]
+  getConnectionStatus(w) is Future[Result[ConnectionStatus, string]]
   pingPeer(w, peerAddr = string, timeoutMs = int) is Future[Result[int64, string]]
