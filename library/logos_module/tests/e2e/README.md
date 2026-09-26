@@ -81,8 +81,16 @@ table, a node whose questions must reach `liblogos_rln_module`.
 ```bash
 nix build .#delivery_module-lgx-portable
 lgpm --modules-dir ./modules --allow-unsigned install --file result/*.lgx   # plus the RLN bundles for the RLN check
-python3 local_e2e.py --modules-dir ./modules [--rln-presets presets.json]
+python3 local_e2e.py --modules-dir ./modules [--rln-presets presets.json] [--stress 40]
 ```
+
+`--stress N` (with the presets) puts the RLN path under load: three bursts of
+N sends, each a concurrent question to the RLN module answered from lp's
+completion thread, the module unloaded (questions fail at the library's
+deadline while the node keeps answering) and reloaded. The reload check is
+reported as a known logos-core issue: a reloaded module refuses a caller's
+cached token and answers null, which lp reports as a success, so the caller
+never re-exchanges.
 
 ## Running locally — Linux
 
