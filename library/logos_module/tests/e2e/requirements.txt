@@ -1,0 +1,4 @@
+# Framework pinned to a specific SHA for reproducibility; it transitively
+# resolves `logoscore` from its own pyproject.
+logos-integration-test-framework @ git+https://github.com/logos-messaging/logos-integration-test-framework.git@19a0ea22
+pytest>=8.0

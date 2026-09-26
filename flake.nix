@@ -25,9 +25,17 @@
       url = "github:vacp2p/zerokit/ea80f39be3e7944e4537b5f4726a7c4aabfe0ab5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # The Logos Core module (library/logos_module): the builder that wraps the
+    # module image in logos-core's plugin glue and bundles it.
+    logos-module-builder.url = "github:logos-co/logos-module-builder/0.3.1";
+    # The name is load-bearing: the builder resolves each optional_dependencies
+    # entry of metadata.json as the input of that name and generates the
+    # module's bindings from its LIDL.
+    liblogos_rln_module.url = "git+https://github.com/logos-co/logos-rln-modules?ref=main&rev=65697028baffc072e1aeebaec7c7e35e7e12cab1&dir=logos-rln-module";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, zerokit }:
+  outputs = inputs@{ self, nixpkgs, rust-overlay, zerokit, logos-module-builder, ... }:
     let
       systems = [
         "x86_64-linux" "aarch64-linux"
@@ -133,8 +141,9 @@
           } // { inherit libpq; };
         in
         lib.mapAttrs' (name: lib.nameValuePair "${name}-windows-x86_64") windowsPackages;
-    in {
-      packages = forAllSystems (system:
+      # The library's own packages, per system: what this flake publishes and
+      # what the module below links.
+      libraryPackages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
           nativePackages = packagesFor {
@@ -148,6 +157,84 @@
         # zerokit builds its MinGW rln only on x86_64-linux, so the Windows
         # packages live there too.
         // lib.optionalAttrs (system == "x86_64-linux") (windowsPackagesFor system)
+      );
+
+      # The Logos Core module: library/logos_module wrapped in logos-core's
+      # plugin glue. Its external libraries are this flake's own packages.
+      module = logos-module-builder.lib.mkLogosModule {
+        src = ./library/logos_module;
+        configFile = ./library/logos_module/metadata.json;
+        flakeInputs = inputs;
+        externalLibInputs = {
+          # The module image: liblogosdelivery plus the logos_module_* exports.
+          logosdelivery_module = {
+            input = { packages = libraryPackages; };
+            packages.default = "liblogosdelivery_module";
+          };
+          # librln beside the plugin: the exact, cargoHash-corrected build the
+          # library links.
+          rln = {
+            input = { packages = libraryPackages; };
+            packages.default = "rln";
+            systems.x86_64-windows = {
+              system = "x86_64-linux";
+              packages.default = "rln-windows-x86_64";
+            };
+          };
+        };
+        postInstall = ''
+          # librln.dylib is copied out of zerokit's output, so everything it loads
+          # by absolute store path is a dependency of zerokit and not of this
+          # module. A module travels to an app inside an LGX archive, which nix
+          # cannot scan for store paths, so nothing installs those alongside the
+          # module and the plugin fails to dlopen wherever they do not already
+          # exist. Bundle them next to librln and load them through @loader_path,
+          # the way librln and libpq already travel with the module. Transitively:
+          # the libiconv librln loads re-exports libcharset from the same path.
+          pending="$out/lib/librln.dylib"
+          while [ -n "$pending" ]; do
+            next=""
+            for macho in $pending; do
+              [ -f "$macho" ] || continue
+              chmod u+w "$macho"
+              for dep in $(otool -l "$macho" | awk '
+                $1 == "cmd" { load = ($2 ~ /^LC_(LOAD_DYLIB|LOAD_WEAK_DYLIB|REEXPORT_DYLIB)$/) }
+                load && $1 == "name" && $2 ~ "^/nix/store/" { print $2 }
+              '); do
+                name=$(basename "$dep")
+                if [ ! -f "$out/lib/$name" ]; then
+                  echo "Bundling $dep as @loader_path/$name"
+                  cp -L "$dep" "$out/lib/$name"
+                  chmod u+w "$out/lib/$name"
+                  install_name_tool -id "@loader_path/$name" "$out/lib/$name"
+                  next="$next $out/lib/$name"
+                fi
+                install_name_tool -change "$dep" "@loader_path/$name" "$macho"
+              done
+            done
+            pending="$next"
+          done
+        '';
+      };
+
+      # The RLN modules a node on an RLN-enabled preset loads before createNode,
+      # from this flake's own locked inputs.
+      rlnModule = inputs.liblogos_rln_module;
+      lezRlnModule = rlnModule.inputs.liblogos_lez_rln_module;
+    in {
+      packages = forAllSystems (system:
+        libraryPackages.${system}
+        # The module's, under its name: the plugin, the bundle logoscore
+        # installs (and its portable variant), the generated glue, the LIDL.
+        // lib.filterAttrs (name: _: lib.hasPrefix "delivery_module-" name) module.packages.${system}
+        // {
+          delivery_module = module.packages.${system}.lib;
+          "delivery_module-lgx" = module.packages.${system}.lgx;
+          "delivery_module-lgx-portable" = module.packages.${system}."lgx-portable";
+          "delivery_module-install" = module.packages.${system}.install;
+          "liblogos_rln_module-lgx" = rlnModule.packages.${system}.lgx;
+          "liblogos_lez_rln_module-lgx" = lezRlnModule.packages.${system}.lgx;
+        }
       );
 
       devShells = forAllSystems (system:

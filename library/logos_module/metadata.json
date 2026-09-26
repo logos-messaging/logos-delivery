@@ -1,0 +1,46 @@
+{
+    "name": "delivery_module",
+    "display_name": "Delivery Module",
+    "version": "0.3.0",
+    "description": "Logos Delivery Module - High-level message-delivery API",
+    "author": "Logos Core Team",
+    "type": "core",
+    "category": "protocol",
+    "interface": "cdylib",
+    "main": "delivery_module_plugin",
+    "codegen": {
+        "lidl": "delivery_module.lidl"
+    },
+    "dependencies": [],
+    "optional_dependencies": [
+        "liblogos_rln_module"
+    ],
+    "include": [
+        "librln.so",
+        "librln.dylib",
+        "librln.dll",
+        "libpq.so",
+        "libpq.so.5",
+        "libpq.dylib",
+        "libpq.5.dylib",
+        "libpq.dll"
+    ],
+    "capabilities": [],
+    "nix": {
+        "packages": {
+            "runtime": []
+        },
+        "external_libraries": [
+            {
+                "name": "logosdelivery_module",
+                "build_command": "true"
+            },
+            {
+                "name": "rln"
+            }
+        ],
+        "cmake": {
+            "extra_include_dirs": []
+        }
+    }
+}
