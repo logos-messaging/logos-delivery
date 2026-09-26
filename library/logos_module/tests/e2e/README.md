@@ -71,6 +71,19 @@ freshly published message should pin `arg3` to `"live"`.
 
 If any of these is missing, all e2e tests **skip** with a clear reason.
 
+## Running locally without docker
+
+`local_e2e.py` runs the same scenarios against the released `logoscore`
+binaries on this host: one daemon for lifecycle and queries, two daemons
+peered by static nodes for delivery both ways, and, given an RLN preset
+table, a node whose questions must reach `liblogos_rln_module`.
+
+```bash
+nix build .#delivery_module-lgx-portable
+lgpm --modules-dir ./modules --allow-unsigned install --file result/*.lgx   # plus the RLN bundles for the RLN check
+python3 local_e2e.py --modules-dir ./modules [--rln-presets presets.json]
+```
+
 ## Running locally — Linux
 
 ```bash
