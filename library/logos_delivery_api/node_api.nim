@@ -1,9 +1,10 @@
-import std/json
+import std/[json, os]
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import stew/byteutils
 import logos_delivery/waku/common/base64
+from logos_delivery/waku/persistency/persistency import DefaultStoragePath
 from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import
   logos_delivery,
@@ -179,16 +180,24 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
 
 proc logosdelivery_create_node(
-    configJson: string, rlnPlugin: bool
+    configJson: string, persistencePath: string, rlnPlugin: bool, rlnValidation: bool
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
-  ## `rlnPlugin` is the host saying it answers the RLN questions this node
-  ## asks (nim-ffi reverse calls); it replaces the callback table the host
-  ## used to install before creating the node, and it is what mounts RLN.
+  ## What the host decides beyond the config: `persistencePath` is where it
+  ## keeps this node's data, used when the config names no local storage
+  ## path; `rlnPlugin` says it answers the RLN questions this node asks
+  ## (nim-ffi reverse calls), which is what mounts RLN; `rlnValidation` off
+  ## still attaches proofs but lets received messages through unchecked.
   setRlnPluginRegistered(rlnPlugin)
-  let conf = parseLogosDeliveryConf(configJson).valueOr:
+  var conf = parseLogosDeliveryConf(configJson).valueOr:
     error "Failed to parse Logos Delivery configuration JSON",
       error = error, configJson = configJson
     return err("failed parseLogosDeliveryConf " & error)
+  var kernel = WakuNodeConf(conf.kernelConf)
+  if persistencePath.len > 0 and kernel.localStoragePath in ["", DefaultStoragePath]:
+    kernel.localStoragePath = persistencePath / "data"
+  if rlnPlugin and not rlnValidation:
+    kernel.rlnDisableValidation = true
+  conf.kernelConf = KernelConf(kernel)
 
   ## Give each node its own broker scope. This runs on the FFI thread the
   ## node will live on: the first node built on that thread mints the
