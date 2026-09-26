@@ -261,7 +261,6 @@ pkgs.stdenv.mkDerivation {
         "--opt:size"
         "--noMain"
         "--nimMainPrefix:liblogosdelivery"
-        "--define:logosModule"
       ] ++ libDefineArgs;
     }}
     ''}

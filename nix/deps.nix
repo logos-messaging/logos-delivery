@@ -238,8 +238,8 @@
   # (branch dual/6-reverse-dcbor), until the dual/* PRs land.
   ffi = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "c2f2ecde223514b061c56b306b54337c927c68f3";
-    sha256 = "0gdlsh3gz34dyjdhvfwmjlkhmaxc0avp4yd3brmwcn4978kjrhca";
+    rev = "cbad16bae1142fee3e261a9feafbf276f7321810";
+    sha256 = "0s17im510m15sfn0x6hphwjwh8ds2rp2mwfvzyimq6s06zhqm8nv";
     fetchSubmodules = true;
   };
 
@@ -353,8 +353,8 @@
   # (branch feat/poll-host), which library/logos_module builds on.
   logos_nim_sdk = pkgs.fetchgit {
     url = "https://github.com/logos-co/logos-nim-sdk";
-    rev = "5b12bafb83051be34f4de02dfb2b0249093d9744";
-    sha256 = "086gsi84wa9zqk95k7w58jza9jzb0v6aa8xsafadv1hljknw5v9b";
+    rev = "0d3723fc6581dacd75b4c289f69f518626b9a52c";
+    sha256 = "0p55c8prlp5282667f5ck0wp7havpfl2f46pqdavkfh4xv54acpk";
     fetchSubmodules = false;
   };
 }
