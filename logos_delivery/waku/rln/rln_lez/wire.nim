@@ -32,11 +32,9 @@ from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 
 export types
 
-type
-  RlnAnswer* = Future[Result[string, string]]
-    ## What a question resolves to: the module's JSON reply text, or a
-    ## wire-level failure.
-  RlnReply* = Future[Result[string, string]].Raising([CancelledError])
+type RlnAnswer* = Future[Result[string, string]].Raising([CancelledError])
+  ## What a question resolves to: the module's JSON reply text, or a
+  ## wire-level failure. Only cancellation escapes.
 
 const NotRegistered* = "RLN module not registered"
 
@@ -56,7 +54,6 @@ when defined(logosModule):
   # The module image: the node asks liblogos_rln_module itself, through
   # logos-core's lp_* C ABI, from its own thread. The completion arrives on a
   # protocol thread, so the answer crosses back over a ThreadSignal.
-  import std/os
   import chronicles
   import chronos/threadsync
   import sdk/lp_client # just the lp client: logos_sdk as a whole brings ok/err overloads the parsers must not see
@@ -83,29 +80,19 @@ when defined(logosModule):
   type Pending = object
     signal: ThreadSignalPtr
     ok: bool
-    reply: cstring # allocShared copy; nil until answered
+    reply: cstring # the protocol thread's copy, on the shared heap
 
   proc onLpReply(ok: cint, json: cstring, userData: pointer) {.cdecl.} =
     let p = cast[ptr Pending](userData)
     p.ok = ok != 0
     if not json.isNil:
-      let n = json.len
-      p.reply = cast[cstring](allocShared0(n + 1))
-      copyMem(p.reply, json, n)
+      p.reply = cast[cstring](allocShared0(json.len + 1))
+      copyMem(p.reply, json, json.len)
     discard p.signal.fireSync()
 
-  proc unwrap(text: string): string =
-    ## lp may hand a JSON string containing the module's JSON; one level off,
-    ## so the parsers see the module's dialects themselves.
-    try:
-      let j = parseJson(text)
-      if j.kind == JString:
-        return j.getStr()
-    except CatchableError:
-      discard
-    return text
-
-  proc askRln(meth: string, args: JsonNode, timeoutMs: int): Future[Result[string, string]] {.async.} =
+  proc askRln(
+      meth: string, args: JsonNode, timeoutMs: int
+  ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
     let p = cast[ptr Pending](allocShared0(sizeof(Pending)))
     p.signal = ThreadSignalPtr.new().valueOr:
       deallocShared(p)
@@ -117,14 +104,16 @@ when defined(logosModule):
       deallocShared(p)
     callModuleAsync(RlnTarget, RlnOrigin, meth, args, timeoutMs, onLpReply, p).isOkOr:
       return err(error)
-    let answered = await p.signal.wait().withTimeout(chronos.milliseconds(timeoutMs + 10_000))
+    let answered =
+      try:
+        await p.signal.wait().withTimeout(chronos.milliseconds(timeoutMs + 10_000))
+      except AsyncError as e:
+        return err(e.msg)
     if not answered:
       return err("timeout")
     let text = if p.reply.isNil: "" else: $p.reply
     debug "rln module answered", meth, ok = p.ok, reply = text
-    if not p.ok:
-      return err(text)
-    return ok(unwrap(text))
+    return if p.ok: ok(text) else: err(text)
 
   template scope(): (string, string) =
     # set once, before the node exists; read from the node's thread after
@@ -167,7 +156,7 @@ else:
   var rlnFakeHost*: RlnFakeHost
 
   proc notRegistered(): RlnAnswer =
-    let fut = newFuture[Result[string, string]]("rln wire: not registered")
+    let fut = RlnAnswer.init("rln wire: not registered")
     fut.complete(Result[string, string].err(NotRegistered))
     return fut
 
@@ -185,27 +174,6 @@ else:
   proc rlnValidateProof*(signalHex: string, timestamp: uint64, proofJson: string): RlnAnswer =
     if host().validateProof.isNil: notRegistered()
     else: host().validateProof(signalHex, timestamp, proofJson)
-
-proc ask*(question: RlnAnswer): RlnReply =
-  ## The generated procs answer with a plain Future; the backend's procs only
-  ## raise CancelledError, so a failure becomes the Result's error and
-  ## cancelling the backend's future cancels the question. Goes away once
-  ## nim-ffi annotates the reverse procs' raises.
-  let fut = RlnReply.init("rln question")
-  question.addCallback(
-    proc(udata: pointer) {.gcsafe, raises: [].} =
-      if fut.finished():
-        return
-      if question.completed():
-        fut.complete(question.value())
-      elif question.cancelled():
-        fut.complete(Result[string, string].err("cancelled"))
-      else:
-        fut.complete(Result[string, string].err(question.error.msg))
-  )
-  fut.cancelCallback = proc(udata: pointer) {.gcsafe, raises: [].} =
-    question.cancelSoon()
-  return fut
 
 # --- reply parsing ------------------------------------------------------------
 # Two dialects (see liblogosdelivery_rln.h): `result` methods answer with the

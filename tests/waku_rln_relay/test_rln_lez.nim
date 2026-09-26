@@ -38,7 +38,7 @@ var
   gValidateReply = ViolationReply
 
 proc canned(reply: string): RlnAnswer =
-  let fut = newFuture[Result[string, string]]("fake rln host")
+  let fut = RlnAnswer.init("fake rln host")
   fut.complete(Result[string, string].ok(reply))
   return fut
 
