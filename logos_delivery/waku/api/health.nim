@@ -19,6 +19,18 @@ proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
   except CatchableError as e:
     return err(e.msg)
 
+proc getConnectionStatus*(
+    self: Waku
+): Future[Result[ConnectionStatus, string]] {.async.} =
+  ## The status `EventConnectionStatusChange` last reported, or would report
+  ## now. `Disconnected` while the node is not started.
+  if self.healthMonitor.isNil():
+    return err("health monitor is not initialized")
+  try:
+    return ok(self.healthMonitor.getSyncNodeHealthReport().connectionStatus)
+  except CatchableError as e:
+    return err(e.msg)
+
 proc setConnectionStatusAdjuster*(self: Waku, adjuster: ConnectionStatusAdjuster) =
   ## Lets an upper layer tighten the connection status; call before start.
   if self.healthMonitor.isNil():

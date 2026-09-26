@@ -41,6 +41,28 @@ suite "Node app - Waku":
     check:
       maxMessageSize == $conf.maxMessageSizeBytes
 
+  test "is running should follow start and stop":
+    ## Given
+    let conf = defaultTestWakuConf()
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let beforeStart = waku.stateInfo.getNodeInfoItem(NodeInfoId.IsRunning)
+    (waitFor waku.start()).isOkOr:
+      raiseAssert error
+    let afterStart = waku.stateInfo.getNodeInfoItem(NodeInfoId.IsRunning)
+    (waitFor waku.stop()).isOkOr:
+      raiseAssert error
+    let afterStop = waku.stateInfo.getNodeInfoItem(NodeInfoId.IsRunning)
+
+    ## Then
+    check:
+      beforeStart == "false"
+      afterStart == "true"
+      afterStop == "false"
+
 suite "Node app - Waku initialization":
   test "peer persistence setup should be successfully mounted":
     ## Given

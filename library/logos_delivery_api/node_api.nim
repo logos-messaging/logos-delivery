@@ -238,6 +238,16 @@ proc logosdelivery_stop_node(
     return err("failed to stop: " & errMsg)
   return ok("")
 
+proc logosdelivery_get_connection_status(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  ## Returns the node's current connection status: `Disconnected`,
+  ## `PartiallyConnected` or `Connected`. `onConnectionStatusChange` reports
+  ## only transitions, so this is how a late listener reads the current one.
+  let status = (await self.getConnectionStatus()).valueOr:
+    return err(error)
+  return ok($status)
+
 proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   ## Safety net for a host that skips `stop_node` (#4108): nim-ffi recycles the
   ## worker rather than joining it, so an unstopped node keeps running.
