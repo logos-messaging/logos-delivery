@@ -26,8 +26,7 @@
 ##     the former singleton refused the second rootDir.
 ##
 ##   case destroy-stops-node
-##     destroy without stop must tear the node down (issue #4108), and the
-##     context-free `logosdelivery_version` export must answer with no node.
+##     destroy without stop must tear the node down (issue #4108).
 ##
 ##   case call-after-failed-ctor
 ##     a context whose constructor failed must reject a later call with an
@@ -87,7 +86,6 @@ type
   CtxFn = proc(ctx: pointer, cb: FfiCallback, userData: pointer): cint {.cdecl, gcsafe.}
   DestroyFn = proc(ctx: pointer): cint {.cdecl, gcsafe.}
     ## The `{.ffiDtor.}` export takes no callback: it blocks until teardown ends.
-  VersionFn = proc(): cstring {.cdecl, gcsafe.}
   ChannelCreateFn = proc(
     ctx: pointer,
     cb: FfiCallback,
@@ -103,7 +101,6 @@ type
     startNode: CtxFn
     stopNode: CtxFn
     destroy: DestroyFn
-    version: VersionFn
     channelCreate: ChannelCreateFn
     channelExists: ChannelExistsFn
 
@@ -176,7 +173,6 @@ proc loadApi(): Api =
     startNode: cast[CtxFn](lib.need("logosdelivery_start_node")),
     stopNode: cast[CtxFn](lib.need("logosdelivery_stop_node")),
     destroy: cast[DestroyFn](lib.need("logosdelivery_destroy")),
-    version: cast[VersionFn](lib.need("logosdelivery_version")),
     channelCreate: cast[ChannelCreateFn](lib.need("logosdelivery_channel_create")),
     channelExists: cast[ChannelExistsFn](lib.need("logosdelivery_channel_exists")),
   )
@@ -237,15 +233,6 @@ proc call(api: Api, s: ptr Slot, label: string, fn: CtxFn, ctx: pointer) =
 proc destroyCtx(api: Api, label: string, ctx: pointer) =
   ## `destroy` answers with its return code, not through the slot.
   expectOk(label, (ok: true, ret: int(api.destroy(ctx)), msg: ""))
-
-proc expectVersion(api: Api) =
-  ## Synchronous exports never reach the generated header, so nothing but
-  ## `loadApi` and this call checks that one is still exported.
-  let version = $api.version()
-  echo "  [ctx-free logosdelivery_version] ", version
-  if not version.startsWith("version / git commit hash:"):
-    echo "  FAIL: logosdelivery_version returned an unexpected string"
-    failed = true
 
 proc createChannel(api: Api, s: ptr Slot, label: string, ctx: pointer, id: string) =
   armSlot(s)
@@ -337,7 +324,6 @@ proc runTwoPaths(api: Api, s: ptr Slot) =
 proc runDestroyStopsNode(api: Api, s: ptr Slot) =
   ## The ports are the observable: ctx1 bound them before the destroy, so a
   ## failed second bind means ctx1 never let go, not that a stranger holds them.
-  api.expectVersion()
 
   let ctx1 = createCtx(api, s, "ctx1", caseRoot("dtor_a"), 60070, 60071)
   if failed:

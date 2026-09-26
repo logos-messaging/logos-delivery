@@ -153,21 +153,6 @@ A `NULL`, garbage or already destroyed `ctx` is rejected at the entry point: the
 call returns `RET_ERR` and its callback, if any, runs first with
 `ctx is not a valid FFI context`. No event is emitted.
 
-### Context-free calls
-
-No `ctx` and no callback: `dlsym` the symbol and read the return value.
-
-#### `logosdelivery_version`
-Version and git commit hash. Callable before `logosdelivery_ctx_create`, though
-the first call into the library starts the Nim runtime.
-
-```c
-const char *logosdelivery_version(void);
-```
-
-The buffer belongs to the calling thread and stays valid until that thread calls
-`logosdelivery_version` again, so copy the bytes.
-
 ### Messaging
 
 #### `logosdelivery_ctx_subscribe`
