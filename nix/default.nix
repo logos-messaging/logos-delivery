@@ -250,21 +250,22 @@ pkgs.stdenv.mkDerivation {
     ${lib.optionalString moduleImage ''
     echo "== Building liblogosdelivery_module (the Logos Core module image) =="
     ${nimCompile {
-      outFile = "build/liblogosdelivery_module.${libExt}";
+      # A static archive: logos-module-builder links it into the plugin
+      # (as it does a Rust cdylib), so the lp_* calls resolve against the
+      # protocol layer of the same image. A separate dylib could not reach
+      # them: the host loads plugins RTLD_LOCAL.
+      outFile = "build/liblogosdelivery_module.a";
       sourceFile = "library/logos_module/liblogosdelivery_module.nim";
       extraArgs = [
-        "--app:lib"
+        "--app:staticlib"
         "--opt:size"
         "--noMain"
         "--nimMainPrefix:liblogosdelivery"
         "--define:logosModule"
-        # The lp_* symbols resolve against the host at load, as the module
-        # glue's own do.
-        (if hostPlatform.isDarwin then "--passL:-Wl,-undefined,dynamic_lookup"
-         else "--passL:-Wl,--unresolved-symbols=ignore-in-object-files")
       ] ++ libDefineArgs;
     }}
     ''}
+    ${lib.optionalString (!moduleImage) ''
     echo "== Building liblogosdelivery (dynamic) =="
     ${nimCompile {
       outFile = "build/liblogosdelivery.${libExt}";
@@ -294,6 +295,7 @@ pkgs.stdenv.mkDerivation {
         "--nimMainPrefix:liblogosdelivery"
       ] ++ libDefineArgs ++ cBindingsArgs;
     }}
+    ''}
 
     ''}
   '';
@@ -307,9 +309,8 @@ ${installLibpq "$out/bin"}
   '' else ''
     runHook preInstall
     mkdir -p $out/lib $out/include${lib.optionalString isWindows " $out/bin"}
-    cp build/liblogosdelivery.${libExt} $out/${dllDir}/
-    ${lib.optionalString moduleImage "cp build/liblogosdelivery_module.${libExt} $out/${dllDir}/"}
-    cp build/liblogosdelivery.a         $out/lib/
+    ${if moduleImage then "cp build/liblogosdelivery_module.a $out/lib/"
+      else "cp build/liblogosdelivery.${libExt} $out/${dllDir}/\n    cp build/liblogosdelivery.a $out/lib/"}
 ${lib.optionalString isWindows ''
     # The import library belongs in lib/ (a link-time input), beside the static
     # archive; only the .dll is a runtime artifact and lives in bin/.
@@ -356,7 +357,8 @@ ${installLibpq "$out/${dllDir}"}
       # own imports because installPhase put the .dll in $out/bin (see dllDir).
       true
     ''
-    + lib.optionalString (!isWindows) (
+    # The module archive carries no rln copy: the module bundles librln itself.
+    + lib.optionalString (!isWindows && !moduleImage) (
     if buildApp then
       lib.optionalString hostPlatform.isDarwin ''
         cp ${zerokitRln}/lib/librln.dylib $out/lib/
