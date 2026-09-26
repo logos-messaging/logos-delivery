@@ -129,19 +129,6 @@ reports `RET_OK`.
 int logosdelivery_ctx_stop_node(const LogosDeliveryCtx *ctx, LogosDeliveryStopNodeReplyFn onReply, void *userData);
 ```
 
-#### `logosdelivery_ctx_get_connection_status`
-Reads the node's current connection status: `Disconnected`, `PartiallyConnected`
-or `Connected`, the values `onConnectionStatusChange` carries. That event fires on
-transitions only, so a listener registered after the node settled reads the
-current status here. `Disconnected` while the node is not started.
-
-```c
-int logosdelivery_ctx_get_connection_status(const LogosDeliveryCtx *ctx, LogosDeliveryGetConnectionStatusReplyFn onReply, void *userData);
-```
-
-Whether the node is started is a node info item: `logosdelivery_ctx_get_node_info`
-with `IsRunning` returns `true` or `false`.
-
 #### `logosdelivery_ctx_destroy`
 Destroys a node instance and frees its resources, the `LogosDeliveryCtx`
 included. This call is synchronous; do not use `ctx` afterwards. It is a thin
