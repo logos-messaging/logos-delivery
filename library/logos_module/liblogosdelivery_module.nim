@@ -159,7 +159,8 @@ proc createNode(cfg: string): LogosResult {.dispatchAs: "createNode".} =
     return logosFail(error)
   rlnPreset = preset
   if preset.enabled:
-    setRlnScope(preset.registryId, preset.rlnIdentifier)
+    setRlnScope(preset.registryId, preset.rlnIdentifier).isOkOr:
+      return logosFail("RLN module unreachable: " & error)
     rlnStateName = "Initializing"
     rlnStateMessage = ""
   let created = host.create(encode(CreateNodeReq(configJson: cfgWithDefaults, rlnPlugin: preset.enabled)), CallTimeoutMs).valueOr:

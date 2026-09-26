@@ -57,6 +57,7 @@ when defined(logosModule):
   # logos-core's lp_* C ABI, from its own thread. The completion arrives on a
   # protocol thread, so the answer crosses back over a ThreadSignal.
   import std/os
+  import chronicles
   import chronos/threadsync
   import sdk/lp_client # just the lp client: logos_sdk as a whole brings ok/err overloads the parsers must not see
 
@@ -70,11 +71,14 @@ when defined(logosModule):
     gRegistryId: string
     gRlnIdentifier: string
 
-  proc setRlnScope*(registryId, rlnIdentifier: string) =
+  proc setRlnScope*(registryId, rlnIdentifier: string): Result[void, string] =
     ## The registry and identifier every question carries; the host's preset
-    ## decided them. Set before the node is created.
+    ## decided them. Call from a handler before the node is created: the lp
+    ## client to the RLN module is made here, on the host's thread, as the
+    ## questions themselves come from the node's.
     gRegistryId = registryId
     gRlnIdentifier = rlnIdentifier
+    return openClient(RlnTarget, RlnOrigin)
 
   type Pending = object
     signal: ThreadSignalPtr
@@ -117,6 +121,7 @@ when defined(logosModule):
     if not answered:
       return err("timeout")
     let text = if p.reply.isNil: "" else: $p.reply
+    debug "rln module answered", meth, ok = p.ok, reply = text
     if not p.ok:
       return err(text)
     return ok(unwrap(text))

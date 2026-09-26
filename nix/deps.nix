@@ -353,8 +353,8 @@
   # (branch feat/poll-host), which library/logos_module builds on.
   logos_nim_sdk = pkgs.fetchgit {
     url = "https://github.com/logos-co/logos-nim-sdk";
-    rev = "0c8646f10e87f734f4e8266ef962286e2de36d8e";
-    sha256 = "071dizhvc9qn7ikwdb8jyd0x8s4pxfj8v57vbc6rqgsz8csnw9zp";
+    rev = "5b12bafb83051be34f4de02dfb2b0249093d9744";
+    sha256 = "086gsi84wa9zqk95k7w58jza9jzb0v6aa8xsafadv1hljknw5v9b";
     fetchSubmodules = false;
   };
 }
