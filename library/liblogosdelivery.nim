@@ -37,8 +37,3 @@ include
 
 # Emits the dispatch wrappers, so it must stay the last FFI call here.
 genBindings()
-
-when defined(logosModule):
-  # The Logos Core module: the logos_module_* exports beside the nim-ffi ones,
-  # in this same image.
-  import ./logos_module/module

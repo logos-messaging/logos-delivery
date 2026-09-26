@@ -1,102 +1,52 @@
-// Public C header for the Logos Messaging API (LMAPI) library.
-//
-// The call surface is generated from the {.ffi.} annotations in library/*.nim
-// and written to generated/logosdelivery.h by `make liblogosdelivery`. That file
-// is a build artifact, not checked in, so build the library before you compile
-// against this header. This wrapper retains the legacy callback and return-code
-// aliases used by existing consumers.
+/* liblogosdelivery, nim-ffi poll-mode C ABI (nim-ffi dual/6-reverse,
+ * -d:ffiPollMode). Hand-written: nim-ffi's header backend still describes the
+ * callback model. Every export has one shape, so this file is the message
+ * layout, the status codes, and the names.
+ *
+ * A method call is
+ *     int logosdelivery_<m>(void* ctx, const uint8_t* req, size_t len, uint64_t* id_out);
+ * `req` is a CBOR map keyed by the Nim proc's parameter names (the field names
+ * of the old *Req structs). RET_OK promises exactly one REPLY message carrying
+ * `*id_out`; any other return means no reply will come. Everything the library
+ * has to say -- replies, events, its questions for the host (REVERSE_CALL) --
+ * comes out of logosdelivery_poll(), and logosdelivery_poll_fd() is readable
+ * while a message waits. Both may be called from any host thread; so may
+ * logosdelivery_reverse_reply(). */
 #pragma once
-#ifndef __liblogosdelivery__
-#define __liblogosdelivery__
-
-#include <stddef.h>
-#include <stdint.h>
-
-#include "generated/logosdelivery.h"
-
-// Kept as aliases of the generated NIMFFI_RET_* codes so existing callers that
-// use the short names keep compiling. Guarded because the legacy libwaku header
-// defines the same names with the same values.
-#ifndef RET_OK
-#define RET_OK NIMFFI_RET_OK
-#endif
-#ifndef RET_ERR
-#define RET_ERR NIMFFI_RET_ERR
-#endif
-#ifndef RET_MISSING_CALLBACK
-#define RET_MISSING_CALLBACK NIMFFI_RET_MISSING_CALLBACK
-#endif
-#ifndef RET_STALE_WARN
-#define RET_STALE_WARN NIMFFI_RET_STALE_WARN
-#endif
+#include "nim_ffi.h" /* the poll model itself, installed from nim-ffi's host/ beside this file */
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-  // Version and git commit hash. Needs no ctx. The buffer belongs to the calling
-  // thread and lasts until that thread calls this again, so copy it.
-  const char *logosdelivery_version(void);
+/* Lifecycle. The constructor returns the context at once; its REPLY (id_out)
+ * says whether the node came up. */
+int logosdelivery_create_node(const uint8_t* req, size_t len, void** ctx_out, uint64_t* id_out);
+int logosdelivery_destroy(void* ctx);
+int logosdelivery_shutdown(void);
+int logosdelivery_poll(void* ctx, int32_t timeout_ms, const NimFfiMsg** msg);
+int logosdelivery_poll_fd(void* ctx);
+int logosdelivery_reverse_reply(void* ctx, uint64_t call_id, int ret,
+                                const uint8_t* payload, size_t len);
 
-  // Raw result-delivery callback used by the event API. `msg` is a byte run of
-  // `len` bytes, not NUL-terminated, and is valid only for the duration of the
-  // call.
-  typedef FFICallback FFICallBack;
-
-  // Events are delivered through a per-event listener registry. Register one
-  // callback per event name of interest; see the README for the full list.
-  // Channel lifecycle events are "onChannelMessageReceived" (payload
-  // base64-encoded), "onChannelMessageSent", "onChannelMessageError" and
-  // "onChannelMessageLost" (payloadHash hex-encoded).
-
-  // Registers a callback for the named event and returns a non-zero listener id
-  // (0 on an invalid context). `ctx` is the context handle returned by
-  // logosdelivery_create_node.
-  // The callback runs on a dedicated event thread and must be fast,
-  // non-blocking and thread-safe.
-  uint64_t logosdelivery_add_event_listener(void *ctx,
-                                            const char *eventName,
-                                            FFICallBack callback,
-                                            void *userData);
-
-  // Removes a previously registered listener. Returns 0 on success, 1 if the
-  // listener id was not found or the context is invalid.
-  int logosdelivery_remove_event_listener(void *ctx,
-                                          uint64_t listenerId);
-
-  // ---------------------------------------------------------------------
-  // Per-channel encryption. A channel created without a cipher sends and
-  // receives plaintext; one created with a cipher always uses it, and its
-  // failure fails the message -- never plaintext. It covers the whole SDS
-  // message, repairs included, so no routing metadata reaches the wire.
-  //
-  // Supplied to logosdelivery_channel_create and fixed for the channel's
-  // life; leave all three fields zero for an unencrypted channel. Pass both
-  // function pointers and `user_data` as uint64_t, e.g.
-  // (uint64_t)(uintptr_t)my_encrypt, in LogosdeliveryChannelCreateReq (see
-  // generated/logosdelivery.h). Free `user_data` only after
-  // logosdelivery_destroy, the only call that drains in-flight sends.
-  //
-  // The cipher itself is bytes in, bytes out: transform `in` (NULL when
-  // in_len is 0), point `out`/`out_len` at the result, return 0; non-zero
-  // fails the message. `out` is copied on return but must outlive the call,
-  // so use a static or user_data-owned buffer, never a stack local.
-  // `user_data` is what you passed at create, and is how one cipher finds
-  // this channel's key.
-  //
-  // Runs inline on the event loop: be fast, do no I/O, call no
-  // logosdelivery_* function. Invoked once per segment, and decrypt sees
-  // segments in network order, so each result must carry what decrypting it
-  // needs (a nonce, a key id).
-  typedef int (*LogosDeliveryCryptoFn)(void *user_data,
-                                       const uint8_t *in,
-                                       size_t in_len,
-                                       const uint8_t **out,
-                                       size_t *out_len);
+/* Methods this module calls, with the CBOR map keys each expects. */
+#define LOGOSDELIVERY_METHOD(name) \
+    int name(void* ctx, const uint8_t* req, size_t len, uint64_t* id_out)
+LOGOSDELIVERY_METHOD(logosdelivery_start_node);                  /* {} */
+LOGOSDELIVERY_METHOD(logosdelivery_stop_node);                   /* {} */
+LOGOSDELIVERY_METHOD(logosdelivery_send);                        /* {messageJson} */
+LOGOSDELIVERY_METHOD(logosdelivery_subscribe);                   /* {contentTopicStr} */
+LOGOSDELIVERY_METHOD(logosdelivery_unsubscribe);                 /* {contentTopicStr} */
+LOGOSDELIVERY_METHOD(logosdelivery_channel_create);              /* {channelIdStr, contentTopicStr, senderIdStr} */
+LOGOSDELIVERY_METHOD(logosdelivery_channel_exists);              /* {channelIdStr} */
+LOGOSDELIVERY_METHOD(logosdelivery_channel_send);                /* {channelIdStr, messageJson} */
+LOGOSDELIVERY_METHOD(logosdelivery_channel_close);               /* {channelIdStr} */
+LOGOSDELIVERY_METHOD(logosdelivery_get_available_node_info_ids); /* {} */
+LOGOSDELIVERY_METHOD(logosdelivery_get_node_info);               /* {nodeInfoId} */
+LOGOSDELIVERY_METHOD(logosdelivery_get_available_configs);       /* {} */
+LOGOSDELIVERY_METHOD(waku_store_query);                          /* {jsonQuery, peerAddr, timeoutMs} (kernel tier) */
+#undef LOGOSDELIVERY_METHOD
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __liblogosdelivery__ */

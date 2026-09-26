@@ -11,14 +11,16 @@
 ## lp_* C ABI, from the node's thread (rln_lez/wire.nim). The process holds
 ## three threads: the host's, logos-protocol's, and the node's.
 ##
-## Imported by library/liblogosdelivery.nim under -d:logosModule; see the
-## liblogosdeliveryModule nimble task.
+## Build: nim c --app:staticlib --noMain --nimMainPrefix:liblogosdelivery
+##   -d:ffiPollMode -d:logosModule library/logos_module/module.nim
 
-import std/[base64, json, strutils]
+import std/[base64, json, sequtils]
 import results
 import logos_sdk
+import ../liblogosdelivery
 from ../declare_lib import initializeLibrary # declareLibrary's once-only runtime init
 import cbor_serialization # the request encoders instantiate here
+import ffi/ffi_events
 import ffi/poll_host
 import ./events, ./presets
 import ../../logos_delivery/waku/rln/rln_lez/wire
@@ -34,17 +36,17 @@ var
   rlnStateName = "Disabled"
   rlnStateMessage = ""
 
-# Events bypass the queue in this image (declare_lib's emitEvent), so the host
-# sees replies only; one that did arrive here would still reach the callback.
-proc onLibraryEvent(nameId: uint64, payload: seq[byte]) {.gcsafe, raises: [].} =
-  var text = newString(payload.len)
-  if payload.len > 0:
-    copyMem(addr text[0], unsafeAddr payload[0], payload.len)
+let host = newHost(importLibrary("logosdelivery", ctor = "logosdelivery_create_node"))
+
+# The library's events come here as they are emitted, on the node's thread,
+# instead of waiting in the queue for the next call to pump them.
+proc onLibraryEvent(name: string, payload: pointer, len: int) {.nimcall, gcsafe, raises: [].} =
+  var text = newString(len)
+  if len > 0:
+    copyMem(addr text[0], payload, len)
   emitLibraryEvent(text)
 
-let host = newHost(
-  importLibrary("logosdelivery", ctor = "logosdelivery_create_node"), onEvent = onLibraryEvent
-)
+setFFIEventSink(onLibraryEvent)
 
 # --- request shapes: the exports' parameter names -------------------------------
 type
@@ -75,82 +77,67 @@ type
   NodeInfoReq = object
     nodeInfoId: string
 
-# --- results ----------------------------------------------------------------
-proc failed(what: string, r: Reply): LogosResult =
-  return logosFail(what & ": " & (if r.error.len > 0: r.error else: "rc=" & $r.ret))
+# --- calls and their outcomes -------------------------------------------------
+template ask(name: static string, req: untyped, timeoutMs = CallTimeoutMs): Reply =
+  host.call(name, encode(req), timeoutMs)
 
-proc textResult(what: string, r: Reply): LogosResult =
+proc failure(r: Reply): string =
+  return if r.error.len > 0: r.error else: "rc=" & $r.ret
+
+proc asText(r: Reply): LogosResult =
   if r.ret != RET_OK:
-    return failed(what, r)
+    return logosFail(r.failure)
   return logosOk(%r.decode(string).valueOr(""))
 
-proc voidResult(what: string, r: Reply): LogosResult =
+proc asBool(r: Reply): LogosResult =
   if r.ret != RET_OK:
-    return failed(what, r)
-  return logosOk()
+    return logosFail(r.failure)
+  return logosOk(%r.decode(bool).valueOr(false))
+
+proc asVoid(r: Reply): LogosResult =
+  return if r.ret != RET_OK: logosFail(r.failure) else: logosOk()
 
 template requireNode(): untyped =
   if host.ctx.isNil:
     return logosFail("Context not initialized")
 
-# --- config defaults, as the C++ module applied them -----------------------
-proc findKey(obj: JsonNode, names: openArray[string]): string =
-  for k, _ in obj.pairs:
-    if k.toLowerAscii() in names:
-      return k
-  return ""
+# --- the config the node gets ----------------------------------------------------
+const Layered = ["entryLayer", "mode", "preset", "kernelConf", "messagingOverrides", "channelsOverrides"]
 
-proc isFlatShape(obj: JsonNode): bool =
-  for k, _ in obj.pairs:
-    if k.toLowerAscii() notin ["entrylayer", "mode", "preset", "kernelconf", "messagingoverrides", "channelsoverrides"]:
-      return true
-  return false
-
-proc applyConfigDefaults(cfg: string, persistence: string, disableRlnValidation: bool): Result[string, string] =
-  var obj: JsonNode
-  try:
-    obj = parseJson(cfg)
-  except CatchableError:
-    return err("Invalid JSON config")
-  if obj.kind != JObject:
-    return err("Invalid JSON config")
-  if persistence.len > 0 or disableRlnValidation:
-    var target: JsonNode = obj
-    let entryKey = findKey(obj, ["entrylayer"])
-    let kernelEntry = entryKey.len > 0 and obj[entryKey].kind == JString and obj[entryKey].getStr().toLowerAscii() == "kernel"
-    let kernelConfKey = findKey(obj, ["kernelconf"])
-    if kernelConfKey.len > 0 and obj[kernelConfKey].kind == JObject:
-      target = obj[kernelConfKey]
-    elif kernelEntry:
-      target = nil
-    elif not isFlatShape(obj):
-      var overridesKey = findKey(obj, ["messagingoverrides"])
-      if overridesKey.len == 0:
-        obj["messagingOverrides"] = newJObject()
-        overridesKey = "messagingOverrides"
-      target = if obj[overridesKey].kind == JObject: obj[overridesKey] else: nil
-    if target != nil and persistence.len > 0 and findKey(target, ["localstoragepath", "local-storage-path"]).len == 0:
-      target["localStoragePath"] = %(persistence & "/data")
-    if target != nil and disableRlnValidation:
-      target["rln-disable-validation"] = %true
-  return ok($obj)
+proc withDefaults(cfg: JsonNode, persistence: string, disableRlnValidation: bool): JsonNode =
+  ## The persistence path the host gave us, and validation off when the preset
+  ## says so, into the layer of the config that owns them: kernelConf when
+  ## present, messagingOverrides on a layered config, the config itself when
+  ## it is a flat WakuNodeConf. A kernel-only node keeps its config as is.
+  var target = cfg
+  if cfg.hasKey("kernelConf"):
+    target = cfg["kernelConf"]
+  elif cfg{"entryLayer"}.getStr("") == "kernel":
+    return cfg
+  elif cfg.keys.toSeq.allIt(it in Layered):
+    if not cfg.hasKey("messagingOverrides"):
+      cfg["messagingOverrides"] = newJObject()
+    target = cfg["messagingOverrides"]
+  if target.kind != JObject:
+    return cfg
+  if persistence.len > 0 and not target.hasKey("localStoragePath") and not target.hasKey("local-storage-path"):
+    target["localStoragePath"] = %(persistence & "/data")
+  if disableRlnValidation:
+    target["rln-disable-validation"] = %true
+  return cfg
 
 # --- the contract ---------------------------------------------------------------
-proc createNode(cfg: string): LogosResult {.dispatchAs: "createNode".} =
+proc createNode(cfgJson: string): LogosResult {.dispatchAs: "createNode".} =
   if not host.ctx.isNil:
     return logosFail("Context already initialized")
-  var presetName = ""
-  try:
-    let obj = parseJson(cfg)
-    if obj.kind == JObject:
-      let k = findKey(obj, ["preset"])
-      if k.len > 0 and obj[k].kind == JString:
-        presetName = obj[k].getStr()
-  except CatchableError:
-    discard
-  let preset = resolveRlnPreset(presetName).valueOr:
-    return logosFail(error)
-  let cfgWithDefaults = applyConfigDefaults(cfg, persistencePath, preset.enabled and not preset.enableValidation).valueOr:
+  let cfg =
+    try:
+      parseJson(cfgJson)
+    except CatchableError:
+      return logosFail("Invalid JSON config")
+  if cfg.kind != JObject:
+    return logosFail("Invalid JSON config")
+  let preset = resolveRlnPreset(cfg{"preset"}.getStr("")).valueOr:
     return logosFail(error)
   rlnPreset = preset
   if preset.enabled:
@@ -158,7 +145,8 @@ proc createNode(cfg: string): LogosResult {.dispatchAs: "createNode".} =
       return logosFail("RLN module unreachable: " & error)
     rlnStateName = "Initializing"
     rlnStateMessage = ""
-  host.create(encode(CreateNodeReq(configJson: cfgWithDefaults, rlnPlugin: preset.enabled)), CallTimeoutMs).isOkOr:
+  let config = $withDefaults(cfg, persistencePath, preset.enabled and not preset.enableValidation)
+  host.create(encode(CreateNodeReq(configJson: config, rlnPlugin: preset.enabled)), CallTimeoutMs).isOkOr:
     if preset.enabled:
       rlnStateName = "Disabled"
     return logosFail("Failed to create Delivery context: " & error)
@@ -186,59 +174,55 @@ proc stop(): LogosResult {.dispatchAs: "stop".} =
 proc send(contentTopic: string, payload: seq[byte]): LogosResult {.dispatchAs: "send".} =
   requireNode()
   let msg = %*{"contentTopic": contentTopic, "payload": base64.encode(payload), "ephemeral": false}
-  return textResult("send", host.call("logosdelivery_send", encode(MessageReq(messageJson: $msg)), CallTimeoutMs))
+  return ask("logosdelivery_send", MessageReq(messageJson: $msg)).asText
 
 proc subscribe(contentTopic: string): LogosResult {.dispatchAs: "subscribe".} =
   requireNode()
-  return voidResult("subscribe", host.call("logosdelivery_subscribe", encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
+  return ask("logosdelivery_subscribe", TopicReq(contentTopicStr: contentTopic)).asVoid
 
 proc unsubscribe(contentTopic: string): LogosResult {.dispatchAs: "unsubscribe".} =
   requireNode()
-  return voidResult("unsubscribe", host.call("logosdelivery_unsubscribe", encode(TopicReq(contentTopicStr: contentTopic)), CallTimeoutMs))
+  return ask("logosdelivery_unsubscribe", TopicReq(contentTopicStr: contentTopic)).asVoid
 
 proc storeQuery(jsonQuery: string, peerAddr: string, timeoutMs: int64): LogosResult {.dispatchAs: "storeQuery".} =
   requireNode()
   let budget = max(CallTimeoutMs, int(timeoutMs) + 5_000)
-  return textResult("store_query", host.call("waku_store_query", encode(StoreQueryReq(jsonQuery: jsonQuery, peerAddr: peerAddr, timeoutMs: int32(timeoutMs))), budget))
+  return ask("waku_store_query", StoreQueryReq(jsonQuery: jsonQuery, peerAddr: peerAddr, timeoutMs: int32(timeoutMs)), budget).asText
 
 proc channelCreate(channelId: string, contentTopic: string, senderId: string): LogosResult {.dispatchAs: "channelCreate".} =
   requireNode()
   # zero cipher callbacks and user data: an unencrypted channel
-  return textResult("channel_create", host.call("logosdelivery_channel_create", encode(ChannelCreateReq(channelIdStr: channelId, contentTopicStr: contentTopic, senderIdStr: senderId)), CallTimeoutMs))
+  return ask("logosdelivery_channel_create", ChannelCreateReq(channelIdStr: channelId, contentTopicStr: contentTopic, senderIdStr: senderId)).asText
 
 proc channelExists(channelId: string): LogosResult {.dispatchAs: "channelExists".} =
   requireNode()
-  let r = host.call("logosdelivery_channel_exists", encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs)
-  if r.ret != RET_OK:
-    return failed("channel_exists", r)
-  return logosOk(%r.decode(bool).valueOr(false))
+  return ask("logosdelivery_channel_exists", ChannelReq(channelIdStr: channelId)).asBool
 
 proc channelSend(channelId: string, payload: seq[byte]): LogosResult {.dispatchAs: "channelSend".} =
   requireNode()
   let msg = %*{"payload": base64.encode(payload), "ephemeral": false}
-  return textResult("channel_send", host.call("logosdelivery_channel_send", encode(ChannelSendReq(channelIdStr: channelId, messageJson: $msg)), CallTimeoutMs))
+  return ask("logosdelivery_channel_send", ChannelSendReq(channelIdStr: channelId, messageJson: $msg)).asText
 
 proc channelClose(channelId: string): LogosResult {.dispatchAs: "channelClose".} =
   requireNode()
-  return voidResult("channel_close", host.call("logosdelivery_channel_close", encode(ChannelReq(channelIdStr: channelId)), CallTimeoutMs))
+  return ask("logosdelivery_channel_close", ChannelReq(channelIdStr: channelId)).asVoid
 
 proc getAvailableNodeInfoIDs(): LogosResult {.dispatchAs: "getAvailableNodeInfoIDs".} =
   requireNode()
-  return textResult("get_available_node_info_ids", host.call("logosdelivery_get_available_node_info_ids", encode(Empty()), CallTimeoutMs))
+  return ask("logosdelivery_get_available_node_info_ids", Empty()).asText
 
 proc getNodeInfo(nodeInfoId: string): LogosResult {.dispatchAs: "getNodeInfo".} =
   requireNode()
-  return textResult("get_node_info", host.call("logosdelivery_get_node_info", encode(NodeInfoReq(nodeInfoId: nodeInfoId)), CallTimeoutMs))
+  return ask("logosdelivery_get_node_info", NodeInfoReq(nodeInfoId: nodeInfoId)).asText
 
 proc getAvailableConfigs(): LogosResult {.dispatchAs: "getAvailableConfigs".} =
   requireNode()
-  return textResult("get_available_configs", host.call("logosdelivery_get_available_configs", encode(Empty()), CallTimeoutMs))
+  return ask("logosdelivery_get_available_configs", Empty()).asText
 
 proc collectOpenMetricsText(): string {.dispatchAs: "collectOpenMetricsText".} =
   if host.ctx.isNil:
     return ""
-  let r = host.call("logosdelivery_get_node_info", encode(NodeInfoReq(nodeInfoId: "Metrics")), CallTimeoutMs)
-  return r.decode(string).valueOr("")
+  return ask("logosdelivery_get_node_info", NodeInfoReq(nodeInfoId: "Metrics")).decode(string).valueOr("")
 
 proc rlnBridgeEnable(): LogosResult {.dispatchAs: "rlnBridgeEnable".} =
   ## Kept for the contract: the node asks the RLN module itself, through
