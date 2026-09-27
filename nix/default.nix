@@ -99,12 +99,10 @@ let
 
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
   # nim-ffi's poll model: every export answers through logosdelivery_poll, and
-  # the RLN questions are reverse calls with a 200 s backstop (the host
-  # enforces the real per-op deadlines).
+  # the RLN questions are reverse calls, each with a deadline of its own.
   libDefineArgs = [
     "--define:discv5_protocol_id=d5waku"
     "--define:ffiPollMode"
-    "--define:ffiReverseCallTimeoutMs=200000"
   ];
 
   # The .dll belongs in bin/: nixpkgs' win-dll-link hook only stages a PE's
@@ -327,8 +325,6 @@ ${installLibpq "$out/${dllDir}"}
     cp ${deps.ffi}/host/nim_ffi.h ${deps.ffi}/host/nim_ffi_host.hpp $out/include/
     cp library/logosdelivery_service_discovery.h $out/include/
 
-    # nim-ffi's C backend describes the callback ABI and emits nothing under
-    # the poll model; liblogosdelivery.h is the hand-written ABI then.
     if [ -f ${cBindingsDir}/logosdelivery.h ]; then
       # The public header includes the generated binding, which in turn includes
       # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.

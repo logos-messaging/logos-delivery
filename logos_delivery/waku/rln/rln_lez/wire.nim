@@ -53,15 +53,21 @@ proc rlnPluginRegistered*(): bool =
 when defined(ffiPollMode):
   import ffi
 
-  # `{.ffiReverse.}` reads the return type as written: spelled out, not the alias.
-  proc rlnGetMembershipState*(): Future[Result[string, string]] {.ffiReverse.}
-  proc rlnGetEpochQuota*(timestamp: uint64): Future[Result[string, string]] {.ffiReverse.}
+  # The deadlines are the questions' own: a registry read may take a while
+  # (the RLN module's budget for it is 90 s), a local one answers in
+  # milliseconds. `{.ffiReverseWithin.}` reads the return type as written.
+  const
+    RegistryReadMs = 70_000
+    LocalMs = 10_000
+
+  proc rlnGetMembershipState*(): Future[Result[string, string]] {.ffiReverseWithin: RegistryReadMs.}
+  proc rlnGetEpochQuota*(timestamp: uint64): Future[Result[string, string]] {.ffiReverseWithin: LocalMs.}
   proc rlnGenerateProof*(
     signalHex: string, timestamp: uint64
-  ): Future[Result[string, string]] {.ffiReverse.}
+  ): Future[Result[string, string]] {.ffiReverseWithin: RegistryReadMs.}
   proc rlnValidateProof*(
     signalHex: string, timestamp: uint64, proofJson: string
-  ): Future[Result[string, string]] {.ffiReverse.}
+  ): Future[Result[string, string]] {.ffiReverseWithin: LocalMs.}
 else:
   type RlnFakeHost* = object
     ## A test's stand-in for the host: an entry left nil answers NotReady.
