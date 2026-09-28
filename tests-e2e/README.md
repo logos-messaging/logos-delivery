@@ -6,7 +6,7 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 ## Layout
 
 - `src/` — test framework (node wrappers, steps, helpers)
-- `tests/c_abi/` — the API/e2e scenario tests (`test_s02…s31`)
+- `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s02…s31`)
 - `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
 - `vendor/logos-delivery-python-bindings/waku/wrapper.py` — CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`
 
@@ -32,9 +32,9 @@ DEFAULT_NWAKU=<image> pytest tests/rest/messaging
 
 ## CI
 
-`.github/workflows/e2e-c-abi-tests.yml` (called from `ci.yml`, `needs: build`) downloads the
-`liblogosdelivery` artifact produced by the `build` job and runs the non-docker subset on every PR —
-so a protocol change and its e2e test land in the same PR.
+`.github/workflows/e2e-c-abi-tests.yml` (called from `ci.yml`, `needs: [build, build-docker-image]`) downloads the
+`liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
+(`c-abi-e2e`, `c-abi-e2e-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
 The `slow` test is deselected there and there is no scheduled e2e job, so nothing runs it
 automatically; run it by hand when touching SDS-R.
