@@ -303,24 +303,15 @@ jobs:
 
   # C ABI E2E tests run the in-repo tests-e2e/ C ABI suite against the
   # liblogosdelivery.so built by the `build` job (downloaded as the
-  # `liblogosdelivery` artifact).
+  # `liblogosdelivery` artifact). An empty node_image falls back to
+  # DEFAULT_NWAKU (fork PRs lack the quay secrets).
   c-abi-e2e-tests:
-    needs: [changes, build]
-    if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true' }}
-    uses: ./.github/workflows/e2e-c-abi-tests.yml
-    with:
-      subset: non-docker
-    secrets: inherit
-
-  # Docker subset; an empty node_image falls back to DEFAULT_NWAKU (fork PRs lack the quay secrets).
-  c-abi-e2e-docker-tests:
     needs: [changes, build, build-docker-image]
     if: >-
       ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true'
       || needs.changes.outputs.docker == 'true' }}
     uses: ./.github/workflows/e2e-c-abi-tests.yml
     with:
-      subset: docker
       node_image: ${{ needs.build-docker-image.outputs.image }}
       node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
     secrets: inherit
@@ -400,7 +391,6 @@ jobs:
       - tests
       - build-docker-image
       - c-abi-e2e-tests
-      - c-abi-e2e-docker-tests
       - rest-e2e-tests
       - nix
       - lint
