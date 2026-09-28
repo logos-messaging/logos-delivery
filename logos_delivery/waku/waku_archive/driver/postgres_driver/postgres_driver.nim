@@ -933,7 +933,7 @@ method getMessages*(
     requestId = "",
 ): Future[ArchiveDriverResult[seq[ArchiveRow]]] {.async.} =
   let rows = collect(newSeq):
-    for i in countup(0, hashes.len, MaxHashesPerQuery):
+    for i in countup(0, max(hashes.len - 1, 0), MaxHashesPerQuery):
       let stop = min(i + MaxHashesPerQuery, hashes.len)
 
       let splittedHashes = hashes[i ..< stop]

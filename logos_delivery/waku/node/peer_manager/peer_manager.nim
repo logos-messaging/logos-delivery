@@ -469,6 +469,9 @@ proc dialPeer(
     else:
       await cancelAndWait(dialFut)
 
+  if res.isErr() and res.error of CancelledError:
+    raise res.error
+
   let reasonFailed = if res.isOk: "timed out" else: res.error.msg
 
   trace "Dialing peer failed", peerId = peerId, reason = reasonFailed, proto = proto

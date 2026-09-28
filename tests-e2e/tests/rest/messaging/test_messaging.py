@@ -26,7 +26,6 @@ class TestMessagingRest(StepsMessaging):
         with pytest.raises(Exception, match=r"^Error: 404 "):
             self.node2.messaging_send_events_by_id(request_id)
 
-    @pytest.mark.skip(reason="a burst larger than one Store page needs the Store confirmation fix (separate PR)")
     def test_burst_is_confirmed(self):
         # 60 sends span more than one Store page (20); each must reach "sent"
         for i in range(60):

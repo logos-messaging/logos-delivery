@@ -219,6 +219,26 @@ suite "Postgres driver":
 
     check (await driver.getMessages(hashes = @[hash])).expect("healed query").len == 1
 
+  asyncTest "A hash query for a full chunk of hashes returns only those":
+    ## Request exactly one 100-hash chunk from 101 stored messages.
+    ## An extra empty chunk would return the unrequested message too.
+    const chunk = 100
+    let base = now()
+    var hashes: seq[WakuMessageHash]
+    for i in 0 .. chunk:
+      let msg = fakeWakuMessage(payload = "msg-" & $i, ts = base + int64(i))
+      let hash = computeMessageHash(DefaultPubsubTopic, msg)
+      require (await driver.put(hash, DefaultPubsubTopic, msg)).isOk()
+      hashes.add(hash)
+
+    let asked = hashes[0 ..< chunk]
+    let rows = (await driver.getMessages(hashes = asked, maxPageSize = uint(chunk + 1))).expect(
+      "full chunk query"
+    )
+    check:
+      rows.len == chunk
+      rows.allIt(it[0] in asked)
+
   asyncTest "dropStrayLookupPartitions removes attached and detached strays":
     ## Crash leftovers: lookup tables with no messages sibling, attached or
     ## detached — the cleanup must drop both kinds.

@@ -1,6 +1,6 @@
 {.used.}
 
-import results, std/strutils
+import results, std/[strutils, sets]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
@@ -272,6 +272,54 @@ suite "Waku API - Send":
     eventManager.validate(
       {SendEventOutcome.Sent, SendEventOutcome.Propagated}, requestId
     )
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "Burst of sends is fully validated":
+    ## Confirm all requests across multiple Store pages and validation batches.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+      await node.waku.node.connectToNodes(
+        @[relayNode1PeerInfo, lightpushNodePeerInfo, storeNodePeerInfo]
+      )
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    const burst = 120
+    let allSent = newAsyncEvent()
+    var sentCount = 0
+    let onSent = proc(event: MessageSentEvent) {.async: (raises: []).} =
+      inc sentCount
+      if sentCount == burst:
+        allSent.fire()
+    let counter = MessageSentEvent.listen(node.waku.brokerCtx, onSent).expect("listen")
+    defer:
+      await MessageSentEvent.dropListener(node.waku.brokerCtx, counter)
+
+    var requestIds: HashSet[RequestId]
+    for i in 0 ..< burst:
+      let envelope = MessageEnvelope.init(
+        ContentTopic("/waku/2/default-content/proto"), "burst payload " & $i
+      )
+      let requestId = (await node.messagingClient.send(envelope)).valueOr:
+        raiseAssert "send failed: " & error
+      requestIds.incl(requestId)
+    check requestIds.len == burst
+
+    # 120 messages require at least two validation batches.
+    check:
+      await allSent.wait().withTimeout(30.seconds)
+      eventManager.sentRequestIds.toHashSet() == requestIds
+      eventManager.sentCount == burst
+      eventManager.errorCount == 0
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error

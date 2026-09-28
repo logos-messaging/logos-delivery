@@ -1,10 +1,16 @@
 {.used.}
 
-import results, std/sets, testutils/unittests, chronos, libp2p/crypto/crypto
+import results, std/[sets, sequtils], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
-  logos_delivery/waku/
-    [node/peer_manager, waku_core, waku_store, waku_store/client, common/paging],
+  logos_delivery/waku/[
+    node/peer_manager,
+    waku_core,
+    waku_store,
+    waku_store/client,
+    waku_store/rpc_codec,
+    common/paging,
+  ],
   ../testlib/[wakucore, testasync, futures],
   ./store_utils
 
@@ -245,3 +251,71 @@ suite "Store Client":
         observedLastPeers.incl(res.error.address)
 
       check observedLastPeers.len >= 2
+
+suite "Store Client - peers that hold their streams":
+  ## Two Store peers read the request and keep their streams open until teardown.
+  var serverSwitches {.threadvar.}: seq[Switch]
+  var clientSwitch {.threadvar.}: Switch
+  var client {.threadvar.}: WakuStoreClient
+  var answer {.threadvar.}: bool
+  var requests {.threadvar.}: int
+  var requestSeen {.threadvar.}: AsyncEvent
+  var release {.threadvar.}: AsyncEvent
+
+  asyncSetup:
+    answer = true
+    requests = 0
+    requestSeen = newAsyncEvent()
+    release = newAsyncEvent()
+    proc hold(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+      try:
+        let buf = await conn.readLp(DefaultMaxRpcSize.int)
+        inc requests
+        if answer:
+          let req = StoreQueryRequest.decode(buf).valueOr:
+            return
+          let resp = StoreQueryResponse(
+            requestId: req.requestId, statusCode: uint32(StatusCode.SUCCESS)
+          )
+          await conn.writeLp(resp.encode().buffer)
+      except LPStreamError:
+        return
+      requestSeen.fire()
+      await release.wait()
+      await conn.close()
+
+    serverSwitches = @[newTestSwitch(), newTestSwitch()]
+    for serverSwitch in serverSwitches:
+      serverSwitch.mount(LPProtocol.new(codecs = @[WakuStoreCodec], handler = hold))
+    clientSwitch = newTestSwitch()
+    client = newTestWakuStoreClient(clientSwitch)
+    await allFutures(serverSwitches.mapIt(it.start()) & @[clientSwitch.start()])
+    for serverSwitch in serverSwitches:
+      let peerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+      peerInfo.protocols = @[WakuStoreCodec]
+      clientSwitch.peerStore.addPeer(peerInfo)
+
+  asyncTeardown:
+    release.fire()
+    await allFutures(serverSwitches.mapIt(it.stop()) & @[clientSwitch.stop()])
+
+  asyncTest "the query returns with the answer, without waiting for the EOF":
+    let query = client.queryToAny(StoreQueryRequest(includeData: false))
+    check await requestSeen.wait().withTimeout(chronos.seconds(5))
+
+    # Apply the timeout to join() so it cannot cancel the query under test.
+    check:
+      await query.join().withTimeout(chronos.seconds(3))
+      query.completed()
+      query.read().isOk()
+
+  asyncTest "a cancelled query ends cancelled, without asking another Store peer":
+    answer = false
+    let query = client.queryToAny(StoreQueryRequest(includeData: false))
+    check await requestSeen.wait().withTimeout(chronos.seconds(5))
+
+    query.cancelSoon()
+    check:
+      await query.join().withTimeout(chronos.seconds(3))
+      query.cancelled()
+      requests == 1

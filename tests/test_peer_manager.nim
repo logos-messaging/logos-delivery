@@ -370,6 +370,42 @@ procSuite "Peer Manager":
 
     await allFutures(nodes.mapIt(it.stop()))
 
+  asyncTest "a cancelled dial ends cancelled":
+    ## The listener accepts TCP but leaves the libp2p handshake pending.
+    let node = newTestWakuNode(generateSecp256k1Key())
+    await node.start()
+    defer:
+      await node.stop()
+
+    let accepted = newAsyncEvent()
+    var held: seq[StreamTransport]
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held.add(client)
+      accepted.fire()
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    defer:
+      for client in held:
+        await client.closeWait()
+      listener.stop()
+      await listener.closeWait()
+
+    let peer = RemotePeerInfo.init(
+      PeerId.init(generateSecp256k1Key()).tryGet(),
+      @[
+        MultiAddress.init("/ip4/127.0.0.1/tcp/" & $listener.localAddress().port).tryGet()
+      ],
+    )
+    let dial = node.peerManager.dialPeer(peer, WakuStoreCodec)
+    check await accepted.wait().withTimeout(chronos.seconds(5))
+
+    dial.cancelSoon()
+    # Apply the timeout to join() so it cannot cancel the dial under test.
+    check:
+      await dial.join().withTimeout(chronos.seconds(3))
+      dial.cancelled()
+
   asyncTest "Adding, selecting and filtering peers work":
     let
       node = newTestWakuNode(generateSecp256k1Key())

@@ -28,6 +28,8 @@ proc storeQueryToAny*(
       return err($error)
 
     return ok(queryResponse)
+  except CancelledError as e:
+    raise e
   except CatchableError as e:
     return err(e.msg)
 

@@ -33,25 +33,36 @@ proc sendStoreRequest(
     self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
+  var cancelled = false
 
   self.peerManager.addActiveStoreRequest(connection.peerId)
   defer:
     self.peerManager.removeActiveStoreRequest(connection.peerId)
-    await connection.closeWithEof()
+    # A peer that holds its stream open must not hold the query.
+    if cancelled:
+      asyncSpawn connection.close()
+    else:
+      asyncSpawn connection.closeWithEOF()
 
   if req.requestId == "":
     req.requestId = generateRequestId(self.rng)
 
-  let writeRes = catch:
+  try:
     await connection.writeLP(req.encode().buffer)
-  if writeRes.isErr():
-    return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: writeRes.error.msg))
+  except CancelledError as exc:
+    cancelled = true
+    raise exc
+  except LPStreamError as exc:
+    return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: exc.msg))
 
-  let readRes = catch:
-    await connection.readLp(DefaultMaxRpcSize.int)
-
-  let buf = readRes.valueOr:
-    return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: error.msg))
+  let buf =
+    try:
+      await connection.readLp(DefaultMaxRpcSize.int)
+    except CancelledError as exc:
+      cancelled = true
+      raise exc
+    except LPStreamError as exc:
+      return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
 
   let res = StoreQueryResponse.decode(buf).valueOr:
     logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
