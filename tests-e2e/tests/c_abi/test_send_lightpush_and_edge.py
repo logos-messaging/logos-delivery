@@ -140,15 +140,16 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
 class TestS16LightpushPeerAppearsLater(StepsCommon):
     """
     S16 — No delivery peers at T0, lightpush peer appears later.
-    The edge sender has the lightpush service in its staticnodes, but the
-    service is stopped before the sender starts, so there is no reachable
-    delivery peer at T0. send() is called while the service is down. The
-    service is restarted during the retry window; the sender connects to it
-    and a later retry delivers the message.
+    The edge starts with no peers and calls send(). A lightpush peer then
+    starts and dials the edge, and a relay peer joins it so it has somewhere
+    to publish. A later retry delivers the message.
+    Topology:
+        [Edge]          wrapper, mode="Edge", relay=False, no staticnodes.
+        [LightpushPeer] wrapper, relay=True, lightpush=True, staticnodes=[edge].
+        [RelayPeer]     wrapper, relay=True, staticnodes=[lightpush_peer].
     Expected: send() returns Ok(RequestId), then eventually Propagated.
     """
 
-    @pytest.mark.xfail(reason="binding cannot restart a node or add peers at runtime")
     def test_s16_lightpush_peer_appears_later(self):
         sender_collector = EventCollector()
 
@@ -159,70 +160,56 @@ class TestS16LightpushPeerAppearsLater(StepsCommon):
             "numShardsInNetwork": 1,
         }
 
-        # Start the lightpush service once to obtain its multiaddr, then stop
-        # it so the sender has no reachable peer at T0. The same node object
-        # is restarted later, so the address stays valid.
-        service_config = build_node_config(relay=True, lightpush=True, **common)
-        service_result = WrapperManager.create_and_start(config=service_config)
-        assert service_result.is_ok(), f"Failed to start lightpush peer: {service_result.err()}"
+        edge_config = build_node_config(mode="Edge", relay=False, **common)
+        edge_result = WrapperManager.create_and_start(
+            config=edge_config,
+            event_cb=sender_collector.event_callback,
+        )
+        assert edge_result.is_ok(), f"Failed to start edge sender: {edge_result.err()}"
 
-        with service_result.ok_value as service:
-            service_multiaddr = get_node_multiaddr(service)
+        with edge_result.ok_value as edge_sender:
+            # send() is invoked while the edge has no peers.
+            msg = create_message_bindings(
+                payload=to_base64("S16 lightpush peer appears later"),
+                contentTopic="/test/1/s16-late-lightpush/proto",
+            )
+            send_result = edge_sender.send_message(message=msg)
+            assert send_result.is_ok(), f"send() failed: {send_result.err()}"
+            request_id = send_result.ok_value
+            assert request_id, "send() returned an empty RequestId"
 
-            stop_result = service.stop_node()
-            assert stop_result.is_ok(), f"Failed to stop lightpush peer: {stop_result.err()}"
             delay(SERVICE_DOWN_SETTLE_S)
 
-            # Edge sender is a lightpush client; its only peer is the service,
-            # which is currently down.
-            edge_config = build_node_config(
-                mode="Edge",
-                relay=False,
-                staticnodes=[service_multiaddr],
-                **common,
-            )
-            edge_result = WrapperManager.create_and_start(
-                config=edge_config,
-                event_cb=sender_collector.event_callback,
-            )
-            assert edge_result.is_ok(), f"Failed to start edge sender: {edge_result.err()}"
+            early_propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
+            assert early_propagated is None, f"message_propagated arrived before the lightpush peer was reachable: {early_propagated}"
 
-            with edge_result.ok_value as edge_sender:
-                # send() is invoked while the service is down.
-                msg = create_message_bindings(
-                    payload=to_base64("S16 lightpush peer appears later"),
-                    contentTopic="/test/1/s16-late-lightpush/proto",
-                )
-                send_result = edge_sender.send_message(message=msg)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+            # The lightpush peer appears during the retry window.
+            service_config = build_node_config(relay=True, lightpush=True, staticnodes=[get_node_multiaddr(edge_sender)], **common)
+            service_result = WrapperManager.create_and_start(config=service_config)
+            assert service_result.is_ok(), f"Failed to start lightpush peer: {service_result.err()}"
 
-                delay(SERVICE_DOWN_SETTLE_S)
+            with service_result.ok_value as service:
+                relay_config = build_node_config(relay=True, lightpush=False, staticnodes=[get_node_multiaddr(service)], **common)
+                relay_result = WrapperManager.create_and_start(config=relay_config)
+                assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
 
-                early_propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
-                assert early_propagated is None, f"message_propagated arrived before the lightpush peer was reachable: {early_propagated}"
+                with relay_result.ok_value:
+                    propagated = wait_for_propagated(
+                        collector=sender_collector,
+                        request_id=request_id,
+                        timeout_s=RECOVERY_TIMEOUT_S,
+                    )
+                    assert propagated is not None, (
+                        f"No message_propagated within {RECOVERY_TIMEOUT_S}s "
+                        f"after the lightpush peer joined. "
+                        f"Collected events: {sender_collector.events}"
+                    )
+                    assert propagated["requestId"] == request_id
 
-                # The lightpush peer comes back during the retry window.
-                restart_result = service.start_node()
-                assert restart_result.is_ok(), f"Failed to restart lightpush peer: {restart_result.err()}"
+                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                    assert error is None, f"Unexpected message_error after recovery: {error}"
 
-                propagated = wait_for_propagated(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=RECOVERY_TIMEOUT_S,
-                )
-                assert propagated is not None, (
-                    f"No message_propagated within {RECOVERY_TIMEOUT_S}s "
-                    f"after the lightpush peer joined. "
-                    f"Collected events: {sender_collector.events}"
-                )
-                assert propagated["requestId"] == request_id
-
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
-                assert error is None, f"Unexpected message_error after recovery: {error}"
-
-                assert_event_invariants(sender_collector, request_id)
+                    assert_event_invariants(sender_collector, request_id)
 
 
 class TestS18StagedTopologyReformation(StepsCommon):

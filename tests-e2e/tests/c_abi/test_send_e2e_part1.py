@@ -15,10 +15,12 @@ from src.node.wrapper_helpers import (
     create_message_bindings,
     get_node_multiaddr,
     wait_for_connected,
+    wait_for_mesh,
     wait_for_propagated,
     wait_for_sent,
     wait_for_error,
 )
+from src.steps.metrics import StepsMetrics
 from src.steps.store import StepsStore
 
 logger = get_custom_logger(__name__)
@@ -30,10 +32,6 @@ NO_SENT_OBSERVATION_S = 5.0
 SENT_AFTER_STORE_TIMEOUT_S = 60.0
 NO_STORE_OBSERVATION_S = 60.0
 RECOVERY_TIMEOUT_S = 45.0
-
-# S20 stabilization delays for gossipsub mesh formation.
-MESH_STABILIZATION_S = 10
-STORE_JOIN_STABILIZATION_S = 10
 
 # MaxTimeInCache from send_service.nim.
 MAX_TIME_IN_CACHE_S = 60.0
@@ -60,7 +58,7 @@ S31_CONTENT_TOPICS = [
 ]
 
 
-class TestSendBeforeRelay(StepsStore):
+class TestSendBeforeRelay(StepsStore, StepsMetrics):
     def test_s17_send_before_relay_peers_joins(self, node_config):
         """
         S17: sender starts isolated, calls send()
@@ -133,13 +131,14 @@ class TestSendBeforeRelay(StepsStore):
                 assert_event_invariants(sender_collector, request_id)
 
     @pytest.mark.docker_required
-    @pytest.mark.xfail(reason="fails to republish after store peer joins mesh see https://github.com/logos-messaging/logos-delivery/issues/3848")
     def test_s19_store_peer_appears_after_propagation(self, node_config):
         """
         S19: a store peer comes online later.
           - send() returns Ok(RequestId) immediately
           - Propagated --- relay peer
-          - Sent when store peer is reachable
+          - Sent once the store peer has the message. Gossipsub drops a relay
+            resend as already seen, so the retry reaches the store peer
+            through the lightpush fallback.
         """
         sender_collector = EventCollector()
 
@@ -195,14 +194,12 @@ class TestSendBeforeRelay(StepsStore):
                 assert early_sent_event is None, f"MessageSentEvent arrived before any store peer was reachable. " f"Event: {early_sent_event}"
 
                 # Store peer
-                store_node = WakuNode(NODE_2, f"store_node")
-                store_node.start(relay="true", store="true", discv5_discovery="false", cluster_id=node_config["clusterId"], shard=0)
+                store_node = WakuNode(NODE_2, f"s19_store_{self.test_id}")
+                store_node.start(relay="true", store="true", lightpush="true", discv5_discovery="false", cluster_id=node_config["clusterId"], shard=0)
                 store_node.set_relay_subscriptions([self.test_pubsub_topic])
                 relay_multiaddr = get_node_multiaddr(relay_peer)
                 sender_multiaddr = get_node_multiaddr(sender_node)
                 store_node.add_peers([relay_multiaddr, sender_multiaddr])
-                self.wait_for_autoconnection([store_node], hard_wait=40)
-                delay(3)
 
                 sent_event = wait_for_sent(
                     collector=sender_collector,
@@ -215,10 +212,10 @@ class TestSendBeforeRelay(StepsStore):
                     f"after store peer joined. Collected events: {sender_collector.events}"
                 )
 
-                self.check_published_message_is_stored(
+                self.check_sent_message_is_stored(
+                    expected_hashes=[sent_event["messageHash"]],
                     store_node=store_node,
                     pubsub_topic=self.test_pubsub_topic,
-                    messages_to_check=[message],
                     page_size=5,
                     ascending="true",
                 )
@@ -226,29 +223,25 @@ class TestSendBeforeRelay(StepsStore):
                 assert_event_invariants(sender_collector, request_id)
 
     @pytest.mark.docker_required
-    @pytest.mark.skip(reason="Forcing the miss store round not possible")
     def test_s20_store_misses_initially_then_retry_succeeds(self, node_config):
         """
-        S20: relay propagation succeeds, the first store query misses
-        (the store peer is reachable but does not yet have the message),
-        a later retry republishes through the relay mesh, and the store
-        peer then archives it.
+        S20: the first store query misses, a retry succeeds.
+
+        The store peer is connected but on shard 1, so it does not receive
+        the message the relay peer propagates on shard 0. It then joins
+        shard 0. Gossipsub drops a relay resend as already seen, so the retry
+        reaches the store peer through the lightpush fallback; it archives
+        the message and the next store query finds it.
 
         Covers state flow:
             SuccessfullyPropagated -> NextRoundRetry
               -> SuccessfullyPropagated -> SuccessfullyValidated
-
         """
         sender_collector = EventCollector()
-        store_node = WakuNode(NODE_2, f"s20_store_node_{self.test_id}")
-        store_node.start(
-            relay="true",
-            store="true",
-            discv5_discovery="false",
-            cluster_id=node_config["clusterId"],
-            shard=0,
-        )
-        store_multiaddr = store_node.get_multiaddr_with_id()
+
+        # On shard 1 the sender can query it, but it does not receive shard-0 messages.
+        store_node = WakuNode(NODE_2, f"s20_store_{self.test_id}")
+        store_node.start(relay="true", store="true", lightpush="true", discv5_discovery="false", cluster_id=node_config["clusterId"], shard=1)
 
         node_config.update(
             {
@@ -257,12 +250,17 @@ class TestSendBeforeRelay(StepsStore):
                 "discv5Discovery": False,
                 "numShardsInNetwork": 1,
                 "reliabilityEnabled": True,
-                "storenode": store_multiaddr,
             }
         )
+        sender_config = {
+            **node_config,
+            # Lightpush only picks peers that were on the message's shard when they
+            # connected; the lightpushnode peer is picked regardless.
+            "lightpushnode": store_node.get_multiaddr_with_id(),
+        }
 
         sender_result = WrapperManager.create_and_start(
-            config=node_config,
+            config=sender_config,
             event_cb=sender_collector.event_callback,
         )
         assert sender_result.is_ok(), f"Failed to start sender: {sender_result.err()}"
@@ -277,13 +275,10 @@ class TestSendBeforeRelay(StepsStore):
             assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
 
             with relay_result.ok_value as relay_peer:
-                # Wait for the sender to see the relay peer before publishing.
-                assert wait_for_connected(sender_collector) is not None, (
-                    f"Sender did not reach Connected/PartiallyConnected. " f"Collected events: {sender_collector.events}"
-                )
+                assert wait_for_mesh(sender_collector), "sender gossipsub mesh has no peer"
 
-                # Let the gossipsub mesh form between sender and relay peer.
-                delay(MESH_STABILIZATION_S)
+                store_node.add_peers([get_node_multiaddr(sender_node), get_node_multiaddr(relay_peer)])
+                self.wait_for_autoconnection([store_node])
 
                 message = create_message_bindings(ephemeral=False)
                 send_result = sender_node.send_message(message=message)
@@ -302,28 +297,9 @@ class TestSendBeforeRelay(StepsStore):
                     f"No MessagePropagatedEvent within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
 
-                # The store peer is reachable for queries but never received
-                # the message via gossipsub, so the first store query must
-                # miss and Sent must NOT arrive yet.
-                early_sent_event = wait_for_sent(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=NO_SENT_OBSERVATION_S,
-                )
-                assert early_sent_event is None, (
-                    f"MessageSentEvent arrived before the store could have the message. "
-                    f"Initial store query should have missed. Event: {early_sent_event}"
-                )
-
-                # Now subscribe the store to the test topic and wire it into
-                # the relay mesh so the next retry round's republish reaches
-                # the store via gossipsub.
+                # Joining shard 0 after the send, the store peer never receives the message over relay.
                 store_node.set_relay_subscriptions([self.test_pubsub_topic])
-                store_node.add_peers([get_node_multiaddr(sender_node), get_node_multiaddr(relay_peer)])
-                self.wait_for_autoconnection([store_node], hard_wait=10)
-                delay(STORE_JOIN_STABILIZATION_S)
 
-                # Round 2: retry republishes, store archives, next query hits.
                 sent_event = wait_for_sent(
                     collector=sender_collector,
                     request_id=request_id,
@@ -331,15 +307,17 @@ class TestSendBeforeRelay(StepsStore):
                 )
                 assert sent_event is not None, (
                     f"No MessageSentEvent within {SENT_AFTER_STORE_TIMEOUT_S}s "
-                    f"after the store joined the relay mesh. The retry round "
-                    f"should have republished and the store should have archived. "
+                    f"after the store joined the shard. "
                     f"Collected events: {sender_collector.events}"
                 )
 
-                self.check_published_message_is_stored(
+                # The sender only falls back to lightpush after a store check misses.
+                self.check_metric(store_node, 'logos_delivery_lightpush_v3_messages_total{type="PushRequest"}', 1)
+
+                self.check_sent_message_is_stored(
+                    expected_hashes=[sent_event["messageHash"]],
                     store_node=store_node,
                     pubsub_topic=self.test_pubsub_topic,
-                    messages_to_check=[message],
                     page_size=5,
                     ascending="true",
                 )
