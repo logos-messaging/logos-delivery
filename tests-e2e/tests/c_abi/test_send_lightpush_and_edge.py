@@ -290,7 +290,6 @@ class TestS18StagedTopologyReformation(StepsCommon):
             lightpush_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
             }
             lightpush_result = WrapperManager.create_and_start(config=lightpush_config)
             assert lightpush_result.is_ok(), f"Failed to start lightpush peer: {lightpush_result.err()}"
@@ -301,7 +300,6 @@ class TestS18StagedTopologyReformation(StepsCommon):
                     **node_config,
                     "lightpush": False,
                     "staticnodes": [get_node_multiaddr(sender)],
-                    "portsShift": 2,
                 }
                 relay_result = WrapperManager.create_and_start(config=relay_config)
                 assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
@@ -359,7 +357,6 @@ class TestS18StagedTopologyReformation(StepsCommon):
                 **node_config,
                 "lightpush": False,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
             }
             relay_result = WrapperManager.create_and_start(config=relay_config)
             assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
@@ -369,7 +366,6 @@ class TestS18StagedTopologyReformation(StepsCommon):
                 lightpush_config = {
                     **node_config,
                     "staticnodes": [get_node_multiaddr(sender)],
-                    "portsShift": 2,
                 }
                 lightpush_result = WrapperManager.create_and_start(config=lightpush_config)
                 assert lightpush_result.is_ok(), f"Failed to start lightpush peer: {lightpush_result.err()}"

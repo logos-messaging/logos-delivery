@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
 import queue
-import tempfile
 import time
 
 from src.libs.common import delay
-from src.node.wrapper_helpers import EVENT_CHANNEL_RECEIVED, EventCollector, create_message_bindings, get_node_multiaddr, wait_for_connected
+from src.node.wrapper_helpers import (
+    EVENT_CHANNEL_RECEIVED,
+    EventCollector,
+    create_message_bindings,
+    get_node_multiaddr,
+    local_storage_config,
+    wait_for_connected,
+)
 from src.node.wrappers_manager import WrapperManager
 
 # `spawn`, not `fork`: the child loads its own liblogosdelivery.
@@ -45,8 +50,8 @@ def _recreate(sender, channel_id, content_topic, sender_id):
 
 
 def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, settle_s, result_q, cmd_q, evt_q, stop_evt):
-    # A private cwd so the library's default "./data" store is not the parent node's.
-    os.chdir(tempfile.mkdtemp(prefix="rc_sender_"))
+    # Its own storage, not the parent node's.
+    config = {**config, **local_storage_config()}
 
     collector = EventCollector()
     started = WrapperManager.create_and_start(config=config, event_cb=collector.event_callback)

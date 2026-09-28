@@ -63,7 +63,7 @@ jobs:
         working-directory: tests-e2e
         run: |
           echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
-          pytest tests/c_abi -m "${{ matrix.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2 --junitxml=log/junit.xml
+          pytest tests/c_abi -m "${{ matrix.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" -n 4 --dist=loadgroup --reruns 2 --junitxml=log/junit.xml
 
       - name: Report results in the job summary
         uses: dorny/test-reporter@v2

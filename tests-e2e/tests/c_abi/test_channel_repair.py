@@ -67,7 +67,6 @@ class TestChannelRepair:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(RC10_CONTENT_TOPIC)

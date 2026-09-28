@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -242,6 +244,15 @@ def unique_channel_id(prefix: str) -> str:
     leaks one run's causal history into the next.
     """
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def local_storage_config() -> dict:
+    """Storage paths in a fresh directory, so no two nodes share SQLite files."""
+    storage_dir = tempfile.mkdtemp(prefix="c_abi_node_")
+    return {
+        "localStoragePath": storage_dir,
+        "storeMessageDbUrl": f"sqlite://{os.path.join(storage_dir, 'store.sqlite3')}",
+    }
 
 
 def create_message_bindings(**overrides) -> dict:

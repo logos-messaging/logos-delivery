@@ -66,7 +66,6 @@ class TestS02AutoSubscribeOnFirstSend(StepsCommon):
             peer_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
             }
 
             peer_result = WrapperManager.create_and_start(config=peer_config)
@@ -133,7 +132,6 @@ class TestS06CoreSenderRelayOnly(StepsCommon):
             peer_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
             }
 
             peer_result = WrapperManager.create_and_start(config=peer_config)
@@ -205,7 +203,6 @@ class TestS07CoreSenderRelayAndStore(StepsCommon):
             peer_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
                 "store": True,
             }
 
@@ -290,7 +287,6 @@ class TestRelayToLightpushFallback(StepsCommon):
                 **node_config,
                 "lightpush": False,
                 "staticnodes": [service_addr],
-                "portsShift": 1,
             }
             relay_result = WrapperManager.create_and_start(config=relay_config)
             assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
@@ -299,7 +295,6 @@ class TestRelayToLightpushFallback(StepsCommon):
                 sender_config = {
                     **node_config,
                     "lightpushnode": service_addr,
-                    "portsShift": 2,
                 }
                 sender_result = WrapperManager.create_and_start(
                     config=sender_config,
@@ -359,13 +354,12 @@ class TestRelayToLightpushFallback(StepsCommon):
                 "lightpush": False,
                 "store": False,
                 "staticnodes": [service_addr],
-                "portsShift": 1,
             }
             relay_result = WrapperManager.create_and_start(config=relay_config)
             assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
 
             with relay_result.ok_value:
-                sender_config = {**node_config, "reliabilityEnabled": True, "storenode": service_addr, "portsShift": 2, "store": False}
+                sender_config = {**node_config, "reliabilityEnabled": True, "storenode": service_addr, "store": False}
                 sender_result = WrapperManager.create_and_start(
                     config=sender_config,
                     event_cb=sender_collector.event_callback,

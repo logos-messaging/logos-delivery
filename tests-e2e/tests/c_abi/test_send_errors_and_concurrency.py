@@ -49,7 +49,6 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
             }
 
             relay_result = WrapperManager.create_and_start(config=relay_config)

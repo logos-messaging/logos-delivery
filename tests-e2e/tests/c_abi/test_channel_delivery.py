@@ -176,7 +176,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(CONTENT_TOPIC)
@@ -234,7 +233,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
             sender_collector = EventCollector()
             sender_result = WrapperManager.create_and_start(config=sender_config, event_cb=sender_collector.event_callback)
@@ -300,7 +298,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             for content_topic in (RC07_CONTENT_TOPIC, RC07_OTHER_CONTENT_TOPIC):
@@ -359,7 +356,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(RC08_CONTENT_TOPIC)
@@ -437,10 +433,8 @@ class TestChannelDelivery:
             }
         )
         # A comes up first with nobody to dial; B joins later and dials A.
-        sender_config = {**node_config, "portsShift": 1}
-
         with ChannelSenderProcess(
-            sender_config,
+            node_config,
             content_topic=RC09_CONTENT_TOPIC,
             channel_id=channel_id,
             sender_id=SENDER_A,
@@ -504,7 +498,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(RC10_CONTENT_TOPIC)
@@ -582,14 +575,14 @@ class TestChannelDelivery:
 
             # C joins first so it is meshed by the time A sends m1.
             with ChannelSenderProcess(
-                {**peer_config, "portsShift": 2},
+                peer_config,
                 content_topic=RC12_CONTENT_TOPIC,
                 channel_id=channel_id,
                 sender_id=SENDER_C,
                 settle_s=MESH_SETTLE_S,
             ) as third_party:
                 with ChannelSenderProcess(
-                    {**peer_config, "portsShift": 1},
+                    peer_config,
                     content_topic=RC12_CONTENT_TOPIC,
                     channel_id=channel_id,
                     sender_id=SENDER_A,
@@ -644,7 +637,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(RC13_CONTENT_TOPIC)
@@ -715,7 +707,6 @@ class TestChannelDelivery:
             sender_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(receiver)],
-                "portsShift": 1,
             }
 
             subscribe_result = receiver.subscribe_content_topic(CLOSED_CONTENT_TOPIC)

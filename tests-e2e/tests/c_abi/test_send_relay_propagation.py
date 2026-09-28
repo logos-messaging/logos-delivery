@@ -57,7 +57,6 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
             peer_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender)],
-                "portsShift": 1,
             }
 
             peer_result = WrapperManager.create_and_start(config=peer_config)

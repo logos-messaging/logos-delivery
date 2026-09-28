@@ -20,7 +20,6 @@ from src.node.wrapper_helpers import (
     wait_for_error,
 )
 from src.steps.store import StepsStore
-from tests.c_abi.conftest import free_port
 
 logger = get_custom_logger(__name__)
 
@@ -97,7 +96,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
                 "store": True,
             }
 
@@ -157,9 +155,6 @@ class TestSendBeforeRelay(StepsStore):
             # relay peer
             relay_config = {
                 **node_config,
-                "tcpPort": free_port(),
-                "discv5UdpPort": free_port(),
-                "restPort": free_port(),
                 "staticnodes": [get_node_multiaddr(sender_node)],
                 "store": False,
                 "reliabilityEnabled": True,
@@ -276,7 +271,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
                 "store": False,
             }
             relay_result = WrapperManager.create_and_start(config=relay_config)
@@ -434,7 +428,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
                 "store": True,
             }
 
@@ -513,7 +506,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
                 "store": False,
             }
 
@@ -592,7 +584,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
                 "store": True,
             }
 
@@ -654,8 +645,6 @@ class TestSendBeforeRelay(StepsStore):
             "filter": False,
             "discv5Discovery": True,
             "numShardsInNetwork": 1,
-            "portsShift": 1,
-            "discv5UdpPort": free_port(),
         }
         peer1_result = WrapperManager.create_and_start(config=peer1_config)
         assert peer1_result.is_ok(), f"Failed to start lightpush peer1: {peer1_result.err()}"
@@ -669,7 +658,6 @@ class TestSendBeforeRelay(StepsStore):
             "filter": False,
             "discv5Discovery": False,
             "numShardsInNetwork": 1,
-            "portsShift": 4,
         }
 
         relay_result = WrapperManager.create_and_start(config=relay_config)
@@ -682,8 +670,6 @@ class TestSendBeforeRelay(StepsStore):
                     get_node_multiaddr(peer1),
                     get_node_multiaddr(relay_peer),
                 ],
-                "portsShift": 2,
-                "discv5UdpPort": free_port(),
             }
 
             peer2_result = WrapperManager.create_and_start(config=peer2_config)
@@ -698,7 +684,6 @@ class TestSendBeforeRelay(StepsStore):
                     "filter": False,
                     "discv5Discovery": False,
                     "numShardsInNetwork": 1,
-                    "portsShift": 3,
                     "staticnodes": [
                         get_node_multiaddr(peer1),
                         get_node_multiaddr(peer2),
@@ -776,7 +761,6 @@ class TestSendBeforeRelay(StepsStore):
             relay_config = {
                 **node_config,
                 "staticnodes": [get_node_multiaddr(sender_node)],
-                "portsShift": 1,
             }
 
             relay_result = WrapperManager.create_and_start(config=relay_config)

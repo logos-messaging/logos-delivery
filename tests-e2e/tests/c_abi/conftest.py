@@ -1,5 +1,6 @@
 import socket
 import pytest
+from src.node.wrapper_helpers import local_storage_config
 from src.test_data import DEFAULT_CLUSTER_ID
 
 
@@ -14,9 +15,9 @@ def build_node_config(**overrides):
     config = {
         "logLevel": "DEBUG",
         "listenAddress": "0.0.0.0",
-        "tcpPort": free_port(),
-        "discv5UdpPort": free_port(),
-        "restPort": free_port(),
+        "tcpPort": 0,
+        "discv5UdpPort": 0,
+        "restPort": 0,
         "restAddress": "0.0.0.0",
         "clusterId": DEFAULT_CLUSTER_ID,
         "relay": True,
@@ -26,6 +27,7 @@ def build_node_config(**overrides):
         "peerExchange": False,
         "discv5Discovery": False,
         "nat": "none",
+        **local_storage_config(),
     }
     config.update(overrides)
     return config
