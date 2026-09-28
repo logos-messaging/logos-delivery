@@ -17,6 +17,7 @@ EVENT_PROPAGATED = "message_propagated"
 EVENT_SENT = "message_sent"
 EVENT_ERROR = "message_error"
 EVENT_CHANNEL_RECEIVED = "channel_message_received"
+GOSSIPSUB_MESH_PEERS_METRIC = "libp2p_gossipsub_peers_per_topic_mesh"
 
 # MaxTimeInCache from send_service.nim.
 MAX_TIME_IN_CACHE_S = 60.0
@@ -129,6 +130,19 @@ def wait_for_connected(
                 return event
         time.sleep(poll_interval_s)
     return None
+
+
+def wait_for_mesh(node, timeout_s: float = 10.0, poll_interval_s: float = 0.3) -> bool:
+    """Wait until the gossipsub mesh holds a peer. Metrics are per process, not per node."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        metrics = node.get_node_info("Metrics")
+        if metrics.is_ok():
+            for line in metrics.ok_value.splitlines():
+                if line.startswith(f"{GOSSIPSUB_MESH_PEERS_METRIC}{{") and float(line.rsplit(" ", 1)[1]) >= 1:
+                    return True
+        time.sleep(poll_interval_s)
+    return False
 
 
 TERMINAL_EVENT_TYPES = {EVENT_PROPAGATED, EVENT_SENT, EVENT_ERROR}

@@ -56,12 +56,15 @@ def test_setup(request, test_id):
     yield
     logger.debug(f"Running fixture teardown: {inspect.currentframe().f_code.co_name}")
     for file in glob.glob(os.path.join(env_vars.DOCKER_LOG_DIR, "*")):
-        if os.path.getmtime(file) < time() - 3600:
-            logger.debug(f"Deleting old log file: {file}")
-            try:
+        try:
+            if os.path.getmtime(file) < time() - 3600:
+                logger.debug(f"Deleting old log file: {file}")
                 os.remove(file)
-            except:
-                logger.error("Could not delete file")
+        except FileNotFoundError:
+            # Another xdist worker deleted it first.
+            pass
+        except:
+            logger.error("Could not delete file")
 
 
 @pytest.fixture(scope="function", autouse=True)

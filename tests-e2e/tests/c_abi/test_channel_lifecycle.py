@@ -1,6 +1,5 @@
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import EventCollector, create_message_bindings, unique_channel_id
-from src.libs.common import delay
 
 RC01_CHANNEL_PREFIX = "rc01-channel"
 CONTENT_TOPIC = "/test/1/channel/proto"
@@ -16,10 +15,6 @@ RC04_CHANNEL_PREFIX = "rc04-channel"
 RC04_CLOSED_CHANNEL_PREFIX = "rc04-closed-channel"
 RC04_EPHEMERAL_CHANNEL_PREFIX = "rc04-ephemeral-channel"
 RC04_DISTINCT_CHANNEL_PREFIX = "rc04-distinct-channel"
-
-# Give the reliable channel manager a moment to settle a freshly-created
-# channel before we act on it.
-CHANNEL_SETTLE_S = 1
 
 
 class TestChannelLifecycle:
@@ -93,8 +88,6 @@ class TestChannelLifecycle:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
 
-            delay(CHANNEL_SETTLE_S)
-
             close_result = node.channel_close(channel_id)
             assert close_result.is_ok(), f"channel_close on an existing channel failed: {close_result.err()}"
 
@@ -131,8 +124,6 @@ class TestChannelLifecycle:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
 
-            delay(CHANNEL_SETTLE_S)
-
             random_close_result = node.channel_close(random_id)
             assert random_close_result.is_err(), f"channel_close on a random id must fail, got Ok({random_close_result.ok_value!r})"
             assert f"unknown channel: {random_id}" in random_close_result.err(), f"unexpected error message: {random_close_result.err()!r}"
@@ -163,8 +154,6 @@ class TestChannelLifecycle:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
 
-            delay(CHANNEL_SETTLE_S)
-
             empty_result = node.channel_send(channel_id, create_message_bindings(payload=""))
             assert empty_result.is_err(), f"channel_send with an empty payload must fail, got Ok({empty_result.ok_value!r})"
             assert "empty payload" in empty_result.err(), f"unexpected error message: {empty_result.err()!r}"
@@ -194,8 +183,6 @@ class TestChannelLifecycle:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
 
-            delay(CHANNEL_SETTLE_S)
-
             close_result = node.channel_close(channel_id)
             assert close_result.is_ok(), f"channel_close failed: {close_result.err()}"
 
@@ -224,8 +211,6 @@ class TestChannelLifecycle:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
 
-            delay(CHANNEL_SETTLE_S)
-
             send_result = node.channel_send(channel_id, create_message_bindings(ephemeral=True))
             assert send_result.is_ok(), f"ephemeral channel_send failed: {send_result.err()}"
             assert send_result.ok_value, f"channel_send must return a non-empty channelReqId handle, got: {send_result.ok_value!r}"
@@ -248,8 +233,6 @@ class TestChannelLifecycle:
         try:
             create_result = node.channel_create(channel_id, CONTENT_TOPIC, SENDER_ID)
             assert create_result.is_ok(), f"channel_create failed: {create_result.err()}"
-
-            delay(CHANNEL_SETTLE_S)
 
             first_result = node.channel_send(channel_id, create_message_bindings())
             assert first_result.is_ok(), f"first channel_send failed: {first_result.err()}"

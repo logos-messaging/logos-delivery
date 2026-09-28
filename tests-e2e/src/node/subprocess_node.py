@@ -4,7 +4,6 @@ import multiprocessing as mp
 import queue
 import time
 
-from src.libs.common import delay
 from src.node.wrapper_helpers import (
     EVENT_CHANNEL_RECEIVED,
     EventCollector,
@@ -12,6 +11,7 @@ from src.node.wrapper_helpers import (
     get_node_multiaddr,
     local_storage_config,
     wait_for_connected,
+    wait_for_mesh,
 )
 from src.node.wrappers_manager import WrapperManager
 
@@ -49,7 +49,7 @@ def _recreate(sender, channel_id, content_topic, sender_id):
     return None
 
 
-def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, settle_s, result_q, cmd_q, evt_q, stop_evt):
+def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, result_q, cmd_q, evt_q, stop_evt):
     # Its own storage, not the parent node's.
     config = {**config, **local_storage_config()}
 
@@ -75,7 +75,9 @@ def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, se
             result_q.put(f"sender channel_create failed: {create_result.err()}")
             return
 
-        delay(settle_s)
+        if config.get("staticnodes") and not wait_for_mesh(sender):
+            result_q.put("sender gossipsub mesh has no peer")
+            return
 
         if payload_b64 is not None:
             outcome = _send(sender, channel_id, payload_b64)
@@ -103,13 +105,7 @@ def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, se
                 result_q.put(_send(sender, channel_id, arg))
                 continue
 
-            outcome = _recreate(sender, channel_id, content_topic, sender_id)
-            if outcome is None:
-                # channel_close drops the content topic subscription and
-                # channel_create re-adds it; let the mesh catch up before the
-                # next send, or it goes out to nobody.
-                delay(settle_s)
-            result_q.put(outcome)
+            result_q.put(_recreate(sender, channel_id, content_topic, sender_id))
 
 
 class ChannelSenderProcess:
@@ -124,8 +120,8 @@ class ChannelSenderProcess:
     `wait_for_received()` reports what this peer received.
     """
 
-    def __init__(self, config, *, content_topic, channel_id, sender_id, payload_b64=None, settle_s):
-        self._args = (config, content_topic, channel_id, sender_id, payload_b64, settle_s)
+    def __init__(self, config, *, content_topic, channel_id, sender_id, payload_b64=None):
+        self._args = (config, content_topic, channel_id, sender_id, payload_b64)
         self._stop_evt = _SPAWN.Event()
         self._result_q = _SPAWN.Queue()
         self._cmd_q = _SPAWN.Queue()
@@ -167,7 +163,7 @@ class ChannelSenderProcess:
 
     def close_and_recreate(self) -> None:
         """Closes and re-creates the channel under the same id, blocking until
-        the peer has re-subscribed and the mesh has settled."""
+        the peer has re-subscribed."""
         self._run(CMD_RECREATE, None, "a close/re-create")
 
     def wait_for_received(self, count, timeout_s) -> list:
