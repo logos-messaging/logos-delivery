@@ -13,7 +13,7 @@ on:
         type: string
         required: false
         default: ""
-  # The non-docker tests, including the minutes-long `slow` ones kept off PRs.
+  # Nightly: the non-docker tests, including the `slow` ones that PRs skip.
   schedule:
     - cron: '10 5 * * *'
   workflow_dispatch:
@@ -23,7 +23,7 @@ env:
 
 jobs:
   c-abi:
-    # ci.yml calls this workflow on pull_request, merge_group and push.
+    # Only when ci.yml calls this workflow (pull_request, merge_group, push), not nightly.
     if: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
     strategy:
       fail-fast: false

@@ -245,7 +245,7 @@ class TestChannelDelivery:
                 receiver_create = receiver.channel_create(channel_id, RC06_CONTENT_TOPIC, SENDER_B)
                 assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
-                assert wait_for_mesh(sender), "sender gossipsub mesh has no peer"
+                assert wait_for_mesh(sender_collector), "sender gossipsub mesh has no peer"
 
                 # Plain relay publish: right content topic, but no Reliable-Channel
                 # marker, so B's channel ingress filter must drop it.
@@ -448,7 +448,7 @@ class TestChannelDelivery:
                 start_result = receiver.start_node()
                 assert start_result.is_ok(), f"Failed to start receiver: {start_result.err()}"
                 assert wait_for_connected(receiver_collector) is not None, "Receiver did not reach Connected/PartiallyConnected state"
-                assert wait_for_mesh(receiver), "receiver gossipsub mesh has no peer"
+                assert wait_for_mesh(receiver_collector), "receiver gossipsub mesh has no peer"
 
                 sender.send(to_base64(m2))
 

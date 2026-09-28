@@ -50,7 +50,7 @@ def _recreate(sender, channel_id, content_topic, sender_id):
 
 
 def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, result_q, cmd_q, evt_q, stop_evt):
-    # Its own storage, not the parent node's.
+    # Use storage separate from the parent node's.
     config = {**config, **local_storage_config()}
 
     collector = EventCollector()
@@ -75,7 +75,7 @@ def _sender_worker(config, content_topic, channel_id, sender_id, payload_b64, re
             result_q.put(f"sender channel_create failed: {create_result.err()}")
             return
 
-        if config.get("staticnodes") and not wait_for_mesh(sender):
+        if config.get("staticnodes") and not wait_for_mesh(collector):
             result_q.put("sender gossipsub mesh has no peer")
             return
 

@@ -1,8 +1,9 @@
 """RC10 outcome: SDS-R repair recovers a missing dependency.
 
 Marked `slow` and run nightly instead of on PRs: the repair request only rides
-out after T_req, so the test spends minutes waiting. The PR-run setup half is
-test_rc10_missing_dependency_is_parked in test_channel_delivery.py.
+out after T_req, so the test spends minutes waiting. Its first half, up to m2
+being parked, runs on PRs as test_rc10_missing_dependency_is_parked in
+test_channel_delivery.py.
 """
 
 import time
