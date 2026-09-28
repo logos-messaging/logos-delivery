@@ -1,5 +1,4 @@
 import os
-import inspect
 import random
 import string
 
@@ -8,7 +7,7 @@ import pytest
 from src.steps.common import StepsCommon
 from src.test_data import PUBSUB_TOPICS_RLN
 from src.env_vars import DEFAULT_NWAKU, RLN_CREDENTIALS, NODE_1, NODE_2, ADDITIONAL_NODES
-from src.libs.common import gen_step_id, delay
+from src.libs.common import gen_step_id
 from src.libs.custom_logger import get_custom_logger
 from src.node.waku_node import WakuNode, rln_credential_store_ready
 

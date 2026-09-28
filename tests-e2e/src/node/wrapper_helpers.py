@@ -114,20 +114,6 @@ def assert_no_error(collector: EventCollector, request_id: str, context: str = "
     assert event is None, f"Unexpected message_error event{suffix}: {event}"
 
 
-def assert_no_sent(collector: EventCollector, request_id: str, context: str = "") -> None:
-    """Assert that no message_sent event is currently buffered for `request_id`."""
-    event = wait_for_sent(collector, request_id, timeout_s=0)
-    suffix = f" ({context})" if context else ""
-    assert event is None, f"Unexpected message_sent event{suffix}: {event}"
-
-
-def assert_no_propagated(collector: EventCollector, request_id: str, context: str = "") -> None:
-    """Assert that no message_propagated event is currently buffered for `request_id`."""
-    event = wait_for_propagated(collector, request_id, timeout_s=0)
-    suffix = f" ({context})" if context else ""
-    assert event is None, f"Unexpected message_propagated event{suffix}: {event}"
-
-
 def wait_for_connected(
     collector: EventCollector,
     timeout_s: float = 10.0,
@@ -266,16 +252,3 @@ def create_message_bindings(**overrides) -> dict:
     }
     envelope.update(overrides)
     return envelope
-
-
-def assert_no_unknown_request_ids(collector: EventCollector, issued_request_ids) -> None:
-    """Cross-association guard: every event carrying a requestId must belong
-    to one of the request ids we issued. Catches events that get attached to
-    the wrong request id under concurrency.
-    """
-    issued = set(issued_request_ids)
-    for event in collector.snapshot():
-        event_request_id = event.get("requestId")
-        if event_request_id is None:
-            continue
-        assert event_request_id in issued, f"Event carries an unknown requestId={event_request_id!r}, " f"not in issued set {issued}. Event: {event}"

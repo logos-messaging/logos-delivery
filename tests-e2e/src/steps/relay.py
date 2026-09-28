@@ -146,11 +146,6 @@ class StepsRelay(StepsCommon):
         for node in node_list:
             node.set_relay_subscriptions(pubsub_topic_list)
 
-    @retry(stop=stop_after_delay(120), wait=wait_fixed(1), reraise=True)
-    def subscribe_and_publish_with_retry(self, node_list, pubsub_topic_list):
-        self.ensure_relay_subscriptions_on_nodes(node_list, pubsub_topic_list)
-        self.check_published_message_reaches_relay_peer()
-
     def setup_main_nodes(self, **kwargs):
         self.node1 = WakuNode(NODE_1, f"node1_{self.test_id}")
         self.node1.start(relay="true", **kwargs)
