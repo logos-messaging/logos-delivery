@@ -119,3 +119,48 @@ suite "Waku Store - query handler":
 
     ## Cleanup
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
+
+  asyncTest "history query with a time range longer than 24h is rejected":
+    ## Setup
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    ## Given
+    let serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+
+    var handlerCalls = 0
+    let queryHandler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      handlerCalls.inc()
+      return ok(StoreQueryResponse())
+
+    let
+      server = await newTestWakuStore(serverSwitch, handler = queryhandler)
+      client = newTestWakuStoreClient(clientSwitch)
+
+    let endTime = now()
+    var req = StoreQueryRequest(
+      contentTopics: @[DefaultContentTopic],
+      startTime: Opt.some(endTime - MaxQueryTimeRange - 1),
+      endTime: Opt.some(endTime),
+    )
+
+    ## When
+    let tooLongRes = await client.query(req, peer = serverPeerInfo)
+
+    req.startTime = Opt.some(endTime - MaxQueryTimeRange)
+    let oneDayRes = await client.query(req, peer = serverPeerInfo)
+
+    ## Then
+    check:
+      tooLongRes.isErr()
+      tooLongRes.tryError().kind == ErrorCode.BAD_REQUEST
+      oneDayRes.isOk()
+      handlerCalls == 1
+
+    ## Cleanup
+    await allFutures(serverSwitch.stop(), clientSwitch.stop())

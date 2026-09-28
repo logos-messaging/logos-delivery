@@ -11,6 +11,8 @@ const
 
   MaxPageSize*: uint64 = 100
 
+  MaxQueryTimeRange*: Timestamp = 24 * 60 * 60 * 1_000_000_000 # 24h in nanoseconds
+
   EmptyCursor*: WakuMessageHash = EmptyWakuMessageHash
 
 type WakuStoreResult*[T] = Result[T, string]

@@ -58,6 +58,13 @@ proc handleQueryRequest(
     peerId = requestor, requestId = requestId, request = req
   logos_delivery_store_queries.inc()
 
+  if req.startTime.isSome() and req.endTime.isSome() and
+      req.endTime.get() - req.startTime.get() > MaxQueryTimeRange:
+    res.requestId = requestId
+    res.statusCode = uint32(ErrorCode.BAD_REQUEST)
+    res.statusDesc = "time range exceeds 24h"
+    return (res.encode().buffer, requestId)
+
   let queryResult = await self.requestHandler(req)
 
   res = queryResult.valueOr:
