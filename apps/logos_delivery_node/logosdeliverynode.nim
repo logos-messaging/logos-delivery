@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[options, strutils, sequtils, net],
+  std/[atomics, options, strutils, sequtils, net],
   chronicles,
   chronos,
   metrics,
@@ -16,6 +16,13 @@ logScope:
   topics = "logosdeliverynode main"
 
 const git_version* {.strdefine.} = "n/a"
+
+# Written from signal handlers, so it must stay a lock-free atomic: nothing else
+# (allocation, logging, chronos scheduling) is async-signal-safe.
+var shutdownSignal: Atomic[int]
+
+proc requestShutdown(signal: cint) {.noconv.} =
+  shutdownSignal.store(int(signal))
 
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
@@ -51,28 +58,13 @@ when isMainModule:
     quit(QuitFailure)
 
   info "Setting up shutdown hooks"
-  proc asyncStopper(node: LogosDelivery) {.async: (raises: [Exception]).} =
-    (await node.stop()).isOkOr:
-      error "LogosDelivery shutdown failed", error = error
-    quit(QuitSuccess)
-
-  # Handle Ctrl-C SIGINT
   proc handleCtrlC() {.noconv.} =
-    when defined(windows):
-      # workaround for https://github.com/nim-lang/Nim/issues/4057
-      setupForeignThreadGc()
-    notice "Shutting down after receiving SIGINT"
-    asyncSpawn asyncStopper(node)
+    requestShutdown(ansi_c.SIGINT)
 
   setControlCHook(handleCtrlC)
 
-  # Handle SIGTERM
   when defined(posix):
-    proc handleSigterm(signal: cint) {.noconv.} =
-      notice "Shutting down after receiving SIGTERM"
-      asyncSpawn asyncStopper(node)
-
-    c_signal(ansi_c.SIGTERM, handleSigterm)
+    c_signal(ansi_c.SIGTERM, requestShutdown)
 
   # Handle SIGSEGV
   when defined(posix):
@@ -83,12 +75,24 @@ when isMainModule:
       # Not available in -d:release mode
       writeStackTrace()
 
-      (waitFor node.stop()).isOkOr:
-        error "LogosDelivery shutdown failed", error = error
+      # No graceful stop: the process state is already corrupted and stopping
+      # would re-enter the event loop from inside the signal handler.
       quit(QuitFailure)
 
     c_signal(ansi_c.SIGSEGV, handleSigsegv)
 
+  # Polled from the dispatcher so the stop runs exactly once, outside any
+  # signal handler. chronos' waitSignal is not used because signalfd needs the
+  # signal blocked in every thread, and worker threads may already exist here.
+  proc waitForShutdown(node: LogosDelivery) {.async: (raises: [Exception]).} =
+    while shutdownSignal.load() == 0:
+      await sleepAsync(100.milliseconds)
+
+    notice "Shutting down after receiving signal", signal = shutdownSignal.load()
+    (await node.stop()).isOkOr:
+      error "LogosDelivery shutdown failed", error = error
+    quit(QuitSuccess)
+
   info "Node setup complete"
 
-  runForever()
+  waitFor waitForShutdown(node)
