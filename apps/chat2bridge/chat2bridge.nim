@@ -107,9 +107,7 @@ proc toChat2(cmb: Chat2MatterBridge, jsonNode: JsonNode) {.async.} =
   (await cmb.nodev2.publish(Opt.some(DefaultPubsubTopic), msg)).isOkOr:
     error "failed to publish message", error = error
 
-proc toMatterbridge(
-    cmb: Chat2MatterBridge, msg: WakuMessage
-) {.gcsafe, raises: [Exception].} =
+proc toMatterbridge(cmb: Chat2MatterBridge, msg: WakuMessage) {.gcsafe, raises: [].} =
   if cmb.seen.containsOrAdd(msg.payload.hash()):
     # This is a duplicate message. Return.
     logos_delivery_chat2_mb_dropped.inc(labelValues = ["duplicate"])
@@ -227,21 +225,23 @@ proc start*(cmb: Chat2MatterBridge) {.async.} =
       pubsubTopic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async.} =
     trace "Bridging message from Chat2 to Matterbridge", msg = msg
-    try:
-      cmb.toMatterbridge(msg)
-    except:
-      error "exception in relayHandler: " & getCurrentExceptionMsg()
+    cmb.toMatterbridge(msg)
 
   cmb.nodev2.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), relayHandler).isOkOr:
     error "failed to subscribe to relay", topic = DefaultPubsubTopic, error = error
     return
 
-proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [Exception]).} =
+proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [CancelledError]).} =
   info "Stopping Chat2MatterBridge"
 
   cmb.running = false
 
-  await cmb.nodev2.stop()
+  try:
+    await cmb.nodev2.stop()
+  except CancelledError as e:
+    raise e
+  except CatchableError as e:
+    error "failed to stop the Waku node", error = e.msg
 
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError

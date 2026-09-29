@@ -84,12 +84,19 @@ when isMainModule:
   # Polled from the dispatcher so the stop runs exactly once, outside any
   # signal handler. chronos' waitSignal is not used because signalfd needs the
   # signal blocked in every thread, and worker threads may already exist here.
-  proc waitForShutdown(node: LogosDelivery) {.async: (raises: [Exception]).} =
+  proc waitForShutdown(node: LogosDelivery) {.async: (raises: [CancelledError]).} =
     while shutdownSignal.load() == 0:
       await sleepAsync(100.milliseconds)
 
     notice "Shutting down after receiving signal", signal = shutdownSignal.load()
-    (await node.stop()).isOkOr:
+    let stopRes =
+      try:
+        await node.stop()
+      except CancelledError as e:
+        raise e
+      except CatchableError as e:
+        Result[void, string].err(e.msg)
+    stopRes.isOkOr:
       error "LogosDelivery shutdown failed", error = error
     quit(QuitSuccess)
 

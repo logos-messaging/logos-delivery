@@ -129,7 +129,7 @@ when isMainModule:
 
   info "Setting up shutdown hooks"
 
-  proc asyncStopper(waku: Waku) {.async: (raises: [Exception]).} =
+  proc asyncStopper(waku: Waku) {.async: (raises: []).} =
     (await waku.stop()).isOkOr:
       error "Waku shutdown failed", error = error
     quit(QuitSuccess)
