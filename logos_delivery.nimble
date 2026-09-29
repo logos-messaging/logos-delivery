@@ -93,9 +93,9 @@ requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# Temporary pin to the mix commit that widens its libp2p requirement.
-requires "https://github.com/richard-ramos/nim-libp2p-mix#29eaaf1d6adb57fa95e70d0c577cf6c4855598d9"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#5a8e20cd278e8b2985b2bf7dc0da76d47c92f26c"
+# Pin the Mix and shared RLN adapter integration revisions.
+requires "https://github.com/richard-ramos/nim-libp2p-mix#d4aeff5f032563fc0f9b042a1c8c049d9fa69fba"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#074e4d775657f3c86ac4dc81eb7c06bf554d81bb"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
