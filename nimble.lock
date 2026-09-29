@@ -348,7 +348,7 @@
         "results"
       ],
       "checksums": {
-        "sha1": "ab126eae09a6e39c72972a6a0b83cb06a2ffe8f0"
+        "sha1": "2c14b01ecbe75e75abb21a315cd3fac72de62a7c"
       }
     },
     "json_serialization": {
@@ -769,8 +769,8 @@
       }
     },
     "mix_rln_spam_protection": {
-      "version": "#074e4d775657f3c86ac4dc81eb7c06bf554d81bb",
-      "vcsRevision": "074e4d775657f3c86ac4dc81eb7c06bf554d81bb",
+      "version": "#ac83f368e286c033e72fbd08dc63a4a802cfac0d",
+      "vcsRevision": "ac83f368e286c033e72fbd08dc63a4a802cfac0d",
       "url": "https://github.com/logos-co/mix-rln-spam-protection-plugin",
       "downloadMethod": "git",
       "dependencies": [
