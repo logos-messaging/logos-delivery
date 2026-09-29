@@ -32,9 +32,9 @@ DEFAULT_NWAKU=<image> pytest tests/rest/messaging
 
 ## CI
 
-`.github/workflows/e2e-c-abi-tests.yml` (called from `ci.yml`, `needs: [build, build-docker-image]`) downloads the
+`.github/workflows/tests-e2e-c-abi.yml` (called from `ci.yml`, `needs: [build, build-docker-image]`) downloads the
 `liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
-(`c-abi-e2e`, `c-abi-e2e-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
+(`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
 The `slow` test is deselected there and there is no scheduled e2e job, so nothing runs it
 automatically; run it by hand when touching SDS-R.

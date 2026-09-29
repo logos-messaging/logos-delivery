@@ -1,4 +1,4 @@
-name: e2e-c-abi-tests
+name: tests-e2e-c-abi
 
 on:
   workflow_call:
@@ -15,14 +15,14 @@ on:
         default: ""
 
 jobs:
-  c-abi-e2e:
+  c-abi:
     strategy:
       fail-fast: false
       matrix:
         subset: [non-docker, docker]
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    name: ${{ matrix.subset == 'docker' && 'c-abi-e2e-docker' || 'c-abi-e2e' }}
+    name: ${{ matrix.subset == 'docker' && 'c-abi-docker' || 'c-abi' }}
     env:
       NODE_1: ${{ inputs.node_image }}
       NODE_2: ${{ inputs.node_image }}

@@ -1,4 +1,4 @@
-name: e2e-rest-tests
+name: tests-e2e-rest
 
 on:
   workflow_call:
@@ -44,10 +44,10 @@ env:
   NIGHTLY_IMAGE: quay.io/wakuorg/nwaku-pr:nightly
 
 jobs:
-  rest-e2e:
+  rest:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    name: rest-e2e
+    name: rest
     env:
       # Empty values fall back in src/env_vars.py: 
       # DEFAULT_NWAKU to the pinned default,
