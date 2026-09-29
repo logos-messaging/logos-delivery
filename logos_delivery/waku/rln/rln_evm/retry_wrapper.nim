@@ -14,7 +14,7 @@ proc new*(T: type RetryStrategy): RetryStrategy =
 
 proc retryWrapper*[T](
     retryStrategy: RetryStrategy, errStr: string, body: proc(): Future[T] {.async.}
-): Future[Result[T, string]] {.async.} =
+): Future[Result[T, string]] {.async: (raises: [CancelledError]).} =
   var retryCount = retryStrategy.retryCount
   var lastError = ""
 
@@ -22,6 +22,8 @@ proc retryWrapper*[T](
     try:
       let value = await body()
       return ok(value)
+    except CancelledError as e:
+      raise e
     except CatchableError as e:
       retryCount -= 1
       lastError = e.msg

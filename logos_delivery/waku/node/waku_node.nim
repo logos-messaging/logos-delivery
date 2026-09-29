@@ -945,10 +945,7 @@ proc stop*(node: WakuNode) {.async.} =
   node.peerManager.stop()
 
   if not node.rln.isNil():
-    try:
-      await node.rln.stop() ## this can raise an exception
-    except Exception:
-      error "exception stopping the node", error = getCurrentExceptionMsg()
+    await node.rln.stop()
 
   if not node.wakuArchive.isNil():
     await node.wakuArchive.stopWait()

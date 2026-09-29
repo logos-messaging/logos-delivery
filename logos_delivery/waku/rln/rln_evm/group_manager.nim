@@ -30,6 +30,7 @@ logScope:
   topics = "waku rln group_manager"
 
 type
+  EthRpcError = object of CatchableError
   WakuRlnContractWithSender = Sender[WakuRlnContract]
   RlnEvmGroupManager* = ref object of RlnEvmGroupManagerBase
     ethClientUrls*: seq[string]
@@ -329,7 +330,7 @@ method scheduleMerkleProofRefresh*(g: RlnEvmGroupManager) {.gcsafe, raises: [].}
 
 method register*(
     g: RlnEvmGroupManager, rateCommitment: RateCommitment
-): Future[Result[void, string]] {.async.} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   ?checkInitialized(g)
 
   try:
@@ -339,7 +340,9 @@ method register*(
       debug "registering member via callback", rateCommitment = leaf, index = idx
       await g.registerCb.get()(@[Membership(rateCommitment: leaf, index: idx)])
     g.latestIndex.inc()
-  except Exception as e:
+  except CancelledError as e:
+    raise e
+  except CatchableError as e:
     return err("Failed to call register callback: " & e.msg)
 
   return ok()
@@ -348,7 +351,7 @@ method register*(
     g: RlnEvmGroupManager,
     identityCredential: IdentityCredential,
     userMessageLimit: UserMessageLimit,
-): Future[Result[void, string]] {.async.} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   ?checkInitialized(g)
 
   let ethRpc = g.ethRpc.get()
@@ -399,7 +402,7 @@ method register*(
       proc(): Future[ReceiptObject] {.async.} =
         let r = await ethRpc.provider.eth_getTransactionReceipt(txHash)
         if r.isNil():
-          raise newException(CatchableError, "transaction not yet mined")
+          raise newException(EthRpcError, "transaction not yet mined")
         return r,
     )
   ).valueOr:
@@ -450,7 +453,9 @@ method register*(
     let member = Membership(rateCommitment: rateCommitment, index: g.latestIndex)
     try:
       await g.registerCb.get()(@[member])
-    except Exception as e:
+    except CancelledError as e:
+      raise e
+    except CatchableError as e:
       return err("Failed to call register callback: " & e.msg)
   g.latestIndex.inc()
 
@@ -458,14 +463,14 @@ method register*(
 
 method withdraw*(
     g: RlnEvmGroupManager, idCommitment: IDCommitment
-): Future[Result[void, string]] {.async.} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   checkInitialized(g).isOkOr:
     return err(error)
   return ok()
 
 method withdrawBatch*(
     g: RlnEvmGroupManager, idCommitments: seq[IDCommitment]
-): Future[Result[void, string]] {.async.} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   checkInitialized(g).isOkOr:
     return err(error)
 
@@ -598,7 +603,7 @@ proc establishConnection(
 
         ## this exception is handled by the retrywrapper
         if not connected:
-          raise newException(CatchableError, "all failed")
+          raise newException(EthRpcError, "all failed")
 
         return innerEthRpc,
     )
@@ -702,10 +707,17 @@ method init*(g: RlnEvmGroupManager): Future[RlnEvmGroupManagerResult[void]] {.as
   g.initialized = true
   return ok()
 
-method stop*(g: RlnEvmGroupManager): Future[void] {.async, gcsafe.} =
+method stop*(
+    g: RlnEvmGroupManager
+): Future[void] {.async: (raises: [CancelledError]).} =
   if g.ethRpc.isSome():
     g.ethRpc.get().ondisconnect = nil
-    await g.ethRpc.get().close()
+    try:
+      await g.ethRpc.get().close()
+    except CancelledError as e:
+      raise e
+    except CatchableError as e:
+      error "failed to close the Ethereum RPC connection", error = e.msg
 
   if not g.rlnInstance.isNil:
     ffi_rln_free(g.rlnInstance)

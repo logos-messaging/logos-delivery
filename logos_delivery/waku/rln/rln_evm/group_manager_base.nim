@@ -13,8 +13,11 @@ type Membership* = object
   index*: MembershipIndex
   rateCommitment*: RawRateCommitment
 
-type OnRegisterCallback* = proc(registrations: seq[Membership]): Future[void] {.gcsafe.}
-type OnWithdrawCallback* = proc(withdrawals: seq[Membership]): Future[void] {.gcsafe.}
+type OnRegisterCallback* =
+  proc(registrations: seq[Membership]): Future[void] {.gcsafe, raises: [].}
+
+type OnWithdrawCallback* =
+  proc(withdrawals: seq[Membership]): Future[void] {.gcsafe, raises: [].}
 
 type RlnEvmGroupManagerResult*[T] = Result[T, string]
 
@@ -50,10 +53,8 @@ method startGroupSync*(
 # It should be used when detecting new members in the group, and syncing the group state
 method register*(
     g: RlnEvmGroupManagerBase, rateCommitment: RateCommitment
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "register proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("register proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to register a new identity commitment into the merkle tree
 # The user should have the identity secret to this commitment
@@ -62,20 +63,16 @@ method register*(
     g: RlnEvmGroupManagerBase,
     credentials: IdentityCredential,
     userMessageLimit: UserMessageLimit,
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "register proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("register proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to register a batch of new identity commitments into the merkle tree
 # The user may or may not have the identity secret to these commitments
 # It should be used when detecting a batch of new members in the group, and syncing the group state
 method registerBatch*(
     g: RlnEvmGroupManagerBase, rateCommitments: seq[RawRateCommitment]
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "registerBatch proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("registerBatch proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to set a callback that will be called when a new identity commitment is registered
 # The callback may be called multiple times, and should be used to for any post processing
@@ -86,33 +83,29 @@ method onRegister*(g: RlnEvmGroupManagerBase, cb: OnRegisterCallback) {.base, gc
 # The user should have the identity secret hash to this commitment, by either deriving it, or owning it
 method withdraw*(
     g: RlnEvmGroupManagerBase, identitySecretHash: IdentitySecretHash
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "withdraw proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("withdraw proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to withdraw/remove a batch of identity commitments from the merkle tree
 # The user should have the identity secret hash to these commitments, by either deriving them, or owning them
 method withdrawBatch*(
     g: RlnEvmGroupManagerBase, identitySecretHashes: seq[IdentitySecretHash]
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "withdrawBatch proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("withdrawBatch proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to insert and remove a set of commitments from the merkle tree
 method atomicBatch*(
     g: RlnEvmGroupManagerBase,
     rateCommitments: seq[RateCommitment],
     toRemoveIndices: seq[MembershipIndex],
-): Future[void] {.base, async: (raises: [Exception]).} =
-  raise newException(
-    CatchableError, "atomicBatch proc for " & $g.type & " is not implemented yet"
-  )
+): Future[RlnEvmGroupManagerResult[void]] {.base, async: (raises: [CancelledError]).} =
+  return err("atomicBatch proc for " & $g.type & " is not implemented yet")
 
-method stop*(g: RlnEvmGroupManagerBase): Future[void] {.base, async.} =
-  raise
-    newException(CatchableError, "stop proc for " & $g.type & " is not implemented yet")
+method stop*(
+    g: RlnEvmGroupManagerBase
+): Future[void] {.base, async: (raises: [CancelledError]).} =
+  ## No-op base; implementations release their own resources.
+  discard
 
 # This proc is used to set a callback that will be called when an identity commitment is withdrawn
 # The callback may be called multiple times, and should be used to for any post processing

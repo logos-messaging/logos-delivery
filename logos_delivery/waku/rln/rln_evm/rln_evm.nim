@@ -39,9 +39,8 @@ export types, config, proof, nullifier_log
 logScope:
   topics = "waku rln"
 
-proc stop*(rlnEvm: RlnEvm) {.async: (raises: [Exception]).} =
+proc stop*(rlnEvm: RlnEvm) {.async: (raises: [CancelledError]).} =
   ## stops the rln protocol and epochmonitoring
-  ## Throws an error if it cannot stop the rln protocol
 
   if not rlnEvm.epochMonitorFuture.isNil():
     await rlnEvm.epochMonitorFuture.cancelAndWait()
