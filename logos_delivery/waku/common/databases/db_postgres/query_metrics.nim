@@ -12,11 +12,11 @@ const QueriesToMetricMap* = toTable(
     "contentTopic IN": "content_topic",
     "SELECT version()": "select_version",
     "WITH min_timestamp": "messages_lookup",
-    "SELECT messageHash FROM messages WHERE pubsubTopic = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?":
+    "SELECT messageHash FROM messages WHERE pubsubTopic = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?":
       "msg_hash_no_ctopic",
     "AS partition_name": "get_partitions_list",
     "SELECT COUNT(1) FROM messages": "count_msgs",
-    "SELECT messageHash FROM messages WHERE (timestamp, messageHash) < (?,?) AND pubsubTopic = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?":
+    "SELECT messageHash FROM messages WHERE (timestamp, messageHash) < (?,?) AND pubsubTopic = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?":
       "msg_hash_with_cursor",
     "SELECT pg_database_size(current_database())": "get_database_size",
     "DELETE FROM messages_lookup WHERE timestamp": "delete_from_msgs_lookup",

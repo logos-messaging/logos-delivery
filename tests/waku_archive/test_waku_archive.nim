@@ -128,8 +128,11 @@ suite "Waku Archive - message handling":
     check:
       convertQueryToMetricLabel("SELECT version();") == "select_version"
       convertQueryToMetricLabel(
-        "SELECT messageHash FROM messages WHERE pubsubTopic = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?"
+        "SELECT messageHash FROM messages WHERE pubsubTopic = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?"
       ) == "msg_hash_no_ctopic"
+      convertQueryToMetricLabel(
+        "SELECT messageHash FROM messages WHERE (timestamp, messageHash) < (?,?) AND pubsubTopic = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?"
+      ) == "msg_hash_with_cursor"
       convertQueryToMetricLabel(
         """                      SELECT child.relname       AS partition_name
                           FROM pg_inherits
