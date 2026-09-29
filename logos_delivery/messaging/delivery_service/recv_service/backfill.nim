@@ -162,7 +162,7 @@ proc runCatchUpPass*(
         pubsubTopic: Opt.some(topic.pubsubTopic),
         contentTopics: @[topic.contentTopic],
         startTime: Opt.some(start),
-        endTime: Opt.some(windowStop - 1), # inclusive on the wire
+        endTime: Opt.some(windowStop), # exclusive on the wire
         paginationForward: PagingDirection.FORWARD,
         paginationLimit: Opt.some(MaxPageSize),
       )

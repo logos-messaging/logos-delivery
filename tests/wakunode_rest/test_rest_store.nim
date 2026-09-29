@@ -277,7 +277,8 @@ procSuite "Waku Rest API - Store v3":
     check:
       response.status == 200
       $response.contentType == $MIMETYPE_JSON
-      response.data.messages.len == 4
+      # ts 3, 4 and 5; the end time is exclusive
+      response.data.messages.len == 3
 
     await restServer.stop()
     await restServer.closeWait()
@@ -1134,10 +1135,11 @@ procSuite "Waku Rest API - Store v3":
         bothResponse.status == 200
         bothResponse.data.messages.mapIt(it.messageHash) == allHashes
 
+    # The end time is exclusive, so only the message before ts 1 matches.
     let response = await t.client.getStoreMessagesV3(endTime = "1")
     check:
       response.status == 200
-      response.data.messages.mapIt(it.messageHash) == allHashes[0 .. 1]
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 1]
 
   asyncTest "an unparseable ascending returns the tail page, as ascending=false does":
     let t = await RestStoreTest.init(

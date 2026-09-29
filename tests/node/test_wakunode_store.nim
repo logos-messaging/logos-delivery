@@ -1083,10 +1083,9 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
 
-      # Then the response contains the messages
+      # Then the response contains the messages; the end time is exclusive
       check:
-        queryResponse.get().messages ==
-          @[archiveMessages[2], archiveMessages[3], archiveMessages[4]]
+        queryResponse.get().messages == @[archiveMessages[2], archiveMessages[3]]
 
     asyncTest "Only Start Time Specified":
       # Given a history query with only start time
@@ -1114,7 +1113,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
 
-      # Then the response contains no messages
+      # Then the response contains the messages before the exclusive end time
       check:
         queryResponse.get().messages ==
           @[
@@ -1122,7 +1121,6 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
             archiveMessages[1],
             archiveMessages[2],
             archiveMessages[3],
-            archiveMessages[4],
           ]
 
     asyncTest "Invalid Time Range":

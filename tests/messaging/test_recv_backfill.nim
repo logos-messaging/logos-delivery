@@ -136,7 +136,7 @@ suite "Receive backfill":
       let topic: BackfillTopic = (request.pubsubTopic.get(), request.contentTopics[0])
       let inRange = content.getOrDefault(topic).filterIt(
           it.message.get().timestamp >= request.startTime.get() and
-            it.message.get().timestamp <= request.endTime.get()
+            it.message.get().timestamp < request.endTime.get()
         )
       let pageLen = min(inRange.len, pageSize)
       return page(inRange[0 ..< pageLen], hasMore = inRange.len > pageLen)
@@ -165,7 +165,7 @@ suite "Receive backfill":
     for topic in topics:
       check delivered[topic].names() == toSeq(1 .. 6).mapIt("msg-" & $it)
       check delivered[topic].len == 9 # msg-2..4 twice: shared instant, boundary
-    check seen[0] == (t0, t1 - 1)
+    check seen[0] == (t0, t1)
     # Phase 2: the range includes `since` and excludes `cutoff`. A topic whose
     # start is at or past `cutoff` completes with zero queries.
     var got: seq[string]
@@ -177,8 +177,9 @@ suite "Receive backfill":
     let edges: BackfillQuery = proc(
         request: StoreQueryRequest
     ): Future[Result[StoreQueryResponse, string]] {.async.} =
-      return
-        page(@[rowAt(request.startTime.get(), 30), rowAt(request.endTime.get(), 31)])
+      return page(
+        @[rowAt(request.startTime.get(), 30), rowAt(request.endTime.get() - 1, 31)]
+      )
     exhausted = await catchUp(@[TestTopic], t0, t1, edges, collect)
     check exhausted == @[TestTopic] and got == @["msg-30", "msg-31"]
     calls = 0
@@ -333,7 +334,7 @@ suite "Receive backfill":
         return err("time range exceeds 24h")
       return page(
         rows.filterIt(
-          it.message.get().timestamp >= start and it.message.get().timestamp <= stop
+          it.message.get().timestamp >= start and it.message.get().timestamp < stop
         )
       )
     var got: seq[string]
@@ -350,9 +351,9 @@ suite "Receive backfill":
       got == @["msg-1", "msg-2", "msg-3"]
       seen ==
         @[
-          (t0, t0 + 24 * Hour - 1),
-          (t0 + 24 * Hour, t0 + 48 * Hour - 1),
-          (t0 + 48 * Hour, t0 + 50 * Hour - 1),
+          (t0, t0 + 24 * Hour),
+          (t0 + 24 * Hour, t0 + 48 * Hour),
+          (t0 + 48 * Hour, t0 + 50 * Hour),
         ]
 
   test "settings: defaults, range checks, JSON":

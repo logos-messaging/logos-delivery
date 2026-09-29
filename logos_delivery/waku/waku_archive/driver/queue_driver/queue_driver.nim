@@ -273,7 +273,7 @@ method getMessages*(
       if startTime.isSome() and msg.timestamp < startTime.get():
         return false
 
-      if endTime.isSome() and msg.timestamp > endTime.get():
+      if endTime.isSome() and msg.timestamp >= endTime.get():
         return false
 
       if hashes.len > 0 and index.hash notin hashes:

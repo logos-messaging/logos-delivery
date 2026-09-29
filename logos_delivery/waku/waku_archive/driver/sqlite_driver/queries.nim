@@ -356,7 +356,7 @@ proc whereClause(
     if endTime.isNone():
       Opt.none(string)
     else:
-      Opt.some("timestamp <= (?)")
+      Opt.some("timestamp < (?)")
 
   let hashesClause =
     if hashes.len <= 0:
