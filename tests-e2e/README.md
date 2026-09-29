@@ -36,6 +36,6 @@ DEFAULT_NWAKU=<image> pytest tests/rest/messaging
 `liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
 (`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
-The `slow` test is deselected there. The same workflow's nightly job (also on manual dispatch)
+The `slow` test is deselected there. `.github/workflows/tests-e2e-c-abi-nightly.yml` (nightly, also on manual dispatch)
 builds the library from the checkout and runs the whole non-docker subset, `slow` included.
 Run it by hand when touching SDS-R.

@@ -13,18 +13,9 @@ on:
         type: string
         required: false
         default: ""
-  # Nightly: the non-docker tests, including the `slow` ones that PRs skip.
-  schedule:
-    - cron: '10 5 * * *'
-  workflow_dispatch:
-
-env:
-  NIM_VERSION: '2.2.6'
 
 jobs:
   c-abi:
-    # Only when ci.yml calls this workflow (pull_request, merge_group, push), not nightly.
-    if: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,43 +72,3 @@ jobs:
           name: ${{ matrix.subset == 'docker' && 'c-abi-docker' || 'c-abi' }}
           path: tests-e2e/log/junit.xml
           reporter: python-xunit
-
-  c-abi-nightly:
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
-    name: c-abi-nightly
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # No `build` job runs on schedule or dispatch, so build the library from this checkout.
-      - name: Install Nim ${{ env.NIM_VERSION }}
-        uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install nimble deps
-        uses: ./.github/actions/nimble-deps
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-
-      - name: Build liblogosdelivery.so
-        env:
-          NIMFLAGS: "--parallelBuild:2 -d:chronicles_colors:none"
-        run: ./tests-e2e/scripts/prepare_lib.sh
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: tests-e2e/requirements.txt
-
-      - name: Install Python deps
-        run: pip install -r tests-e2e/requirements.txt
-
-      - name: Run C ABI e2e tests (non-docker subset, slow included)
-        working-directory: tests-e2e
-        run: pytest tests/c_abi -m "not docker_required" -n 4 --dist=loadgroup --reruns 2
