@@ -52,7 +52,7 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j2"
-  NIM_VERSION: '2.2.6'
+  NIM_VERSION: '2.2.12'
 
 jobs:
   rln-e2e:

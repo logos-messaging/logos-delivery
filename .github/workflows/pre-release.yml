@@ -17,7 +17,7 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: ""
-  NIM_VERSION: '2.2.6'
+  NIM_VERSION: '2.2.12'
 
 jobs:
   tag-name:

@@ -94,7 +94,7 @@ make logosdeliverynode
 make logosdeliverynode NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
-Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
+Note: The build uses `--mm:orc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
@@ -477,7 +477,7 @@ nim c -r \
 - Default sinks are optimized for production
 
 ### Memory Management
-- Uses `refc` (reference counting with cycle collection)
+- Uses `orc` (reference counting with cycle collection)
 - Automatically enforced by the build system (hardcoded in `logos_delivery.nimble`)
 - Do not override unless absolutely necessary, as it breaks compatibility
 

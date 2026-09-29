@@ -178,8 +178,9 @@ proc runStmt*(
     # The connection doesn't have that statement yet. Let's create it.
     # Each session/connection has its own prepared statements.
     let res = catch:
-      let len = paramValues.len
-      discard dbConnWrapper.getDbConn().prepare(stmtName, sql(stmtDefinition), len)
+      discard dbConnWrapper.getDbConn().prepare(
+          stmtName, sql(stmtDefinition), paramValues.len
+        )
 
     res.isOkOr:
       return err("failed prepare in runStmt: " & error.msg)

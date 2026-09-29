@@ -15,7 +15,7 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
-  NIM_VERSION: '2.2.6'
+  NIM_VERSION: '2.2.12'
 
 jobs:
   changes: # run only the jobs relevant to what a PR touches

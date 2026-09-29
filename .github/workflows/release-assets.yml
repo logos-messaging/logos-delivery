@@ -18,7 +18,7 @@ on:
 env:
   NPROC: 2
   NIMFLAGS: ""
-  NIM_VERSION: '2.2.6'
+  NIM_VERSION: '2.2.12'
 
 jobs:
   # Release gate: the pushed tag MUST exactly match logos_delivery.nimble's version,
