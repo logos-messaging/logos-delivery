@@ -33,34 +33,23 @@ proc sendStoreRequest(
     self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
-  var cancelled = false
 
   self.peerManager.addActiveStoreRequest(connection.peerId)
   defer:
     self.peerManager.removeActiveStoreRequest(connection.peerId)
-    # A peer that holds its stream open must not hold the query.
-    if cancelled:
-      asyncSpawn connection.close()
-    else:
-      asyncSpawn connection.closeWithEOF()
+    asyncSpawn connection.close()
 
   if req.requestId == "":
     req.requestId = generateRequestId(self.rng)
 
   try:
     await connection.writeLP(req.encode().buffer)
-  except CancelledError as exc:
-    cancelled = true
-    raise exc
   except LPStreamError as exc:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: exc.msg))
 
   let buf =
     try:
       await connection.readLp(DefaultMaxRpcSize.int)
-    except CancelledError as exc:
-      cancelled = true
-      raise exc
     except LPStreamError as exc:
       return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
 
