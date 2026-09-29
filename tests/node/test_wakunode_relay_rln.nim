@@ -93,7 +93,7 @@ proc setupRelayWithOnChainRln*(
     node: WakuNode, shards: seq[RelayShard], wakuRlnConfig: WakuRlnConfig
 ) {.async.} =
   await node.mountRelay(shards)
-  await node.setRlnValidator(wakuRlnConfig)
+  (await node.setRlnValidator(wakuRlnConfig)).expect("setRlnValidator")
 
 suite "Waku RlnRelay - End to End - Static":
   var
@@ -215,10 +215,8 @@ suite "Waku RlnRelay - End to End - Static":
         ,
       )
 
-      try:
-        await node.setRlnValidator(wakuRlnConfig)
-      except CatchableError as e:
-        check e.msg ==
+      (await node.setRlnValidator(wakuRlnConfig)).isOkOr:
+        check error ==
           "failed to mount Rln: rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   suite "Analysis of Bandwith Limitations":

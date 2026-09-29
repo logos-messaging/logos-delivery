@@ -23,9 +23,11 @@ proc setupStaticRln*(
     identifier: uint,
     rlnRelayEthContractAddress: Opt[string] = Opt.none(string),
 ) {.async.} =
-  await node.setRlnValidator(
-    WakuRlnConfig(dynamic: false, credIndex: Opt.some(identifier), epochSizeSec: 1)
-  )
+  (
+    await node.setRlnValidator(
+      WakuRlnConfig(dynamic: false, credIndex: Opt.some(identifier), epochSizeSec: 1)
+    )
+  ).expect("setRlnValidator")
 
 proc setupRelayWithStaticRln*(
     node: WakuNode, identifier: uint, shards: seq[RelayShard]

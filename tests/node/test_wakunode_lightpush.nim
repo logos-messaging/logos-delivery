@@ -138,7 +138,7 @@ suite "RLN Proofs as a Lightpush Service":
 
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    await server.setRlnValidator(wakuRlnConfig)
+    (await server.setRlnValidator(wakuRlnConfig)).expect("setRlnValidator")
     check (await server.mountLightPush()).isOk()
     client.mountLightPushClient()
 

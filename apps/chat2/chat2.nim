@@ -552,7 +552,9 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      await node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))
+      (await node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))).isOkOr:
+        error "failed to set rln validator", error = error
+        quit(QuitFailure)
 
       let membershipIndex = node.rln.groupManager.membershipIndex.get()
       let identityCredential = node.rln.groupManager.idCredentials.get()

@@ -356,10 +356,8 @@ proc setupProtocols(
       onFatalErrorAction: onFatalErrorAction,
       disableValidation: conf.rlnDisableValidation,
     )
-    try:
-      await node.setRlnValidator(validatorConf)
-    except CatchableError:
-      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    (await node.setRlnValidator(validatorConf)).isOkOr:
+      return err("failed to mount waku RLN relay protocol: " & error)
   elif conf.rlnEvmConf.isSome():
     let rlnEvmConf = conf.rlnEvmConf.get()
     let rlnConf = WakuRlnConfig(
@@ -374,10 +372,8 @@ proc setupProtocols(
       onFatalErrorAction: onFatalErrorAction,
       disableValidation: conf.rlnDisableValidation,
     )
-    try:
-      await node.setRlnValidator(rlnConf)
-    except CatchableError:
-      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    (await node.setRlnValidator(rlnConf)).isOkOr:
+      return err("failed to mount waku RLN relay protocol: " & error)
 
   # NOTE Must be mounted after relay
   if conf.lightPush:

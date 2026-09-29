@@ -55,7 +55,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig1 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
 
-      await node1.setRlnValidator(wakuRlnConfig1)
+      (await node1.setRlnValidator(wakuRlnConfig1)).expect("setRlnValidator")
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -79,7 +79,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig2 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
 
-      await node2.setRlnValidator(wakuRlnConfig2)
+      (await node2.setRlnValidator(wakuRlnConfig2)).expect("setRlnValidator")
       await node2.start()
 
       let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
@@ -97,7 +97,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig3 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-      await node3.setRlnValidator(wakuRlnConfig3)
+      (await node3.setRlnValidator(wakuRlnConfig3)).expect("setRlnValidator")
       await node3.start()
 
       let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
@@ -169,7 +169,7 @@ procSuite "WakuNode - RLN relay":
         assert false, "Failed to mount relay"
       let wakuRlnConfig1 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
-      await node1.setRlnValidator(wakuRlnConfig1)
+      (await node1.setRlnValidator(wakuRlnConfig1)).expect("setRlnValidator")
       await node1.start()
       let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
@@ -186,7 +186,7 @@ procSuite "WakuNode - RLN relay":
         assert false, "Failed to mount relay"
       let wakuRlnConfig2 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-      await node2.setRlnValidator(wakuRlnConfig2)
+      (await node2.setRlnValidator(wakuRlnConfig2)).expect("setRlnValidator")
       await node2.start()
       let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let idCredentials2 = generateCredentials()
@@ -203,7 +203,7 @@ procSuite "WakuNode - RLN relay":
         assert false, "Failed to mount relay"
       let wakuRlnConfig3 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
-      await node3.setRlnValidator(wakuRlnConfig3)
+      (await node3.setRlnValidator(wakuRlnConfig3)).expect("setRlnValidator")
       await node3.start()
       let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
       let idCredentials3 = generateCredentials()
@@ -323,7 +323,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig1 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
 
-      await node1.setRlnValidator(wakuRlnConfig1)
+      (await node1.setRlnValidator(wakuRlnConfig1)).expect("setRlnValidator")
       await node1.start()
 
       let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
@@ -344,7 +344,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig2 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
 
-      await node2.setRlnValidator(wakuRlnConfig2)
+      (await node2.setRlnValidator(wakuRlnConfig2)).expect("setRlnValidator")
       await node2.start()
 
       let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
@@ -360,7 +360,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig3 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-      await node3.setRlnValidator(wakuRlnConfig3)
+      (await node3.setRlnValidator(wakuRlnConfig3)).expect("setRlnValidator")
       await node3.start()
 
       let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
@@ -434,7 +434,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig1 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
 
-      await node1.setRlnValidator(wakuRlnConfig1)
+      (await node1.setRlnValidator(wakuRlnConfig1)).expect("setRlnValidator")
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -457,7 +457,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig2 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
 
-      await node2.setRlnValidator(wakuRlnConfig2)
+      (await node2.setRlnValidator(wakuRlnConfig2)).expect("setRlnValidator")
       await node2.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -475,7 +475,7 @@ procSuite "WakuNode - RLN relay":
       let wakuRlnConfig3 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-      await node3.setRlnValidator(wakuRlnConfig3)
+      (await node3.setRlnValidator(wakuRlnConfig3)).expect("setRlnValidator")
       await node3.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -603,7 +603,7 @@ procSuite "WakuNode - RLN relay":
         assert false, "Failed to mount relay"
       let wakuRlnConfig1 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
-      await node1.setRlnValidator(wakuRlnConfig1)
+      (await node1.setRlnValidator(wakuRlnConfig1)).expect("setRlnValidator")
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -622,7 +622,7 @@ procSuite "WakuNode - RLN relay":
         assert false, "Failed to mount relay"
       let wakuRlnConfig2 =
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-      await node2.setRlnValidator(wakuRlnConfig2)
+      (await node2.setRlnValidator(wakuRlnConfig2)).expect("setRlnValidator")
       await node2.start()
 
       # Registration is mandatory before sending messages with rln-relay
@@ -777,7 +777,7 @@ procSuite "WakuNode - RLN relay":
         epochSizeSec = 600,
         userMessageLimit = 20,
       )
-      await node.setRlnValidator(wakuRlnConfig)
+      (await node.setRlnValidator(wakuRlnConfig)).expect("setRlnValidator")
       await node.start()
 
       let rlnManager = cast[RlnEvmGroupManager](node.rln.groupManager)

@@ -627,10 +627,8 @@ when isMainModule:
       onFatalErrorAction: onFatalErrorAction,
     )
 
-    try:
-      waitFor node.setRlnValidator(rlnConf)
-    except CatchableError:
-      error "failed to setup RLN", error = getCurrentExceptionMsg()
+    (waitFor node.setRlnValidator(rlnConf)).isOkOr:
+      error "failed to setup RLN", error = error
       quit(QuitFailure)
 
   node.mountMetadata(conf.clusterId, conf.shards).isOkOr:

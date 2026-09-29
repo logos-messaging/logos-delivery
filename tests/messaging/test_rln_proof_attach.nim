@@ -84,14 +84,16 @@ suite "SendService RLN proof attach - RLN mounted":
     manager = await setupRlnEvm(deployContracts = false)
 
     waku = (await Waku.new(testConf())).expect("Waku.new")
-    await waku.node.setRlnValidator(
-      getWakuRlnConfig(
-        manager = manager,
-        userMessageLimit = 20,
-        index = MembershipIndex(1),
-        epochSizeSec = 600,
+    (
+      await waku.node.setRlnValidator(
+        getWakuRlnConfig(
+          manager = manager,
+          userMessageLimit = 20,
+          index = MembershipIndex(1),
+          epochSizeSec = 600,
+        )
       )
-    )
+    ).expect("setRlnValidator")
 
     let credentials = generateCredentials()
     (

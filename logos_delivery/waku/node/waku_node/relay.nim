@@ -191,19 +191,19 @@ proc setRlnValidator*(
     rlnConf: WakuRlnConfig | WakuRlnLezConfig,
     spamHandler = Opt.none(SpamHandler),
     registrationHandler = Opt.none(RegistrationHandler),
-) {.async.} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   info "Setting rln validator"
 
   when rlnConf is WakuRlnLezConfig:
     if node.wakuRelay.isNil():
       info "WakuRelay not mounted; RLN validator not set"
-      return
+      return ok()
 
     if rlnConf.disableValidation:
       # Temporary RLN phase-in: published messages still carry proofs, but
       # received messages pass through unchecked.
       info "RLN proof validation is disabled; not registering the RLN validator"
-      return
+      return ok()
 
     # Maps the module's verdict (RequestValidateRlnProof) to pubsub.ValidationResult.
     proc validator(
@@ -247,9 +247,17 @@ proc setRlnValidator*(
 
     debug "Registering RLN validator"
     node.wakuRelay.addValidator(validator, RlnValidatorErrorMsg)
+    return ok()
   else:
-    let rln = (await RlnEvm.new(rlnConf, registrationHandler)).valueOr:
-      raise newException(CatchableError, "failed to set rln validator: " & error)
+    let rlnRes =
+      try:
+        await RlnEvm.new(rlnConf, registrationHandler)
+      except CancelledError as e:
+        raise e
+      except CatchableError as e:
+        return err("failed to set rln validator: " & e.msg)
+    let rln = rlnRes.valueOr:
+      return err("failed to set rln validator: " & error)
     if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
       error "Rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
@@ -257,11 +265,11 @@ proc setRlnValidator*(
 
     if node.wakuRelay.isNil():
       info "WakuRelay not mounted; RLN validator not set"
-      return
+      return ok()
 
     if rlnConf.disableValidation:
       info "RLN proof validation is disabled; not registering the RLN validator"
-      return
+      return ok()
 
     # Maps validateMessageAndUpdateLog's result to pubsub.ValidationResult.
     proc validator(
@@ -317,3 +325,4 @@ proc setRlnValidator*(
     # register rln validator as default validator
     debug "Registering RLN validator"
     node.wakuRelay.addValidator(validator, RlnValidatorErrorMsg)
+    return ok()
