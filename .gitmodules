@@ -8,3 +8,9 @@
 	url = https://github.com/logos-messaging/waku-rlnv2-contract.git
 	ignore = untracked
 	branch = main
+[submodule "tests-e2e/vendor/logos-delivery-python-bindings"]
+	path = tests-e2e/vendor/logos-delivery-python-bindings
+	url = https://github.com/logos-messaging/logos-delivery-python-bindings.git
+	ignore = untracked
+	branch = master
+	update = none

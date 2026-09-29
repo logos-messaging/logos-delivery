@@ -30,6 +30,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # .gitmodules sets `update = none` for it, which only `--checkout` overrides.
+      - name: Checkout Python bindings
+        run: git submodule update --init --checkout tests-e2e/vendor/logos-delivery-python-bindings
+
       # Consumes the shared library built by ci.yml's `build` job (same run).
       - name: Download liblogosdelivery.so
         uses: actions/download-artifact@v4

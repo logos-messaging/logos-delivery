@@ -8,12 +8,12 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 - `src/` — test framework (node wrappers, steps, helpers)
 - `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s02…s31`)
 - `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
-- `vendor/logos-delivery-python-bindings/waku/wrapper.py` — CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`
+- `vendor/logos-delivery-python-bindings/` — git submodule of [`logos-delivery-python-bindings`](https://github.com/logos-messaging/logos-delivery-python-bindings), pinned to a commit. Its `waku/wrapper.py` is the CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`. `.gitmodules` sets `update = none` for it, so a plain `git submodule update` skips it and `prepare_lib.sh` checks it out.
 
 ## Run locally
 
 ```bash
-# 1. Build the shared library and place it where the binding looks for it
+# 1. Check out the binding, build the shared library and place it where the binding looks for it
 ./tests-e2e/scripts/prepare_lib.sh
 
 # 2. Python env + deps
@@ -28,6 +28,16 @@ pytest tests/c_abi -m slow                                 # 1 SDS-R repair test
 # REST suites run docker nodes from DEFAULT_NWAKU (default: the nightly image, built from master).
 # To test local changes, build an image and set DEFAULT_NWAKU to it; the name must contain "nwaku".
 DEFAULT_NWAKU=<image> pytest tests/rest/messaging
+```
+
+## Updating the binding
+
+Move the submodule to the new commit and stage the pointer:
+
+```bash
+git -C tests-e2e/vendor/logos-delivery-python-bindings fetch origin
+git -C tests-e2e/vendor/logos-delivery-python-bindings checkout <commit>
+git add tests-e2e/vendor/logos-delivery-python-bindings
 ```
 
 ## CI

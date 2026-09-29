@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Build liblogosdelivery from this repo and place it where the Python binding expects it.
+# Check out the Python binding, build liblogosdelivery from this repo and place it
+# where the binding expects it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIBDIR="$ROOT/tests-e2e/vendor/logos-delivery-python-bindings/lib"
+BINDINGS="tests-e2e/vendor/logos-delivery-python-bindings"
+LIBDIR="$ROOT/$BINDINGS/lib"
 
 cd "$ROOT"
+# .gitmodules sets `update = none` for it, which only `--checkout` overrides.
+git submodule update --init --checkout "$BINDINGS"
 make V=1 liblogosdelivery
 
 mkdir -p "$LIBDIR"
