@@ -164,3 +164,56 @@ suite "Waku Store - query handler":
 
     ## Cleanup
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
+
+  asyncTest "history query mixing message hashes and content filters is rejected":
+    ## Setup
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    ## Given
+    let serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+
+    var handlerCalls = 0
+    let queryHandler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      handlerCalls.inc()
+      return ok(StoreQueryResponse())
+
+    let
+      server = await newTestWakuStore(serverSwitch, handler = queryhandler)
+      client = newTestWakuStoreClient(clientSwitch)
+
+    let hash = computeMessageHash(DefaultPubsubTopic, fakeWakuMessage())
+
+    ## When
+    let withTopicsRes = await client.query(
+      StoreQueryRequest(
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+        contentTopics: @[DefaultContentTopic],
+        messageHashes: @[hash],
+      ),
+      peer = serverPeerInfo,
+    )
+    let withTimeRes = await client.query(
+      StoreQueryRequest(startTime: Opt.some(now()), messageHashes: @[hash]),
+      peer = serverPeerInfo,
+    )
+    let hashesOnlyRes = await client.query(
+      StoreQueryRequest(messageHashes: @[hash]), peer = serverPeerInfo
+    )
+
+    ## Then
+    check:
+      withTopicsRes.isErr()
+      withTopicsRes.tryError().kind == ErrorCode.BAD_REQUEST
+      withTimeRes.isErr()
+      withTimeRes.tryError().kind == ErrorCode.BAD_REQUEST
+      hashesOnlyRes.isOk()
+      handlerCalls == 1
+
+    ## Cleanup
+    await allFutures(serverSwitch.stop(), clientSwitch.stop())

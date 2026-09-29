@@ -65,6 +65,15 @@ proc handleQueryRequest(
     res.statusDesc = "time range exceeds 24h"
     return (res.encode().buffer, requestId)
 
+  let hasContentFilter =
+    req.pubsubTopic.isSome() or req.contentTopics.len > 0 or req.startTime.isSome() or
+    req.endTime.isSome()
+  if req.messageHashes.len > 0 and hasContentFilter:
+    res.requestId = requestId
+    res.statusCode = uint32(ErrorCode.BAD_REQUEST)
+    res.statusDesc = "message hash lookup cannot be combined with content filters"
+    return (res.encode().buffer, requestId)
+
   let queryResult = await self.requestHandler(req)
 
   res = queryResult.valueOr:
