@@ -6,9 +6,12 @@ import
   chronos,
   libp2p/switch,
   libp2p/peerstore,
+  libp2p/protocols/protocol,
+  libp2p/crypto/curve25519,
   libp2p/crypto/rng,
   libp2p/protocols/service_discovery,
-  libp2p/protocols/service_discovery/types
+  libp2p/protocols/service_discovery/types,
+  libp2p_mix/mix_protocol
 import
   logos_delivery/waku/[waku_node, waku_core, node/peer_manager, waku_metadata],
   ./testlib/wakucore,
@@ -23,6 +26,16 @@ proc newPureLibp2pSwitch(): Switch =
   switch.mount(
     ServiceDiscovery.new(switch, rng = newRng(), codec = ExtendedServiceDiscoveryCodec)
   )
+  switch
+
+proc newMixSwitch(): Switch =
+  let switch = newTestSwitch()
+  let mix = LPProtocol(codecs: @[MixProtocolID])
+  mix.handler = proc(
+      stream: Stream, proto: string
+  ) {.async: (raises: [CancelledError]).} =
+    await stream.close()
+  switch.mount(mix)
   switch
 
 proc newMemberNode(mountMeta = true): Future[WakuNode] {.async.} =
@@ -57,6 +70,28 @@ suite "Peer manager - pure-libp2p peers":
       not node.switch.isConnected(peer.peerInfo.peerId)
       not peer.isConnected(node.switch.peerInfo.peerId)
       node.peerManager.pureLibp2pPeers.len == 0
+
+    await allFutures(node.stop(), peer.stop())
+
+  asyncTest "a registered Mix peer is exempt when the generic budget is off":
+    let node = await newMemberNode()
+    let peer = newMixSwitch()
+    await peer.start()
+    check node.peerManager.maxPureLibp2pPeers == 0
+
+    var peerInfo = peer.peerInfo.toRemotePeerInfo()
+    peerInfo.protocols = @[] # The Mix peer record arrives before Identify.
+    var mixKey: Curve25519Key
+    mixKey[0] = 1
+    peerInfo.mixPubKey = Opt.some(mixKey)
+    node.peerManager.addPeer(peerInfo)
+
+    await peer.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
+    await sleepAsync(Settle)
+
+    check:
+      node.switch.isConnected(peer.peerInfo.peerId)
+      peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
 
     await allFutures(node.stop(), peer.stop())
 
