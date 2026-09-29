@@ -27,33 +27,35 @@ proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
       WsTransport.new(config.upgr, rng = config.rng)
   )
 
-proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
+proc getSecureKey(path: string): Result[TLSPrivateKey, string] =
   trace "Key path is.", path = path
-  let stringkey: string = readFile(path)
   try:
-    let key = TLSPrivateKey.init(stringkey)
-    return key
+    return ok(TLSPrivateKey.init(readFile(path)))
+  except IOError as exc:
+    return err("failed to read TLS key file " & path & ": " & exc.msg)
   except TLSStreamProtocolError as exc:
-    debug "exception raised from getSecureKey", err = exc.msg
+    return err("invalid TLS key in " & path & ": " & exc.msg)
 
-proc getSecureCert(path: string): TLSCertificate {.raises: [Defect, IOError].} =
+proc getSecureCert(path: string): Result[TLSCertificate, string] =
   trace "Certificate path is.", path = path
-  let stringCert: string = readFile(path)
   try:
-    let cert = TLSCertificate.init(stringCert)
-    return cert
+    return ok(TLSCertificate.init(readFile(path)))
+  except IOError as exc:
+    return err("failed to read TLS certificate file " & path & ": " & exc.msg)
   except TLSStreamProtocolError as exc:
-    debug "exception raised from getSecureCert", err = exc.msg
+    return err("invalid TLS certificate in " & path & ": " & exc.msg)
 
 proc withWssTransport*(
     b: SwitchBuilder, secureKeyPath: string, secureCertPath: string
-): SwitchBuilder {.raises: [Defect, IOError].} =
-  let key: TLSPrivateKey = getSecureKey(secureKeyPath)
-  let cert: TLSCertificate = getSecureCert(secureCertPath)
-  b.withWsTransport(
-    tlsPrivateKey = key,
-    tlsCertificate = cert,
-    {TLSFlags.NoVerifyHost, TLSFlags.NoVerifyServerName}, # THIS IS INSECURE, NO?
+): Result[SwitchBuilder, string] =
+  let key = ?getSecureKey(secureKeyPath)
+  let cert = ?getSecureCert(secureCertPath)
+  return ok(
+    b.withWsTransport(
+      tlsPrivateKey = key,
+      tlsCertificate = cert,
+      {TLSFlags.NoVerifyHost, TLSFlags.NoVerifyServerName}, # THIS IS INSECURE, NO?
+    )
   )
 
 proc newWakuSwitch*(
@@ -80,7 +82,7 @@ proc newWakuSwitch*(
     rendezvous: RendezVous = nil,
     circuitRelay: Relay,
     natConfig = Opt.none(NATConfig),
-): Switch {.raises: [Defect, IOError, LPError].} =
+): Switch {.raises: [Defect, LPError, ValueError].} =
   var b = SwitchBuilder
     .new()
     .withRng(rng)
@@ -130,7 +132,8 @@ proc newWakuSwitch*(
 
   if wsAddress.isSome():
     if wssEnabled:
-      b = b.withWssTransport(secureKeyPath, secureCertPath)
+      b = b.withWssTransport(secureKeyPath, secureCertPath).valueOr:
+        raise newException(ValueError, "failed to set up WSS transport: " & error)
     else:
       b = b.withWsTransport()
 

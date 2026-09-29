@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/[os, strutils],
   testutils/unittests,
   chronos,
   libp2p/builders,
@@ -20,6 +21,10 @@ proc newCircuitRelayClientSwitch(relayClient: RelayClient): Switch =
     .withNoise()
     .withCircuitRelay(relayClient)
     .build()
+
+const
+  TlsKeyPath = currentSourcePath.parentDir() / "waku_relay/resources/test_key.pem"
+  TlsCertPath = currentSourcePath.parentDir() / "waku_relay/resources/test_cert.pem"
 
 suite "Waku Switch":
   asyncTest "Waku Switch works with AutoNat":
@@ -112,3 +117,38 @@ suite "Waku Switch":
 
     ## Teardown
     await allFutures(wakuSwitch.stop(), sourceSwitch.stop(), destSwitch.stop())
+
+suite "Waku Switch - WSS transport":
+  test "valid TLS key and certificate are accepted":
+    check:
+      SwitchBuilder.new().withWssTransport(TlsKeyPath, TlsCertPath).isOk()
+
+  test "invalid TLS key is reported instead of swallowed":
+    # A certificate is not a private key, so key parsing must fail.
+    let res = SwitchBuilder.new().withWssTransport(TlsCertPath, TlsCertPath)
+    check:
+      res.isErr()
+      res.error.contains("invalid TLS key")
+
+  test "invalid TLS certificate is reported instead of swallowed":
+    let res = SwitchBuilder.new().withWssTransport(TlsKeyPath, TlsKeyPath)
+    check:
+      res.isErr()
+      res.error.contains("invalid TLS certificate")
+
+  test "missing TLS key file is reported":
+    let res = SwitchBuilder.new().withWssTransport("/nonexistent/key.pem", TlsCertPath)
+    check:
+      res.isErr()
+      res.error.contains("failed to read TLS key file")
+
+  test "newWakuSwitch fails on invalid TLS key":
+    expect ValueError:
+      discard newWakuSwitch(
+        rng = rng(),
+        circuitRelay = Relay.new(),
+        wsAddress = Opt.some(MultiAddress.init("/ip4/127.0.0.1/tcp/0/wss").tryGet()),
+        wssEnabled = true,
+        secureKeyPath = TlsCertPath,
+        secureCertPath = TlsCertPath,
+      )
