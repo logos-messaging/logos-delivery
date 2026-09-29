@@ -103,7 +103,8 @@ proc decode*(
 
   var paging: uint32
   if not ?pb.getField(52, paging):
-    req.paginationForward = PagingDirection.default()
+    # Spec 13/WAKU2-STORE: an unset pagination_forward means backward.
+    req.paginationForward = PagingDirection.BACKWARD
   else:
     req.paginationForward = PagingDirection(paging)
 

@@ -50,6 +50,21 @@ procSuite "Waku Store - RPC codec":
       # check the correctness of init and encode for an empty HistoryQueryRPC
       decodedEmptyQuery.value == emptyQuery
 
+  test "StoreQueryRequest protobuf codec - unset pagination_forward is backward":
+    ## Given a request as a proto3 client encodes it when paging backward:
+    ## `pagination_forward = false` is the default and is left off the wire
+    var pb = initProtoBuffer()
+    pb.write3(1, "req-1")
+    pb.finish3()
+
+    ## When
+    let decoded = StoreQueryRequest.decode(pb.buffer)
+
+    ## Then
+    check:
+      decoded.isOk()
+      decoded.value.paginationForward == PagingDirection.BACKWARD
+
   test "StoreQueryResponse protobuf codec":
     ## Given
     let
