@@ -181,7 +181,7 @@ suite "WakuNode":
     let
       nodeKey = generateSecp256k1Key()
       bindIp = parseIpAddress("0.0.0.0")
-      bindPort = Port(61006)
+      bindPort = Port(0)
       extIp = Opt.some(getPrimaryIPAddr())
       extPort = Opt.some(Port(61008))
       # tcp-only: asserts exact single listen addr; quic variant below
@@ -206,9 +206,10 @@ suite "WakuNode":
 
     check:
       node.started
-      # Underlying peer info listenAddrs has not changed
+      # The port-0 listen addr is replaced by the port the OS assigned
       node.switch.peerInfo.listenAddrs.len == 1
-      node.switch.peerInfo.listenAddrs.contains(bindEndpoint)
+      $node.switch.peerInfo.listenAddrs[0] != $bindEndpoint
+      ($node.switch.peerInfo.listenAddrs[0]).startsWith("/ip4/0.0.0.0/tcp/")
       # Check that underlying peer info is updated with announced address
       node.switch.peerInfo.addrs.len == 1
       node.switch.peerInfo.addrs.contains(announcedEndpoint)
