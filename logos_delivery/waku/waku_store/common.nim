@@ -156,3 +156,16 @@ proc toHex*(response: StoreQueryResponse): StoreQueryResponseHex =
       else:
         Opt.none(string),
   )
+
+func validate*(req: StoreQueryRequest): Result[void, string] =
+  if req.startTime.isSome() and req.endTime.isSome() and
+      req.endTime.get() - req.startTime.get() > MaxQueryTimeRange:
+    return err("time range exceeds 24h")
+
+  let hasContentFilter =
+    req.pubsubTopic.isSome() or req.contentTopics.len > 0 or req.startTime.isSome() or
+    req.endTime.isSome()
+  if req.messageHashes.len > 0 and hasContentFilter:
+    return err("message hash lookup cannot be combined with content filters")
+
+  return ok()

@@ -988,6 +988,23 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("invalid hash length")
 
+  asyncTest "hashes filter: combined with content filters is rejected with 400":
+    let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
+    let hash = t.hashes[0].toRestStringWakuMessageHash()
+
+    var response = await t.client.getStoreMessagesV3(
+      hashes = hash, pubsubTopic = encodeUrl(DefaultPubsubTopic)
+    )
+    check:
+      response.status == 400
+      response.data.statusDesc.contains("cannot be combined with content filters")
+
+    response = await t.client.getStoreMessagesV3(hashes = hash, startTime = "1")
+    check:
+      response.status == 400
+
   asyncTest "ascending=false returns the tail page in chronological order":
     let t = await RestStoreTest.init(
       @[

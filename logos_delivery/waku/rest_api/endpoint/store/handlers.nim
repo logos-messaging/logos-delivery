@@ -220,6 +220,9 @@ proc installStoreApiHandlers*(
     ).valueOr:
       return RestApiResponse.badRequest(error)
 
+    storeQuery.validate().isOkOr:
+      return RestApiResponse.badRequest(error)
+
     if peer.isNone() and not node.wakuStore.isNil():
       ## The user didn't specify a peer address and self-node is configured as a store node.
       ## In this case we assume that the user is willing to retrieve the messages stored by
