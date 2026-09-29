@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from result import Result, Ok, Err
 
-_BINDINGS_PATH = Path(__file__).resolve().parents[2] / "vendor" / "logos-delivery-python-bindings" / "waku"
+_BINDINGS_PATH = Path(__file__).resolve().parents[2] / "vendor" / "logos-delivery-python-bindings" / "logosdelivery"
 if str(_BINDINGS_PATH) not in sys.path:
     sys.path.insert(0, str(_BINDINGS_PATH))
 

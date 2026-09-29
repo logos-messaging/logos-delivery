@@ -26,7 +26,7 @@ def _ensure_bindings_on_path() -> None:
     # The wrapper module lives outside the project tree, under vendor/.
     # Helper file is at <root>/tests/c_abi/helpers/<this>.py.
     project_root = Path(__file__).resolve().parents[3]
-    bindings_path = project_root / "vendor" / "logos-delivery-python-bindings" / "waku"
+    bindings_path = project_root / "vendor" / "logos-delivery-python-bindings" / "logosdelivery"
     if str(bindings_path) not in sys.path:
         sys.path.insert(0, str(bindings_path))
     if str(project_root) not in sys.path:

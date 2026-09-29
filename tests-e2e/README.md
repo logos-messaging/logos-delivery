@@ -8,7 +8,7 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 - `src/` — test framework (node wrappers, steps, helpers)
 - `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s02…s31`)
 - `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
-- `vendor/logos-delivery-python-bindings/` — git submodule of [`logos-delivery-python-bindings`](https://github.com/logos-messaging/logos-delivery-python-bindings), pinned to a commit. Its `waku/wrapper.py` is the CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`. `.gitmodules` sets `update = none` for it, so a plain `git submodule update` skips it and `prepare_lib.sh` checks it out.
+- `vendor/logos-delivery-python-bindings/` — git submodule of [`logos-delivery-python-bindings`](https://github.com/logos-messaging/logos-delivery-python-bindings), pinned to a commit. Its `logosdelivery/wrapper.py` is the CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`. `.gitmodules` sets `update = none` for it, so a plain `git submodule update` skips it and `prepare_lib.sh` checks it out.
 
 ## Run locally
 
