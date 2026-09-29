@@ -54,6 +54,12 @@ typedef struct {
 int logosdelivery_rln_set_plugin(const LogosDeliveryRlnPlugin* plugin,
                                  void* user_data);
 
+/* Mix scopes are passed explicitly in args_json. This callback does not enable
+   Relay RLN, and its replies use logosdelivery_rln_response. */
+typedef void (*LogosDeliveryMixRlnCallFn)(uint64_t req_id, const char* method,
+                                       const char* args_json, void* user_data);
+int logosdelivery_mix_rln_set_callback(LogosDeliveryMixRlnCallFn callback, void* user_data);
+
 /* The host application sends the response on completion of an outbound call, same req_id. Thread-safe;
    result_json is copied before return. */
 int logosdelivery_rln_response(uint64_t req_id, const char* result_json);
