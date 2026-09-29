@@ -205,7 +205,7 @@ proc start*(cmb: Chat2MatterBridge) {.async.} =
   # Start Matterbridge polling (@TODO: use streaming interface)
   proc mbHandler(jsonNode: JsonNode) {.async.} =
     trace "Bridging message from Matterbridge to chat2", jsonNode = jsonNode
-    waitFor cmb.toChat2(jsonNode)
+    await cmb.toChat2(jsonNode)
 
   asyncSpawn cmb.pollMatterbridge(mbHandler)
 
