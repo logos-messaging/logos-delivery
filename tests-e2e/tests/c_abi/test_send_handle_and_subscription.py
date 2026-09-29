@@ -25,7 +25,7 @@ S01_RESULT_MARKER = "__S01_RESULT__"
 SEND_AFTER_DESTROY_RESULT_MARKER = "__SEND_AFTER_DESTROY_RESULT__"
 SEND_AFTER_DESTROY_SUBPROCESS_TIMEOUT_S = 60
 
-S01_INVALID_HANDLE_HELPER = "tests.wrappers_tests.helpers.send_invalid_handle"
+S01_INVALID_HANDLE_HELPER = "tests.c_abi.helpers.send_invalid_handle"
 
 # S05: malformed content topics
 S05_EXPECTED_ERROR_FRAGMENT = "Failed to auto-subscribe"

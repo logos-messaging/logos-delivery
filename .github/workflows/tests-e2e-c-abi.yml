@@ -1,13 +1,8 @@
-name: e2e-api-tests
+name: tests-e2e-c-abi
 
 on:
   workflow_call:
     inputs:
-      subset:
-        description: "Which wrapper subset to run: 'non-docker' or 'docker'."
-        type: string
-        required: false
-        default: "non-docker"
       node_image:
         description: "Node image used for the docker peers (docker subset only)."
         type: string
@@ -20,10 +15,14 @@ on:
         default: ""
 
 jobs:
-  api-e2e:
+  c-abi:
+    strategy:
+      fail-fast: false
+      matrix:
+        subset: [non-docker, docker]
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    name: api-e2e
+    name: ${{ matrix.subset == 'docker' && 'c-abi-docker' || 'c-abi' }}
     env:
       NODE_1: ${{ inputs.node_image }}
       NODE_2: ${{ inputs.node_image }}
@@ -40,14 +39,14 @@ jobs:
 
       # Loaded under its quay.io name, so the tests use it without pulling.
       - name: Download node image
-        if: ${{ inputs.node_image_artifact != '' }}
+        if: ${{ matrix.subset == 'docker' && inputs.node_image_artifact != '' }}
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.node_image_artifact }}
           path: ${{ runner.temp }}/node-image
 
       - name: Load node image
-        if: ${{ inputs.node_image_artifact != '' }}
+        if: ${{ matrix.subset == 'docker' && inputs.node_image_artifact != '' }}
         run: docker load -i "${RUNNER_TEMP}/node-image/node-image.tar.gz"
 
       - name: Set up Python
@@ -60,8 +59,16 @@ jobs:
       - name: Install Python deps
         run: pip install -r tests-e2e/requirements.txt
 
-      - name: Run API/e2e tests (${{ inputs.subset }} subset)
+      - name: Run C ABI e2e tests (${{ matrix.subset }} subset)
         working-directory: tests-e2e
         run: |
           echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
-          pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2
+          pytest tests/c_abi -m "${{ matrix.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2 --junitxml=log/junit.xml
+
+      - name: Report results in the job summary
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ matrix.subset == 'docker' && 'c-abi-docker' || 'c-abi' }}
+          path: tests-e2e/log/junit.xml
+          reporter: python-xunit

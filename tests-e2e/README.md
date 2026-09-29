@@ -6,7 +6,7 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 ## Layout
 
 - `src/` — test framework (node wrappers, steps, helpers)
-- `tests/wrappers_tests/` — the API/e2e scenario tests (`test_s02…s31`)
+- `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s02…s31`)
 - `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
 - `vendor/logos-delivery-python-bindings/waku/wrapper.py` — CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`
 
@@ -22,9 +22,9 @@ pip install -r tests-e2e/requirements.txt
 
 # 3. Run (from tests-e2e/)
 cd tests-e2e
-pytest tests/wrappers_tests -m "not docker_required and not slow"   # 60 pure-binding tests, the CI selection
-pytest tests/wrappers_tests -m docker_required                      # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
-pytest tests/wrappers_tests -m slow                                 # 1 SDS-R repair test, minutes long
+pytest tests/c_abi -m "not docker_required and not slow"   # 60 pure-binding tests, the CI selection
+pytest tests/c_abi -m docker_required                      # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
+pytest tests/c_abi -m slow                                 # 1 SDS-R repair test, minutes long
 # REST suites run docker nodes from DEFAULT_NWAKU (default: the nightly image, built from master).
 # To test local changes, build an image and set DEFAULT_NWAKU to it; the name must contain "nwaku".
 DEFAULT_NWAKU=<image> pytest tests/rest/messaging
@@ -32,9 +32,9 @@ DEFAULT_NWAKU=<image> pytest tests/rest/messaging
 
 ## CI
 
-`.github/workflows/e2e-api-tests.yml` (called from `ci.yml`, `needs: build`) downloads the
-`liblogosdelivery` artifact produced by the `build` job and runs the non-docker subset on every PR —
-so a protocol change and its e2e test land in the same PR.
+`.github/workflows/tests-e2e-c-abi.yml` (called from `ci.yml`, `needs: [build, build-docker-image]`) downloads the
+`liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
+(`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
 The `slow` test is deselected there and there is no scheduled e2e job, so nothing runs it
 automatically; run it by hand when touching SDS-R.

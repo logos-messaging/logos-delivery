@@ -146,8 +146,9 @@ proc runCatchUpPass*(
     query: BackfillQuery,
     deliver: BackfillDeliver,
 ): Future[seq[BackfillTopic]] {.async: (raises: [CancelledError]).} =
-  ## One pass. Queries the topics in order over `[since, cutoff)`, page by
-  ## page, until each one has no more rows or fails. A failed topic leaves its
+  ## One pass. Queries the topics in order over `[since, cutoff)`, in windows
+  ## no longer than the Store's `MaxQueryTimeRange` and page by page, until
+  ## each one has no more rows or fails. A failed topic leaves its
   ## next page start in `progress` and continues from there in the next pass.
   ## Returns the topics that have no more rows.
   var exhausted: seq[BackfillTopic]
@@ -155,19 +156,20 @@ proc runCatchUpPass*(
     var start = progress.getOrDefault(topic, since)
     var completed = true
     while start < cutoff:
+      let windowStop = min(cutoff, start + MaxQueryTimeRange)
       let request = StoreQueryRequest(
         includeData: true,
         pubsubTopic: Opt.some(topic.pubsubTopic),
         contentTopics: @[topic.contentTopic],
         startTime: Opt.some(start),
-        endTime: Opt.some(cutoff - 1), # inclusive on the wire
+        endTime: Opt.some(windowStop - 1), # inclusive on the wire
         paginationForward: PagingDirection.FORWARD,
         paginationLimit: Opt.some(MaxPageSize),
       )
       let response = await queryPage(query, request, queryTimeout)
       let accepted =
         if response.isOk():
-          acceptPage(topic, start, cutoff, response.get(), deliver)
+          acceptPage(topic, start, windowStop, response.get(), deliver)
         else:
           Result[Opt[Timestamp], string].err(response.error)
       let next = accepted.valueOr:
@@ -176,9 +178,8 @@ proc runCatchUpPass*(
         progress[topic] = start
         completed = false
         break
-      if next.isNone():
-        break
-      start = next.get()
+      start = next.valueOr:
+        windowStop # the window is exhausted, move to the next one
     if completed:
       exhausted.add(topic)
       progress.del(topic)

@@ -319,6 +319,42 @@ suite "Receive backfill":
     exhausted = await catchUp(@[TestTopic], t0, t1, fullPage, collect)
     check exhausted == @[TestTopic] and got.len == int(MaxPageSize)
 
+  asyncTest "catch-up: a range longer than the Store limit is split into windows":
+    let t0 = Base
+    let rows =
+      @[rowAt(t0 + Hour, 1), rowAt(t0 + 30 * Hour, 2), rowAt(t0 + 49 * Hour, 3)]
+    var seen: seq[(Timestamp, Timestamp)]
+    let query: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      let (start, stop) = (request.startTime.get(), request.endTime.get())
+      seen.add((start, stop))
+      if stop - start > MaxQueryTimeRange:
+        return err("time range exceeds 24h")
+      return page(
+        rows.filterIt(
+          it.message.get().timestamp >= start and it.message.get().timestamp <= stop
+        )
+      )
+    var got: seq[string]
+    let collect: BackfillDeliver = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): bool =
+      got.add(string.fromBytes(message.payload))
+      return true
+
+    let exhausted = await catchUp(@[TestTopic], t0, t0 + 50 * Hour, query, collect)
+
+    check:
+      exhausted == @[TestTopic]
+      got == @["msg-1", "msg-2", "msg-3"]
+      seen ==
+        @[
+          (t0, t0 + 24 * Hour - 1),
+          (t0 + 24 * Hour, t0 + 48 * Hour - 1),
+          (t0 + 48 * Hour, t0 + 50 * Hour - 1),
+        ]
+
   test "settings: defaults, range checks, JSON":
     let defaults = BackfillState.init(MessagingClientConf()).get()
     check defaults.enabled and defaults.queryTimeout == chronos.seconds(10)

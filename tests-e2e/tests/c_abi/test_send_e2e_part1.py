@@ -20,7 +20,7 @@ from src.node.wrapper_helpers import (
     wait_for_error,
 )
 from src.steps.store import StepsStore
-from tests.wrappers_tests.conftest import free_port
+from tests.c_abi.conftest import free_port
 
 logger = get_custom_logger(__name__)
 

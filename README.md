@@ -3,7 +3,7 @@
 [![ci](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
 [![Daily CI](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml?query=event%3Aschedule)
 [![Nightly pre-release](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml?query=event%3Aschedule)
-[![Nightly REST e2e](https://github.com/logos-messaging/logos-delivery/actions/workflows/e2e-rest-tests.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/e2e-rest-tests.yml?query=event%3Aschedule)
+[![Nightly REST e2e](https://github.com/logos-messaging/logos-delivery/actions/workflows/tests-e2e-rest.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/tests-e2e-rest.yml?query=event%3Aschedule)
 
 ## Introduction
 
