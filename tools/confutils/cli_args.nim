@@ -1173,7 +1173,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
         rlnIdentifierHex: n.mixRlnIdentifierHex,
         epochSeconds: 10,
         maxEpochGap: 3,
-        messageLimit: 100,
         metadataTopic: n.mixRlnMetadataTopic,
       )
     )
