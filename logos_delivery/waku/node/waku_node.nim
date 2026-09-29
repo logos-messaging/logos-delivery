@@ -968,7 +968,7 @@ proc stop*(node: WakuNode) {.async.} =
   node.explicitAnnounced = @[]
   node.enrLearnedEndpoint = Opt.none(DiscoveryEndpoint)
 
-proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
+proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [CancelledError]).} =
   if node.rln == nil:
     return true
   return await node.rln.isReady()

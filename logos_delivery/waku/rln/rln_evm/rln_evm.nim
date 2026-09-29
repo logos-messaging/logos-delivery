@@ -246,7 +246,7 @@ proc mount(
 
   return ok(rlnEvm)
 
-proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
+proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async: (raises: [CancelledError]).} =
   ## returns true if the rln-relay protocol is ready to relay messages
   ## returns false otherwise
 
@@ -255,6 +255,8 @@ proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
     return false
   try:
     return await rlnEvm.groupManager.isReady()
+  except CancelledError as exc:
+    raise exc
   except CatchableError:
     debug "could not check if the rln-relay protocol is ready",
       err = getCurrentExceptionMsg()

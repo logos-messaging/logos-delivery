@@ -441,3 +441,13 @@ suite "WakuNode":
       node1MultiAddrs.contains(expectedMultiaddress1)
 
     await allFutures(node1.stop(), node2.stop())
+
+  asyncTest "isReady only raises CancelledError and is true without RLN":
+    let node = newTestWakuNode(generateSecp256k1Key())
+
+    let readyFut = node.isReady()
+    static:
+      doAssert typeof(readyFut) is Future[bool].Raising([CancelledError])
+
+    check:
+      await readyFut
