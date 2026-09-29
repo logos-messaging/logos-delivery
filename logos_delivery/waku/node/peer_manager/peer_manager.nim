@@ -852,13 +852,6 @@ proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
   if pm.wakuMetadata.isNil():
     return
 
-  # Registered standalone Mix peers do not participate in Waku clusters or
-  # consume the untrusted pure-libp2p admission budget.
-  let peer = pm.switch.peerStore.getPeer(peerId)
-  if peer.mixPubKey.isSome() and pm.switch.peerStore.hasPeer(peerId, MixProtocolID) and
-      not pm.switch.peerStore.hasPeer(peerId, WakuMetadataCodec):
-    return
-
   case pm.classifyPeer(peerId)
   of Member:
     await pm.refreshPeerMetadata(peerId)
