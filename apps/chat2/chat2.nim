@@ -158,21 +158,21 @@ proc readNick(transp: StreamTransport): Future[string] {.async.} =
 
 proc startMetricsServer(
     serverIp: IpAddress, serverPort: Port
-): Result[MetricsHttpServerRef, string] =
+): Future[Result[MetricsHttpServerRef, string]] {.async.} =
   info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $serverPort
 
   let server = MetricsHttpServerRef.new($serverIp, serverPort).valueOr:
     return err("metrics HTTP server start failed: " & $error)
 
   try:
-    waitFor server.start()
+    await server.start()
   except CatchableError:
     return err("metrics HTTP server start failed: " & getCurrentExceptionMsg())
 
   info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $serverPort
   ok(server)
 
-proc publish(c: Chat, line: string) =
+proc publish(c: Chat, line: string) {.async.} =
   # First create a Chat2Message protobuf with this line of text
   let time = getTime().toUnix()
   let chat2pb =
@@ -193,7 +193,7 @@ proc publish(c: Chat, line: string) =
     # for future version when we support more than one rln protected content topic,
     # we should check the message content topic as well
     let proofRes =
-      waitFor c.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
+      await c.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
     if proofRes.isErr():
       info "could not append rate limit proof to the message"
     else:
@@ -215,10 +215,10 @@ proc publish(c: Chat, line: string) =
     try:
       if not c.node.wakuLegacyLightPush.isNil():
         # Attempt lightpush
-        (waitFor c.node.legacyLightpushPublish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
+        (await c.node.legacyLightpushPublish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish lightpush message", error = error
       else:
-        (waitFor c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
+        (await c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish message", error = error
     except CatchableError:
       error "caught error publishing message: ", error = getCurrentExceptionMsg()
@@ -280,7 +280,7 @@ proc writeAndPrint(c: Chat) {.async.} =
     else:
       # XXX connected state problematic
       if c.started:
-        c.publish(line)
+        await c.publish(line)
         # TODO Connect to peer logic?
       else:
         try:
@@ -432,7 +432,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         info "Connecting to discovered peers"
         discoveredNodes = discoveredPeers.get()
         echo "Discovered and connecting to " & $discoveredNodes
-        waitFor chat.node.connectToNodes(discoveredNodes)
+        await chat.node.connectToNodes(discoveredNodes)
       else:
         warn "Failed to find peers via DNS discovery", error = discoveredPeers.error
     else:
@@ -552,7 +552,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      waitFor node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))
+      await node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))
 
       let membershipIndex = node.rln.groupManager.membershipIndex.get()
       let identityCredential = node.rln.groupManager.idCredentials.get()
@@ -566,13 +566,14 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     startMetricsLog()
 
   if conf.metricsServer:
-    let metricsServer = startMetricsServer(
+    let metricsServer = await startMetricsServer(
       conf.metricsServerAddress, Port(conf.metricsServerPort + conf.portsShift)
     )
 
   await chat.readWriteLoop()
 
-  runForever()
+  # runForever() would nest a poll inside this async proc
+  await newFuture[void]("chat2.processInput")
 
 proc main(rng: crypto.Rng) {.async.} =
   let (rfd, wfd) = createAsyncPipe()
