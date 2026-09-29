@@ -24,7 +24,7 @@ proc new*(T: type PgAsyncPool, dbUrl: string, maxConnections: int): DatabaseResu
   var connString: string
 
   try:
-    let regex = re2("""^postgres:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)$""")
+    let regex = re2("""^postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)$""")
     var m: RegexMatch2
     if dbUrl.match(regex, m) == false:
       return err("could not properly parse dbUrl: " & dbUrl)

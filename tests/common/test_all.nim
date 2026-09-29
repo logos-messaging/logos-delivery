@@ -8,4 +8,5 @@ import
   ./test_parse_size,
   ./test_requestratelimiter,
   ./test_ratelimit_setting,
-  ./test_timed_map
+  ./test_timed_map,
+  ./test_dburl

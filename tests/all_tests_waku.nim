@@ -20,6 +20,7 @@ import
   ./waku_archive/test_driver_sqlite,
   ./waku_archive/test_retention_policy,
   ./waku_archive/test_waku_archive,
+  ./waku_archive/test_driver_builder,
   ./waku_archive/test_partition_manager
 
 when defined(linux) and

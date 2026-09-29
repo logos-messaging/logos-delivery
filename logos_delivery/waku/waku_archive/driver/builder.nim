@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import results, chronicles, chronos
+import std/strutils, results, chronicles, chronos
 import
   ../driver,
   ../../common/databases/dburl,
@@ -34,6 +34,11 @@ proc new*(
 
   dburl.validateDbUrl(url).isOkOr:
     return err("DbUrl failure in ArchiveDriver.new: " & error)
+
+  if url.strip() in ["", "none"]:
+    debug "Setting up in-memory waku archive driver"
+    let driver = QueueDriver.new() # Defaults to a capacity of 25.000 messages
+    return ok(driver)
 
   let engine = dburl.getDbEngine(url).valueOr:
     return err("error getting db engine in setupWakuArchiveDriver: " & error)
@@ -104,6 +109,6 @@ proc new*(
         "Postgres has been configured but not been compiled. Check compiler definitions."
       )
   else:
-    debug "Setting up in-memory waku archive driver"
-    let driver = QueueDriver.new() # Defaults to a capacity of 25.000 messages
-    return ok(driver)
+    return err(
+      "unsupported store message DB engine '" & engine & "'; expected sqlite or postgres"
+    )

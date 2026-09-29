@@ -3,6 +3,7 @@
 import
   ./test_driver_postgres_query,
   ./test_driver_postgres,
+  ./test_driver_builder,
   ./test_driver_queue_index,
   ./test_driver_queue_pagination,
   ./test_driver_queue_query,

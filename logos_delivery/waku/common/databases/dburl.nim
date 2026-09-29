@@ -17,6 +17,8 @@ proc getDbEngine*(dbUrl: string): Result[string, string] =
     return err("Incorrect dbUrl")
 
   let engine = dbUrlParts[0]
+  if engine == "postgresql":
+    return ok("postgres")
   return ok(engine)
 
 proc getDbPath*(dbUrl: string): Result[string, string] =
