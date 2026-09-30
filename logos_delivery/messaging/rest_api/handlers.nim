@@ -1,6 +1,12 @@
 {.push raises: [].}
 
-import chronos, chronicles, results, json_serialization, json_serialization/std/options
+import
+  std/[algorithm, sets],
+  chronos,
+  chronicles,
+  results,
+  json_serialization,
+  json_serialization/std/options
 import presto/[route, common]
 import
   logos_delivery/waku/waku,
@@ -107,6 +113,17 @@ proc installMessagingApiHandlers*(
 
   router.api(MethodOptions, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do() -> RestApiResponse:
     return RestApiResponse.ok()
+
+  router.api(MethodGet, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do() -> RestApiResponse:
+    ## Returns the content topics that the messaging client subscribes to, sorted.
+    var topics: seq[ContentTopic]
+    for (_, contentTopics) in client.waku.subscribedContentTopics():
+      for contentTopic in contentTopics:
+        topics.add(contentTopic)
+    topics.sort()
+    return RestApiResponse.jsonResponse(topics, status = Http200).valueOr:
+      error "An error occurred while building the json response", error = error
+      return RestApiResponse.internalServerError($error)
 
   router.api(MethodPost, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do(
     contentBody: Option[ContentBody]

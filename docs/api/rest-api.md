@@ -59,6 +59,7 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 
 | Method and route | Body | Response |
 |---|---|---|
+| `GET /messaging/v1/subscriptions` | | `["/app/1/topic/proto", ...]`, sorted |
 | `POST /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `DELETE /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"requestId":"..."}` |

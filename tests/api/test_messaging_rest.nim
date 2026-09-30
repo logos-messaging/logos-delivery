@@ -88,6 +88,32 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "GET subscriptions lists the subscribed content topics, sorted":
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(restNodeConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start node: " & error
+    let client = restClientFor(node)
+
+    let topicA = "/test/1/list-a/proto"
+    let topicB = "/test/1/list-b/proto"
+    check (await client.messagingPostSubscriptionsV1(@[topicB, topicA])).status == 200
+    let listResp = await client.messagingGetSubscriptionsV1()
+    check:
+      listResp.status == 200
+      listResp.data == @[topicA, topicB]
+
+    check (await client.messagingDeleteSubscriptionsV1(@[topicA])).status == 200
+    let afterResp = await client.messagingGetSubscriptionsV1()
+    check:
+      afterResp.status == 200
+      afterResp.data == @[topicB]
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "send events are grouped by requestId and evict after poll":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
