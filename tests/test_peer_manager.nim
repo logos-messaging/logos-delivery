@@ -819,67 +819,6 @@ procSuite "Peer Manager":
       conn3.isSome and not conn3.get().isClosed
 
   # TODO: nwaku/issues/1377
-  xasyncTest "Peer manager support multiple protocol IDs when reconnecting to peers":
-    let
-      database = SqliteDatabase.new(":memory:")[]
-      storage = WakuPeerStorage.new(database)[]
-      node1 = newTestWakuNode(generateSecp256k1Key(), peerStorage = storage)
-      node2 = newTestWakuNode(generateSecp256k1Key())
-      peerInfo2 = node2.switch.peerInfo
-      betaCodec = "/vac/waku/relay/2.0.0-beta2"
-      stableCodec = "/vac/waku/relay/2.0.0"
-
-    await node1.start()
-    await node2.start()
-
-    (await node1.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    node1.wakuRelay.codec = betaCodec
-    (await node2.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    node2.wakuRelay.codec = betaCodec
-
-    require:
-      (await node1.peerManager.connectPeer(peerInfo2.toRemotePeerInfo())) == true
-    check:
-      # Currently connected to node2
-      node1.peerManager.switch.peerStore.peers().len == 1
-      node1.peerManager.switch.peerStore.peers().anyIt(it.peerId == peerInfo2.peerId)
-      node1.peerManager.switch.peerStore.peers().anyIt(
-        it.protocols.contains(node2.wakuRelay.codec)
-      )
-      node1.peerManager.switch.peerStore.connectedness(peerInfo2.peerId) == Connected
-
-    # Simulate restart by initialising a new node using the same storage
-    let node3 = newTestWakuNode(generateSecp256k1Key(), peerStorage = storage)
-
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    node3.wakuRelay.codec = stableCodec
-    check:
-      # Node 2 and 3 have differing codecs
-      node2.wakuRelay.codec == betaCodec
-      node3.wakuRelay.codec == stableCodec
-      # Node2 has been loaded after "restart", but we have not yet reconnected
-      node3.peerManager.switch.peerStore.peers().len == 1
-      node3.peerManager.switch.peerStore.peers().anyIt(it.peerId == peerInfo2.peerId)
-      node3.peerManager.switch.peerStore.peers().anyIt(it.protocols.contains(betaCodec))
-      node3.peerManager.switch.peerStore.connectedness(peerInfo2.peerId) == NotConnected
-
-    await node3.start() # This should trigger a reconnect
-
-    check:
-      # Reconnected to node2 after "restart"
-      node3.peerManager.switch.peerStore.peers().len == 1
-      node3.peerManager.switch.peerStore.peers().anyIt(it.peerId == peerInfo2.peerId)
-      node3.peerManager.switch.peerStore.peers().anyIt(it.protocols.contains(betaCodec))
-      node3.peerManager.switch.peerStore.peers().anyIt(
-        it.protocols.contains(stableCodec)
-      )
-      node3.peerManager.switch.peerStore.connectedness(peerInfo2.peerId) == Connected
-
-    await allFutures([node1.stop(), node2.stop(), node3.stop()])
-
   asyncTest "Peer manager connects to all peers supporting a given protocol":
     # Create 4 nodes
     let nodes = toSeq(0 ..< 4).mapIt(
