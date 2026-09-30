@@ -135,7 +135,7 @@ jobs:
         run: make V=1 -j1 all
 
       - name: Save nimcache
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/cache/save@v3
         with:
           path: nimcache

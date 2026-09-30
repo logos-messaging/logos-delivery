@@ -58,12 +58,12 @@ jobs:
           fi
 
           export MAKEFLAGS="-j1"
-          export NIMFLAGS="--colors:off -d:chronicles_colors:none --opt:none"
+          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
 
       - name: Save nimcache
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/cache/save@v3
         with:
           path: nimcache
