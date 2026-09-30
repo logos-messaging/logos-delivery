@@ -32,6 +32,24 @@ proc toRlnError(e: NonceManagerError): RlnError =
   of NonceManagerErrorKind.EpochPassed:
     RlnError.permanent($e)
 
+proc checkTimestampBounds(
+    rlnEvm: RlnEvm, senderEpochTime: float64
+): Result[void, RlnError] =
+  ## The bound validators apply (`validateMessage`): every receiver rejects
+  ## a proof for a time more than `rlnMaxTimestampGap` from its clock, and
+  ## reserving an id for such a time would move the counter into an epoch
+  ## that has not arrived. Caller-supplied timestamps reach the generators
+  ## over REST and lightpush.
+  let gap = uint64(abs(epochTime() - senderEpochTime))
+  if gap > rlnEvm.rlnMaxTimestampGap:
+    return err(
+      RlnError.permanent(
+        "timestamp is " & $gap & " s from now, beyond the accepted " &
+          $rlnEvm.rlnMaxTimestampGap & " s"
+      )
+    )
+  return ok()
+
 proc nextEpoch*(rlnEvm: RlnEvm, time: float64): float64 =
   let
     currentEpoch = uint64(time / rlnEvm.rlnEpochSizeSec.float64)
@@ -82,6 +100,8 @@ proc generateRLNProof*(
 ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
   ## Draws a message id from the epoch of `senderEpochTime`, the epoch the
   ## proof carries, and builds the proof.
+  rlnEvm.checkTimestampBounds(senderEpochTime).isOkOr:
+    return err($error)
   let nonce = rlnEvm.nonceManager.reserve(rlnEvm.epochIndexOf(senderEpochTime)).valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
   return await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
@@ -94,15 +114,17 @@ proc generateRLNProofWithRootRefresh*(
   ## regenerates once against a refetched path. Returns the proof bytes.
   ##
   ## The message id is drawn from the epoch of `senderEpochTime`, the epoch
-  ## the proof carries. A spent epoch budget is `BudgetExhausted`; an epoch
-  ## the manager has already moved past is `Permanent`, since no later retry
-  ## can draw from it.
+  ## the proof carries, once the time is within the validators' bound. A
+  ## spent epoch budget is `BudgetExhausted`; a time out of bounds or an
+  ## epoch the manager has already moved past is `Permanent`, since no later
+  ## retry can prove it.
   ##
   ## The regeneration reuses the nonce drawn for the first attempt: only the
   ## merkle path differs between the two, so drawing again would spend two
   ## message ids from the epoch budget on a message that is sent once. That
   ## would drift the budget the rate limit manager accounts for away from the
   ## one the nonce manager enforces.
+  ?rlnEvm.checkTimestampBounds(senderEpochTime)
   let nonce = rlnEvm.nonceManager.reserve(rlnEvm.epochIndexOf(senderEpochTime)).valueOr:
     return err(error.toRlnError())
 

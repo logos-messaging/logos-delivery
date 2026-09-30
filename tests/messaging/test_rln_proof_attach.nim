@@ -19,9 +19,12 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-const
-  TestMessageSec = 1_700_000_000'u64
-  TestEpochSizeSec = 600'u64
+const TestEpochSizeSec = 1'u64
+  ## One-second epochs keep epoch-crossing cases inside the generator's
+  ## timestamp bound (`MaxClockGapSeconds`).
+
+proc nowSec(): uint64 =
+  uint64(getTime().toUnix())
 
 proc messageAt(timestampSec: uint64, payload = "hello"): WakuMessage =
   WakuMessage(
@@ -31,10 +34,7 @@ proc messageAt(timestampSec: uint64, payload = "hello"): WakuMessage =
   )
 
 proc testMessage(): WakuMessage =
-  messageAt(TestMessageSec)
-
-proc nowSec(): uint64 =
-  uint64(getTime().toUnix())
+  messageAt(nowSec())
 
 const LezQuotaReply =
   """{"error":null,"success":true,"value":{"epoch_index":42,"rate_limit":100,"remaining":7}}"""
@@ -127,48 +127,80 @@ suite "SendService RLN proof attach - RLN mounted":
     ## Wires the rate limit manager to RLN: admission stops at
     ## `remaining == 0` and the window rolls on `epochIndex`. The budget is
     ## the one of the epoch the message's timestamp falls in.
-    let before = (await waku.rlnEpochQuota(TestMessageSec)).expect("rlnEpochQuota")
-    discard (await waku.attachRlnProof(testMessage())).expect("attachRlnProof")
-    let after = (await waku.rlnEpochQuota(TestMessageSec)).expect("rlnEpochQuota")
+    let now = nowSec()
+    let before = (await waku.rlnEpochQuota(now)).expect("rlnEpochQuota")
+    discard (await waku.attachRlnProof(messageAt(now))).expect("attachRlnProof")
+    let after = (await waku.rlnEpochQuota(now)).expect("rlnEpochQuota")
     check:
       before.rateLimit == 20'u64 # the mounted userMessageLimit
       before.remaining == 20'u64
-      before.epochIndex == TestMessageSec div TestEpochSizeSec
+      before.epochIndex == now div TestEpochSizeSec
       after.remaining == 19'u64
       after.epochIndex == before.epochIndex
 
   asyncTest "draws consecutive message ids from the message timestamp's epoch":
     ## The id is spent in the epoch the proof carries, which is derived from
     ## the message timestamp and not from the wall clock at proof time.
-    discard (await waku.attachRlnProof(messageAt(TestMessageSec, "a"))).expect("first")
-    discard (await waku.attachRlnProof(messageAt(TestMessageSec, "b"))).expect("second")
+    let now = nowSec()
+    discard (await waku.attachRlnProof(messageAt(now, "a"))).expect("first")
+    discard (await waku.attachRlnProof(messageAt(now, "b"))).expect("second")
 
     check:
-      onchainRln.nonceManager.epochIndex == TestMessageSec div TestEpochSizeSec
+      onchainRln.nonceManager.epochIndex == now div TestEpochSizeSec
       onchainRln.nonceManager.nextId == 2'u64
 
   asyncTest "a message in a later epoch starts that epoch's budget":
-    discard (await waku.attachRlnProof(messageAt(TestMessageSec, "a"))).expect("first")
-    let later = TestMessageSec + TestEpochSizeSec
+    let now = nowSec()
+    discard (await waku.attachRlnProof(messageAt(now, "a"))).expect("first")
+    let later = now + 2 * TestEpochSizeSec
     discard (await waku.attachRlnProof(messageAt(later, "b"))).expect("second")
 
     check:
       onchainRln.nonceManager.epochIndex == later div TestEpochSizeSec
       onchainRln.nonceManager.nextId == 1'u64
-      (await waku.rlnEpochQuota(TestMessageSec)).expect("quota").remaining == 20'u64
+      (await waku.rlnEpochQuota(now)).expect("quota").remaining == 20'u64
 
   asyncTest "refuses a message timestamped in an epoch already left behind":
     ## Drawing again from a passed epoch could repeat an id that was sent, so
     ## the failure is permanent: the send service fails the task instead of
     ## retrying.
-    discard (await waku.attachRlnProof(messageAt(TestMessageSec, "a"))).expect("first")
-    let earlier = TestMessageSec - TestEpochSizeSec
+    let now = nowSec()
+    discard (await waku.attachRlnProof(messageAt(now, "a"))).expect("first")
+    let earlier = now - 2 * TestEpochSizeSec
 
     let res = await waku.attachRlnProof(messageAt(earlier, "b"))
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.Permanent
+      onchainRln.nonceManager.epochIndex == now div TestEpochSizeSec
       onchainRln.nonceManager.nextId == 1'u64
+
+  asyncTest "a far-future timestamp is refused without moving the counter":
+    ## Caller-supplied timestamps reach the generator over REST and lightpush.
+    ## Reserving for a future epoch would leave every current message with
+    ## EpochPassed until that epoch arrives, so the validators' timestamp
+    ## bound is applied before the reservation.
+    let now = nowSec()
+    let farFuture = now + 3600
+
+    let res = await waku.attachRlnProof(messageAt(farFuture, "a"))
+    check:
+      res.isErr()
+      res.error.kind == RlnErrorKind.Permanent
+      onchainRln.nonceManager.nextId == 0'u64
+
+    discard (await waku.attachRlnProof(messageAt(now, "b"))).expect("current message")
+    check:
+      onchainRln.nonceManager.epochIndex == now div TestEpochSizeSec
+      onchainRln.nonceManager.nextId == 1'u64
+
+  asyncTest "a stale timestamp is refused without spending an id":
+    let now = nowSec()
+    let res = await waku.attachRlnProof(messageAt(now - 3600))
+    check:
+      res.isErr()
+      res.error.kind == RlnErrorKind.Permanent
+      onchainRln.nonceManager.nextId == 0'u64
 
   asyncTest "refuses an untimestamped message":
     let res = await waku.attachRlnProof(messageAt(0))
