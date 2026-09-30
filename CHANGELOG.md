@@ -1,10 +1,12 @@
-## v0.39.0 (2026-09-15)
+## v0.39.0 (2026-09-30)
 
 ### Notes
 
 - **Node app**: `logosdeliverynode` replaces `wakunode2` and adds a messaging REST API with event observability. The CLI now runs only the kernel (transport) layer by default; `--entry-layer=channels` enables the messaging client, reliable channels and the messaging REST endpoints.
 - **Messaging**: sender anonymity through Mix (`anonymityLevel`), per-channel encryption with app-supplied ciphers, message segmentation, Store catch-up across process restarts, and RLN proofs and the per-epoch rate limit handled in the send service.
-- **Transport and discovery**: QUIC transport support (off by default on the messaging path) and service discovery.
+- **Transport and discovery**: QUIC transport support, now on by default with a TCP fallback (see breaking changes), and service discovery: an external discovery backend over a C plugin ABI, kademlia discovery reachable from the messaging and channels layers, and nodes advertising with their own signed record.
+- **Mix**: the `LogosDev` and `LogosTest` presets ship mix nodes, and sends are no longer deferred while mix is unavailable.
+- **Rate limit**: sends are admitted by RLN's remaining epoch budget, with a configurable "approached" quota state and RLN proof validation that can be disabled to phase RLN in.
 - **RLN**: pluggable RLN API module; RLN proof generation moves from the lightpush server to the client; keystore generation moves to the standalone `rlnkeystore` tool.
 - **liblogosdelivery**: the previously separate libraries are unified into a single FFI library, now on the nim-ffi 0.3 typed C ABI (see breaking changes). Android and iOS builds are restored.
 - **Reliable Channel**: `ReliabilityManager` wired into the Reliable Channel, with SDS persistency.
@@ -48,8 +50,40 @@
   ([#4074](https://github.com/logos-messaging/logos-delivery/pull/4074)). Dashboards and
   alerts that query the old names (e.g. `waku_*`) must be updated.
 
+- QUIC is now on by default (`--quic-support`), listening on UDP at the node's TCP port
+  when `--quic-port` is not set ([#4337](https://github.com/logos-messaging/logos-delivery/pull/4337)). If that UDP port is not reachable,
+  open it or run with `--quic-support=false`; otherwise the node announces a QUIC address
+  nobody can reach and every peer dialing it waits 3s before falling back to TCP.
+
+- liblogosdelivery moves to nim-ffi's CBOR call surface instead of the struct ABI
+  ([#4281](https://github.com/logos-messaging/logos-delivery/pull/4281)). Rebuild bindings again: the C/C++ examples, the Python binding
+  and `library/README.md` are updated to the new calls.
+
+- The messaging `rateLimit` config is flattened into the root-level fields
+  `rate-limit-enabled`, `rate-limit-epoch-sec` and `rate-limit-messages-per-epoch`
+  ([#4298](https://github.com/logos-messaging/logos-delivery/pull/4298)).
+
 ### Features
 
+- library: get_connection_status and IsRunning node info ([#4346](https://github.com/logos-messaging/logos-delivery/pull/4346)) ([ca28145f](https://github.com/logos-messaging/logos-delivery/commit/ca28145f))
+- rest: make the messaging cache capacity configurable and report overflow ([#4330](https://github.com/logos-messaging/logos-delivery/pull/4330)) ([0a5d079a](https://github.com/logos-messaging/logos-delivery/commit/0a5d079a))
+- QUIC: enable by default, fall back to TCP when QUIC stalls ([#4337](https://github.com/logos-messaging/logos-delivery/pull/4337)) ([6a4c3fda](https://github.com/logos-messaging/logos-delivery/commit/6a4c3fda))
+- conf: ship mix nodes in the LogosDev and LogosTest presets ([#4321](https://github.com/logos-messaging/logos-delivery/pull/4321)) ([d4f69192](https://github.com/logos-messaging/logos-delivery/commit/d4f69192))
+- messaging: don't defer a send while mix is unavailable ([#4318](https://github.com/logos-messaging/logos-delivery/pull/4318)) ([e78ad48f](https://github.com/logos-messaging/logos-delivery/commit/e78ad48f))
+- rate-limit: drive admission by RLN's remaining epoch budget ([#4309](https://github.com/logos-messaging/logos-delivery/pull/4309)) ([427d31ec](https://github.com/logos-messaging/logos-delivery/commit/427d31ec))
+- rate-limit: add configurable approached quota state ([#4301](https://github.com/logos-messaging/logos-delivery/pull/4301)) ([59657a3c](https://github.com/logos-messaging/logos-delivery/commit/59657a3c))
+- messaging: report a message queued for rate-limit budget ([#4272](https://github.com/logos-messaging/logos-delivery/pull/4272)) ([6ab62175](https://github.com/logos-messaging/logos-delivery/commit/6ab62175))
+- send: cap parked tasks and task cache in the send scheduler ([#4299](https://github.com/logos-messaging/logos-delivery/pull/4299)) ([1524b254](https://github.com/logos-messaging/logos-delivery/commit/1524b254))
+- Add config to disable RLN proof validation ([#4268](https://github.com/logos-messaging/logos-delivery/pull/4268)) ([1b355190](https://github.com/logos-messaging/logos-delivery/commit/1b355190))
+- discovery: advertise with the node's own signed record ([#4207](https://github.com/logos-messaging/logos-delivery/pull/4207)) ([adba1545](https://github.com/logos-messaging/logos-delivery/commit/adba1545))
+- discovery: review fixes, bounded worker stop, ABI guard, discovery requirements getter ([#4237](https://github.com/logos-messaging/logos-delivery/pull/4237)) ([b94c7b2a](https://github.com/logos-messaging/logos-delivery/commit/b94c7b2a))
+- peer_manager: admit pure-libp2p peers ([#4187](https://github.com/logos-messaging/logos-delivery/pull/4187)) ([9c5e6fc0](https://github.com/logos-messaging/logos-delivery/commit/9c5e6fc0))
+- discovery: advertise this node on the delivery network ([#4176](https://github.com/logos-messaging/logos-delivery/pull/4176)) ([33dd34ce](https://github.com/logos-messaging/logos-delivery/commit/33dd34ce))
+- conf: reach kademlia discovery from the messaging/channels layers ([#4175](https://github.com/logos-messaging/logos-delivery/pull/4175)) ([c3dfe32a](https://github.com/logos-messaging/logos-delivery/commit/c3dfe32a))
+- discovery: external service-discovery backend over a C plugin ABI ([#4174](https://github.com/logos-messaging/logos-delivery/pull/4174)) ([13b1c550](https://github.com/logos-messaging/logos-delivery/commit/13b1c550))
+- discovery: advertise/interest verbs and discv5 decoupling ([#4166](https://github.com/logos-messaging/logos-delivery/pull/4166)) ([89786346](https://github.com/logos-messaging/logos-delivery/commit/89786346))
+- discovery: IPeerDiscovery abstraction over discv5 and Kademlia ([#4165](https://github.com/logos-messaging/logos-delivery/pull/4165)) ([6170eba7](https://github.com/logos-messaging/logos-delivery/commit/6170eba7))
+- nix: cross-compile for Windows (x86_64-w64-mingw32) ([#4290](https://github.com/logos-messaging/logos-delivery/pull/4290)) ([c7ba40b5](https://github.com/logos-messaging/logos-delivery/commit/c7ba40b5))
 - messaging: tag MessageReceivedEvent with its source, live or history ([#4247](https://github.com/logos-messaging/logos-delivery/pull/4247)) ([f99945df](https://github.com/logos-messaging/logos-delivery/commit/f99945df))
 - channels: per-channel encryption with app-supplied ciphers ([#4231](https://github.com/logos-messaging/logos-delivery/pull/4231)) ([49f55fe4](https://github.com/logos-messaging/logos-delivery/commit/49f55fe4))
 - messaging: Store catch-up across process restarts ([#4227](https://github.com/logos-messaging/logos-delivery/pull/4227)) ([e74acbca](https://github.com/logos-messaging/logos-delivery/commit/e74acbca))
@@ -87,6 +121,18 @@
 
 ### Bug Fixes
 
+- rest: correct messaging status codes, 404 hints and metric names ([#4329](https://github.com/logos-messaging/logos-delivery/pull/4329)) ([18e3b18f](https://github.com/logos-messaging/logos-delivery/commit/18e3b18f))
+- discovery: reliable external service-discovery announcements ([#4336](https://github.com/logos-messaging/logos-delivery/pull/4336)) ([1390c180](https://github.com/logos-messaging/logos-delivery/commit/1390c180))
+- mix: pick the exit node with the node's CSPRNG ([#4322](https://github.com/logos-messaging/logos-delivery/pull/4322)) ([453cb1a2](https://github.com/logos-messaging/logos-delivery/commit/453cb1a2))
+- messaging: bound the send loop's head-of-line wait on mix replies ([#4320](https://github.com/logos-messaging/logos-delivery/pull/4320)) ([5faa16ba](https://github.com/logos-messaging/logos-delivery/commit/5faa16ba))
+- messaging: never confirm a mixed message against a store node ([#4319](https://github.com/logos-messaging/logos-delivery/pull/4319)) ([31169615](https://github.com/logos-messaging/logos-delivery/commit/31169615))
+- mix: count only the mix nodes a path can use ([#4317](https://github.com/logos-messaging/logos-delivery/pull/4317)) ([810cd6da](https://github.com/logos-messaging/logos-delivery/commit/810cd6da))
+- mix: give mix this node's own hop once the announced address is real ([#4316](https://github.com/logos-messaging/logos-delivery/pull/4316)) ([0cb9f3cb](https://github.com/logos-messaging/logos-delivery/commit/0cb9f3cb))
+- messaging: emit MessageError when store validation times out ([#4307](https://github.com/logos-messaging/logos-delivery/pull/4307)) ([dd888838](https://github.com/logos-messaging/logos-delivery/commit/dd888838))
+- nix: bundle libpq beside the artifacts that dlopen it ([#4310](https://github.com/logos-messaging/logos-delivery/pull/4310)) ([d4eb5a09](https://github.com/logos-messaging/logos-delivery/commit/d4eb5a09))
+- enr: omit placeholder endpoints, carry only what peers can use ([#4296](https://github.com/logos-messaging/logos-delivery/pull/4296)) ([3f81b006](https://github.com/logos-messaging/logos-delivery/commit/3f81b006))
+- waku_core: keep the tls part of a peer address, relay nits ([#4288](https://github.com/logos-messaging/logos-delivery/pull/4288)) ([e5acd4c6](https://github.com/logos-messaging/logos-delivery/commit/e5acd4c6))
+- waku_core: accept QUIC-v1 peer addresses ([#4287](https://github.com/logos-messaging/logos-delivery/pull/4287)) ([ce122de2](https://github.com/logos-messaging/logos-delivery/commit/ce122de2))
 - health: report Disconnected when required mix is not ready ([#4238](https://github.com/logos-messaging/logos-delivery/pull/4238)) ([3e5bd5b7](https://github.com/logos-messaging/logos-delivery/commit/3e5bd5b7))
 - postgres: make sure partitions are created ([#4260](https://github.com/logos-messaging/logos-delivery/pull/4260)) ([58eebedb](https://github.com/logos-messaging/logos-delivery/commit/58eebedb))
 - tests: make WakuConf (kernel) TCP, Discv5, REST auto-port ([#4253](https://github.com/logos-messaging/logos-delivery/pull/4253)) ([f0fa8590](https://github.com/logos-messaging/logos-delivery/commit/f0fa8590))
@@ -151,6 +197,12 @@
 
 ### Changes
 
+- Bump to nim-libp2p v2.3.5 ([#4315](https://github.com/logos-messaging/logos-delivery/pull/4315)) ([82adcabe](https://github.com/logos-messaging/logos-delivery/commit/82adcabe))
+- Bump to nim-libp2p v2.3.3 ([#4286](https://github.com/logos-messaging/logos-delivery/pull/4286)) ([c3bf7985](https://github.com/logos-messaging/logos-delivery/commit/c3bf7985))
+- Bump nim-brokers to v3.4.0 ([#4291](https://github.com/logos-messaging/logos-delivery/pull/4291)) ([c597a05b](https://github.com/logos-messaging/logos-delivery/commit/c597a05b))
+- conf: flatten rateLimit into root-level fields ([#4298](https://github.com/logos-messaging/logos-delivery/pull/4298)) ([e816e7db](https://github.com/logos-messaging/logos-delivery/commit/e816e7db))
+- send: inject send-processor chain into SendService ([#4306](https://github.com/logos-messaging/logos-delivery/pull/4306)) ([17071591](https://github.com/logos-messaging/logos-delivery/commit/17071591))
+- Split testwaku into testwaku and testwakuext ([#4297](https://github.com/logos-messaging/logos-delivery/pull/4297)) ([dccdc390](https://github.com/logos-messaging/logos-delivery/commit/dccdc390))
 - One node image and a standalone rlnkeystore tool ([#4256](https://github.com/logos-messaging/logos-delivery/pull/4256)) ([e0912910](https://github.com/logos-messaging/logos-delivery/commit/e0912910))
 - Deprecate wakunode2 in favour of logosdeliverynode ([#4229](https://github.com/logos-messaging/logos-delivery/pull/4229)) ([5491cc19](https://github.com/logos-messaging/logos-delivery/commit/5491cc19))
 - Add RLN API folder structure and consumer-facing interface ([#4130](https://github.com/logos-messaging/logos-delivery/pull/4130)) ([c50a580e](https://github.com/logos-messaging/logos-delivery/commit/c50a580e))
