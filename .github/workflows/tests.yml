@@ -58,7 +58,7 @@ jobs:
           fi
 
           export MAKEFLAGS="-j1"
-          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
+          export NIMFLAGS="--colors:off -d:chronicles_colors:none --opt:none"
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
 
