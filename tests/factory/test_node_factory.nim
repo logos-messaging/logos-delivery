@@ -25,6 +25,7 @@ import
     discovery/waku_discv5,
     node/peer_manager,
     node/waku_metrics,
+    waku_metadata,
   ],
   logos_delivery/waku/factory/[
     node_factory,
@@ -208,6 +209,39 @@ suite "Node Factory":
       node.peerManager.switch.peerStore.peers.anyIt(
         it.peerId == discoveredPeer.peerId and it.origin == PeerExchange
       )
+
+  asynctest "A content topic's autoshard is advertised in the ENR and metadata":
+    # Given a node subscribed to shard 0 and a content topic that maps to shard 3
+    var confBuilder = defaultTestWakuConfBuilder()
+    confBuilder.withNumShardsInCluster(8)
+    confBuilder.withContentTopics(@["/toychat/2/huilong/proto"])
+    let conf = confBuilder.build().valueOr:
+      raiseAssert error
+
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+    let client = newTestWakuNode(generateSecp256k1Key(), clusterId = conf.clusterId)
+    client.mountMetadata(conf.clusterId, @[]).isOkOr:
+      raiseAssert error
+    await allFutures(node.start(), client.start())
+    defer:
+      await allFutures(node.stop(), client.stop())
+
+    # When a peer asks for its metadata
+    let conn = (
+      await client.peerManager.dialPeer(
+        node.switch.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
+      )
+    ).valueOr:
+      raiseAssert "could not dial metadata"
+    let metadata = (await client.wakuMetadata.request(conn)).valueOr:
+      raiseAssert error
+
+    # Then both the ENR and the metadata advertise the content topic's shard
+    let enrShards = node.enr.toTyped().get().relaySharding().get()
+    check:
+      enrShards.shardIds == @[0'u16, 3'u16]
+      metadata.shards == @[0'u32, 3'u32]
 
   test "ENR configuration trims multiaddrs until record fits":
     var conf = defaultTestWakuConf()

@@ -162,22 +162,8 @@ proc setupAppCallbacks(
     if node.wakuRelay.isNil():
       return err("Cannot configure relayHandler callback without Relay mounted")
 
-    let autoShards =
-      if node.wakuAutoSharding.isSome():
-        node.getAutoshards(conf.contentTopics).valueOr:
-          return err("Could not get autoshards: " & error)
-      else:
-        @[]
-
-    let confShards = conf.subscribeShards.mapIt(
-      RelayShard(clusterId: conf.clusterId, shardId: uint16(it))
-    )
-    let shards = confShards & autoShards
-
-    let uniqueShards = deduplicate(shards)
-
-    for shard in uniqueShards:
-      let topic = $shard
+    for shardId in conf.subscribeShards.deduplicate():
+      let topic = $RelayShard(clusterId: conf.clusterId, shardId: shardId)
       node.subscribe((kind: PubsubSub, topic: topic), appCallbacks.relayHandler).isOkOr:
         return err(fmt"Could not subscribe {topic}: " & $error)
 

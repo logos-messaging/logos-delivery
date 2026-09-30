@@ -167,6 +167,42 @@ suite "Waku Conf - build with cluster conf":
       uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
     check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
+  test "Content topics add their autoshards to the subscribed shards":
+    ## Setup
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
+    var builder = WakuConfBuilder.init()
+
+    ## Given shards 1 and 3, and content topics mapping to shards 3 and 4
+    builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
+    builder.withNetworkPresetConf(networkPresetConf)
+    builder.withSubscribeShards(@[1.uint16, 3.uint16])
+    builder.withContentTopics(@["/toychat/2/huilong/proto", "/app/1/chat/proto"])
+
+    ## When
+    let resConf = builder.build()
+    assert resConf.isOk(), $resConf.error
+    let conf = resConf.get()
+
+    ## Then
+    let resValidate = conf.validate()
+    assert resValidate.isOk(), $resValidate.error
+    check conf.subscribeShards == @[1.uint16, 3.uint16, 4.uint16]
+
+  test "Content topics do not add shards under static sharding":
+    ## Setup
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(99)
+    builder.withShardingConf(StaticSharding)
+    builder.withSubscribeShards(@[1.uint16])
+    builder.withContentTopics(@["/toychat/2/huilong/proto"])
+
+    ## When
+    let resConf = builder.build()
+    assert resConf.isOk(), $resConf.error
+
+    ## Then
+    check resConf.get().subscribeShards == @[1.uint16]
+
   test "Cluster Conf is passed and invalid shards are specified":
     ## Setup
     let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()

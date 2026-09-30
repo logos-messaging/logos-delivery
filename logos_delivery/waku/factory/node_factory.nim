@@ -147,18 +147,6 @@ proc initNode(
 
 ## Mount protocols
 
-proc getAutoshards*(
-    node: WakuNode, contentTopics: seq[string]
-): Result[seq[RelayShard], string] =
-  if node.wakuAutoSharding.isNone():
-    return err("Static sharding used, cannot get shards from content topics")
-  var autoShards: seq[RelayShard]
-  for contentTopic in contentTopics:
-    let shard = node.wakuAutoSharding.get().getShard(contentTopic).valueOr:
-        return err("Could not parse content topic: " & error)
-    autoShards.add(shard)
-  return ok(autoshards)
-
 proc setupProtocols(
     node: WakuNode, conf: WakuConf
 ): Future[Result[void, string]] {.async.} =
@@ -166,8 +154,7 @@ proc setupProtocols(
   ## Optionally include persistent message storage.
   ## No protocols are started yet.
 
-  var allShards = conf.subscribeShards
-  node.mountMetadata(conf.clusterId, allShards).isOkOr:
+  node.mountMetadata(conf.clusterId, conf.subscribeShards).isOkOr:
     return err("failed to mount waku metadata protocol: " & error)
 
   var onFatalErrorAction = proc(msg: string) {.gcsafe, closure.} =
@@ -283,23 +270,9 @@ proc setupProtocols(
 
     peerExchangeHandler = Opt.some(handlePeerExchange)
 
-  # TODO: when using autosharding, the user should not be expected to pass any shards, but only content topics
-  # Hence, this joint logic should be removed in favour of an either logic:
-  # use passed shards (static) or deduce shards from content topics (auto)
-  let autoShards =
-    if node.wakuAutoSharding.isSome():
-      node.getAutoshards(conf.contentTopics).valueOr:
-        return err("Could not get autoshards: " & error)
-    else:
-      @[]
-
-  debug "Shards created from content topics",
-    contentTopics = conf.contentTopics, shards = autoShards
-
-  let confShards = conf.subscribeShards.mapIt(
+  let shards = conf.subscribeShards.mapIt(
     RelayShard(clusterId: conf.clusterId, shardId: uint16(it))
   )
-  let shards = confShards & autoShards
 
   if conf.relay:
     debug "Setting max message size", num_bytes = conf.maxMessageSizeBytes

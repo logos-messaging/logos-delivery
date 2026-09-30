@@ -16,6 +16,7 @@ import
     node/peer_manager,
     waku_core/message/default_values,
     waku_core/topics/pubsub_topic,
+    waku_core/topics/sharding,
     waku_enr/capabilities,
     persistency/persistency,
     waku_mix,
@@ -369,6 +370,30 @@ proc buildShardingConf(
     let upperShard = uint16(numShardsInCluster - 1)
     (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
 
+proc resolveSubscribeShards(
+    shardingConf: ShardingConf,
+    clusterId: uint16,
+    confShards: seq[uint16],
+    contentTopics: seq[string],
+): Result[seq[uint16], string] =
+  ## With autosharding, add the shards derived from the content topics so that
+  ## relay, metadata and the ENR all advertise the same shard set. Static
+  ## sharding can't map content topics to shards, so they are ignored there.
+  if shardingConf.kind != AutoSharding or shardingConf.numShardsInCluster == 0:
+    return ok(confShards)
+
+  let autoSharding = Sharding(
+    clusterId: clusterId, shardCountGenZero: uint32(shardingConf.numShardsInCluster)
+  )
+  var shards = confShards
+  for contentTopic in contentTopics:
+    let shard = autoSharding.getShard(contentTopic).valueOr:
+      return
+        err("Could not get autoshard for content topic " & contentTopic & ": " & error)
+    if shard.shardId notin shards:
+      shards.add(shard.shardId)
+  return ok(shards)
+
 template checkSetPresetValueToField[T](
     field: var Opt[T], presetVal: T, msg: static string
 ) =
@@ -655,9 +680,12 @@ proc build*(
     else:
       builder.clusterId.get().uint16
 
-  let (shardingConf, subscribeShards) = buildShardingConf(
+  let (shardingConf, confShards) = buildShardingConf(
     builder.shardingConf, builder.numShardsInCluster, builder.subscribeShards
   )
+  let contentTopics = builder.contentTopics.get(@[])
+  let subscribeShards =
+    ?resolveSubscribeShards(shardingConf, clusterId, confShards, contentTopics)
   let protectedShards = builder.protectedShards.get(@[])
 
   info "Sharding configuration: ",
@@ -673,8 +701,6 @@ proc build*(
       debug "Max Message Size not specified, defaulting to DefaultMaxWakuMessageSize",
         default = DefaultMaxWakuMessageSizeStr
       DefaultMaxWakuMessageSize
-
-  let contentTopics = builder.contentTopics.get(@[])
 
   # Build sub-configs
   var discv5Conf = builder.discv5Conf.build().valueOr:
