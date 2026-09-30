@@ -73,6 +73,9 @@ type MessageValidationResult* {.pure.} = enum
   Valid
   Invalid
   Spam
+  UnknownRoot
+    ## Root not in our window even after a refresh; it may be newer than our
+    ## view of the chain, so the proof cannot be judged invalid.
 
 # Protobufs enc and init
 proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtoResult[T] =

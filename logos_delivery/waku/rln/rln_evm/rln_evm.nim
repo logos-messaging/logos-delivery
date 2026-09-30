@@ -91,12 +91,12 @@ proc validateMessage*(
 
   let rootValidationRes = await rlnEvm.groupManager.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
-    debug "Invalid message: provided root does not belong to acceptable window of roots",
+    debug "Unknown root: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
       validRoots = rlnEvm.groupManager.validRoots.mapIt(it.inHex()),
       contentTopic = msg.contentTopic
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
-    return MessageValidationResult.Invalid
+    return MessageValidationResult.UnknownRoot
 
   # verify the proof
   let
@@ -279,9 +279,16 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
 
     let verdict =
       case validationRes
-      of MessageValidationResult.Valid: ProofVerdict.Valid
-      of MessageValidationResult.Invalid: ProofVerdict.Invalid
-      of MessageValidationResult.Spam: ProofVerdict.RateLimitViolation
+      of MessageValidationResult.Valid:
+        ProofVerdict.Valid
+      of MessageValidationResult.Invalid:
+        ProofVerdict.Invalid
+      of MessageValidationResult.Spam:
+        ProofVerdict.RateLimitViolation
+      of MessageValidationResult.UnknownRoot:
+        # No verdict, so the relay ignores instead of penalising a forwarder
+        # whose eth RPC is ahead of ours or whose root landed mid-throttle.
+        return err(RlnError.transient("proof root unknown to this node"))
     return ok(ValidationResult(verdict: verdict))
 
   proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
