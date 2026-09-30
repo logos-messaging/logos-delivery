@@ -93,9 +93,17 @@ proc unlinkPending(target: ptr Pending) =
     p.next = target.next
 
 const
-  # Per-call response budgets. Add 10s to each request's documented worst case.
-  RlnLocalTimeout = 10.seconds
-  RlnRegistryReadTimeout = 80.seconds
+  RlnTimeoutOverhead = 10.seconds
+  RlnLocalTimeout = 5.seconds + RlnTimeoutOverhead
+  RlnRegistryReadTimeout = 90.seconds + RlnTimeoutOverhead
+
+func mixRlnTimeout(methodName: string): Duration =
+  case methodName
+  of "register_membership", "generate_proof", "get_registry_parameters",
+      "get_membership_state", "get_merkle_proof", "get_valid_roots":
+    RlnRegistryReadTimeout
+  else:
+    RlnLocalTimeout
 
 proc awaitResult(
     p: ptr Pending, timeout: Duration
@@ -226,9 +234,7 @@ proc rlnMixCall*(
     linkPending(pending)
   let encoded = $args
   cb(pending.reqId, methodName.cstring, encoded.cstring, ud)
-  let timeout =
-    if methodName == "generate_proof": RlnRegistryReadTimeout else: RlnLocalTimeout
-  let raw = (await awaitResult(pending, timeout)).valueOr:
+  let raw = (await awaitResult(pending, mixRlnTimeout(methodName))).valueOr:
     return err(error)
   try:
     return ok(parseJson(raw))
