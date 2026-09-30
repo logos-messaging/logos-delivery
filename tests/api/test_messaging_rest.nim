@@ -17,7 +17,7 @@ import
   logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
-import ../testlib/[wakucore, testasync, wakunodeconf]
+import ../testlib/[wakucore, testasync, wakunodeconf, rest_requests]
 
 ## Integration test for the messaging REST endpoints and their event cache.
 ##
@@ -144,6 +144,54 @@ suite "Messaging REST API":
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  asyncTest "a send answers 429 with Retry-After when the send queue is full":
+    var conf = restNodeConf()
+    conf.messaging.sendQueueCapacity = Opt.some(1'u)
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start node: " & error
+    let client = restClientFor(node)
+
+    # The node has no peer, so the first send stays in the send queue.
+    let contentTopic = "/test/1/messaging-rest-queue-full/proto"
+    let firstResp = await client.messagingPostMessagesV1(
+      MessagingJsonEnvelope(
+        payload: base64.encode("first"),
+        contentTopic: contentTopic,
+        ephemeral: Opt.none(bool),
+        meta: Opt.none(Base64String),
+      )
+    )
+    check firstResp.status == 200
+
+    # A raw request, because the typed stub does not return the response headers.
+    let fullResp = await issueRequest(
+      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body =
+        "{\"payload\":\"" & $base64.encode("second") & "\",\"contentTopic\":\"" &
+        contentTopic & "\"}",
+    )
+    check:
+      fullResp.status == 429
+      fullResp.headers.getString("Retry-After") == "1"
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  test "an evicted send status counts in logos_delivery_rest_send_dropped":
+    let cache = MessagingEventCache.new(maxSendRequests = 2)
+    let before = logos_delivery_rest_send_dropped.value()
+    for id in ["a", "b", "c"]:
+      cache.recordSend(id, "0x" & id, SendEventKind.Propagated)
+    check:
+      logos_delivery_rest_send_dropped.value() == before + 1
+      cache.pollAllSend().mapIt(it.requestId) == @["b", "c"]
 
   asyncTest "received messages are observable, capped, and evict after poll":
     var node: LogosDelivery

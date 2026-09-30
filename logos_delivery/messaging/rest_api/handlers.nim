@@ -12,6 +12,7 @@ import
   logos_delivery/messaging/messaging_client,
   logos_delivery/messaging/api/subscription,
   logos_delivery/messaging/api/send,
+  logos_delivery/messaging/delivery_service/send_service,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   ./types,
@@ -32,6 +33,11 @@ const ROUTE_MESSAGING_EVENTS_RECEIVEDV1* = "/messaging/v1/events/received"
 
 const AutoshardingRequiredMsg =
   "autosharding is not configured: content-topic subscriptions and sends need --preset or --num-shards-in-network"
+
+const SendQueueFullMsg = "Send queue full, retry later"
+
+const SendQueueFullRetryAfterSec = "1"
+  ## The send service removes finished tasks from its queue once per second.
 
 proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string] =
   ## Rejects a content topic that autosharding cannot resolve.
@@ -164,6 +170,15 @@ proc installMessagingApiHandlers*(
 
     if not autoshardingConfigured:
       return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
+
+    if client.sendService.isFull():
+      debug "Messaging SEND rejected, the send queue is full"
+      return RestApiResponse.error(
+        Http429,
+        SendQueueFullMsg,
+        $MIMETYPE_TEXT,
+        [("Retry-After", SendQueueFullRetryAfterSec)],
+      )
 
     let requestId = (await client.send(envelope)).valueOr:
       error "Messaging SEND failed", error = error

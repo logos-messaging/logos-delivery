@@ -19,6 +19,8 @@ import ./types
 
 declarePublicCounter logos_delivery_rest_received_dropped,
   "received messages evicted from the messaging REST buffer before a poll took them"
+declarePublicCounter logos_delivery_rest_send_dropped,
+  "send statuses evicted from the messaging REST buffer before a poll took them"
 
 const
   DefaultMaxReceived* = 50 ## Received messages kept between polls (spec default).
@@ -72,6 +74,7 @@ proc recordSend*(
     while self.sendOrder.len > self.maxSendRequests:
       let evicted = self.sendOrder.popFirst()
       self.sendByReqId.del(evicted)
+      logos_delivery_rest_send_dropped.inc()
 
   self.sendByReqId.withValue(requestId, status):
     status[].events.add(record)
