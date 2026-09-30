@@ -173,6 +173,50 @@ suite "Waku v2 Rest API - lightpush":
 
     await restLightPushTest.shutdown()
 
+  asyncTest "A node running the lightpush service pushes through itself":
+    # Given a service node set up as the node factory does: lightpush service
+    # and client both mounted, and no remote lightpush peer known
+    let restLightPushTest = await RestLightPushTest.init()
+    let serviceNode = restLightPushTest.serviceNode
+    serviceNode.mountLightPushClient()
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    restLightPushTest.consumerNode.subscribe(
+      (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
+    ).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+    serviceNode.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+
+    let restAddress = parseIpAddress("127.0.0.1")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installLightPushRequestHandler(restServer.router, serviceNode)
+    restServer.start()
+    let restClient =
+      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
+
+    # When pushing through the service node's own REST API
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = toBytes("TEST-SELF")
+      )
+      .toRelayWakuMessage()
+    let requestBody =
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    let response = await restClient.sendPushRequest(requestBody)
+
+    # Then it is relayed by the node itself, without dialling another peer
+    check:
+      response.status == 200
+      response.data.relayPeerCount == Opt.some(1.uint32)
+
+    await restServer.stop()
+    await restServer.closeWait()
+    await restLightPushTest.shutdown()
+
   asyncTest "Push message bad-request":
     # Given
     let restLightPushTest = await RestLightPushTest.init()

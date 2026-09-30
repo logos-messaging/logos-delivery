@@ -34,7 +34,7 @@ const NoPeerNoDiscoError = "No suitable service peer & no discovery method"
 const NoPeerNoneFoundError = "No suitable service peer & none discovered"
 
 proc useSelfHostedLightPush(node: WakuNode): bool =
-  return node.wakuLightPush != nil and node.wakuLightPushClient == nil
+  return not node.wakuLightPush.isNil()
 
 proc convertErrorKindToHttpStatus(statusCode: LightPushStatusCode): HttpCode =
   ## Lightpush status codes are matching HTTP status codes by design

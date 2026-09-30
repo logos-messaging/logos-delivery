@@ -244,7 +244,11 @@ proc lightpushPublishHandler(
     mixify: bool = false,
 ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
   let msgHash = pubsubTopic.computeMessageHash(message).to0xHex()
-  if not node.wakuLightpushClient.isNil():
+  # The client is always mounted alongside the service, and it cannot dial
+  # this node's own peer id.
+  let toSelf =
+    not node.wakuLightPush.isNil() and peer.peerId == node.peerId() and not mixify
+  if not node.wakuLightpushClient.isNil() and not toSelf:
     debug "Publishing message with lightpush",
       pubsubTopic = pubsubTopic,
       contentTopic = message.contentTopic,
