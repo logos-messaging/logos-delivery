@@ -54,7 +54,7 @@ proc startMixRln*(
     node: WakuNode
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   if node.wakuMixRln.isNil():
-    return ok()
+    return err("Mix RLN is not configured")
   if node.rlnPlugin.isNone():
     return err("Mix RLN coordination requires Relay RLN")
   let plugin = node.wakuMixRln
@@ -63,7 +63,7 @@ proc startMixRln*(
       return await node.publishMetadata(topic, data)
   )
   (await plugin.start()).isOkOr:
-    return err(error)
+    return err("Failed to start Mix RLN plugin: " & $error)
   if node.wakuMixRlnListener.isSome():
     return ok()
   let handler = proc(event: MessageSeenEvent): Future[void] {.async: (raises: []).} =
