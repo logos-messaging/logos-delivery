@@ -4,7 +4,7 @@ import mix_rln_spam_protection/module_api
 import logos_delivery/api/events/kernel_events
 import
   logos_delivery/waku/
-    [waku_core, node/waku_node, node/subscription_manager, requests/rln_requests]
+    [waku_core, node/waku_node, node/subscription_manager, rln/rln_plugin]
 import ./[relay, lightpush]
 
 proc publishMetadata(
@@ -17,14 +17,14 @@ proc publishMetadata(
     ephemeral: true,
   )
   # Coordination uses its separate Relay membership, outside send(Required).
-  if not node.rlnLez.isNil() or not node.rln.isNil():
-    let generated = (
-      await RequestGenerateRlnProof.request(
-        node.brokerCtx, message, uint64(message.timestamp div 1_000_000_000)
-      )
-    ).valueOr:
-      return err(error)
-    message.proof = generated.proof
+  if node.rlnPlugin.isSome():
+    try:
+      message = (await attachProof(node.rlnPlugin, message)).valueOr:
+        return err("Failed to attach Relay RLN proof: " & $error)
+    except CancelledError as exc:
+      raise exc
+    except CatchableError as exc:
+      return err("Relay RLN proof generation failed: " & exc.msg)
   try:
     if not node.wakuRelay.isNil():
       let peers = (await node.publish(Opt.none(PubsubTopic), message)).valueOr:
@@ -55,7 +55,7 @@ proc startMixRln*(
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   if node.wakuMixRln.isNil():
     return ok()
-  if node.rlnLez.isNil() and node.rln.isNil():
+  if node.rlnPlugin.isNone():
     return err("Mix RLN coordination requires Relay RLN")
   let plugin = node.wakuMixRln
   plugin.setPublishCallback(
