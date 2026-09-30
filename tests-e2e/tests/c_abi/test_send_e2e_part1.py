@@ -29,7 +29,6 @@ logger = get_custom_logger(__name__)
 PROPAGATED_TIMEOUT_S = 30.0
 SENT_TIMEOUT_S = 10.0
 NO_SENT_OBSERVATION_S = 5.0
-SENT_AFTER_STORE_TIMEOUT_S = 60.0
 NO_STORE_OBSERVATION_S = 60.0
 RECOVERY_TIMEOUT_S = 45.0
 
@@ -136,9 +135,8 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         S19: a store peer comes online later.
           - send() returns Ok(RequestId) immediately
           - Propagated --- relay peer
-          - Sent once the store peer has the message. Gossipsub drops a relay
-            resend as already seen, so the retry reaches the store peer
-            through the lightpush fallback.
+          - The store peer never receives the message: no Sent, and
+            message_error once the store validation window elapses.
         """
         sender_collector = EventCollector()
 
@@ -195,47 +193,54 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
                 # Store peer
                 store_node = WakuNode(NODE_2, f"s19_store_{self.test_id}")
-                store_node.start(relay="true", store="true", lightpush="true", discv5_discovery="false", cluster_id=node_config["clusterId"], shard=0)
+                store_node.start(relay="true", store="true", discv5_discovery="false", cluster_id=node_config["clusterId"], shard=0)
                 store_node.set_relay_subscriptions([self.test_pubsub_topic])
                 relay_multiaddr = get_node_multiaddr(relay_peer)
                 sender_multiaddr = get_node_multiaddr(sender_node)
                 store_node.add_peers([relay_multiaddr, sender_multiaddr])
 
+                error_event = wait_for_error(
+                    collector=sender_collector,
+                    request_id=request_id,
+                    timeout_s=ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S,
+                )
+                assert error_event is not None, (
+                    f"No message_error event within {ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S}s "
+                    f"after the store peer joined. Collected events: {sender_collector.events}"
+                )
+                assert error_event.get("error") == STORE_VALIDATION_TIMEOUT_MSG, (
+                    f"Unexpected error message in message_error event.\n"
+                    f"Expected: {STORE_VALIDATION_TIMEOUT_MSG!r}\n"
+                    f"Got:      {error_event.get('error')!r}"
+                )
+
+                # The store peer answered the sender's store queries.
+                self.wait_for_metric(store_node, "logos_delivery_store_queries_total", 1)
+
                 sent_event = wait_for_sent(
                     collector=sender_collector,
                     request_id=request_id,
-                    timeout_s=SENT_AFTER_STORE_TIMEOUT_S,
+                    timeout_s=0,
                 )
+                assert sent_event is None, f"Unexpected MessageSentEvent: {sent_event}. Collected events: {sender_collector.events}"
 
-                assert sent_event is not None, (
-                    f"No MessageSentEvent received within {SENT_AFTER_STORE_TIMEOUT_S}s "
-                    f"after store peer joined. Collected events: {sender_collector.events}"
-                )
-
-                self.check_sent_message_is_stored(
-                    expected_hashes=[sent_event["messageHash"]],
-                    store_node=store_node,
-                    pubsub_topic=self.test_pubsub_topic,
-                    page_size=5,
-                    ascending="true",
-                )
+                store_response = self.get_messages_from_store(node=store_node, pubsub_topic=self.test_pubsub_topic, page_size=5)
+                assert not store_response.messages, f"The store peer holds a message. Actual response: {store_response.resp_json}"
 
                 assert_event_invariants(sender_collector, request_id)
 
     @pytest.mark.docker_required
-    def test_s20_store_misses_initially_then_retry_succeeds(self, node_config):
+    def test_s20_message_missing_from_store_is_not_resent(self, node_config):
         """
-        S20: the first store query misses, a retry succeeds.
+        S20: the store queries miss, and the message is not sent again.
 
         The store peer is connected but on shard 1, so it does not receive
         the message the relay peer propagates on shard 0. It then joins
-        shard 0. Gossipsub drops a relay resend as already seen, so the retry
-        reaches the store peer through the lightpush fallback; it archives
-        the message and the next store query finds it.
+        shard 0, never receives the message, and the send fails once the
+        store validation window elapses.
 
         Covers state flow:
-            SuccessfullyPropagated -> NextRoundRetry
-              -> SuccessfullyPropagated -> SuccessfullyValidated
+            SuccessfullyPropagated -> FailedToDeliver
         """
         sender_collector = EventCollector()
 
@@ -254,8 +259,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         )
         sender_config = {
             **node_config,
-            # Lightpush only picks peers that were on the message's shard when they
-            # connected; the lightpushnode peer is picked regardless.
+            # A lightpush resend would reach the store peer: the lightpushnode peer is picked whatever its shards.
             "lightpushnode": store_node.get_multiaddr_with_id(),
         }
 
@@ -278,7 +282,6 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                 assert wait_for_mesh(sender_collector), "sender gossipsub mesh has no peer"
 
                 store_node.add_peers([get_node_multiaddr(sender_node), get_node_multiaddr(relay_peer)])
-                self.wait_for_autoconnection([store_node])
 
                 message = create_message_bindings(ephemeral=False)
                 send_result = sender_node.send_message(message=message)
@@ -287,7 +290,6 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                 request_id = send_result.ok_value
                 assert request_id, "send() returned an empty RequestId"
 
-                # Round 1: propagation succeeds via the relay peer.
                 propagated_event = wait_for_propagated(
                     collector=sender_collector,
                     request_id=request_id,
@@ -297,30 +299,35 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                     f"No MessagePropagatedEvent within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
 
-                # Joining shard 0 after the send, the store peer never receives the message over relay.
                 store_node.set_relay_subscriptions([self.test_pubsub_topic])
+
+                error_event = wait_for_error(
+                    collector=sender_collector,
+                    request_id=request_id,
+                    timeout_s=ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S,
+                )
+                assert error_event is not None, (
+                    f"No message_error event within {ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S}s "
+                    f"after the store joined the shard. Collected events: {sender_collector.events}"
+                )
+                assert error_event.get("error") == STORE_VALIDATION_TIMEOUT_MSG, (
+                    f"Unexpected error message in message_error event.\n"
+                    f"Expected: {STORE_VALIDATION_TIMEOUT_MSG!r}\n"
+                    f"Got:      {error_event.get('error')!r}"
+                )
+
+                # The store peer answered the sender's store queries.
+                self.wait_for_metric(store_node, "logos_delivery_store_queries_total", 1)
 
                 sent_event = wait_for_sent(
                     collector=sender_collector,
                     request_id=request_id,
-                    timeout_s=SENT_AFTER_STORE_TIMEOUT_S,
+                    timeout_s=0,
                 )
-                assert sent_event is not None, (
-                    f"No MessageSentEvent within {SENT_AFTER_STORE_TIMEOUT_S}s "
-                    f"after the store joined the shard. "
-                    f"Collected events: {sender_collector.events}"
-                )
+                assert sent_event is None, f"Unexpected MessageSentEvent: {sent_event}. Collected events: {sender_collector.events}"
 
-                # The sender only falls back to lightpush after a store check misses.
-                self.check_metric(store_node, 'logos_delivery_lightpush_v3_messages_total{type="PushRequest"}', 1)
-
-                self.check_sent_message_is_stored(
-                    expected_hashes=[sent_event["messageHash"]],
-                    store_node=store_node,
-                    pubsub_topic=self.test_pubsub_topic,
-                    page_size=5,
-                    ascending="true",
-                )
+                store_response = self.get_messages_from_store(node=store_node, pubsub_topic=self.test_pubsub_topic, page_size=5)
+                assert not store_response.messages, f"The store peer holds a message. Actual response: {store_response.resp_json}"
 
                 assert_event_invariants(sender_collector, request_id)
 
