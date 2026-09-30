@@ -44,10 +44,7 @@ The `page_size` flag in the Store API has a default value of 20 and a max value 
 
 ### Messaging API
 
-The `/messaging/v1` routes serve the Messaging API over REST. The node mounts them only with
-`--entry-layer=messaging` or `--entry-layer=channels`. A kernel-only node answers `404` with
-that hint. The routes need autosharding: set a network preset (`--preset=logos.test`, ...)
-or `--cluster-id` with `--num-shards-in-network`.
+The `/messaging/v1` routes serve the Messaging API over REST. The node mounts them only with `--entry-layer=messaging` or `--entry-layer=channels`. A kernel-only node answers `404` with that hint. The routes need autosharding: set a network preset (`--preset=logos.test`, ...) or `--cluster-id` with `--num-shards-in-network`.
 
 ```bash
 # a service node: runs the Store service that confirms sends and serves backfill
@@ -67,40 +64,31 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `GET /messaging/v1/events/send/{requestId}` | | the send status of one request, then cleared; `404` while nothing is buffered for it |
 | `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
-A send is asynchronous. `200` means that the node accepted the message. The result arrives as
-send events with the same `requestId`:
+A send is asynchronous. `200` means that the node accepted the message. The result arrives as send events with the same `requestId`:
 
 * `queued`: the send waits for rate-limit budget (only when rate limiting is on)
 * `propagated`: the message reached at least one peer
-* `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix
-  exit replied
-* `error`: the send failed (rejected message, no peer within the retry window, no Store
-  confirmation within about 60 s of propagation, ...)
+* `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
+* `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)
 
 `sent` and `error` are final. `sent` needs store-based reliability, and never comes for an ephemeral message. A send over the plain path also needs a Store peer for `sent`. The network preset sets reliability (on for `logos.dev` and `logos.test`, off for `twn` and `status.prod`, on without a preset). For library and JSON configs, `reliability` overrides the preset. Without reliability, and for an ephemeral message, `propagated` is the last event. Clients must ignore kinds that they do not know. A `404` on `GET /events/send/{requestId}` means that nothing is buffered for that id now: the id is unknown, already polled, or has no event yet. Keep polling until the last event.
 
-Each received record has the message hash, the full `WakuMessage` and a `source`: `live` for a
-message that arrived when it was published, `history` for a message that a Store peer returned
-at startup or after a connectivity gap. The node buffers only the content topics subscribed
-through `/messaging/v1/subscriptions`. A relay subscription to the shard is not sufficient. A
-send subscribes the node to its content topic, so the sender also receives its own messages.
+The receivers can have the message after an `error` event. The node does not resend a message after its `propagated` event.
 
-A poll clears what it returns, for every client. The received buffer keeps the newest
-`--rest-messaging-cache-capacity` messages (default 50) and drops the oldest when full. These
-signals report evictions:
+Each received record has the message hash, the full `WakuMessage` and a `source`: `live` for a message that arrived when it was published, `history` for a message that a Store peer returned at startup or after a connectivity gap. The node buffers only the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not sufficient. A send subscribes the node to its content topic, so the sender also receives its own messages.
+
+At startup, the node gets from Store the messages that it missed while it was down. On its first start, it gets the last 24 h.
+
+A poll clears what it returns, for every client. The received buffer keeps the newest `--rest-messaging-cache-capacity` messages (default 50) and drops the oldest when full. These signals report evictions:
 
 * each received record has a `seq`, from 1 without gaps
 * the metric `logos_delivery_rest_received_dropped_total`
 
-With one polling client, a gap in `seq` between two polls is the number of evicted records.
-With more clients, a gap can also be records that another client polled. `seq` starts again at
-1 when the node restarts.
+With one polling client, a gap in `seq` between two polls is the number of evicted records. With more clients, a gap can also be records that another client polled. `seq` starts again at 1 when the node restarts.
 
-An eviction is an observation loss of the client, not a network loss. To stop it, poll faster
-or increase the capacity. The `Message received` log line and the
-`logos_delivery_recv_messages_total{source=...}` metric count every delivery.
+An eviction is an observation loss of the client, not a network loss. To stop it, poll faster or increase the capacity. The `Message received` log line and the `logos_delivery_recv_messages_total{source=...}` metric count every delivery.
 
 Malformed bodies and content topics answer `400`. A node without autosharding answers `503`.
 
 ### Node configuration
-Find details [here](../operators/how-to/configure-rest-api.md)
+Find details [here](../operators/how-to/configure-rest-api.md). To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).

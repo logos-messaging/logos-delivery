@@ -135,3 +135,4 @@ This is an index of tutorials explaining how to configure your nwaku node for di
 7. [Configure QUIC transport](./configure-quic.md)
 8. [Run nwaku with rate limiting enabled](./run-with-rln.md)
 9. [Configure a REST API node](./configure-rest-api.md)
+10. [Run a Messaging API node](./run-messaging.md)
