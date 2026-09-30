@@ -36,10 +36,10 @@ proc testConf(): WakuConf =
     raiseAssert error
 
 proc fixedEpochQuota(
-    epoch: ptr uint64, rateLimit: uint64, remaining: ptr uint64 = nil
+    epoch: ref uint64, rateLimit: uint64, remaining: ref uint64 = nil
 ): QuotaProvider =
   ## Quota pinned to whatever `epoch` (and `remaining`, when given) holds, so a
-  ## test rolls the epoch or spends RLN budget by writing through the pointer.
+  ## test rolls the epoch or spends RLN budget by writing through the ref.
   ## Without `remaining` the epoch's budget is reported untouched.
   return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
     let left = if remaining.isNil(): rateLimit else: remaining[]
@@ -81,11 +81,12 @@ suite "SendService - rate-limit scheduling":
   asyncTest "a task is charged once even when delivery takes several rounds":
     ## First round fails to propagate, second succeeds. The retry must not draw a
     ## second slot: `firstAdmittedTime` guards re-admission.
-    var epoch = 5'u64
+    let epoch = new uint64
+    epoch[] = 5'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 3),
-        fixedEpochQuota(addr epoch, rateLimit = 100),
+        fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(
@@ -110,11 +111,12 @@ suite "SendService - rate-limit scheduling":
   asyncTest "an over-budget task is parked, then released when the epoch rolls":
     ## Budget of one per epoch. The second send is parked until the epoch rolls,
     ## then admitted and delivered.
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, rateLimit = 100),
+        fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -143,7 +145,7 @@ suite "SendService - rate-limit scheduling":
       processor.calls == callsWhenParked
 
     # Epoch rolls: budget refills, the parked task is admitted and delivered.
-    epoch = 2'u64
+    epoch[] = 2'u64
     await service.trySendMessages()
     check:
       second.firstAdmittedTime.isSome()
@@ -152,12 +154,14 @@ suite "SendService - rate-limit scheduling":
   asyncTest "RLN's remaining budget parks a send until the epoch rolls":
     ## The local cap has room, but RLN reports the epoch's budget spent, so the
     ## task parks; the roll refills RLN's budget and releases it.
-    var epoch = 1'u64
-    var remaining = 0'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
+    let remaining = new uint64
+    remaining[] = 0'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 10),
-        fixedEpochQuota(addr epoch, rateLimit = 10, addr remaining),
+        fixedEpochQuota(epoch, rateLimit = 10, remaining),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -176,8 +180,8 @@ suite "SendService - rate-limit scheduling":
       task.firstAdmittedTime.isNone()
       processor.calls == 0
 
-    epoch = 2'u64
-    remaining = 10'u64
+    epoch[] = 2'u64
+    remaining[] = 10'u64
     await service.trySendMessages()
     check:
       task.firstAdmittedTime.isSome()
@@ -185,11 +189,12 @@ suite "SendService - rate-limit scheduling":
 
   asyncTest "a task parked for budget reports itself queued, exactly once":
     ## The park branch is re-entered every retry round; the event must not be.
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, rateLimit = 100),
+        fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -221,7 +226,7 @@ suite "SendService - rate-limit scheduling":
     check queued.len == 1
 
     ## Released by the roll, and delivery emits no further queued event.
-    epoch = 2'u64
+    epoch[] = 2'u64
     await service.trySendMessages()
     check:
       second.state == DeliveryState.SuccessfullyPropagated
@@ -230,7 +235,7 @@ suite "SendService - rate-limit scheduling":
     await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
 
   proc approachedService(
-      epoch: ptr uint64, messagesPerEpoch: uint64, processor: FakeSendProcessor
+      epoch: ref uint64, messagesPerEpoch: uint64, processor: FakeSendProcessor
   ): (SendService, RateLimitManager) =
     ## 50% threshold, so half the budget spent is Approached.
     let manager = RateLimitManager
@@ -249,9 +254,10 @@ suite "SendService - rate-limit scheduling":
     return (service, manager)
 
   asyncTest "an ephemeral message is dropped when the quota is approached":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
-    let (service, manager) = approachedService(addr epoch, 4, processor)
+    let (service, manager) = approachedService(epoch, 4, processor)
 
     var errors: seq[MessageErrorEvent]
     discard MessageErrorEvent
@@ -295,9 +301,10 @@ suite "SendService - rate-limit scheduling":
     await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
 
   asyncTest "an ephemeral message is dropped, not parked, when the quota is exhausted":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
-    let (service, manager) = approachedService(addr epoch, 1, processor)
+    let (service, manager) = approachedService(epoch, 1, processor)
 
     var errors: seq[MessageErrorEvent]
     discard MessageErrorEvent
@@ -320,7 +327,7 @@ suite "SendService - rate-limit scheduling":
       errors.len == 1
 
     ## Budget refills, but the dropped message stays dropped.
-    epoch = 2'u64
+    epoch[] = 2'u64
     await service.trySendMessages()
     check:
       processor.calls == callsBefore
@@ -330,9 +337,10 @@ suite "SendService - rate-limit scheduling":
     await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
 
   asyncTest "an ephemeral message below the threshold is charged and sent":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
-    let (service, manager) = approachedService(addr epoch, 4, processor)
+    let (service, manager) = approachedService(epoch, 4, processor)
 
     let eph = buildTask("ephemeral-normal", "eph", ephemeral = true)
     await service.send(eph)
@@ -342,9 +350,10 @@ suite "SendService - rate-limit scheduling":
       manager.sentInCurrentEpoch == 1'u64
 
   asyncTest "a durable message is still admitted when the quota is approached":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
-    let (service, manager) = approachedService(addr epoch, 4, processor)
+    let (service, manager) = approachedService(epoch, 4, processor)
 
     await service.send(buildTask("durable-a", "a"))
     await service.send(buildTask("durable-b", "b"))
@@ -373,11 +382,12 @@ suite "SendService - rate-limit scheduling":
       .expect("listen MessageErrorEvent")
 
   asyncTest "a parked task past the max parked age fails; admitted and fresh ones stay":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, rateLimit = 100),
+        fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(
@@ -413,7 +423,7 @@ suite "SendService - rate-limit scheduling":
       fresh.state == DeliveryState.NextRoundRetry
 
     ## The fresh parked task is still released when the epoch rolls.
-    epoch = 2'u64
+    epoch[] = 2'u64
     await service.trySendMessages()
     check:
       fresh.firstAdmittedTime.isSome()
@@ -422,11 +432,12 @@ suite "SendService - rate-limit scheduling":
     await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
 
   asyncTest "sends beyond the task cache cap are rejected with an error event":
-    var epoch = 1'u64
+    let epoch = new uint64
+    epoch[] = 1'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, rateLimit = 100),
+        fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.NextRoundRetry])
