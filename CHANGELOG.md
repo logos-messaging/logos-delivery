@@ -198,7 +198,6 @@
 ### Changes
 
 - Bump to nim-libp2p v2.3.5 ([#4315](https://github.com/logos-messaging/logos-delivery/pull/4315)) ([82adcabe](https://github.com/logos-messaging/logos-delivery/commit/82adcabe))
-- Bump to nim-libp2p v2.3.3 ([#4286](https://github.com/logos-messaging/logos-delivery/pull/4286)) ([c3bf7985](https://github.com/logos-messaging/logos-delivery/commit/c3bf7985))
 - Bump nim-brokers to v3.4.0 ([#4291](https://github.com/logos-messaging/logos-delivery/pull/4291)) ([c597a05b](https://github.com/logos-messaging/logos-delivery/commit/c597a05b))
 - conf: flatten rateLimit into root-level fields ([#4298](https://github.com/logos-messaging/logos-delivery/pull/4298)) ([e816e7db](https://github.com/logos-messaging/logos-delivery/commit/e816e7db))
 - send: inject send-processor chain into SendService ([#4306](https://github.com/logos-messaging/logos-delivery/pull/4306)) ([17071591](https://github.com/logos-messaging/logos-delivery/commit/17071591))
