@@ -818,7 +818,6 @@ procSuite "Peer Manager":
       conn2.isNone or conn2.get().isClosed
       conn3.isSome and not conn3.get().isClosed
 
-  # TODO: nwaku/issues/1377
   asyncTest "Peer manager connects to all peers supporting a given protocol":
     # Create 4 nodes
     let nodes = toSeq(0 ..< 4).mapIt(
