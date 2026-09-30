@@ -17,6 +17,7 @@ import
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/rpc/message,
   libp2p/peerid
+from metrics import value
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,
@@ -437,6 +438,24 @@ procSuite "Peer Manager":
       )
 
     await node.stop()
+
+  asyncTest "total unique peers metric counts each peer once":
+    let
+      node = newTestWakuNode(generateSecp256k1Key())
+      loc = MultiAddress.init("/ip4/127.0.0.1/tcp/0").tryGet()
+      peerA = PeerInfo.new(generateEcdsaKey(), @[loc]).toRemotePeerInfo()
+      peerB = PeerInfo.new(generateEcdsaKey(), @[loc]).toRemotePeerInfo()
+      baseline = logos_delivery_total_unique_peers.value()
+
+    node.peerManager.addPeer(peerA)
+    node.peerManager.addPeer(peerA)
+    node.peerManager.addPeer(peerA, Discv5)
+
+    check logos_delivery_total_unique_peers.value() == baseline + 1
+
+    node.peerManager.addPeer(peerB)
+
+    check logos_delivery_total_unique_peers.value() == baseline + 2
 
   asyncTest "Peer manager keeps track of connections":
     # Create 2 nodes

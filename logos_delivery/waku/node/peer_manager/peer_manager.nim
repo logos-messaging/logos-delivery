@@ -164,12 +164,15 @@ proc addPeer*(
     trace "skipping to manage our unmanageable self"
     return
 
+  let isNewPeer = not pm.switch.peerStore.peerExists(remotePeerInfo.peerId)
+
   pm.switch.peerStore.addPeer(remotePeerInfo, origin)
 
   trace "Adding peer to manager",
     peerId = remotePeerInfo.peerId, addresses = remotePeerInfo.addrs, origin
 
-  logos_delivery_total_unique_peers.inc()
+  if isNewPeer:
+    logos_delivery_total_unique_peers.inc()
 
   # Add peer to storage. Entry will subsequently be updated with connectedness information
   if not pm.storage.isNil:
