@@ -15,7 +15,14 @@ NIMBLE_DIR="${2:-${HOME}/.local/nimble-${PIN}/bin}"
 if command -v cygpath >/dev/null 2>&1; then
   NIMBLE_DIR="$(cygpath -u "${NIMBLE_DIR}")"
 fi
-NIMBLE_BIN="${NIMBLE_DIR}/nimble"
+
+# On Windows (MSYS2) the binaries carry a .exe extension.
+EXE=""
+case "$(uname -s)" in
+MINGW* | MSYS* | CYGWIN*) EXE=".exe" ;;
+esac
+
+NIMBLE_BIN="${NIMBLE_DIR}/nimble${EXE}"
 
 if [[ "${PIN}" =~ ^[0-9a-f]{40}$ ]]; then
   REF="${PIN}"
@@ -52,9 +59,9 @@ echo "Building nimble ${PIN} with $("${NIM_BIN}" --version | head -1)..."
 cd "${WORK_DIR}/nimble"
 # A private nimcache keeps two runs from clobbering each other.
 "${NIM_BIN}" c -d:release --path:src --nimcache:"${WORK_DIR}/nimcache" \
-  -o:"${WORK_DIR}/nimble_new" src/nimble.nim
+  -o:"${WORK_DIR}/nimble_new${EXE}" src/nimble.nim
 
-cp "${WORK_DIR}/nimble_new" "${NIMBLE_BIN}.new.$$"
+cp "${WORK_DIR}/nimble_new${EXE}" "${NIMBLE_BIN}.new.$$"
 mv -f "${NIMBLE_BIN}.new.$$" "${NIMBLE_BIN}"
 
 echo "Nimble ${PIN} installed to ${NIMBLE_BIN}"
