@@ -9,4 +9,5 @@ import
   ./test_requestratelimiter,
   ./test_ratelimit_setting,
   ./test_timed_map,
-  ./test_dburl
+  ./test_dburl,
+  ./test_collector

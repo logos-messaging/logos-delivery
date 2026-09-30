@@ -1,12 +1,15 @@
 {.push raises: [].}
 
-import metrics
+import std/strutils, metrics
 
 proc parseCollectorIntoF64(collector: SimpleCollector): float64 {.gcsafe, raises: [].} =
   {.gcsafe.}:
     var total = 0.float64
     for metrics in collector.metrics:
       for metric in metrics:
+        # counters also expose a `<name>_created` sample holding a Unix timestamp
+        if ($metric.name).endsWith("_created"):
+          continue
         try:
           total = total + metric.value
         except KeyError:
