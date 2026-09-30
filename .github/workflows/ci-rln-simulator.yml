@@ -115,6 +115,7 @@ jobs:
             .git/modules
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
+      # Not ./.github/actions/install-nim: the dispatched branch may predate it.
       - name: Install Nim ${{ env.NIM_VERSION }}
         uses: jiro4989/setup-nim-action@v2
         with:

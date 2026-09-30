@@ -1,0 +1,40 @@
+name: 'Install Nim'
+description: >
+  Installs Nim with jiro4989/setup-nim-action. On macOS, where that action
+  builds Nim from source, the install is cached and a cache hit skips it.
+
+inputs:
+  nim-version:
+    description: 'The Nim version to install.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # c_code and nimcache only serve the build from source and hold ~2 GB.
+    # Bump v1 to start the cache over.
+    - name: Cache Nim
+      id: cache
+      if: ${{ runner.os == 'macOS' }}
+      uses: actions/cache@v3
+      with:
+        path: |
+          .nim_runtime
+          !.nim_runtime/c_code
+          !.nim_runtime/nimcache
+        key: ${{ runner.os }}-${{ runner.arch }}-nim-v1-${{ inputs.nim-version }}
+
+    - name: Install Nim ${{ inputs.nim-version }}
+      if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: ${{ inputs.nim-version }}
+        repo-token: ${{ github.token }}
+
+    # The PATH entries setup-nim-action adds, which a cache hit skips.
+    - name: Add Nim to PATH
+      if: ${{ steps.cache.outputs.cache-hit == 'true' }}
+      shell: bash
+      run: |
+        echo "$PWD/.nim_runtime/bin" >> "$GITHUB_PATH"
+        echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
