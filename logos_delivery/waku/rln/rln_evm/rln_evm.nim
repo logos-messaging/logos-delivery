@@ -214,7 +214,7 @@ proc mount(
 
   rlnEvm = RlnEvm(
     groupManager: groupManager,
-    nonceManager: NonceManager.init(conf.userMessageLimit, conf.epochSizeSec.float),
+    nonceManager: NonceManager.init(conf.userMessageLimit),
     rlnEpochSizeSec: conf.epochSizeSec,
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
@@ -285,37 +285,30 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
     return ok(ValidationResult(verdict: verdict))
 
   proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
-    ## Uses the wall clock and the root-refreshing generator: a message can
-    ## wait in the send service's task cache while the group root moves on
-    ## chain.
-    let proof = (
-      await rlnEvm.generateRLNProofWithRootRefresh(
-        message.toRLNSignal(), float64(getTime().toUnix())
-      )
-    ).valueOr:
-      return err(RlnError.transient(error))
-    return ok(proof)
+    ## The proof's epoch is the message timestamp's, the epoch validators
+    ## check the proof against (`validateMessage`), so a message that waited
+    ## in the send service's task cache still carries a consistent proof. The
+    ## root-refreshing generator covers the group root moving on chain during
+    ## that wait.
+    if message.timestamp <= 0:
+      return err(RlnError.permanent("the message has not been timestamped"))
+    return await rlnEvm.generateRLNProofWithRootRefresh(
+      message.toRLNSignal(), float64(message.timestamp) / 1e9
+    )
 
   proc quota(timestamp: uint64): Future[Result[EpochQuota, RlnError]] {.async.} =
     ## The membership has a single implicit scope, and the nonce manager
-    ## tracks spent budget only for the current epoch.
+    ## tracks spent budget only for the epoch it last drew from.
     let limit = rlnEvm.groupManager.userMessageLimit.valueOr:
       return err(RlnError.notReady("the user message limit is not set"))
 
     let rateLimit = uint64(limit)
-    let epoch = rlnEvm.calcEpoch(timestamp.float64)
-    let nm = rlnEvm.nonceManager
-    let spent =
-      if epoch != rlnEvm.getCurrentEpoch():
-        0'u64
-      elif getTime().toUnixFloat() - nm.lastNonceTime >= nm.epoch:
-        0'u64
-      else:
-        min(nm.nextNonce, rateLimit)
+    let epochIndex = rlnEvm.epochIndexOf(timestamp.float64)
+    let spent = min(rlnEvm.nonceManager.spent(epochIndex), rateLimit)
 
     return ok(
       EpochQuota(
-        epochIndex: fromEpoch(epoch), rateLimit: rateLimit, remaining: rateLimit - spent
+        epochIndex: epochIndex, rateLimit: rateLimit, remaining: rateLimit - spent
       )
     )
 
