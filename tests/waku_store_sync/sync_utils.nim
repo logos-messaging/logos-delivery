@@ -29,6 +29,7 @@ proc newTestWakuRecon*(
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     relayJitter: timer.Duration = 0.seconds,
+    clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -42,6 +43,7 @@ proc newTestWakuRecon*(
     idsRx = idsRx,
     localWantsTx = wantsTx,
     remoteNeedsTx = needsTx,
+    clock = clock,
   )
 
   let proto = res.get()

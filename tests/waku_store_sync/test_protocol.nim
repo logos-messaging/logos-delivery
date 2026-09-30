@@ -318,22 +318,39 @@ suite "Waku Sync: reconciliation":
     check:
       remoteNeeds.len == 0
 
-  asyncTest "sync 2 nodes 100K msgs 1 diff":
+  asyncTest "sync 2 nodes 100K msgs, diffs at first, last and a random message":
+    let now = getNowInNanosecondTime()
+    let clock = proc(): Timestamp {.gcsafe, raises: [].} =
+      now
+
     server = await newTestWakuRecon(
-      serverSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      serverSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
     client = await newTestWakuRecon(
-      clientSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      clientSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
 
-    let msgCount = 100_000
-    var diffIndex = rand(msgCount)
-    var diff: WakuMessageHash
+    const msgCount = 100_000
+    let diffIndexes = [0, rand(1 .. msgCount - 2), msgCount - 1]
+    var diffs: HashSet[WakuMessageHash]
 
-    # the sync window is 1 hour, spread msg equally in that time
-    let timeSlice = calculateTimeRange()
-    let timeWindow = int64(timeSlice.b) - int64(timeSlice.a)
-    let (part, _) = divmod(timeWindow, 100_000)
+    # spread msgs equally over the nodes' 1 hour sync window
+    let timeSlice = calculateTimeRange(now, 0.seconds, DefaultSyncRange)
+    let part = (timeSlice.b - timeSlice.a) div msgCount
 
     var timestamp = timeSlice.a
 
@@ -343,30 +360,48 @@ suite "Waku Sync: reconciliation":
 
       server.messageIngress(hash, DefaultPubsubTopic, msg)
 
-      if i != diffIndex:
-        client.messageIngress(hash, DefaultPubsubTopic, msg)
+      if i in diffIndexes:
+        diffs.incl(hash)
       else:
-        diff = hash
+        client.messageIngress(hash, DefaultPubsubTopic, msg)
 
-      timestamp += Timestamp(part)
+      timestamp += part
 
     check:
       remoteNeeds.len == 0
-      remoteNeeds.contains((clientPeerInfo.peerId, WakuMessageHash(diff))) == false
 
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check:
-      remoteNeeds.len == 1
-      remoteNeeds.contains((clientPeerInfo.peerId, WakuMessageHash(diff))) == true
+      remoteNeeds.len == diffs.len
+    for hash in diffs:
+      check remoteNeeds.contains((clientPeerInfo.peerId, hash))
 
   asyncTest "sync 2 nodes 10K msgs 1K diffs":
+    let now = getNowInNanosecondTime()
+    let clock = proc(): Timestamp {.gcsafe, raises: [].} =
+      now
+
     server = await newTestWakuRecon(
-      serverSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      serverSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
     client = await newTestWakuRecon(
-      clientSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      clientSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
 
     const
@@ -379,7 +414,8 @@ suite "Waku Sync: reconciliation":
       missingIdx.incl rand(0 ..< msgCount)
 
     ## ── generate messages and pre-load the two reconcilers ───────────────
-    let slice = calculateTimeRange() # 1-hour window
+    # nodes' 1-hour window
+    let slice = calculateTimeRange(now, 0.seconds, DefaultSyncRange)
     let step = (int64(slice.b) - int64(slice.a)) div msgCount
     var ts = slice.a
 
@@ -400,28 +436,45 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    ## ── verify that ≈1000 diffs were queued (allow 10 % slack) ────────────
-    check remoteNeeds.len >= 900 # ≈ 1000 × 0.9
+    ## ── verify that every missing message was queued ─────────────────────
+    check remoteNeeds.len == diffCount
 
   asyncTest "sync 2 nodes 400K msgs 100k diffs":
+    let now = getNowInNanosecondTime()
+    let clock = proc(): Timestamp {.gcsafe, raises: [].} =
+      now
+
     server = await newTestWakuRecon(
-      serverSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      serverSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
     client = await newTestWakuRecon(
-      clientSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+      clientSwitch,
+      @[],
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      clock = clock,
     )
 
     const
       msgCount = 400_000
       diffCount = 100_000
-      tol = 10_000
 
     var diffMsgHashes: HashSet[WakuMessageHash]
     var missingIdx: HashSet[int]
     while missingIdx.len < diffCount:
       missingIdx.incl rand(0 ..< msgCount)
 
-    let slice = calculateTimeRange()
+    let slice = calculateTimeRange(now, 0.seconds, DefaultSyncRange)
     let step = (int64(slice.b) - int64(slice.a)) div msgCount
     var ts = slice.a
 
@@ -443,7 +496,7 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    check remoteNeeds.len >= diffCount - tol and remoteNeeds.len < diffCount
+    check remoteNeeds.len == diffCount
     let (_, deliveredHash) = await remoteNeeds.get()
     check deliveredHash in diffMsgHashes
 
@@ -977,7 +1030,9 @@ suite "Waku Sync: transfer":
 
   ## Disabled until we impl. DOS protection again
   #[ asyncTest "Check the exact missing messages are received":
-    let timeSlice = calculateTimeRange()
+    let timeSlice = calculateTimeRange(
+      getNowInNanosecondTime(), DefaultGossipSubJitter, DefaultSyncRange
+    )
     let timeWindow = int64(timeSlice.b) - int64(timeSlice.a)
     let (part, _) = divmod(timeWindow, 3)
 

@@ -59,6 +59,7 @@ type SyncReconciliation* = ref object of LPProtocol
   syncInterval: timer.Duration # Time between each synchronization attempt
   syncRange: timer.Duration # Amount of time in the past to sync
   relayJitter: Duration # Amount of time since the present to ignore when syncing
+  clock: proc(): Timestamp {.gcsafe, raises: [].} # Source of the present time
 
   # futures
   periodicSyncFut: Future[void]
@@ -135,7 +136,7 @@ proc preProcessPayload(self: SyncReconciliation, payload: RangesData): Opt[Range
   elif self.contentTopics.len > 0:
     payload.contentTopics = self.contentTopics.toSeq()
 
-  let timeRange = calculateTimeRange(self.relayJitter, self.syncRange)
+  let timeRange = calculateTimeRange(self.clock(), self.relayJitter, self.syncRange)
   let selfLowerBound = timeRange.a
 
   # for non skip ranges check if they happen before any of our ranges
@@ -267,7 +268,7 @@ proc initiate(
     contentTopics: seq[ContentTopic],
 ): Future[Result[void, string]] {.async.} =
   let
-    timeRange = calculateTimeRange(offset, syncRange)
+    timeRange = calculateTimeRange(self.clock(), offset, syncRange)
     lower = SyncID(time: timeRange.a, hash: EmptyFingerprint)
     upper = SyncID(time: timeRange.b, hash: FullFingerprint)
     bounds = lower .. upper
@@ -340,12 +341,12 @@ proc storeSynchronization*(
   return ok()
 
 proc initFillStorage(
-    syncRange: timer.Duration, wakuArchive: WakuArchive
+    syncRange: timer.Duration, wakuArchive: WakuArchive, now: Timestamp
 ): Future[Result[SeqStorage, string]] {.async.} =
   if wakuArchive.isNil():
     return err("waku archive unavailable")
 
-  let endTime = getNowInNanosecondTime()
+  let endTime = now
   let starTime = endTime - syncRange.nanos
 
   var query = ArchiveQuery(
@@ -395,8 +396,9 @@ proc new*(
     idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     localWantsTx: AsyncQueue[PeerId],
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
 ): Future[Result[T, string]] {.async.} =
-  let res = await initFillStorage(syncRange, wakuArchive)
+  let res = await initFillStorage(syncRange, wakuArchive, clock())
   let storage =
     if res.isErr():
       warn "will not sync messages before this point in time", error = res.error
@@ -412,6 +414,7 @@ proc new*(
     syncRange: syncRange,
     syncInterval: syncInterval,
     relayJitter: relayJitter,
+    clock: clock,
     idsRx: idsRx,
     localWantsTx: localWantsTx,
     remoteNeedsTx: remoteNeedsTx,
@@ -457,7 +460,7 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
 
     debug "Periodic prune started"
 
-    let time = getNowInNanosecondTime() - self.syncRange.nanos
+    let time = self.clock() - self.syncRange.nanos
 
     let count = self.storage.prune(time)
 

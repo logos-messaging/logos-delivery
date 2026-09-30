@@ -2,22 +2,16 @@ import chronos
 
 import ../../waku_core/time, ../common
 
-proc calculateTimeRange*(
-    jitter: Duration = 20.seconds, syncRange: Duration = 1.hours
+func calculateTimeRange*(
+    now: Timestamp, jitter: Duration, syncRange: Duration
 ): Slice[Timestamp] =
-  ## Calculates the start and end time of a sync session
-
-  var now = getNowInNanosecondTime()
+  ## Calculates the start and end time of a sync session relative to `now`
 
   # Because of message jitter inherent to Relay protocol
-  now -= jitter.nanos
+  let syncEnd = now - jitter.nanos
+  let syncStart = syncEnd - syncRange.nanos
 
-  let syncRange = syncRange.nanos
-
-  let syncStart = now - syncRange
-  let syncEnd = now
-
-  return Timestamp(syncStart) .. Timestamp(syncEnd)
+  return syncStart .. syncEnd
 
 proc equalPartitioning*(slice: Slice[SyncID], count: int): seq[Slice[SyncID]] =
   ## Partition into N time slices.
