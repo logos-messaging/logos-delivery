@@ -820,11 +820,9 @@ type PeerClass = enum
 
 proc classifyPeer(pm: PeerManager, peerId: PeerId): PeerClass =
   let protos = pm.switch.peerStore[ProtoBook][peerId]
-  let registeredMixPeer = pm.switch.peerStore.getPeer(peerId).mixPubKey.isSome()
   if WakuMetadataCodec in protos:
     return Member
-  if registeredMixPeer or
-      (pm.maxPureLibp2pPeers > 0 and PureLibp2pProtocols.anyIt(it in protos)):
+  if pm.maxPureLibp2pPeers > 0 and PureLibp2pProtocols.anyIt(it in protos):
     return PureLibp2p
   return Reject
 
@@ -849,8 +847,7 @@ proc admitPureLibp2pPeer(pm: PeerManager, peerId: PeerId): bool =
   ## lookups.
   if peerId in pm.pureLibp2pPeers:
     return true # Identified fires per connection; already admitted
-  let registeredMixPeer = pm.switch.peerStore.getPeer(peerId).mixPubKey.isSome()
-  if not registeredMixPeer and pm.hasInboundConnection(peerId) and
+  if pm.hasInboundConnection(peerId) and
       pm.inboundPureLibp2pCount() >= pm.maxPureLibp2pPeers:
     return false
   pm.pureLibp2pPeers.incl(peerId)

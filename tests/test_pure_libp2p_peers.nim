@@ -5,7 +5,6 @@ import
   testutils/unittests,
   chronos,
   libp2p/switch,
-  libp2p/peerstore,
   libp2p/protocols/protocol,
   libp2p/crypto/curve25519,
   libp2p/crypto/rng,
@@ -73,7 +72,7 @@ suite "Peer manager - pure-libp2p peers":
 
     await allFutures(node.stop(), peer.stop())
 
-  asyncTest "a registered Mix peer is exempt when the generic budget is off":
+  asyncTest "a registered Mix peer is rejected when the budget is off":
     let node = await newMemberNode()
     let peer = newMixSwitch()
     await peer.start()
@@ -86,12 +85,12 @@ suite "Peer manager - pure-libp2p peers":
     peerInfo.mixPubKey = Opt.some(mixKey)
     node.peerManager.addPeer(peerInfo)
 
-    await peer.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
+    await peer.connectExpectingDrop(node)
     await sleepAsync(Settle)
 
     check:
-      node.switch.isConnected(peer.peerInfo.peerId)
-      peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
+      not node.switch.isConnected(peer.peerInfo.peerId)
+      peer.peerInfo.peerId notin node.peerManager.pureLibp2pPeers
 
     await allFutures(node.stop(), peer.stop())
 
