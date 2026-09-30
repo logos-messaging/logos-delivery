@@ -47,7 +47,6 @@ runs:
         echo "name=$(basename "$(dirname "$dir")")" >> "$GITHUB_OUTPUT"
 
     # A hit lets `make build-deps` skip building the pinned Nimble from source.
-    # Bump v1 to start the cache over.
     - name: Cache the pinned Nimble
       uses: actions/cache@v3
       with:

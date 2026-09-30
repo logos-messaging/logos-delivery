@@ -12,14 +12,14 @@ runs:
   using: composite
   steps:
     # c_code and nimcache only serve the build from source and hold ~2 GB.
-    # Bump v1 to start the cache over.
+    # actions/cache excludes only listed entries, hence the children glob.
     - name: Cache Nim
       id: cache
       if: ${{ runner.os == 'macOS' }}
       uses: actions/cache@v3
       with:
         path: |
-          .nim_runtime
+          .nim_runtime/*
           !.nim_runtime/c_code
           !.nim_runtime/nimcache
         key: ${{ runner.os }}-${{ runner.arch }}-nim-v1-${{ inputs.nim-version }}

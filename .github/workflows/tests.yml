@@ -37,6 +37,17 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
 
+      # Nim recompiles only the C files whose generated code changed. Only
+      # master saves, one entry per commit; restore-keys pick the newest.
+      - name: Restore nimcache
+        id: nimcache
+        uses: actions/cache/restore@v3
+        with:
+          path: nimcache
+          key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ matrix.suite.name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ matrix.suite.name }}-
+
       - name: Run tests
         run: |
           # all_tests_waku carries the only postgres suites.
@@ -50,6 +61,13 @@ jobs:
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
+
+      - name: Save nimcache
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'pull_request' }}
+        uses: actions/cache/save@v3
+        with:
+          path: nimcache
+          key: ${{ steps.nimcache.outputs.cache-primary-key }}
 
       - name: Audit installed deps
         run: make audit-deps
