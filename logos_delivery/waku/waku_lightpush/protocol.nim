@@ -21,6 +21,7 @@ type WakuLightPush* = ref object of LPProtocol
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
   autoSharding: Opt[Sharding]
+  maxRpcSize: int
 
 proc handleRequest(
     wl: WakuLightPush, peerId: PeerId, pushRequest: LightpushRequest
@@ -107,21 +108,32 @@ proc initProtocolHandler(wl: WakuLightPush) =
       await conn.closeWithEOF()
 
     wl.requestRateLimiter.checkUsageLimit(WakuLightPushCodec, conn):
-      var buffer: seq[byte]
-      try:
-        buffer = await conn.readLp(DefaultMaxRpcSize)
-      except LPStreamError:
-        debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
-        return
+      block readAndHandle:
+        var buffer: seq[byte]
+        try:
+          buffer = await conn.readLp(wl.maxRpcSize)
+        except MaxSizeError:
+          # Only the length prefix was read, so the requestId is unknown.
+          debug "Lightpush request too large",
+            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+          rpc = LightPushResponse(
+            requestId: "N/A",
+            statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
+            statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+          )
+          break readAndHandle
+        except LPStreamError:
+          debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
+          return
 
-      logos_delivery_service_network_bytes.inc(
-        amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
-      )
+        logos_delivery_service_network_bytes.inc(
+          amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
+        )
 
-      try:
-        rpc = await wl.handleRequest(conn.peerId, buffer)
-      except CatchableError:
-        error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
+        try:
+          rpc = await wl.handleRequest(conn.peerId, buffer)
+        except CatchableError:
+          error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
     do:
       debug "Lightpush request rejected due rate limit exceeded",
         peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
@@ -155,6 +167,7 @@ proc new*(
     pushHandler: PushMessageHandler,
     autoSharding: Opt[Sharding],
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
+    maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): T =
   let wl = WakuLightPush(
     rng: rng,
@@ -162,6 +175,7 @@ proc new*(
     pushHandler: pushHandler,
     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
     autoSharding: autoSharding,
+    maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
   )
   wl.initProtocolHandler()
   setServiceLimitMetric(WakuLightpushCodec, rateLimitSetting)
