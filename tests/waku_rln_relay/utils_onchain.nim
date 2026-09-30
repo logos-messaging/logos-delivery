@@ -494,6 +494,7 @@ proc runAnvil*(
     chainId: string = "1234",
     stateFile: Opt[string] = Opt.none(string),
     dumpStateOnExit: bool = false,
+    forkUrl: Opt[string] = Opt.none(string),
 ): Process =
   # Gas/fee values mirror Linea Sepolia testnet.
   # See https://book.getfoundry.sh/reference/anvil/ for option details.
@@ -517,6 +518,12 @@ proc runAnvil*(
       "--disable-min-priority-fee",
       "--silent",
     ]
+
+    if forkUrl.isSome():
+      # A fork only sees the source chain up to the fork block, which emulates
+      # an eth RPC that lags behind the one other nodes use.
+      args.add("--fork-url")
+      args.add(forkUrl.get())
 
     if stateFile.isSome():
       var statePath = stateFile.get()
