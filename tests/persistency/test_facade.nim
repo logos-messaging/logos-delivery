@@ -143,6 +143,28 @@ suite "Persistency facade":
     let aw7 = await t.exists("msg", k)
     check aw7.get() == false
 
+  asyncTest "putAcked is readable without polling and reports a replaced row":
+    let root = tmpRoot("put_acked")
+    defer:
+      removeDir(root)
+    let p = Persistency.new(root).get()
+    defer:
+      p.close()
+    let t = p.openJob("t").get()
+
+    let k = key("c", 1'i64)
+    let aw1 = await t.putAcked("msg", k, payload("v1"))
+    check aw1.get() == false
+
+    # No waitUntilExists: the ack means the row is committed.
+    let aw2 = await t.get("msg", k)
+    check str(aw2.get().get) == "v1"
+
+    let aw3 = await t.putAcked("msg", k, payload("v2"))
+    check aw3.get() == true
+    let aw4 = await t.get("msg", k)
+    check str(aw4.get().get) == "v2"
+
   asyncTest "persistDelete fire-and-forget removes the row":
     let root = tmpRoot("fadel")
     defer:

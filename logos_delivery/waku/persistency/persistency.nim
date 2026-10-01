@@ -34,7 +34,8 @@
 ## SQL has run. The listener is still fire-and-forget on the SQL side, so
 ## a read issued immediately after an awaited write is still racy by
 ## design in v1. To bridge the race:
-##   * use ``deleteAcked`` (it round-trips through the read path), or
+##   * write with ``putAcked`` or ``deleteAcked``, which resolve only after
+##     the storage thread has applied the write, or
 ##   * poll ``exists`` until it returns true, or
 ##   * yield with ``await sleepAsync(...)``.
 
@@ -360,6 +361,16 @@ proc deleteAcked*(
     return err(liftErr(error))
   return ok(r.existed)
 
+proc putAcked*(
+    t: Job, category: string, key: Key, payload: seq[byte]
+): Future[Result[bool, PersistencyError]] {.async.} =
+  ## Writes the row and resolves once the storage thread has committed it,
+  ## so a read issued afterwards sees it. Returns true if a row with the same
+  ## key was replaced.
+  let r = (await KvPut.request(t.context, category, key, payload)).valueOr:
+    return err(liftErr(error))
+  return ok(r.replaced)
+
 # ── Reads (async, typed errors) — string-lookup form ────────────────────
 
 proc get*(
@@ -397,5 +408,11 @@ proc deleteAcked*(
 ): Future[Result[bool, PersistencyError]] {.async.} =
   let j = ?p.job(jobId)
   return await j.deleteAcked(category, key)
+
+proc putAcked*(
+    p: Persistency, jobId: string, category: string, key: Key, payload: seq[byte]
+): Future[Result[bool, PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.putAcked(category, key, payload)
 
 {.pop.}

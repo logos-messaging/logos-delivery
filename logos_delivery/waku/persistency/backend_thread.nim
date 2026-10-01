@@ -8,7 +8,7 @@
 ## The worker:
 ##   1. installs the supplied BrokerContext on its threadvar
 ##   2. opens the SQLite backend (creating the file + schema if absent)
-##   3. registers the PersistEvent listener and the 5 RequestBroker
+##   3. registers the PersistEvent listener and the 6 RequestBroker
 ##      providers under that context
 ##   4. runs the chronos event loop until shutdown is signalled
 ##   5. clears providers + listeners, closes the backend
@@ -86,7 +86,7 @@ template unwrapErr(r: untyped): string =
     encode(pe)
 
 proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, string] =
-  ## Wires the 5 RequestBroker providers + the PersistEvent listener.
+  ## Wires the 6 RequestBroker providers + the PersistEvent listener.
   ## All closures capture `backend` by reference (it lives for the entire
   ## thread lifetime).
 
@@ -128,6 +128,19 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
       return err(unwrapErr(r))
     return ok(KvDelete(existed: r.get()))
 
+  proc onPut(
+      category: string, key: Key, payload: seq[byte]
+  ): Future[Result[KvPut, string]] {.async.} =
+    let existed = backend.existsOne(category, key)
+    if existed.isErr:
+      return err(unwrapErr(existed))
+    let r = backend.applyOps(
+      [TxOp(category: category, key: key, kind: txPut, payload: payload)]
+    )
+    if r.isErr:
+      return err(unwrapErr(r))
+    return ok(KvPut(replaced: existed.get()))
+
   # PersistEvent listener — fire-and-forget; we log on backend failure
   # because the caller has no return channel.
   proc onPersist(ev: PersistEvent): Future[void] {.async: (raises: []).} =
@@ -156,6 +169,10 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
   if delRes.isErr:
     return err("KvDelete.setProvider: " & delRes.error())
 
+  let putRes = KvPut.setProvider(ctx, onPut)
+  if putRes.isErr:
+    return err("KvPut.setProvider: " & putRes.error())
+
   let listenRes = PersistEvent.listen(ctx, onPersist)
   if listenRes.isErr:
     return err("PersistEvent.listen: " & listenRes.error())
@@ -168,6 +185,7 @@ proc clearProviders(ctx: BrokerContext) {.async.} =
   KvScan.clearProvider(ctx)
   KvCount.clearProvider(ctx)
   KvDelete.clearProvider(ctx)
+  KvPut.clearProvider(ctx)
   await PersistEvent.dropAllListeners(ctx)
 
 # ── thread proc ─────────────────────────────────────────────────────────

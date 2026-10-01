@@ -1,7 +1,7 @@
 ## Cross-thread broker declarations for the persistency library.
 ##
-## One EventBroker (writes, fire-and-forget) and five RequestBrokers (reads
-## + acked delete). All in multi-thread (mt) mode: the listener / provider runs on the
+## One EventBroker (writes, fire-and-forget) and six RequestBrokers (reads,
+## acked put and acked delete). All in multi-thread (mt) mode: the listener / provider runs on the
 ## job's storage thread; callers on any thread reach it via the shared
 ## BrokerContext owned by the Job.
 ##
@@ -16,7 +16,7 @@
 ##
 ## ## Response shapes
 ##
-## The five Kv* types are *response* objects (the value the provider
+## The six Kv* types are *response* objects (the value the provider
 ## returns). Per-request inputs sit on the `signature` proc parameters.
 
 {.push raises: [].}
@@ -172,6 +172,14 @@ RequestBroker(mt):
   proc signature*(
     category: string, key: Key
   ): Future[Result[KvDelete, string]] {.async.}
+
+RequestBroker(mt):
+  type KvPut* = object
+    replaced*: bool
+
+  proc signature*(
+    category: string, key: Key, payload: seq[byte]
+  ): Future[Result[KvPut, string]] {.async.}
 
 # ── string<->PersistencyError boundary helpers ──────────────────────────
 

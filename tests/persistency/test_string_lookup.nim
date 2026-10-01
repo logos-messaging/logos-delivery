@@ -123,6 +123,10 @@ suite "Persistency string-id lookup":
     check d.isErr
     check d.error.kind == peJobNotFound
 
+    let w = await p.putAcked("nope", "msg", key("k"), payloadBytes("v"))
+    check w.isErr
+    check w.error.kind == peJobNotFound
+
   asyncTest "string-lookup writes to an unknown job are dropped, not raised":
     let root = tmpRoot("missingwrite")
     defer:
