@@ -35,7 +35,7 @@ proc getSecureKey(path: string): Result[TLSPrivateKey, string] =
     return err("failed to read TLS key file " & path & ": " & exc.msg)
   except TLSStreamProtocolError as exc:
     return err(
-      "invalid TLS key in " & path & ": " & exc.msg &
+      "invalid TLS key in: " & path & ": " & exc.msg &
         " (the key must be PKCS#8 'BEGIN PRIVATE KEY'; convert with: " &
         "openssl pkcs8 -topk8 -nocrypt -in <key> -out <new-key>)"
     )
