@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Builds the pinned Nimble from source into <dir>/nimble (default
-# ~/.local/nimble-<pin>/bin). <pin> is a git revision or a release version
-# (tag v<version>). A binary that already reports the pin is reused.
+# ~/.local/nimble-<version>/bin) at the release tag v<version>. A binary that
+# already reports the version is reused.
 
 set -e
 
 PIN="${1:-}"
 if [ -z "${PIN}" ]; then
-  echo "Usage: $0 <nimble-revision-or-version> [install-dir]" >&2
+  echo "Usage: $0 <nimble-version> [install-dir]" >&2
   exit 1
 fi
 
@@ -17,13 +17,8 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 NIMBLE_BIN="${NIMBLE_DIR}/nimble"
 
-if [[ "${PIN}" =~ ^[0-9a-f]{40}$ ]]; then
-  REF="${PIN}"
-  want_line() { grep -oE '[0-9a-f]{40}' | head -1; }
-else
-  REF="refs/tags/v${PIN#v}"
-  want_line() { head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
-fi
+REF="refs/tags/v${PIN#v}"
+want_line() { head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
 WANT="${PIN#v}"
 
 if [ -x "${NIMBLE_BIN}" ]; then
