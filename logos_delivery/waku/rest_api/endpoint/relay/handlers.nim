@@ -22,6 +22,7 @@ import
   ../responses,
   ../rest_serdes,
   ./types
+from ../../../rln/types import RlnErrorKind
 
 export types
 
@@ -52,7 +53,9 @@ proc validatePubSubTopics(topics: seq[PubsubTopic]): Result[void, RestApiRespons
 type
   RlnPublishErrorKind = enum
     ProofGenFailed ## Local proof generation failed — server-side (500).
-    ValidationRejected ## Validator rejected the message — client-side (400).
+    ValidationRejected
+      ## Validator rejected the message, or proof generation refused it as
+      ## Permanent — client-side (400).
     StaleProofSuspected ## RLN rejection; backend refresh scheduled — retry (503).
 
   RlnPublishError = object
@@ -72,12 +75,17 @@ proc attachRlnProofAndValidate(
   ## RlnValidatorErrorMsg) and the backend can refresh what proofs are built
   ## against, schedules that refresh and fails early with StaleProofSuspected;
   ## the caller decides whether to retry. A rejected client proof is
-  ## ValidationRejected: no refresh on the node can make it valid.
+  ## ValidationRejected: no refresh on the node can make it valid. So is a
+  ## Permanent proof generation failure, such as a timestamp outside the
+  ## validators' bound: it comes from the request, and resending it unchanged
+  ## fails the same way.
   let hasClientProof = message.proof.len > 0
   let msg = (await attachProof(Opt.some(plugin), message)).valueOr:
+    let kind =
+      if error.kind == RlnErrorKind.Permanent: ValidationRejected else: ProofGenFailed
     return err(
       RlnPublishError(
-        kind: ProofGenFailed, desc: "error appending RLN proof to message: " & $error
+        kind: kind, desc: "error appending RLN proof to message: " & $error
       )
     )
 

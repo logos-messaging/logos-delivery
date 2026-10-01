@@ -753,7 +753,7 @@ suite "Waku v2 Rest API - Relay":
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
         contentTopic: Opt.some(invalidContentTopic),
-        timestamp: Opt.some(int64(2022)),
+        timestamp: Opt.some(now()),
       )
     )
 
@@ -824,7 +824,7 @@ suite "Waku v2 Rest API - Relay":
         payload: base64.encode(getByteSequence(DefaultMaxWakuMessageSize)),
           # Message will be bigger than the max size
         contentTopic: Opt.some(DefaultContentTopic),
-        timestamp: Opt.some(int64(2022)),
+        timestamp: Opt.some(now()),
       ),
     )
 
@@ -895,7 +895,7 @@ suite "Waku v2 Rest API - Relay":
         payload: base64.encode(getByteSequence(DefaultMaxWakuMessageSize)),
           # Message will be bigger than the max size
         contentTopic: Opt.some(DefaultContentTopic),
-        timestamp: Opt.some(int64(2022)),
+        timestamp: Opt.some(now()),
       )
     )
 
@@ -905,6 +905,80 @@ suite "Waku v2 Rest API - Relay":
       $response.contentType == $MIMETYPE_TEXT
       response.data ==
         fmt"Failed to publish: Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+
+    await restServer.stop()
+    await restServer.closeWait()
+    await node.stop()
+
+  asyncTest "Post a message timestamped outside the RLN bound returns 400 - POST /relay/v1/messages/{topic}":
+    ## Proof generation refuses a timestamp further from the clock than the
+    ## validators accept. The fault is in the request, so the handler answers
+    ## 400 like a validator rejection, not 500.
+    # Given
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+    let rln = await node.mountOnchainRln(wakuRlnConfig)
+    await node.start()
+
+    # Registration is mandatory before sending messages with rln-relay
+    let manager = cast[RlnEvmGroupManager](rln.groupManager)
+    let idCredentials = generateCredentials()
+
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
+
+    let rootUpdated = await manager.updateRoots()
+    info "Updated root for node", rootUpdated
+
+    let proofRes = await manager.fetchMerkleProofElements()
+    if proofRes.isErr():
+      assert false, "failed to fetch merkle proof: " & proofRes.error
+    manager.merkleProofCache = proofRes.get()
+
+    # RPC server setup
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+
+    restPort = restServer.httpServer.address.port # update with bound port for client use
+
+    let cache = MessageCache.init()
+
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to pubsub topic: " & $error
+    require:
+      toSeq(node.wakuRelay.subscribedTopics).len == 1
+
+    # When
+    let response = await client.relayPostMessagesV1(
+      DefaultPubsubTopic,
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(int64(2022)), # nanoseconds: the start of 1970
+      ),
+    )
+
+    # Then
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.startsWith(
+        "Failed to publish: error appending RLN proof to message:"
+      )
+      "beyond the accepted" in response.data
 
     await restServer.stop()
     await restServer.closeWait()
