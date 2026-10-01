@@ -93,23 +93,8 @@ proc parseFlatConf(
   if kernel.preset.len > 0:
     messaging = merge(?resolvePreset(kernel.preset), messaging)
 
-  # [Legacy flat JSON config] This shape builds its own kernel record, so it
-  # applies the level here. `toWakuNodeConf` does the same for the structured
-  # shape.
-  if messaging.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
-    if kernel.mix == Opt.some(false):
-      return err(
-        "anonymityLevel=" & $messaging.anonymityLevel.get() &
-          " needs mix, but mix=false was set"
-      )
-    kernel.mix = Opt.some(true)
-
-  return ok(
-    LogosDeliveryConf(
-      kernelConf: KernelConf(kernel),
-      messagingConf: Opt.some(messaging),
-      channelsConf: Opt.some(ReliableChannelManagerConf()),
-    )
+  return LogosDeliveryConf.init(
+    KernelConf(kernel), messaging, Opt.some(ReliableChannelManagerConf())
   )
 
 proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =

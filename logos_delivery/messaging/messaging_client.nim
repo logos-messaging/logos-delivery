@@ -56,8 +56,8 @@ proc new*(
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
   let anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None)
-  let rateLimitManager =
-    ?RateLimitManager.new(conf.rateLimitConfig(), rlnQuotaProvider(waku))
+  let rateLimitConfig = conf.rateLimitConfig()
+  let rateLimitManager = ?RateLimitManager.new(rateLimitConfig, rlnQuotaProvider(waku))
   let maxParkedAgeSec = conf.maxParkedAgeSec.get(uint(DefaultMaxParkedAge.seconds()))
   if maxParkedAgeSec notin 1'u .. MaxParkedAgeSecLimit:
     return err("maxParkedAgeSec must be between 1 and " & $MaxParkedAgeSecLimit)
@@ -80,6 +80,17 @@ proc new*(
 
   if anonymityLevel == AnonymityLevel.Required:
     waku.setConnectionStatusAdjuster(requireMixReady)
+  # Log the values that the preset, the flags and the defaults give.
+  info "Messaging API settings",
+    reliability = reliability,
+    anonymityLevel = anonymityLevel,
+    rateLimitEnabled = rateLimitConfig.enabled,
+    rateLimitEpochPeriodSec = rateLimitConfig.epochPeriodSec,
+    rateLimitMessagesPerEpoch = rateLimitConfig.messagesPerEpoch,
+    maxParkedAgeSec = maxParkedAgeSec,
+    sendQueueCapacity = sendQueueCapacity,
+    backfillEnabled = backfill.enabled,
+    backfillRequestTimeout = backfill.queryTimeout
 
   return ok(
     T(

@@ -473,33 +473,41 @@ suite "MessagingClientConf - store override":
         # MessagingClientConf has no relay field (per spec); only the mode
         # sets relay on the library API path
 
-suite "MessagingClientConf - anonymity level":
+proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
+  ## The kernel config of a Messaging API node with this anonymity level.
+  let conf = LogosDeliveryConf.init(
+    KernelConf(defaultTestWakuNodeConf()),
+    MessagingClientConf(anonymityLevel: level),
+    Opt.none(ReliableChannelManagerConf),
+  ).valueOr:
+    raiseAssert error
+  return WakuNodeConf(conf.kernelConf)
+
+suite "LogosDeliveryConf - anonymity level":
   test "an anonymity level above None asks the kernel to mount mix":
-    let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Required)).toWakuNodeConf(
-      LogosDeliveryMode.Core
-    ).valueOr:
-      raiseAssert error
-    check kc.mix == Opt.some(true)
+    check kernelWithAnonymity(Opt.some(AnonymityLevel.Required)).mix == Opt.some(true)
 
   test "None leaves mix alone":
-    let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.None)).toWakuNodeConf(
-      LogosDeliveryMode.Core
-    ).valueOr:
-      raiseAssert error
-    check kc.mix.isNone()
+    check kernelWithAnonymity(Opt.some(AnonymityLevel.None)).mix.isNone()
 
   test "an unset anonymity level defaults to None and leaves mix alone":
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
-    check kc.mix.isNone()
+    check kernelWithAnonymity(Opt.none(AnonymityLevel)).mix.isNone()
+
+  test "an anonymity level above None with mix=false is an error":
+    var kernel = defaultTestWakuNodeConf()
+    kernel.mix = Opt.some(false)
+    check LogosDeliveryConf
+      .init(
+        KernelConf(kernel),
+        MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Preferred)),
+        Opt.none(ReliableChannelManagerConf),
+      )
+      .isErr()
 
   test "the mix protocol config is built, not just the ENR capability bit":
-    let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Preferred)).toWakuNodeConf(
-      LogosDeliveryMode.Core
-    ).valueOr:
-      raiseAssert error
-    let wakuConf = kc.toWakuConf().valueOr:
-      raiseAssert error
+    let wakuConf = kernelWithAnonymity(Opt.some(AnonymityLevel.Preferred))
+      .toWakuConf().valueOr:
+        raiseAssert error
     check wakuConf.mixConf.isSome()
 
 suite "LogosDelivery.new - raw kernel construction":
@@ -676,3 +684,28 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
       # TWN sets p2pReliability off; the hard default is on. The flat-JSON and
       # library API paths resolve this too, so all doors agree.
       plan.messagingConf.get().reliabilityEnabled == Opt.some(false)
+
+  test "the messaging flags override the preset's messaging fields":
+    var conf = cliConf(EntryLayer.messaging)
+    conf.kernel.preset = "twn"
+    conf.messaging.reliabilityEnabled = Opt.some(true)
+    conf.messaging.sendQueueCapacity = Opt.some(5000'u)
+    conf.messaging.backfillEnabled = Opt.some(false)
+    let plan = resolveCliConf(conf).expect("translate")
+    check:
+      plan.messagingConf.get().reliabilityEnabled == Opt.some(true) # TWN sets it off
+      plan.messagingConf.get().sendQueueCapacity == Opt.some(5000'u)
+      plan.messagingConf.get().backfillEnabled == Opt.some(false)
+
+  test "kernel entry rejects a messaging flag":
+    var conf = cliConf(EntryLayer.kernel)
+    conf.messaging.sendQueueCapacity = Opt.some(5000'u)
+    check resolveCliConf(conf).isErr()
+
+  test "an anonymity level above None mounts mix":
+    var conf = cliConf(EntryLayer.messaging)
+    conf.messaging.anonymityLevel = Opt.some(AnonymityLevel.Required)
+    let plan = resolveCliConf(conf).expect("translate")
+    check:
+      plan.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
+      plan.wakuConf.mixConf.isSome()

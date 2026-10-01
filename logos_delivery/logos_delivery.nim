@@ -125,9 +125,20 @@ proc resolveCliConf*(
     # That's inconsistent, so fail.
     if ldNodeConf.mode.isSome():
       return err("mode requires the 'messaging' or 'channels' entry layer")
+    if ldNodeConf.messaging.isSet():
+      return
+        err("the Messaging API flags require the 'messaging' or 'channels' entry layer")
   else:
     applyMode(ldNodeConf.kernel, ldNodeConf.mode.get(LogosDeliveryMode.Core))
-    messagingConf = Opt.some(?resolvePreset(ldNodeConf.kernel.preset))
+    # `LogosDeliveryConf.init` mounts mix for an anonymity level above `None`,
+    # for every config path.
+    let ldConf = ?LogosDeliveryConf.init(
+      KernelConf(ldNodeConf.kernel),
+      ?MessagingClientConf.init(ldNodeConf.messaging, ldNodeConf.kernel.preset),
+      Opt.none(ReliableChannelManagerConf),
+    )
+    ldNodeConf.kernel = WakuNodeConf(ldConf.kernelConf)
+    messagingConf = ldConf.messagingConf
   applyModeFlags(ldNodeConf.kernel, DefaultKernelModeFlags)
 
   return ok(
@@ -181,14 +192,11 @@ proc new*(
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Full stack: kernel + messaging + channels. Messaging is never skipped; a
   ## kernel-only node uses `new(kernelConf)` instead.
-  return await LogosDelivery.new(
-    LogosDeliveryConf(
-      kernelConf: kernelConf,
-      messagingConf: Opt.some(messagingOverrides),
-      channelsConf: Opt.some(channelsOverrides),
-    ),
-    appCallbacks,
-  )
+  let conf = LogosDeliveryConf.init(
+    kernelConf, messagingOverrides, Opt.some(channelsOverrides)
+  ).valueOr:
+    return err("failed to build the node config: " & error)
+  return await LogosDelivery.new(conf, appCallbacks)
 
 proc new*(
     T: type LogosDelivery,

@@ -516,3 +516,32 @@ suite "Waku external config - REST server caches":
     conf.rest = true
     conf.restRelayCacheCapacity = 0
     check conf.toWakuConf().isErr()
+
+suite "Node config - Messaging API flags":
+  test "the messaging flags parse from the command line":
+    let conf = LogosDeliveryNodeConf.load(
+      version = "",
+      cmdLine = @[
+        "--reliability=false", "--anonymity-level=Required",
+        "--rate-limit-enabled=true", "--rate-limit-epoch-sec=60",
+        "--rate-limit-messages-per-epoch=5",
+        "--rate-limit-approached-threshold-percent=90", "--max-parked-age-sec=120",
+        "--send-queue-capacity=5000", "--backfill-enabled=false",
+        "--backfill-request-timeout-seconds=30",
+      ],
+    )
+    check:
+      conf.messaging.reliabilityEnabled == Opt.some(false)
+      conf.messaging.anonymityLevel == Opt.some(AnonymityLevel.Required)
+      conf.messaging.rateLimitEnabled == Opt.some(true)
+      conf.messaging.rateLimitEpochPeriodSec == Opt.some(60'u64)
+      conf.messaging.rateLimitMessagesPerEpoch == Opt.some(5'u64)
+      conf.messaging.rateLimitApproachedThresholdPercent == Opt.some(90'u64)
+      conf.messaging.maxParkedAgeSec == Opt.some(120'u)
+      conf.messaging.sendQueueCapacity == Opt.some(5000'u)
+      conf.messaging.backfillEnabled == Opt.some(false)
+      conf.messaging.backfillRequestTimeoutSeconds == Opt.some(30'i64)
+
+  test "the messaging flags are unset by default":
+    let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
+    check not conf.messaging.isSet()

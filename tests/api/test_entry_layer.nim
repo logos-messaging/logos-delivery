@@ -70,6 +70,20 @@ suite "LogosDelivery - entry layer selection":
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 
+  asyncTest "messaging: the messaging flags reach the send service":
+    var conf = nodeConf(EntryLayer.messaging)
+    conf.messaging.sendQueueCapacity = Opt.some(5000'u)
+    conf.messaging.maxParkedAgeSec = Opt.some(120'u)
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+    check:
+      node.messagingClient.sendService.maxTaskCacheSize == 5000
+      node.messagingClient.sendService.maxParkedAge == chronos.seconds(120)
+    (await node.stop()).isOkOr:
+      raiseAssert "stop failed: " & error
+
   asyncTest "messaging + rest: messaging REST endpoints are installed and working":
     ## entry-layer=messaging, mode=Core, rest=true -> `start` mounts the messaging
     ## REST endpoints; they respond over HTTP.

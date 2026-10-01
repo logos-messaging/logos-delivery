@@ -22,6 +22,7 @@ import
 
 import
   logos_delivery/api/conf/modes,
+  logos_delivery/api/conf/messaging_node_conf,
   logos_delivery/waku/net/nat_strategy,
   logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
   logos_delivery/waku/factory/conf_builder/rest_server_conf_builder,
@@ -39,7 +40,7 @@ import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
 export
   confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
-  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes, messaging_node_conf
 
 logScope:
   topics = "waku cli args"
@@ -1004,7 +1005,7 @@ proc completeCmdArg*(T: type LogosDeliveryMode, val: string): seq[string] =
 
 type LogosDeliveryNodeConf* = object
   ## LogosDeliveryNodeConf is the kernel configuration with two additional
-  ## fields.
+  ## fields and the Messaging API flags.
   ##
   ## `entryLayer` lets logosdeliverynode users specify the layer-mount height,
   ## which is never guessed from given CLI parameters.
@@ -1013,6 +1014,9 @@ type LogosDeliveryNodeConf* = object
   ## entire configuration must be given explicitly and it has its own
   ## per-config-option defaults which add up to what you'd expect for
   ## fleet-node use.
+  ##
+  ## `messaging` holds the Messaging API flags. They need the `messaging` or
+  ## `channels` entry layer.
   entryLayer* {.
     desc:
       "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
@@ -1026,6 +1030,8 @@ type LogosDeliveryNodeConf* = object
     defaultValue: Opt.none(LogosDeliveryMode),
     name: "mode"
   .}: Opt[LogosDeliveryMode]
+
+  messaging* {.flatten.}: MessagingNodeConf
 
   kernel* {.flatten.}: WakuNodeConf
 
