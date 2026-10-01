@@ -33,10 +33,9 @@ RUN git submodule update --init --recursive
 RUN make -j$(nproc) deps QUICK_AND_DIRTY_COMPILER=1 ${NIM_COMMIT}
 
 # The heaptracker hooks live in Nim's allocator, so patch the Nim that deps
-# installed. Resolve it from the symlink rather than assuming a path.
+# installed. Ask make for it rather than assuming a path.
 RUN if [ "$HEAPTRACK_BUILD" = "1" ]; then \
-      export PATH="$HOME/.nimble/bin:$PATH"; \
-      NIM_ROOT=$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")"); \
+      NIM_ROOT=$(dirname "$(dirname "$(make -s print-nim-path)")"); \
       git -C "$NIM_ROOT" apply /app/docs/tutorial/nim.2.2.4_heaptracker_addon.patch; \
     fi
 

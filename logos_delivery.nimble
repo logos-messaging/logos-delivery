@@ -13,8 +13,6 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "tools"]
 
-const RequiredNimVersion = "2.2.6"
-  ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
@@ -488,6 +486,10 @@ task liblogosdeliveryStaticMac, "Generate bindings":
   buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
+
+task auditdeps, "Check the installed packages against nimble.lock":
+  # A task runs under the Nim that Nimble installs for the locked `nim` entry.
+  selfExec "e --hints:off scripts/audit_deps.nims"
 
 task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR":
   ## Formats every Nim source file that differs from the base branch.

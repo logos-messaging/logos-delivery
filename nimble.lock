@@ -767,6 +767,16 @@
       "checksums": {
         "sha1": "6451cab35990f334a46927f49f9176579460934d"
       }
+    },
+    "nim": {
+      "version": "2.2.6",
+      "vcsRevision": "372826d4317f1f8cb99abd750698f4a00c5cd39a",
+      "url": "https://github.com/nim-lang/Nim.git",
+      "downloadMethod": "git",
+      "dependencies": [],
+      "checksums": {
+        "sha1": "b3179cffd77e51d16ea343b5493d895e8bc8c085"
+      }
     }
   },
   "tasks": {}

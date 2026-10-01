@@ -18,7 +18,6 @@ on:
 env:
   NPROC: 2
   NIMFLAGS: ""
-  NIM_VERSION: '2.2.6'
 
 jobs:
   # Release gate: the pushed tag MUST exactly match logos_delivery.nimble's version,
@@ -69,12 +68,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install Nim ${{ env.NIM_VERSION }}
-        uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache the Nimble package cache
         uses: actions/cache@v3

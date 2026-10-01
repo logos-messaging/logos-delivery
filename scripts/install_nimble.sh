@@ -1,55 +1,61 @@
 #!/usr/bin/env bash
-# Builds the pinned Nimble from source into <dir>/nimble (default
-# ~/.local/nimble-<version>/bin) at the release tag v<version>. A binary that
-# already reports the version is reused.
+# Installs the pinned Nimble release from its prebuilt binary into <dir>
+# (default ~/.local/nimble-<version>/bin). A binary that already reports the
+# version is reused. Nimble then installs Nim itself, so no Nim is needed here.
 
 set -e
 
-PIN="${1:-}"
-if [ -z "${PIN}" ]; then
+VERSION="${1:-}"
+if [ -z "${VERSION}" ]; then
   echo "Usage: $0 <nimble-version> [install-dir]" >&2
   exit 1
 fi
+VERSION="${VERSION#v}"
 
-NIMBLE_DIR="${2:-${HOME}/.local/nimble-${PIN}/bin}"
+NIMBLE_DIR="${2:-${HOME}/.local/nimble-${VERSION}/bin}"
 if command -v cygpath >/dev/null 2>&1; then
   NIMBLE_DIR="$(cygpath -u "${NIMBLE_DIR}")"
 fi
-NIMBLE_BIN="${NIMBLE_DIR}/nimble"
 
-REF="refs/tags/v${PIN#v}"
-want_line() { head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
-WANT="${PIN#v}"
+case "$(uname -s)" in
+  Darwin) OS=macosx ;;
+  Linux) OS=linux ;;
+  MINGW* | MSYS* | CYGWIN*) OS=windows ;;
+  *) echo "Unsupported OS: $(uname -s)" >&2; exit 1 ;;
+esac
+
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH=x64 ;;
+  aarch64 | arm64) ARCH=aarch64 ;;
+  armv7l) ARCH=armv7l ;;
+  i686 | i386) ARCH=x32 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+EXE=nimble
+[ "${OS}" = "windows" ] && EXE=nimble.exe
+NIMBLE_BIN="${NIMBLE_DIR}/${EXE}"
 
 if [ -x "${NIMBLE_BIN}" ]; then
-  have=$("${NIMBLE_BIN}" --version 2>/dev/null | want_line || true)
-  if [ "${have}" = "${WANT}" ]; then
-    echo "Nimble ${PIN} already installed, skipping."
+  have=$("${NIMBLE_BIN}" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  if [ "${have}" = "${VERSION}" ]; then
+    echo "Nimble ${VERSION} already installed, skipping."
     exit 0
   fi
 fi
 
 mkdir -p "${NIMBLE_DIR}"
 
-NIM_BIN="$(command -v nim)"
-
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-echo "Cloning nimble ${REF} with submodules..."
-git clone --depth=1 --no-checkout https://github.com/nim-lang/nimble.git \
-  "${WORK_DIR}/nimble"
-git -C "${WORK_DIR}/nimble" fetch --depth=1 origin "${REF}"
-git -C "${WORK_DIR}/nimble" checkout --detach FETCH_HEAD
-git -C "${WORK_DIR}/nimble" submodule update --init --recursive --depth=1
+URL="https://github.com/nim-lang/nimble/releases/download/v${VERSION}/nimble-${OS}_${ARCH}.tar.gz"
+echo "Downloading Nimble ${VERSION} from ${URL}..."
+curl -fsSL "${URL}" -o "${WORK_DIR}/nimble.tar.gz"
+tar -xzf "${WORK_DIR}/nimble.tar.gz" -C "${WORK_DIR}"
 
-echo "Building nimble ${PIN} with $("${NIM_BIN}" --version | head -1)..."
-cd "${WORK_DIR}/nimble"
-# A private nimcache keeps two runs from clobbering each other.
-"${NIM_BIN}" c -d:release --path:src --nimcache:"${WORK_DIR}/nimcache" \
-  -o:"${WORK_DIR}/nimble_new" src/nimble.nim
-
-cp "${WORK_DIR}/nimble_new" "${NIMBLE_BIN}.new.$$"
+cp "${WORK_DIR}/${EXE}" "${NIMBLE_BIN}.new.$$"
+chmod +x "${NIMBLE_BIN}.new.$$"
 mv -f "${NIMBLE_BIN}.new.$$" "${NIMBLE_BIN}"
 
-echo "Nimble ${PIN} installed to ${NIMBLE_BIN}"
+echo "Nimble ${VERSION} installed to ${NIMBLE_BIN}"
