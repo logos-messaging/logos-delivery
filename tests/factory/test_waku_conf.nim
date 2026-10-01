@@ -700,14 +700,14 @@ suite "Waku Conf - the Mix capability follows the mount":
       conf.wakuFlags.supportsCapability(Capabilities.Mix)
 
 suite "Waku Conf - shard count limit":
-  test "accepts up to MaxSubscribedShards shards":
+  test "accepts up to MaxAllowedSubscribedShard shards":
     let conf = ShardingConf(kind: AutoSharding, numShardsInCluster: 64)
-    let shards = toSeq(0'u16 ..< uint16(MaxSubscribedShards))
+    let shards = toSeq(0'u16 ..< uint16(MaxAllowedSubscribedShard))
     check conf.validateShards(shards).isOk()
 
-  test "rejects more than MaxSubscribedShards shards":
+  test "rejects more than MaxAllowedSubscribedShard shards":
     let conf = ShardingConf(kind: AutoSharding, numShardsInCluster: 64)
-    let shards = toSeq(0'u16 ..< uint16(MaxSubscribedShards + 1))
+    let shards = toSeq(0'u16 ..< uint16(MaxAllowedSubscribedShard + 1))
     let res = conf.validateShards(shards)
     check:
       res.isErr()

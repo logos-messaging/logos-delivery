@@ -180,15 +180,15 @@ proc StatusProdConf*(T: type NetworkPresetConf): NetworkPresetConf =
     ],
   )
 
-const MaxSubscribedShards* = 60
+const MaxAllowedSubscribedShard* = 60
 
 proc validateShards*(
     shardingConf: ShardingConf, shards: seq[uint16]
 ): Result[void, string] =
-  if shards.len > MaxSubscribedShards:
+  if shards.len > MaxAllowedSubscribedShard:
     let msg =
       "too many shards: " & $shards.len & ", the maximum supported is " &
-      $MaxSubscribedShards
+      $MaxAllowedSubscribedShard
     error "validateShards failed", error = msg
     return err(msg)
 
