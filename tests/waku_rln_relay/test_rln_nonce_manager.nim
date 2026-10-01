@@ -64,3 +64,37 @@ suite "Nonce manager":
     check:
       nm.reserve(8).get() == 0
       nm.spent(8) == 1
+
+  test "release returns the latest id to the epoch's budget":
+    let nm = NonceManager.init(nonceLimit = 100)
+    discard nm.reserve(7).get()
+    let id = nm.reserve(7).get()
+
+    nm.release(7, id)
+    check:
+      nm.spent(7) == 1
+      nm.reserve(7).get() == id
+
+  test "release keeps an id spent once the counter has moved past it":
+    ## A later reservation may already be in a proof, so the counter cannot
+    ## step back over it.
+    let nm = NonceManager.init(nonceLimit = 100)
+    let older = nm.reserve(7).get()
+    discard nm.reserve(7).get()
+
+    nm.release(7, older)
+    check nm.spent(7) == 2
+
+    let last = nm.reserve(7).get()
+    discard nm.reserve(8).get()
+    nm.release(7, last)
+    check:
+      nm.epochIndex == 8
+      nm.spent(8) == 1
+
+  test "release on a fresh manager does nothing":
+    let nm = NonceManager.init(nonceLimit = 100)
+    nm.release(0, 0)
+    check:
+      nm.spent(0) == 0
+      nm.reserve(0).get() == 0
