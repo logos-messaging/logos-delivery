@@ -6,7 +6,7 @@
 ## dialects, both error paths (transport-level and module-level), and the
 ## canonical-proof round trip.
 
-import std/strutils
+import std/[strutils, json]
 import testutils/unittests, chronos
 
 import logos_delivery/waku/rln/rln_lez/rln_lez
@@ -153,3 +153,39 @@ suite "RlnLez - RlnInterface over the RLN plugin FFI crossing":
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady
+
+var mixRequestId: uint64
+
+proc captureMixRequest(
+    reqId: uint64, methodName, argsJson: cstring, userData: pointer
+) {.cdecl, gcsafe, raises: [].} =
+  mixRequestId = reqId
+
+proc checkMixTransport() {.async.} =
+  check logosdelivery_mix_rln_set_callback(nil, nil) == 0
+  check (await rlnMixCall("validate_proof", newJArray())).isErr()
+  check logosdelivery_mix_rln_set_callback(captureMixRequest, nil) == 0
+  defer:
+    discard logosdelivery_mix_rln_set_callback(nil, nil)
+  let pending = rlnMixCall("validate_proof", %*["registry", "scope"])
+  check not pending.finished()
+  # Relay owns a separate callback lifetime, even in the same library.
+  check logosdelivery_rln_set_plugin(nil, nil) == 0
+  check logosdelivery_rln_response(mixRequestId, "{}") == 0
+  check logosdelivery_rln_response(mixRequestId, "{}") != 0
+  check (await pending).isOk()
+  let cancelled = rlnMixCall("generate_proof", newJArray())
+  let cancelledId = mixRequestId
+  await cancelled.cancelAndWait()
+  check logosdelivery_rln_response(cancelledId, "{}") != 0
+  var requests: seq[Future[Result[JsonNode, string]]]
+  for i in 0 ..< 64:
+    requests.add(rlnMixCall("generate_proof", newJArray()))
+  check (await rlnMixCall("generate_proof", newJArray())).isErr()
+  check logosdelivery_mix_rln_set_callback(nil, nil) == 0
+  for request in requests:
+    check (await request).isErr()
+
+suite "Mix RLN transport":
+  test "separate lifecycle, first response wins, cancellation and bounded requests":
+    waitFor checkMixTransport()

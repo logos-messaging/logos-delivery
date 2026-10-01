@@ -1,6 +1,6 @@
 {.used.}
 
-import results, chronicles, std/[tables, strutils], chronos, testutils/unittests
+import results, chronicles, std/tables, chronos, testutils/unittests
 
 import
   logos_delivery/waku/waku_node,

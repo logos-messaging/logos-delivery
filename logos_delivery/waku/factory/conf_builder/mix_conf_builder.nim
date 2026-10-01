@@ -5,6 +5,7 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p_mix/curve25519
+import mix_rln_spam_protection/module_api
 import ../waku_conf, logos_delivery/waku/waku_mix
 
 logScope:
@@ -19,6 +20,7 @@ type MixConfBuilder* = object
   enabled: Opt[bool]
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
+  mixRlnConfig: Opt[ModuleRlnConfig]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -34,8 +36,13 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   ## both end up in the pool.
   b.mixNodes = concat(b.mixNodes, mixNodes)
 
+proc withMixRln*(b: var MixConfBuilder, config: ModuleRlnConfig) =
+  b.mixRlnConfig = Opt.some(config)
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
+    if b.mixRlnConfig.isSome():
+      return err("Mix-RLN requires Mix to be enabled")
     return ok(Opt.none(MixConf))
   else:
     if b.mixKey.isSome():
@@ -43,7 +50,12 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
       let mixPubKey = public(mixPrivKey)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            mixRlnConfig: b.mixRlnConfig,
+          )
         )
       )
     else:
@@ -51,6 +63,11 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
         return err("Generate key pair error: " & $error)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            mixRlnConfig: b.mixRlnConfig,
+          )
         )
       )
