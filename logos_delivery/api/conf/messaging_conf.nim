@@ -224,15 +224,6 @@ proc init*(
   ## The messaging config of a node that starts from the command line. A set flag
   ## overrides the value of the network preset.
   let fromFlags = MessagingClientConf(
-    reliabilityEnabled: flags.reliabilityEnabled,
-    anonymityLevel: flags.anonymityLevel,
-    rateLimitEnabled: flags.rateLimitEnabled,
-    rateLimitEpochPeriodSec: flags.rateLimitEpochPeriodSec,
-    rateLimitMessagesPerEpoch: flags.rateLimitMessagesPerEpoch,
-    rateLimitApproachedThresholdPercent: flags.rateLimitApproachedThresholdPercent,
-    maxParkedAgeSec: flags.maxParkedAgeSec,
-    sendQueueCapacity: flags.sendQueueCapacity,
-    backfillEnabled: flags.backfillEnabled,
-    backfillRequestTimeoutSeconds: flags.backfillRequestTimeoutSeconds,
+    reliabilityEnabled: flags.reliabilityEnabled, anonymityLevel: flags.anonymityLevel
   )
   return ok(merge(?resolvePreset(preset), fromFlags))

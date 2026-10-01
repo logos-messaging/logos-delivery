@@ -73,7 +73,13 @@ A send is asynchronous. `200` means that the node accepted the message. The resu
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
 * `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)
 
-The `sent` and `error` events are final. The `sent` event needs store-based reliability and a Store peer, and it never comes for an ephemeral message. Reliability is on by default and off for the `twn` and `status.prod` presets. `--reliability` overrides that. Without reliability, and for an ephemeral message, `propagated` is the last event. Clients must ignore kinds that they do not know. A `404` on `GET /events/send/{requestId}` means that nothing is buffered for that id now: the id is unknown, already polled, or has no event yet. Keep polling until the last event.
+After a `sent` or `error` event, no more events come for that message.
+
+* The `sent` event needs reliability and a Store peer. It never comes for an ephemeral message.
+* Reliability is on by default, and off for the `twn` and `status.prod` presets. `--reliability` overrides that.
+* Without reliability, and for an ephemeral message, `propagated` is the last event.
+* Later versions can add new event types. A client must skip an event type that it does not know.
+* `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 
 The receivers can have the message after an `error` event. The node does not resend a message after its `propagated` event.
 

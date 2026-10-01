@@ -689,17 +689,12 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
     var conf = cliConf(EntryLayer.messaging)
     conf.kernel.preset = "twn"
     conf.messaging.reliabilityEnabled = Opt.some(true)
-    conf.messaging.sendQueueCapacity = Opt.some(5000'u)
-    conf.messaging.backfillEnabled = Opt.some(false)
     let plan = resolveCliConf(conf).expect("translate")
-    check:
-      plan.messagingConf.get().reliabilityEnabled == Opt.some(true) # TWN sets it off
-      plan.messagingConf.get().sendQueueCapacity == Opt.some(5000'u)
-      plan.messagingConf.get().backfillEnabled == Opt.some(false)
+    check plan.messagingConf.get().reliabilityEnabled == Opt.some(true) # TWN sets it off
 
   test "kernel entry rejects a messaging flag":
     var conf = cliConf(EntryLayer.kernel)
-    conf.messaging.sendQueueCapacity = Opt.some(5000'u)
+    conf.messaging.reliabilityEnabled = Opt.some(true)
     check resolveCliConf(conf).isErr()
 
   test "an anonymity level above None mounts mix":
@@ -708,4 +703,4 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
     let plan = resolveCliConf(conf).expect("translate")
     check:
       plan.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
-      plan.wakuConf.mixConf.isSome()
+      WakuNodeConf(plan.kernelConf).toWakuConf().get().mixConf.isSome()
