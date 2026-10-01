@@ -1,6 +1,6 @@
 {.used.}
 
-import std/strscans, testutils/unittests, chronos, libp2p/crypto/crypto
+import std/[strscans, strutils], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -256,6 +256,32 @@ suite "Waku Legacy Lightpush Client":
       # Then the message is not received by the server
       check:
         not publishResponse5.isOk()
+        (await handlerFuture.waitForResult()).isErr()
+
+    asyncTest "A request over the server's max message size is rejected unread":
+      # Given a server whose max message size is well below the payload
+      let
+        smallSwitch = newTestSwitch()
+        smallServer = await newTestWakuLegacyLightpushNode(
+          smallSwitch, handler, maxMessageSize = 1024
+        )
+        bigMessage = fakeWakuMessage(
+          contentTopic = contentTopic,
+          payload = getByteSequence(DefaultSafetyBufferProtocolOverhead + 2048),
+        )
+      await smallSwitch.start()
+      defer:
+        await smallSwitch.stop()
+
+      # When publishing it
+      let publishResponse = await client.publish(
+        pubsubTopic, bigMessage, smallSwitch.peerInfo.toRemotePeerInfo()
+      )
+
+      # Then the server replies that it is too large and never handles it
+      check:
+        publishResponse.isErr()
+        publishResponse.error.startsWith("request exceeds")
         (await handlerFuture.waitForResult()).isErr()
 
     asyncTest "Invalid Encoding Payload":

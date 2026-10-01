@@ -265,6 +265,31 @@ suite "Waku Lightpush Client":
         publishResponse5.error.code == LightPushErrorCode.PAYLOAD_TOO_LARGE
         (await handlerFuture.waitForResult()).isErr()
 
+    asyncTest "A request over the server's max message size is rejected unread":
+      # Given a server whose max message size is well below the payload
+      let
+        smallSwitch = newTestSwitch()
+        smallServer =
+          await newTestWakuLightpushNode(smallSwitch, handler, maxMessageSize = 1024)
+        bigMessage = fakeWakuMessage(
+          contentTopic = contentTopic,
+          payload = getByteSequence(DefaultSafetyBufferProtocolOverhead + 2048),
+        )
+      await smallSwitch.start()
+      defer:
+        await smallSwitch.stop()
+
+      # When publishing it
+      let publishResponse = await client.publish(
+        Opt.some(pubsubTopic), bigMessage, smallSwitch.peerInfo.toRemotePeerInfo()
+      )
+
+      # Then the server replies that it is too large and never handles it
+      check:
+        publishResponse.isErr()
+        publishResponse.error.code == LightPushErrorCode.PAYLOAD_TOO_LARGE
+        (await handlerFuture.waitForResult()).isErr()
+
     asyncTest "Invalid Encoding Payload":
       # Given a payload with an invalid encoding
       let fakeBuffer = @[byte(42)]

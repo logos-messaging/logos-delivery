@@ -120,6 +120,33 @@ suite "Waku Peer Exchange":
       check:
         node.peerManager.switch.peerStore.peers.anyIt(it.peerId == rpInfo.peerId)
 
+    asyncTest "PX does not serve an ENR that was not rediscovered recently":
+      await allFutures([node.mountPeerExchangeClient(), node2.mountPeerExchange()])
+
+      var rpInfo = node3.peerInfo.toRemotePeerInfo()
+      rpInfo.enr = Opt.some(node3.enr)
+      node2.peerManager.addPeer(rpInfo, PeerOrigin.Discv5)
+      await node3.stop()
+
+      node.peerManager.addServicePeer(
+        node2.peerInfo.toRemotePeerInfo(), WakuPeerExchangeCodec
+      )
+
+      # Rediscovery refreshes the ENR, so it is served while fresh
+      check (await node.fetchPeerExchangePeers(1)).tryGet() == 1
+
+      # Not rediscovered within the TTL: no longer served
+      let node2Store = node2.peerManager.switch.peerStore
+      node2Store[ENRAliveBook][rpInfo.peerId] =
+        Moment.now() - DiscoveredEnrTtl - 1.seconds
+      check (await node.fetchPeerExchangePeers(1)).tryGet() == 0
+
+      # Pruning drops the ENR but keeps the peer
+      check:
+        node2Store.pruneStaleEnrs() == 1
+        node2Store[ENRBook][rpInfo.peerId] == default(enr.Record)
+        node2Store[AddressBook][rpInfo.peerId].len > 0
+
   suite "setPeerExchangePeer":
     var node2 {.threadvar.}: WakuNode
 

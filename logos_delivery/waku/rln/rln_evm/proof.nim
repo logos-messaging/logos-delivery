@@ -11,16 +11,37 @@ import
     rln/rln_evm/group_manager,
     rln/rln_evm/nonce_manager,
   ]
+import logos_delivery/waku/rln/types as rln_api_types
 import ../signal
 
 export signal
 
-proc calcEpoch*(rlnEvm: RlnEvm, t: float64): Epoch =
-  ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
-  ## and returns its corresponding rln `Epoch` value
+proc epochIndexOf*(rlnEvm: RlnEvm, t: float64): uint64 =
+  ## Absolute epoch index of time `t` (Unix seconds, fractional part holds
+  ## sub-seconds): `t div epochSize`.
+  uint64(t / rlnEvm.rlnEpochSizeSec.float64)
 
-  let e = uint64(t / rlnEvm.rlnEpochSizeSec.float64)
-  return toEpoch(e)
+proc calcEpoch*(rlnEvm: RlnEvm, t: float64): Epoch =
+  ## The rln `Epoch` value of time `t`, see `epochIndexOf`.
+  toEpoch(rlnEvm.epochIndexOf(t))
+
+proc checkTimestampBounds(
+    rlnEvm: RlnEvm, senderEpochTime: float64
+): Result[void, RlnError] =
+  ## The bound validators apply (`validateMessage`): every receiver rejects
+  ## a proof for a time more than `rlnMaxTimestampGap` from its clock, and
+  ## reserving an id for such a time would move the counter into an epoch
+  ## that has not arrived. Caller-supplied timestamps reach the generators
+  ## over REST and lightpush.
+  let gap = uint64(abs(epochTime() - senderEpochTime))
+  if gap > rlnEvm.rlnMaxTimestampGap:
+    return err(
+      RlnError.permanent(
+        "timestamp is " & $gap & " s from now, beyond the accepted " &
+          $rlnEvm.rlnMaxTimestampGap & " s"
+      )
+    )
+  return ok()
 
 proc nextEpoch*(rlnEvm: RlnEvm, time: float64): float64 =
   let
@@ -70,36 +91,68 @@ proc generateRLNProofWithNonce(
 proc generateRLNProof*(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
-  let nonce = rlnEvm.nonceManager.getNonce().valueOr:
+  ## Draws a message id from the epoch of `senderEpochTime`, the epoch the
+  ## proof carries, and builds the proof. A failed generation returns the id
+  ## to the epoch's budget, since no proof carrying it exists.
+  rlnEvm.checkTimestampBounds(senderEpochTime).isOkOr:
+    return err($error)
+  let epochIndex = rlnEvm.epochIndexOf(senderEpochTime)
+  let nonce = rlnEvm.nonceManager.reserve(epochIndex).valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  return await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
+  let proof = await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
+  if proof.isErr():
+    rlnEvm.nonceManager.release(epochIndex, nonce)
+  return proof
 
-proc generateRLNProofWithRootRefresh*(
-    rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
-): Future[Result[seq[byte], string]] {.async.} =
-  ## Generates an RLN proof and checks its merkle root against the
-  ## acceptable-root window. If the root is stale, invalidates the cache and
-  ## regenerates once against a refetched path. Returns the proof bytes.
+proc proveWithRootRefresh(
+    rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64, nonce: Nonce
+): Future[Result[seq[byte], RlnError]] {.async.} =
+  ## Generates a proof against an already drawn `nonce` and checks its merkle
+  ## root against the acceptable-root window. If the root is stale, invalidates
+  ## the cache and regenerates once against a refetched path.
   ##
-  ## The regeneration reuses the nonce drawn for the first attempt: only the
-  ## merkle path differs between the two, so drawing again would spend two
-  ## message ids from the epoch budget on a message that is sent once. That
-  ## would drift the budget the rate limit manager accounts for away from the
-  ## one the nonce manager enforces.
-  let nonce = rlnEvm.nonceManager.getNonce().valueOr:
-    return err("could not get new message id to generate an rln proof: " & $error)
-
+  ## The regeneration reuses `nonce`: only the merkle path differs between the
+  ## two, so drawing again would spend two message ids from the epoch budget on
+  ## a message that is sent once. That would drift the budget the rate limit
+  ## manager accounts for away from the one the nonce manager enforces.
   let proofBytes = (
     await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
   ).valueOr:
-    return err("failed to generate RLN proof: " & $error)
+    return err(RlnError.transient("failed to generate RLN proof: " & error))
 
   let rlnProof = RateLimitProof.init(proofBytes).valueOr:
-    return err("could not decode proof for root check: " & $error)
+    return err(RlnError.transient("could not decode proof for root check: " & $error))
 
   if await rlnEvm.groupManager.validateRoot(rlnProof.merkleRoot):
     return ok(proofBytes)
 
   debug "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
   rlnEvm.groupManager.scheduleMerkleProofRefresh()
-  return await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
+  let refreshed = (
+    await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
+  ).valueOr:
+    return err(RlnError.transient("failed to regenerate RLN proof: " & error))
+  return ok(refreshed)
+
+proc generateRLNProofWithRootRefresh*(
+    rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
+): Future[Result[seq[byte], RlnError]] {.async.} =
+  ## Generates an RLN proof whose merkle root is in the acceptable-root window,
+  ## see `proveWithRootRefresh`. Returns the proof bytes.
+  ##
+  ## The message id is drawn from the epoch of `senderEpochTime`, the epoch
+  ## the proof carries, once the time is within the validators' bound. A
+  ## spent epoch budget is `BudgetExhausted`; a time out of bounds or an
+  ## epoch the manager has already moved past is `Permanent`, since no later
+  ## retry can prove it.
+  ##
+  ## A failed generation is `Transient` and returns the id to the epoch's
+  ## budget: no proof carrying it is returned, so the send service's retry of
+  ## the same task draws it again instead of spending a second id.
+  ?rlnEvm.checkTimestampBounds(senderEpochTime)
+  let epochIndex = rlnEvm.epochIndexOf(senderEpochTime)
+  let nonce = ?rlnEvm.nonceManager.reserve(epochIndex)
+  let proof = await rlnEvm.proveWithRootRefresh(input, senderEpochTime, nonce)
+  if proof.isErr():
+    rlnEvm.nonceManager.release(epochIndex, nonce)
+  return proof

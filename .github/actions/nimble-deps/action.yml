@@ -2,14 +2,15 @@ name: 'Install nimble deps'
 description: >
   Restores the nimbledeps cache and the Nimble package cache unless disabled,
   and runs `make build-deps`, which installs the pinned Nimble, installs the
-  dependencies recorded in nimble.lock with it, and audits the result.
+  dependencies recorded in nimble.lock with it, and audits the result. The
+  pinned Nimble is always cached.
 
 inputs:
   nim-version:
     description: 'The Nim version on PATH. A cache key component: the compiler builds the cached native libraries.'
     required: true
   cache:
-    description: 'Restore and save the nimbledeps cache. Set "false" to disable.'
+    description: 'Restore and save the nimbledeps cache. Set "false" to disable. The pinned Nimble is cached either way.'
     default: 'true'
   make-args:
     description: 'Extra arguments for the C library rebuild make calls.'
@@ -38,7 +39,30 @@ runs:
         restore-keys: |
           ${{ runner.os }}-nimble-pkgcache-v1-
 
+    - name: Locate the pinned Nimble
+      id: nimble
+      shell: bash
+      run: |
+        dir="$(make -s print-nimble-path)"
+        echo "name=$(basename "$(dirname "$dir")")" >> "$GITHUB_OUTPUT"
+
+    # A hit lets `make build-deps` skip building the pinned Nimble from source.
+    - name: Restore the pinned Nimble
+      id: pinned-nimble
+      uses: actions/cache/restore@v3
+      with:
+        path: ~/.local/${{ steps.nimble.outputs.name }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.nimble.outputs.name }}-v1-nim${{ inputs.nim-version }}
+
     - name: Install nimble deps
       shell: bash
       run: |
         make build-deps ${{ inputs.make-args }}
+
+    # Save now instead of at job end, which a failed or cancelled job skips.
+    - name: Save the pinned Nimble
+      if: ${{ steps.pinned-nimble.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v3
+      with:
+        path: ~/.local/${{ steps.nimble.outputs.name }}
+        key: ${{ steps.pinned-nimble.outputs.cache-primary-key }}

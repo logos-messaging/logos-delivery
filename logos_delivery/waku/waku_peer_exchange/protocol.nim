@@ -118,6 +118,9 @@ proc getEnrsFromStore(
       debug "Could not retrieve ENR because cannot connect to peer",
         remotePeerId = peerId
       continue
+    if not wpx.peerManager.switch.peerStore.hasFreshEnr(peerId):
+      debug "Skipping ENR not rediscovered recently", remotePeerId = peerId
+      continue
     poolFilter(wpx.cluster, peerOrigin, peerEnrRecord).isOkOr:
       debug "Could not get ENR because no peer matched pool", error = error
       continue

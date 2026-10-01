@@ -15,6 +15,7 @@ proc newTestWakuLightpushNode*(
     switch: Switch,
     handler: PushMessageHandler,
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
+    maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): Future[WakuLightPush] {.async.} =
   let
     peerManager = PeerManager.new(switch)
@@ -25,6 +26,7 @@ proc newTestWakuLightpushNode*(
       handler,
       Opt.some(wakuAutoSharding),
       rateLimitSetting,
+      maxMessageSize,
     )
 
   await proto.start()

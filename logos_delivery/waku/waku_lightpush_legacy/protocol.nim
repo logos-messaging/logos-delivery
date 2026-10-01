@@ -19,6 +19,7 @@ type WakuLegacyLightPush* = ref object of LPProtocol
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
+  maxRpcSize: int
 
 proc handleRequest*(
     wl: WakuLegacyLightPush, peerId: PeerId, buffer: seq[byte]
@@ -73,21 +74,37 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
       await conn.closeWithEOF()
 
     wl.requestRateLimiter.checkUsageLimit(WakuLegacyLightPushCodec, conn):
-      var buffer: seq[byte]
-      try:
-        buffer = await conn.readLp(DefaultMaxRpcSize)
-      except LPStreamError:
-        debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
-        return
+      block readAndHandle:
+        var buffer: seq[byte]
+        try:
+          buffer = await conn.readLp(wl.maxRpcSize)
+        except MaxSizeError:
+          # Only the length prefix was read, so the requestId is unknown.
+          debug "Lightpush legacy request too large",
+            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+          rpc = PushRPC(
+            requestId: "N/A",
+            response: Opt.some(
+              PushResponse(
+                isSuccess: false,
+                info: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+              )
+            ),
+          )
+          break readAndHandle
+        except LPStreamError:
+          debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
+          return
 
-      logos_delivery_service_network_bytes.inc(
-        amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
-      )
+        logos_delivery_service_network_bytes.inc(
+          amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
+        )
 
-      try:
-        rpc = await handleRequest(wl, conn.peerId, buffer)
-      except CatchableError:
-        error "lightpush legacy handleRequest failed", error = getCurrentExceptionMsg()
+        try:
+          rpc = await handleRequest(wl, conn.peerId, buffer)
+        except CatchableError:
+          error "lightpush legacy handleRequest failed",
+            error = getCurrentExceptionMsg()
     do:
       debug "Lightpush request rejected due rate limit exceeded",
         peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
@@ -121,12 +138,14 @@ proc new*(
     rng: crypto.Rng,
     pushHandler: PushMessageHandler,
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
+    maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): T =
   let wl = WakuLegacyLightPush(
     rng: rng,
     peerManager: peerManager,
     pushHandler: pushHandler,
     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
+    maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
   )
   wl.initProtocolHandler()
   setServiceLimitMetric(WakuLegacyLightPushCodec, rateLimitSetting)

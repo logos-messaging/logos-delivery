@@ -51,10 +51,9 @@ jobs:
 
       # macos images ship no nim/nimble; make dies at "nimble: No such file or directory".
       - name: Install Nim ${{ env.NIM_VERSION }}
-        uses: jiro4989/setup-nim-action@v2
+        uses: ./.github/actions/install-nim
         with:
           nim-version: ${{ env.NIM_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get submodules hash
         id: submodules
