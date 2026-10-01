@@ -75,7 +75,7 @@ BrokerImplement FakeBackend of IPeerDiscovery:
     ok()
 
 proc confWith(flags: CapabilitiesBitfield): WakuConf =
-  var conf = defaultWakuNodeConf().valueOr:
+  var conf = defaultKernelConf().valueOr:
     raiseAssert error
   conf.clusterId = Opt.some(16'u16)
   var wakuConf = conf.toWakuConf().valueOr:

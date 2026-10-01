@@ -976,9 +976,7 @@ proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
   except CatchableError:
     err(getCurrentExceptionMsg())
 
-proc defaultWakuNodeConf*(
-    modeFlags = DefaultKernelModeFlags
-): ConfResult[WakuNodeConf] =
+proc defaultKernelConf*(modeFlags = DefaultKernelModeFlags): ConfResult[WakuNodeConf] =
   ## The kernel config with its defaults. With `modeFlags = ModeProtocolFlags()`,
   ## the protocol flags stay unset, so that a mode can set them first.
   try:
@@ -986,7 +984,7 @@ proc defaultWakuNodeConf*(
     applyModeFlags(conf, modeFlags)
     return ok(conf)
   except CatchableError:
-    return err("exception in defaultWakuNodeConf: " & getCurrentExceptionMsg())
+    return err("exception in defaultKernelConf: " & getCurrentExceptionMsg())
 
 proc parseCmdArg*(T: type LogosDeliveryMode, s: string): T {.raises: [ValueError].} =
   ## The generic `Opt[T]` flag parser dispatches to `parseCmdArg(T, ...)` for

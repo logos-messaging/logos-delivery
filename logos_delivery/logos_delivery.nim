@@ -74,7 +74,7 @@ type LogosDelivery* = ref object ## Entry point. Holds one instance of each API 
   messagingClient*: MessagingClient
   reliableChannelManager*: ReliableChannelManager
 
-proc buildStack(
+proc buildLogosDeliveryStack(
     wakuConf: WakuConf,
     messagingConf: Opt[MessagingClientConf],
     channelsConf: Opt[ReliableChannelManagerConf],
@@ -110,7 +110,7 @@ proc resolveCliConf*(
     conf: LogosDeliveryNodeConf
 ): Result[
     tuple[
-      wakuConf: WakuConf,
+      kernelConf: KernelConf,
       messagingConf: Opt[MessagingClientConf],
       channelsConf: Opt[ReliableChannelManagerConf],
     ],
@@ -130,11 +130,9 @@ proc resolveCliConf*(
     messagingConf = Opt.some(?resolvePreset(ldNodeConf.kernel.preset))
   applyModeFlags(ldNodeConf.kernel, DefaultKernelModeFlags)
 
-  let wakuConf = ?ldNodeConf.kernel.toWakuConf()
-
   return ok(
     (
-      wakuConf: wakuConf,
+      kernelConf: KernelConf(ldNodeConf.kernel),
       messagingConf: messagingConf,
       channelsConf:
         if ldNodeConf.entryLayer == EntryLayer.channels:
@@ -150,8 +148,10 @@ proc new*(
   ## CLI adapter: translates the logosdeliverynode config and builds the stack.
   let resolved = resolveCliConf(conf).valueOr:
     return err("failed to translate the configuration: " & error)
-  return await buildStack(
-    resolved.wakuConf, resolved.messagingConf, resolved.channelsConf, appCallbacks
+  let wakuConf = WakuNodeConf(resolved.kernelConf).toWakuConf().valueOr:
+      return err("failed to translate the configuration: " & error)
+  return await buildLogosDeliveryStack(
+    wakuConf, resolved.messagingConf, resolved.channelsConf, appCallbacks
   )
 
 proc new*(
@@ -161,7 +161,9 @@ proc new*(
   ## mounted iff its config is present.
   let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
       return err("failed to handle the configuration: " & error)
-  return await buildStack(wakuConf, conf.messagingConf, conf.channelsConf, appCallbacks)
+  return await buildLogosDeliveryStack(
+    wakuConf, conf.messagingConf, conf.channelsConf, appCallbacks
+  )
 
 proc new*(
     T: type LogosDelivery, kernelConf: KernelConf, appCallbacks: AppCallbacks = nil

@@ -34,7 +34,7 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
         # discovery stays on; mode does not force it off
 
   test "an explicit discv5Discovery=false survives mode expansion":
-    var kc = defaultWakuNodeConf().valueOr:
+    var kc = defaultKernelConf().valueOr:
       raiseAssert error
     kc.discv5Discovery = Opt.some(false)
     applyMode(kc, LogosDeliveryMode.Core)
@@ -66,7 +66,7 @@ suite "MessagingClientConf - field mapping + transport policy":
   test "nat and storage defaults are the CLI defaults":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
-    let cli = defaultWakuNodeConf().valueOr:
+    let cli = defaultKernelConf().valueOr:
       raiseAssert error
     check:
       kc.nat == cli.nat
@@ -638,7 +638,8 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
     check:
       plan.messagingConf.isNone()
       plan.channelsConf.isNone()
-      plan.wakuConf.relay == true # no mode ran; `DefaultKernelModeFlags` applies
+      WakuNodeConf(plan.kernelConf).relay == Opt.some(true)
+        # no mode ran; `DefaultKernelModeFlags` applies
 
   test "kernel entry rejects an explicit mode":
     check resolveCliConf(cliConf(EntryLayer.kernel, Opt.some(LogosDeliveryMode.Edge)))
@@ -652,19 +653,20 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
     check:
       plan.messagingConf.isSome()
       plan.channelsConf.isSome()
-      plan.wakuConf.relay == false # set by the Edge mode
+      WakuNodeConf(plan.kernelConf).relay == Opt.some(false) # set by the Edge mode
 
   test "an unset mode resolves to Core":
     let plan = resolveCliConf(cliConf(EntryLayer.messaging)).expect("translate")
     check:
       plan.channelsConf.isNone()
-      plan.wakuConf.relay == true # set by the Core mode
+      WakuNodeConf(plan.kernelConf).relay == Opt.some(true) # set by the Core mode
 
   test "an explicit flag has priority over the mode":
     var conf = cliConf(EntryLayer.channels)
     conf.kernel.relay = Opt.some(false)
     let plan = resolveCliConf(conf).expect("translate")
-    check plan.wakuConf.relay == false # explicit wins over Core
+    check WakuNodeConf(plan.kernelConf).relay == Opt.some(false)
+      # explicit wins over Core
 
   test "the preset's messaging fields reach the messaging layer":
     var conf = cliConf(EntryLayer.messaging)

@@ -105,7 +105,7 @@ proc toWakuNodeConf*(
     self: MessagingClientConf, mode: LogosDeliveryMode
 ): ConfResult[WakuNodeConf] =
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
-  var conf = ?defaultWakuNodeConf(modeFlags = ModeProtocolFlags())
+  var conf = ?defaultKernelConf(modeFlags = ModeProtocolFlags())
   applyMode(conf, mode)
 
   if self.store.isSome():

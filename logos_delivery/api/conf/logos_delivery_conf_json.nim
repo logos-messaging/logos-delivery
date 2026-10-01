@@ -79,7 +79,7 @@ proc parseFlatConf(
   # pre-refactor flat create_node parsed it: start from the kernel defaults and apply
   # the mode's protocol flags (the kernel no longer owns `mode`, so we expand it here,
   # like the old kernel builder did), then let explicit fields override.
-  var kernel = ?defaultWakuNodeConf(modeFlags = ModeProtocolFlags())
+  var kernel = ?defaultKernelConf(modeFlags = ModeProtocolFlags())
   applyMode(kernel, mode)
   ?applyJsonFieldsToConf(
     kernel, topJsonNode, "Failed to parse config field",
@@ -144,7 +144,7 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     if not top.hasKey(KeyKernelConf):
       return err("kernel entry layer requires a 'kernelConf' object")
     let (_, v) = top.getOrDefault(KeyKernelConf)
-    let kernel = ?parseOverrides(?defaultWakuNodeConf(), v, "kernelConf")
+    let kernel = ?parseOverrides(?defaultKernelConf(), v, "kernelConf")
     top.del(KeyKernelConf)
     if top.len > 0:
       return err(
