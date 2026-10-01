@@ -4,7 +4,8 @@ import std/tables, chronos, results, brokers/broker_context
 
 import ./group_manager_base, ./nonce_manager, ./protocol_types
 
-import logos_delivery/waku/common/error_handling
+import
+  logos_delivery/waku/common/error_handling, logos_delivery/waku/persistency/persistency
 
 type RlnEvm* = ref object of RootObj
   # the log of nullifiers and Shamir shares of the past messages grouped per epoch
@@ -19,5 +20,13 @@ type RlnEvm* = ref object of RootObj
   brokerCtx*: BrokerContext
     ## The node's context, through which the backend reaches node services
     ## such as its persistency.
+  idStore*: persistency.Job
+    ## The node's `rln` persistency job, holding this identity's message id
+    ## row. Nil until the first draw or quota read loads it
+    ## (`ensureIdsLoaded`).
+  idStoreKey*: Key ## This identity's row key in `idStore`.
+  refusedUntil*: uint64
+    ## Set when the loaded row's epoch is ahead of the clock: the quota
+    ## reports no budget for earlier epochs until the clock reaches it.
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[Result[void, string]]

@@ -10,6 +10,7 @@ import
     rln/rln_evm/conversion_utils,
     rln/rln_evm/group_manager,
     rln/rln_evm/nonce_manager,
+    rln/rln_evm/message_id_store,
   ]
 import logos_delivery/waku/rln/types as rln_api_types
 import ../signal
@@ -72,6 +73,51 @@ proc absDiff*(e1, e2: Epoch): uint64 =
     return epoch1 - epoch2
   else:
     return epoch2 - epoch1
+
+proc ensureIdsLoaded*(
+    rlnEvm: RlnEvm
+): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
+  ## Loads this identity's message id row on first use and applies the start
+  ## policy; returns at once when already loaded. No id may be drawn before it
+  ## succeeds: every failure is `NotReady` and leaves the store unloaded, so
+  ## the next call retries.
+  ##
+  ## A stored row moves the counter forward (`NonceManager.restore`): the
+  ## same epoch resumes at the stored id, a later epoch starts fresh at its
+  ## first `reserve`, and an earlier one is refused. A row ahead of the clock
+  ## (the clock went back, or a message was stamped ahead) also sets
+  ## `refusedUntil`.
+  if not rlnEvm.idStore.isNil():
+    return ok()
+
+  let credentials = rlnEvm.groupManager.idCredentials.valueOr:
+    return err(RlnError.notReady("no identity credential to key the message id store"))
+  let job = openIdStore(rlnEvm.brokerCtx).valueOr:
+    debug "RLN message id store not available", error = error
+    return err(RlnError.notReady("message id store: " & error))
+  let key = storeKey(credentials.idSecretHash)
+  let stored = (await job.loadIds(key)).valueOr:
+    debug "RLN message id store could not be read", error = error
+    return err(RlnError.notReady("message id store: " & error))
+
+  if stored.isSome():
+    let row = stored.get()
+    rlnEvm.nonceManager.restore(row.epochIndex, row.nextId)
+    let now = epochTime()
+    let currentEpoch = rlnEvm.epochIndexOf(now)
+    if row.epochIndex > currentEpoch:
+      rlnEvm.refusedUntil = row.epochIndex
+      # Within the validators' timestamp tolerance a row one epoch ahead is a
+      # message stamped just ahead; beyond it, the clock or the row is wrong.
+      let rowEpochStart = float64(row.epochIndex) * float64(rlnEvm.rlnEpochSizeSec)
+      if rowEpochStart - now > float64(rlnEvm.rlnMaxTimestampGap):
+        warn "RLN message ids were last drawn in an epoch ahead of the clock; no ids are drawn until the clock reaches it. If the clock is right, deleting rln.db resets the counter",
+          storedEpoch = row.epochIndex, currentEpoch = currentEpoch
+
+  rlnEvm.idStore = job
+  rlnEvm.idStoreKey = key
+  info "RLN message id store loaded"
+  return ok()
 
 proc generateRLNProofWithNonce(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64, nonce: Nonce
