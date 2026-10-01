@@ -14,7 +14,7 @@ concurrency:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
+  NIMFLAGS: "--colors:off -d:chronicles_colors:none"
 
 jobs:
   changes: # run only the jobs relevant to what a PR touches
@@ -105,6 +105,18 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
 
+      # Nim recompiles only the C files that changed, but nim-leopard reuses any
+      # Leopard-RS archive already in nimcache, so the key hashes the files its
+      # build depends on. Only master saves.
+      - name: Restore nimcache
+        id: nimcache
+        uses: actions/cache/restore@v3
+        with:
+          path: nimcache
+          key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-
+
       - name: Build binaries
         # -j1: `all` builds logosdeliverynode and liblogosdelivery, each via `nimble
         # <task>`. Under -j2 the two nimble invocations re-resolve git deps
@@ -114,6 +126,13 @@ jobs:
         # own --parallelBuild still parallelizes compilation. Mirrors the test
         # job, which already forces -j1.
         run: make V=1 -j1 all
+
+      - name: Save nimcache
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: actions/cache/save@v3
+        with:
+          path: nimcache
+          key: ${{ steps.nimcache.outputs.cache-primary-key }}
 
       - name: Build FFI examples
         run: make V=1 -j1 ffi-examples
@@ -308,13 +327,10 @@ jobs:
   lint:
     name: "Lint"
     runs-on: ubuntu-22.04
-    needs: [changes, build]
-    # Still waits for `build` when it runs, but a tests-only PR skips `build`
-    # and must be linted anyway.
+    needs: changes
     if: >-
-      ${{ !cancelled() && needs.build.result != 'failure'
-      && (needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true'
-      || needs.changes.outputs.examples == 'true') }}
+      ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true'
+      || needs.changes.outputs.examples == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

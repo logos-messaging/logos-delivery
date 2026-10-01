@@ -442,10 +442,18 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
     task.firstAdmittedTime = Opt.some(Moment.now())
 
   ## A no-op when RLN is not mounted, or when a prior round already attached a
-  ## proof; otherwise draws the nonce and attaches.
+  ## proof; otherwise draws the nonce and attaches. The message's epoch is fixed
+  ## by its timestamp, so a backend that has moved past that epoch, or spent its
+  ## budget, fails the task: no later round can prove it. Every other kind
+  ## retries next round.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
-    debug "Failed to attach RLN proof, retrying next round",
-      requestId = task.requestId, error = error
+    case error.kind
+    of RlnErrorKind.Permanent, RlnErrorKind.BudgetExhausted:
+      task.state = DeliveryState.FailedToDeliver
+      task.errorDesc = "Failed to attach RLN proof: " & $error
+    of RlnErrorKind.NotReady, RlnErrorKind.Transient:
+      debug "Failed to attach RLN proof, retrying next round",
+        requestId = task.requestId, error = $error
     return false
 
   return true

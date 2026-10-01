@@ -147,7 +147,7 @@ jobs:
     - name: Building ${{ matrix.target }}
       run: |
         export HOME="$(cygpath -u "$USERPROFILE")"
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$PATH"
         "$CCACHE_BIN/ccache.exe" --zero-stats
         ${{ matrix.make }} NIMFLAGS="--gcc.path:$CCACHE_BIN"
 
@@ -157,7 +157,7 @@ jobs:
 
     - name: Audit installed deps
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
+        export HOME="$(cygpath -u "$USERPROFILE")"
         make audit-deps
 
     - name: Check Executable

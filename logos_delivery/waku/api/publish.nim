@@ -55,13 +55,12 @@ proc rlnEpochQuota*(
 
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
-): Future[Result[WakuMessage, string]] {.async.} =
+): Future[Result[WakuMessage, RlnError]] {.async.} =
   ## Returns `message` carrying an RLN proof. A message that already has one is
   ## returned untouched, so retrying a task neither redraws a nonce nor changes
-  ## the bytes. Without RLN mounted the message passes through unproven.
-  let msgWithProof = (await attachProof(self.node.rlnPlugin, message)).valueOr:
-    return err("Failed to attach RLN proof: " & $error)
-  return ok(msgWithProof)
+  ## the bytes. Without RLN mounted the message passes through unproven. The
+  ## error's kind tells the caller whether a retry can succeed.
+  return await attachProof(self.node.rlnPlugin, message)
 
 func isRlnRejection*(error: ErrorStatus): bool =
   ## True when a publish failure means "the RLN proof was not accepted", so the

@@ -27,6 +27,18 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
 
+      # Nim recompiles only the C files that changed, but nim-leopard reuses any
+      # Leopard-RS archive already in nimcache, so the key hashes the files its
+      # build depends on. Only master saves.
+      - name: Restore nimcache
+        id: nimcache
+        uses: actions/cache/restore@v3
+        with:
+          path: nimcache
+          key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-${{ matrix.suite.name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-${{ matrix.suite.name }}-
+
       - name: Run tests
         run: |
           # all_tests_waku carries the only postgres suites.
@@ -40,6 +52,13 @@ jobs:
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
+
+      - name: Save nimcache
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: actions/cache/save@v3
+        with:
+          path: nimcache
+          key: ${{ steps.nimcache.outputs.cache-primary-key }}
 
       - name: Audit installed deps
         run: make audit-deps

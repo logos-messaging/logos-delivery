@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[os, sequtils, tempfiles, strutils, osproc],
+  std/[os, sequtils, tempfiles, strutils, osproc, importutils],
   stew/byteutils,
   testutils/unittests,
   chronicles,
@@ -13,7 +13,14 @@ import
 
 import
   logos_delivery/waku/rln/types as rln_api_types,
-  logos_delivery/waku/[waku_core, waku_node, rln, rln/rln_evm/protocol_types],
+  logos_delivery/waku/[
+    waku_core,
+    waku_node,
+    waku_relay,
+    rln,
+    rln/rln_evm/protocol_types,
+    rln/rln_evm/constants,
+  ],
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
   ./rln/waku_rln_relay_utils
@@ -808,3 +815,115 @@ procSuite "WakuNode - RLN relay":
       check rootValid
 
       await node.stop()
+
+proc relayVerdict(
+    node: WakuNode, msg: WakuMessage
+): Future[pubsub.ValidationResult] {.async.} =
+  ## Runs the node's relay validators in order, as gossipsub does on receipt,
+  ## to observe the verdict that scores the forwarding peer.
+  privateAccess(WakuRelay)
+  for (handler, _) in node.wakuRelay.wakuValidators:
+    let verdict = await handler(DefaultPubsubTopic, msg)
+    if verdict != pubsub.ValidationResult.Accept:
+      return verdict
+  return pubsub.ValidationResult.Accept
+
+proc rlnConfigAt(
+    manager: RlnEvmGroupManager, index: MembershipIndex, ethClientUrl: string
+): WakuRlnConfig =
+  var conf = getWakuRlnConfig(manager = manager, index = index)
+  conf.ethClientUrls = @[ethClientUrl]
+  return conf
+
+proc messageOnNewRoot(
+    manager: RlnEvmGroupManager, ethClientUrl: string
+): Future[(RlnEvm, WakuMessage)] {.async.} =
+  ## Registers a fresh member on `ethClientUrl`'s chain, which moves the root,
+  ## and returns a message proven against that new root.
+  var sender: RlnEvm
+  lockNewGlobalBrokerContext:
+    sender = (await RlnEvm.new(rlnConfigAt(manager, MembershipIndex(2), ethClientUrl))).valueOr:
+      raiseAssert $error
+  let senderManager = cast[RlnEvmGroupManager](sender.groupManager)
+  (await senderManager.register(generateCredentials(), UserMessageLimit(20))).isOkOr:
+    raiseAssert "Failed to register: " & error
+
+  let msg = WakuMessage(
+    payload: "proof on new root".toBytes(),
+    contentTopic: DefaultContentTopic,
+    timestamp: now(),
+  )
+  let epoch = sender.calcEpoch(msg.timestamp.float64 / 1e9)
+  let proven = (await sender.unsafeAppendRLNProof(msg, epoch, MessageId(0))).valueOr:
+    raiseAssert "Failed to append rln proof: " & $error
+  return (sender, proven)
+
+suite "WakuNode - RLN relay unknown root":
+  ## A valid proof on a root the receiver cannot see yet must be ignored, not
+  ## rejected: the forwarding peer did nothing wrong. Uses its own ports so it
+  ## does not clash with other anvil instances on the default one.
+  const MainEthClient = "http://127.0.0.1:8561"
+  const LaggingEthClient = "http://127.0.0.1:8562"
+
+  var anvilProc {.threadVar.}: Process
+  var manager {.threadVar.}: RlnEvmGroupManager
+
+  setup:
+    anvilProc = runAnvil(port = 8561, stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupRlnEvm(ethClientUrl = MainEthClient, deployContracts = false)
+
+  teardown:
+    stopAnvil(anvilProc)
+
+  asyncTest "root newer than the last refresh is ignored within the throttle window":
+    var receiver: WakuNode
+    var receiverRln: RlnEvm
+    lockNewGlobalBrokerContext:
+      receiver = newTestWakuNode(generateSecp256k1Key())
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      receiverRln = await receiver.mountOnchainRln(
+        rlnConfigAt(manager, MembershipIndex(1), MainEthClient)
+      )
+    let receiverManager = cast[RlnEvmGroupManager](receiverRln.groupManager)
+
+    # An unknown root triggers a refresh, which opens the throttle window.
+    check not (await receiverManager.validateRoot(default(MerkleNode)))
+
+    let (sender, msg) = await messageOnNewRoot(manager, MainEthClient)
+
+    # Registration and proof generation take a while; keep the window open.
+    receiverManager.lastRootsRefreshMoment = Moment.now()
+    check (await receiver.relayVerdict(msg)) == pubsub.ValidationResult.Ignore
+
+    await sleepAsync(RootsRefreshMinInterval + 200.millis)
+    check (await receiver.relayVerdict(msg)) == pubsub.ValidationResult.Accept
+
+    await sender.stop()
+    await receiverRln.stop()
+
+  asyncTest "root unknown to a lagging eth RPC is ignored":
+    # The fork never sees blocks mined on the main chain after it started.
+    let laggingAnvilProc = runAnvil(port = 8562, forkUrl = Opt.some(MainEthClient))
+
+    var receiver: WakuNode
+    var receiverRln: RlnEvm
+    lockNewGlobalBrokerContext:
+      receiver = newTestWakuNode(generateSecp256k1Key())
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      receiverRln = await receiver.mountOnchainRln(
+        rlnConfigAt(manager, MembershipIndex(1), LaggingEthClient)
+      )
+    let receiverManager = cast[RlnEvmGroupManager](receiverRln.groupManager)
+
+    let (sender, msg) = await messageOnNewRoot(manager, MainEthClient)
+
+    # Let validation refresh the roots, so only the lagging RPC hides the root.
+    receiverManager.lastRootsRefreshMoment = default(Moment)
+    check (await receiver.relayVerdict(msg)) == pubsub.ValidationResult.Ignore
+    check receiverManager.lastRootsRefreshMoment != default(Moment)
+
+    await sender.stop()
+    await receiverRln.stop()
+    stopAnvil(laggingAnvilProc)

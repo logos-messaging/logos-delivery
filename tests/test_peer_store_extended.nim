@@ -7,6 +7,8 @@ import
   libp2p/peerid,
   libp2p/peerstore,
   libp2p/multiaddress,
+  eth/keys as ethkeys,
+  eth/p2p/discoveryv5/enr,
   testutils/unittests
 import
   logos_delivery/waku/
@@ -344,7 +346,7 @@ suite "Extended nim-libp2p Peer Store":
     check:
       peerStore[AddressBook][p1] == newSeq[MultiAddress](0)
       peerStore[ProtoBook][p1] == newSeq[string](0)
-      peerStore[KeyBook][p1] == default(PublicKey)
+      peerStore[KeyBook][p1] == default(crypto.PublicKey)
       peerStore[AgentBook][p1] == ""
       peerStore[ProtoVersionBook][p1] == ""
       peerStore[LastFailedConnBook][p1] == default(Moment)
@@ -353,3 +355,35 @@ suite "Extended nim-libp2p Peer Store":
       peerStore[DisconnectBook][p1] == 0
       peerStore[SourceBook][p1] == default(PeerOrigin)
       peerStore[DirectionBook][p1] == default(PeerDirection)
+
+  test "pruneStaleEnrs() only drops stale, non-connected, discovered ENRs":
+    let peerStore = PeerStore.new(nil, capacity = 5)
+    let enrRecord =
+      enr.Record.init(1, ethkeys.PrivateKey.random(ethkeys.newRng()[])).tryGet()
+    var ids: array[3, PeerId]
+    for i in 0 ..< 3:
+      require ids[i].init(basePeerId & $(i + 1))
+
+    # discovered + stale + not connected, discovered + stale + connected, static + stale
+    let setups = [(Discv5, NotConnected), (Discv5, Connected), (Static, NotConnected)]
+    for i in 0 ..< 3:
+      peerStore.addPeer(
+        RemotePeerInfo.init(
+          peerId = ids[i],
+          addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/1").tryGet()],
+          enr = Opt.some(enrRecord),
+          publicKey = generateEcdsaKeyPair().pubkey,
+          connectedness = setups[i][1],
+          origin = setups[i][0],
+        )
+      )
+      peerStore[ENRAliveBook][ids[i]] =
+        Moment.now() - DiscoveredEnrTtl - chronos.seconds(1)
+
+    check:
+      peerStore.pruneStaleEnrs() == 1
+      peerStore[ENRBook][ids[0]] == default(enr.Record)
+      peerStore[ENRBook][ids[1]] == enrRecord
+      peerStore[ENRBook][ids[2]] == enrRecord
+      peerStore.hasFreshEnr(ids[1])
+      not peerStore.hasFreshEnr(ids[2])

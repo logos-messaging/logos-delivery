@@ -19,6 +19,12 @@ Note, the default port for websocket is 8000.
 logosdeliverynode --websocket-secure-support=true --websocket-secure-key-path="<letsencrypt cert dir>/privkey.pem" --websocket-secure-cert-path="<letsencrypt cert dir>/fullchain.pem"
 ```
 
+The key must be in PKCS#8 format (`-----BEGIN PRIVATE KEY-----`). Convert other formats, such as `BEGIN RSA PRIVATE KEY`, with:
+
+```shell
+openssl pkcs8 -topk8 -nocrypt -in privkey.pem -out privkey-pkcs8.pem
+```
+
 ## Self-signed certificates
 
 Self-signed certificates are not recommended for production setups because:
