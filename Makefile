@@ -32,7 +32,7 @@ NIMBLE_TASK_FLAGS = $(if $(NIM),--nim:$(NIM))
 
 # The Nim that `nimble setup` installs for the locked `nim` entry. Recursive,
 # so it resolves after setup has populated nimbledeps/.
-NIM = $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim.exe 2>/dev/null | head -1)
+NIM = $(firstword $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim.exe 2>/dev/null) $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim 2>/dev/null))
 
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
