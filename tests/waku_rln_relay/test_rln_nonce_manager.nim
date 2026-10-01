@@ -1,7 +1,7 @@
 {.used.}
 
 import testutils/unittests, results
-import logos_delivery/waku/rln/rln_evm/nonce_manager
+import logos_delivery/waku/rln/rln_evm/nonce_manager, logos_delivery/waku/rln/types
 
 suite "Nonce manager":
   test "starts with no ids drawn":
@@ -42,7 +42,7 @@ suite "Nonce manager":
     let res = nm.reserve(7)
     check:
       res.isErr()
-      res.error.kind == NonceManagerErrorKind.EpochPassed
+      res.error.kind == RlnErrorKind.Permanent
       nm.epochIndex == 8
       nm.spent(8) == 1
 
@@ -53,7 +53,7 @@ suite "Nonce manager":
     let res = nm.reserve(7)
     check:
       res.isErr()
-      res.error.kind == NonceManagerErrorKind.NonceLimitReached
+      res.error.kind == RlnErrorKind.BudgetExhausted
       nm.spent(7) == 1
 
   test "the next epoch has a fresh budget after the limit":

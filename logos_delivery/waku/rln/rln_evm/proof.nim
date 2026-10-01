@@ -25,13 +25,6 @@ proc calcEpoch*(rlnEvm: RlnEvm, t: float64): Epoch =
   ## The rln `Epoch` value of time `t`, see `epochIndexOf`.
   toEpoch(rlnEvm.epochIndexOf(t))
 
-proc toRlnError(e: NonceManagerError): RlnError =
-  case e.kind
-  of NonceManagerErrorKind.NonceLimitReached:
-    RlnError.budgetExhausted($e)
-  of NonceManagerErrorKind.EpochPassed:
-    RlnError.permanent($e)
-
 proc checkTimestampBounds(
     rlnEvm: RlnEvm, senderEpochTime: float64
 ): Result[void, RlnError] =
@@ -125,8 +118,7 @@ proc generateRLNProofWithRootRefresh*(
   ## would drift the budget the rate limit manager accounts for away from the
   ## one the nonce manager enforces.
   ?rlnEvm.checkTimestampBounds(senderEpochTime)
-  let nonce = rlnEvm.nonceManager.reserve(rlnEvm.epochIndexOf(senderEpochTime)).valueOr:
-    return err(error.toRlnError())
+  let nonce = ?rlnEvm.nonceManager.reserve(rlnEvm.epochIndexOf(senderEpochTime))
 
   let proofBytes = (
     await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)

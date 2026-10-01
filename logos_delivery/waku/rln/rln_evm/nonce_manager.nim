@@ -10,6 +10,7 @@
 ## epoch that has already been drawn from cannot hand out an id twice.
 
 import results
+import logos_delivery/waku/rln/types
 
 type
   Nonce* = uint64
@@ -19,31 +20,19 @@ type
     nextId*: Nonce ## Next unused message id in `epochIndex`.
     nonceLimit*: Nonce ## Message ids available per epoch.
 
-  NonceManagerErrorKind* {.pure.} = enum
-    NonceLimitReached ## the epoch's ids are spent; wait for the next epoch
-    EpochPassed ## ids were already drawn for a later epoch; the count never moves back
-
-  NonceManagerError* = object
-    kind*: NonceManagerErrorKind
-    error*: string
-
-proc `$`*(ne: NonceManagerError): string =
-  $ne.kind & ": " & ne.error
-
 proc init*(T: type NonceManager, nonceLimit: Nonce): T =
   NonceManager(epochIndex: 0, nextId: 0, nonceLimit: nonceLimit)
 
-proc reserve*(n: NonceManager, epochIndex: uint64): Result[Nonce, NonceManagerError] =
-  ## Draws the next message id for `epochIndex`. A later epoch than the
-  ## current one starts a fresh count; an earlier one is refused. Failing at
-  ## the limit consumes nothing.
+proc reserve*(n: NonceManager, epochIndex: uint64): Result[Nonce, RlnError] =
+  ## Draws the next message id for `epochIndex`, the epoch the proof will carry.
+  ## An epoch earlier than the latest one drawn from fails `Permanent`: only the
+  ## latest epoch's count is kept, so ids already used in the earlier epoch are
+  ## unknown. `BudgetExhausted` means all `nonceLimit` ids of the epoch are drawn.
   if epochIndex < n.epochIndex:
     return err(
-      NonceManagerError(
-        kind: NonceManagerErrorKind.EpochPassed,
-        error:
-          "requested epoch " & $epochIndex & " is before the current epoch " &
-          $n.epochIndex,
+      RlnError.permanent(
+        "requested epoch " & $epochIndex & " is before the current epoch " &
+          $n.epochIndex
       )
     )
   if epochIndex > n.epochIndex:
@@ -51,10 +40,8 @@ proc reserve*(n: NonceManager, epochIndex: uint64): Result[Nonce, NonceManagerEr
     n.nextId = 0
   if n.nextId >= n.nonceLimit:
     return err(
-      NonceManagerError(
-        kind: NonceManagerErrorKind.NonceLimitReached,
-        error:
-          "message ids for epoch " & $epochIndex & " are spent; limit: " & $n.nonceLimit,
+      RlnError.budgetExhausted(
+        "message ids for epoch " & $epochIndex & " are spent; limit: " & $n.nonceLimit
       )
     )
   let id = n.nextId
