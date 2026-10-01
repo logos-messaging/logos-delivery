@@ -52,12 +52,13 @@
 
       nimbleOverlay = final: prev: {
         nimble = prev.nimble.overrideAttrs (_: {
-          version = "0.22.3";
+          version = "0.26.0";
           src = prev.fetchFromGitHub {
             owner = "nim-lang";
             repo  = "nimble";
-            rev   = "v0.22.3";
-            sha256 = "sha256-f7DYpRGVUeSi6basK1lfu5AxZpMFOSJ3oYsy+urYErg=";
+            rev   = "v0.26.0";
+            fetchSubmodules = true;
+            sha256 = "sha256-Jeo29dR/sTzdMzPrO1sGzo5zf0FMul5MhukW9xeKqEg=";
           };
         });
       };
