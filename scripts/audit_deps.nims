@@ -39,7 +39,7 @@ proc installedMismatches(lock: JsonNode, pkgs2: string, ok: var int, total: var 
   var inst: seq[Installed]
   var metaless: seq[string]
   for path in listDirs(pkgs2):
-    let d = path.split('/')[^1]
+    let d = path.replace('\\', '/').split('/')[^1]
     let metaPath = path & "/nimblemeta.json"
     if not fileExists(metaPath):
       metaless.add(d)
