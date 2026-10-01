@@ -75,9 +75,10 @@ A send is asynchronous. `200` means that the node accepted the message. The resu
 
 After a `sent` or `error` event, no more events come for that message.
 
-* The `sent` event needs reliability and a Store peer. It never comes for an ephemeral message.
+* The `sent` event needs reliability. A send without mix also needs a Store peer.
+* A message sent with `"ephemeral": true` gets no `sent` event, because Store nodes do not keep ephemeral messages.
 * Reliability is on by default, and off for the `twn` and `status.prod` presets. `--reliability` overrides that.
-* Without reliability, and for an ephemeral message, `propagated` is the last event.
+* Without reliability, or for an ephemeral message, `propagated` is the last event.
 * Later versions can add new event types. A client must skip an event type that it does not know.
 * `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 

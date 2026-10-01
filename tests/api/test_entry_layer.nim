@@ -13,7 +13,7 @@ import
 import tools/confutils/cli_args
 import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 
-## Validates the layer-selection invariant of `LogosDelivery.new(WakuNodeConf)`:
+## Validates the layer-selection invariant of `LogosDelivery.new(LogosDeliveryNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
 ## entry layers that call for them.
 ##

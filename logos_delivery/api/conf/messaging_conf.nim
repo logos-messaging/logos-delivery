@@ -8,8 +8,9 @@ import logos_delivery/messaging/rate_limit_manager/rate_limit_config
 
 export kernel_conf, rate_limit_config
 
-# `LogosDeliveryMode` and `EntryLayer` are defined at the leaf (`cli_args`) so
-# they can appear on `WakuNodeConf`; re-exported here via `kernel_conf`.
+# `LogosDeliveryMode` and `EntryLayer` are defined in the leaf module `modes`, so
+# that they can appear on `LogosDeliveryNodeConf` in `cli_args`. `kernel_conf`
+# re-exports them here.
 
 type MessagingClientConf* = object
   clusterId* {.name: "cluster-id".}: Opt[uint16] ## Network cluster id.

@@ -8,8 +8,8 @@
 import results
 
 type LogosDeliveryMode* {.pure.} = enum
-  ## Drives the kernel-internal protocol mountings. Applied only for the
-  ## `messaging` / `channels` entry layers; ignored when `entryLayer == kernel`.
+  ## Drives the kernel-internal protocol mountings. The node CLI rejects a mode
+  ## with `--entry-layer=kernel`.
   Edge # client-only node
   Core # full service node
 
