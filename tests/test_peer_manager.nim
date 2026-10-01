@@ -34,6 +34,7 @@ import
     waku_metadata,
   ],
   ./testlib/common,
+  ./testlib/testasync,
   ./testlib/testutils,
   ./testlib/wakucore,
   ./testlib/wakunode
@@ -59,6 +60,14 @@ proc connectedOverTcpOnly(dialer, server: WakuNode): bool =
     )
   return conns.len > 0 and conns.allIt("/tcp/" in $it.connection.observedAddr.get())
 
+proc hasRelayPeers(node: WakuNode, peers: openArray[WakuNode]): bool =
+  ## `node`'s peer store holds every peer as connected and supporting relay.
+  let peerStore = node.peerManager.switch.peerStore
+  return peers.allIt(
+    peerStore.isConnected(it.switch.peerInfo.peerId) and
+      peerStore.hasPeer(it.switch.peerInfo.peerId, WakuRelayCodec)
+  )
+
 procSuite "Peer Manager":
   asyncTest "connectPeer() works":
     # Create 2 nodes
@@ -67,7 +76,8 @@ procSuite "Peer Manager":
 
     let connOk =
       await nodes[0].peerManager.connectPeer(nodes[1].peerInfo.toRemotePeerInfo())
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.peerStore.isConnected(nodes[1].peerInfo.peerId)
 
     check:
       connOk == true
@@ -92,7 +102,8 @@ procSuite "Peer Manager":
 
     let peer = RemotePeerInfo.init(nodes[1].peerInfo.peerId, tcpFirst)
     require await nodes[0].peerManager.connectPeer(peer)
-    await sleepAsync(chronos.milliseconds(200))
+    checkUntilTimeout:
+      nodes[0].switch.isConnected(nodes[1].peerInfo.peerId)
 
     let conns = nodes[0].peerManager.switch.connManager.getConnections().getOrDefault(
         nodes[1].peerInfo.peerId
@@ -114,9 +125,11 @@ procSuite "Peer Manager":
     let peerId = nodes[1].peerInfo.peerId
 
     require await nodes[0].peerManager.connectPeer(nodes[1].peerInfo.toRemotePeerInfo())
-    await sleepAsync(chronos.milliseconds(500))
 
     # identify must have populated the book with a dual-stack address set
+    checkUntilTimeout:
+      nodes[0].switch.peerStore[AddressBook][peerId].anyIt("/quic-v1" in $it)
+      nodes[0].switch.peerStore[AddressBook][peerId].anyIt("/quic-v1" notin $it)
     let bookAddrs = nodes[0].peerManager.switch.peerStore[AddressBook][peerId]
     require bookAddrs.anyIt("/quic-v1" in $it)
     require bookAddrs.anyIt("/quic-v1" notin $it)
@@ -127,7 +140,9 @@ procSuite "Peer Manager":
     nodes[0].peerManager.switch.peerStore[AddressBook][peerId] = tcpFirst
 
     await nodes[0].peerManager.disconnectNode(peerId)
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      not nodes[0].switch.isConnected(peerId)
+      not nodes[1].switch.isConnected(nodes[0].switch.peerInfo.peerId)
 
     require await nodes[0].peerManager.connectPeer(
       RemotePeerInfo.init(peerId, tcpFirst)
@@ -291,14 +306,14 @@ procSuite "Peer Manager":
     require (
       await nodes[0].peerManager.connectPeer(nodes[1].peerInfo.toRemotePeerInfo())
     )
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.peerStore.isConnected(peerId)
 
     nodes[0].peerManager.addActiveStoreRequest(peerId)
     check:
       nodes[0].peerManager.hasActiveStoreRequest(peerId)
 
     await nodes[0].peerManager.evictPeer(peerId)
-    await sleepAsync(chronos.milliseconds(100))
 
     check:
       nodes[0].peerManager.switch.peerStore.connectedness(peerId) ==
@@ -309,7 +324,8 @@ procSuite "Peer Manager":
       not nodes[0].peerManager.hasActiveStoreRequest(peerId)
 
     await nodes[0].peerManager.evictPeer(peerId)
-    await sleepAsync(chronos.milliseconds(100))
+    checkUntilTimeout:
+      not nodes[0].peerManager.switch.peerStore.isConnected(peerId)
 
     check:
       nodes[0].peerManager.switch.peerStore.connectedness(peerId) !=
@@ -329,7 +345,8 @@ procSuite "Peer Manager":
     let conn = await nodes[0].peerManager.dialPeer(
       nodes[1].peerInfo.toRemotePeerInfo(), WakuFilterSubscribeCodec
     )
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.peerStore.isConnected(nodes[1].peerInfo.peerId)
 
     # Check connection
     check:
@@ -487,7 +504,9 @@ procSuite "Peer Manager":
     let nonExistentPeer = nonExistentPeerRes.value
     require:
       (await nodes[0].peerManager.connectPeer(nonExistentPeer)) == false
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.peerStore.connectedness(nonExistentPeer.peerId) ==
+        CannotConnect
 
     check:
       # Cannot connect to node2
@@ -498,7 +517,8 @@ procSuite "Peer Manager":
     require:
       (await nodes[0].peerManager.connectPeer(nodes[1].peerInfo.toRemotePeerInfo())) ==
         true
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.peerStore.isConnected(nodes[1].peerInfo.peerId)
 
     check:
       # Currently connected to node2
@@ -552,12 +572,13 @@ procSuite "Peer Manager":
       # Right after failing there is a backoff period
       nodes[0].peerManager.canBeConnected(nonExistentPeer.peerId) == false
 
-    # We wait the first backoff period
-    await sleepAsync(chronos.milliseconds(2100))
+    # The first backoff period has passed
+    nodes[0].peerManager.switch.peerStore[LastFailedConnBook][nonExistentPeer.peerId] =
+      Moment.init(getTime().toUnix - 2, Second)
 
     # And backoff period is over
     check:
-      nodes[0].peerManager.canBeConnected(nodes[1].peerInfo.peerId) == true
+      nodes[0].peerManager.canBeConnected(nonExistentPeer.peerId) == true
 
     # After a successful connection, the number of failed connections is reset
 
@@ -663,7 +684,8 @@ procSuite "Peer Manager":
         remotePeerInfo2.addrs
 
     # wait for the peer store update
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
 
     check:
       # Currently connected to node2
@@ -681,6 +703,8 @@ procSuite "Peer Manager":
     )
 
     node3.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
+    (await node3.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
 
     await node3.start()
 
@@ -690,12 +714,10 @@ procSuite "Peer Manager":
       node3.peerManager.switch.peerStore.peers().anyIt(it.peerId == peerInfo2.peerId)
       node3.peerManager.switch.peerStore.connectedness(peerInfo2.peerId) == NotConnected
 
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
     await node3.peerManager.connectToRelayPeers()
 
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      node3.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
 
     check:
       # Reconnected to node2 after "restart"
@@ -746,7 +768,8 @@ procSuite "Peer Manager":
         remotePeerInfo2.addrs
 
     # wait for the peer store update
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
 
     check:
       # Currently connected to node2
@@ -764,6 +787,10 @@ procSuite "Peer Manager":
     )
 
     node3.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
+    (await node3.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    # the reconnect after a restart waits out the prune backoff
+    node3.wakuRelay.parameters.pruneBackoff = ZeroDuration
 
     await node3.start()
 
@@ -773,12 +800,10 @@ procSuite "Peer Manager":
       node3.peerManager.switch.peerStore.peers().anyIt(it.peerId == peerInfo2.peerId)
       node3.peerManager.switch.peerStore.connectedness(peerInfo2.peerId) == NotConnected
 
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
     await node3.peerManager.manageRelayPeers()
 
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      node3.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
 
     check:
       # Reconnected to node2 after "restart"
@@ -873,7 +898,8 @@ procSuite "Peer Manager":
     await nodes[0].peerManager.connectToRelayPeers()
 
     # wait for the connections to settle
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].hasRelayPeers(nodes[1 .. 3])
 
     check:
       # Peerstore track all three peers
@@ -953,7 +979,8 @@ procSuite "Peer Manager":
     await nodes[0].peerManager.manageRelayPeers()
 
     # wait for the connections to settle
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].hasRelayPeers(nodes[1 .. 3])
 
     check:
       # Peerstore track all three peers
@@ -1011,7 +1038,11 @@ procSuite "Peer Manager":
       (await nodes[2].peerManager.connectPeer(peerInfos[0])) == true
       (await nodes[3].peerManager.connectPeer(peerInfos[0])) == true
 
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].hasRelayPeers(nodes[1 .. 3])
+      nodes[1 .. 3].allIt(
+        it.peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
+      )
 
     check:
       # Peerstore track all three peers
@@ -1381,21 +1412,23 @@ procSuite "Peer Manager":
       pm.canBeConnected(p1) == false
 
     # but we can after the first backoff of 1 seconds
-    await sleepAsync(chronos.milliseconds(1200))
+    pm.switch.peerStore[LastFailedConnBook][p1] =
+      Moment.init(getTime().toUnix - 1, Second)
     check:
       pm.canBeConnected(p1) == true
 
     # peer with TWO errors, we can connect until 2 seconds have passed
     pm.switch.peerStore[NumberFailedConnBook][p1] = 2
-    pm.switch.peerStore[LastFailedConnBook][p1] = Moment.init(getTime().toUnix, Second)
 
     # cant be connected after 1 second
-    await sleepAsync(chronos.milliseconds(1000))
+    pm.switch.peerStore[LastFailedConnBook][p1] =
+      Moment.init(getTime().toUnix - 1, Second)
     check:
       pm.canBeConnected(p1) == false
 
     # can be connected after 2 seconds
-    await sleepAsync(chronos.milliseconds(1200))
+    pm.switch.peerStore[LastFailedConnBook][p1] =
+      Moment.init(getTime().toUnix - 2, Second)
     check:
       pm.canBeConnected(p1) == true
 
@@ -1467,7 +1500,8 @@ procSuite "Peer Manager":
     # 2 in connections
     discard await nodes[1].peerManager.connectPeer(pInfos[0])
     discard await nodes[2].peerManager.connectPeer(pInfos[0])
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[1 .. 2].countIt(it.switch.isConnected(nodes[0].switch.peerInfo.peerId)) == 1
 
     # but one is pruned
     check nodes[0].peerManager.switch.connManager.getConnections().len == 1
@@ -1475,7 +1509,8 @@ procSuite "Peer Manager":
     # 2 out connections
     discard await nodes[0].peerManager.connectPeer(pInfos[3])
     discard await nodes[0].peerManager.connectPeer(pInfos[4])
-    await sleepAsync(chronos.milliseconds(500))
+    checkUntilTimeout:
+      nodes[0].peerManager.switch.connManager.getConnections().len == 1
 
     # they are also prunned
     check nodes[0].peerManager.switch.connManager.getConnections().len == 1

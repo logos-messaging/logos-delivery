@@ -2636,5 +2636,8 @@ suite "Waku Filter - End to End":
       await server.wakuFilter.handleMessage(pubsubTopic, msg2)
 
       # shall still receive message on default content topic
-      check not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      check not await pushHandlerFuture2nd.withTimeout(FUTURE_TIMEOUT)
+      for res in [
+        pushHandlerFuture.withTimeout(FUTURE_TIMEOUT),
+        pushHandlerFuture2nd.withTimeout(FUTURE_TIMEOUT),
+      ]:
+        check not await res

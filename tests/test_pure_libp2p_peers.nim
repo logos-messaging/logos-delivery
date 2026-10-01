@@ -11,6 +11,7 @@ import
   libp2p/protocols/service_discovery/types
 import
   logos_delivery/waku/[waku_node, waku_core, node/peer_manager, waku_metadata],
+  ./testlib/testasync,
   ./testlib/wakucore,
   ./testlib/wakunode
 
@@ -43,6 +44,12 @@ proc connectExpectingDrop(peer: Switch, node: WakuNode) {.async.} =
   except DialFailedError:
     discard
 
+proc isDisconnected(node: WakuNode, peer: Switch): bool =
+  ## Neither side holds a connection to the other.
+  return
+    not node.switch.isConnected(peer.peerInfo.peerId) and
+    not peer.isConnected(node.switch.peerInfo.peerId)
+
 suite "Peer manager - pure-libp2p peers":
   asyncTest "budget off: a pure-libp2p peer is disconnected, as before":
     let node = await newMemberNode()
@@ -51,7 +58,8 @@ suite "Peer manager - pure-libp2p peers":
     check node.peerManager.maxPureLibp2pPeers == 0
 
     await peer.connectExpectingDrop(node)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      node.isDisconnected(peer)
 
     check:
       not node.switch.isConnected(peer.peerInfo.peerId)
@@ -67,7 +75,8 @@ suite "Peer manager - pure-libp2p peers":
     await peer.start()
 
     await peer.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
 
     check:
       node.switch.isConnected(peer.peerInfo.peerId)
@@ -87,9 +96,11 @@ suite "Peer manager - pure-libp2p peers":
     await allFutures(first.start(), second.start())
 
     await first.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      first.peerInfo.peerId in node.peerManager.pureLibp2pPeers
     await second.connectExpectingDrop(node)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      node.isDisconnected(second)
 
     check:
       node.switch.isConnected(first.peerInfo.peerId)
@@ -108,10 +119,12 @@ suite "Peer manager - pure-libp2p peers":
     await inboundPeer.connect(
       node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs
     )
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      inboundPeer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
     # budget is now full; our own dial must still be kept
     await node.connectToNodes(@[dialed.peerInfo.toRemotePeerInfo()])
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      dialed.peerInfo.peerId in node.peerManager.pureLibp2pPeers
 
     check:
       node.switch.isConnected(inboundPeer.peerInfo.peerId)
@@ -127,7 +140,8 @@ suite "Peer manager - pure-libp2p peers":
     await peer.start()
 
     await peer.connectExpectingDrop(node)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      node.isDisconnected(peer)
 
     check:
       not node.switch.isConnected(peer.peerInfo.peerId)
@@ -142,11 +156,13 @@ suite "Peer manager - pure-libp2p peers":
     await peer.start()
 
     await peer.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
     check peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
 
     await peer.stop()
-    await sleepAsync(Settle)
+    checkUntilTimeout:
+      node.peerManager.pureLibp2pPeers.len == 0
     check node.peerManager.pureLibp2pPeers.len == 0
 
     await node.stop()

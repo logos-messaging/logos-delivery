@@ -187,6 +187,9 @@ proc hasMeshPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
       return true
   false
 
+proc hasMeshPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
+  node.wakuRelay.hasMeshPeer(topic, peer)
+
 proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
   for p in relay.gossipsub.getOrDefault(topic):
     if p.peerId == peer:

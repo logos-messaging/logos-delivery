@@ -269,7 +269,7 @@ suite "Waku API - Send":
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
-    discard await eventManager.waitForEvents(eventTimeout)
+    check await eventManager.sentFuture.withTimeout(eventTimeout)
 
     eventManager.validate(
       {SendEventOutcome.Sent, SendEventOutcome.Propagated}, requestId
@@ -498,7 +498,7 @@ suite "Waku API - Send":
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
-    discard await eventManager.waitForEvents(eventTimeout)
+    check await eventManager.sentFuture.withTimeout(eventTimeout)
 
     eventManager.validate(
       {SendEventOutcome.Propagated, SendEventOutcome.Sent}, requestId
@@ -559,7 +559,7 @@ suite "Waku API - Send":
     echo "Sent message with requestId=", requestId
     # Wait for events with timeout
     const eventTimeout = 30.seconds
-    discard await eventManager.waitForEvents(eventTimeout)
+    check await eventManager.errorFuture.withTimeout(eventTimeout)
 
     eventManager.validate({SendEventOutcome.Error}, requestId)
     (await node.stop()).isOkOr:

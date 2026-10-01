@@ -667,9 +667,13 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
     when not defined(windows):
       discard execCmdEx(fmt"kill -TERM {anvilPID}")
       # Give Anvil time to dump state on graceful shutdown before escalating to KILL.
-      sleep(200)
-      let checkResult = execCmdEx(fmt"kill -0 {anvilPID} 2>/dev/null")
-      if checkResult.exitCode == 0:
+      const stopTimeoutMs = 200
+      const pollIntervalMs = 10
+      var elapsed = 0
+      while runAnvil.running and elapsed < stopTimeoutMs:
+        sleep(pollIntervalMs)
+        elapsed += pollIntervalMs
+      if runAnvil.running:
         warn "Anvil process still running after TERM signal, sending KILL",
           anvilPID = anvilPID
         discard execCmdEx(fmt"kill -9 {anvilPID}")

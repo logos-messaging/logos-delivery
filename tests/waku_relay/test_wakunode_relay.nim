@@ -11,6 +11,8 @@ import
   libp2p/protocols/pubsub/gossipsub
 import
   logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_relay],
+  ../testlib/futures,
+  ../testlib/testasync,
   ../testlib/testutils,
   ../testlib/wakucore,
   ../testlib/wakunode
@@ -112,7 +114,9 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node3.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer($shard, node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer($shard, node3.switch.peerInfo.peerId)
 
     var res = await node1.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
@@ -214,18 +218,16 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node3.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer($shard, node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer($shard, node3.switch.peerInfo.peerId)
 
     var res = await node1.publish(Opt.some($shard), message1)
     assert res.isOk(), $res.error
 
-    await sleepAsync(500.millis)
-
     # message2 never gets relayed because of the validator
     res = await node1.publish(Opt.some($shard), message2)
     assert res.isOk(), $res.error
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(10.seconds)) == true
@@ -314,12 +316,12 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node1.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    # node2 never joins the shard, so its publish floods to the peers that announced it
+    checkUntilTimeout:
+      node2.hasGossipsubPeer($shard, node1.switch.peerInfo.peerId)
 
     let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(5.seconds)) == true
@@ -366,12 +368,12 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node1.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    # node2 never joins the shard, so its publish floods to the peers that announced it
+    checkUntilTimeout:
+      node2.hasGossipsubPeer($shard, node1.switch.peerInfo.peerId)
 
     let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(5.seconds)) == true
@@ -427,13 +429,10 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node1.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
 
     let res = await node2.publish(Opt.some($shard), message)
     check res.isErr()
     check contains($res.error, "NoPeersToPublish")
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(5.seconds)) == false
@@ -486,12 +485,12 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node1.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    # node2 never joins the shard, so its publish floods to the peers that announced it
+    checkUntilTimeout:
+      node2.hasGossipsubPeer($shard, node1.switch.peerInfo.peerId)
 
     let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(5.seconds)) == true
@@ -546,12 +545,12 @@ suite "WakuNode - Relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node1.subscribe((kind: PubsubSub, topic: $shard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
-    await sleepAsync(500.millis)
+    # node2 never joins the shard, so its publish floods to the peers that announced it
+    checkUntilTimeout:
+      node2.hasGossipsubPeer($shard, node1.switch.peerInfo.peerId)
 
     let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
-
-    await sleepAsync(500.millis)
 
     check:
       (await completionFut.withTimeout(5.seconds)) == true
@@ -575,7 +574,6 @@ suite "WakuNode - Relay":
     let topic = "topic"
     for node in nodes:
       node.wakuRelay.subscribe(topic, simpleHandler)
-    await sleepAsync(500.millis)
 
     # connect nodes in full mesh
     for i in 0 ..< 5:
@@ -588,7 +586,8 @@ suite "WakuNode - Relay":
         require connOk
 
     # connection triggers different actions, wait for them
-    await sleepAsync(1.seconds)
+    checkUntilTimeout:
+      nodes[1 .. 4].allIt(nodes[0].hasGossipsubPeer(topic, it.switch.peerInfo.peerId))
 
     # all peers are connected in a mesh, 4 conns each
     for i in 0 ..< 5:
@@ -599,8 +598,11 @@ suite "WakuNode - Relay":
     for j in 0 ..< 50:
       discard await nodes[0].wakuRelay.publish(topic, urandom(1 * (10 ^ 3)))
 
-    # long wait, must be higher than the configured decayInterval (how often score is updated)
-    await sleepAsync(20.seconds)
+    # the score is updated on the next scoring heartbeat (every decayInterval)
+    let scored = nodes[1 .. 4].mapIt(newAsyncEvent())
+    for i, event in scored:
+      nodes[i + 1].wakuRelay.scoringHeartbeatEvents.add(event)
+    check await allFutures(scored.mapIt(it.wait())).withTimeout(FUTURE_TIMEOUT_SCORING)
 
     # all nodes lower the score of nodes[0] (will change if gossipsub params or amount of msg changes)
     for i in 1 ..< 5:

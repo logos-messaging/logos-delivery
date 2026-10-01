@@ -53,18 +53,18 @@ suite "Peer Manager":
 
       # And both nodes are started
       await allFutures(server.start(), client.start())
-      await sleepAsync(FUTURE_TIMEOUT)
 
       # And the nodes are connected
       let serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
       await client.connectToNodes(@[serverRemotePeerInfo])
-      await sleepAsync(FUTURE_TIMEOUT)
+      checkUntilTimeout:
+        client.switch.peerStore.hasShard(serverRemotePeerInfo.peerId, clusterId, 0)
+        server.switch.peerStore.hasShard(client.switch.peerInfo.peerId, clusterId, 1)
 
       # When the client issues a filter request
       discard await client.filterSubscribe(
         Opt.some("/waku/2/rs/0/0"), "waku/lightpush/1", serverRemotePeerInfo
       )
-      await sleepAsync(FUTURE_TIMEOUT)
 
       check:
         server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
@@ -100,17 +100,19 @@ suite "Peer Manager":
 
       # And both nodes are started
       await allFutures(server.start(), client.start())
-      await sleepAsync(FUTURE_TIMEOUT)
 
       # And the nodes are connected
       let serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
       await client.connectToNodes(@[serverRemotePeerInfo])
-      await sleepAsync(FUTURE_TIMEOUT)
+      checkUntilTimeout:
+        client.switch.peerStore.hasShard(serverRemotePeerInfo.peerId, clusterId, 0)
+        server.switch.peerStore.hasShard(client.switch.peerInfo.peerId, clusterId, 0)
 
       # When the client subscribes to a relay topic
       client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic"), nil).isOkOr:
         assert false, "Failed to subscribe to relay"
-      await sleepAsync(FUTURE_TIMEOUT)
+      checkUntilTimeout:
+        server.hasGossipsubPeer("newTopic", client.switch.peerInfo.peerId)
 
       check:
         server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
@@ -146,17 +148,19 @@ suite "Peer Manager":
 
       # And both nodes are started
       await allFutures(server.start(), client.start())
-      await sleepAsync(FUTURE_TIMEOUT)
 
       # And the nodes are connected
       let serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
       await client.connectToNodes(@[serverRemotePeerInfo])
-      await sleepAsync(FUTURE_TIMEOUT)
+      checkUntilTimeout:
+        client.switch.peerStore.hasShard(serverRemotePeerInfo.peerId, clusterId, 0)
+        server.switch.peerStore.hasShard(client.switch.peerInfo.peerId, clusterId, 1)
 
       # When the client subscribes to a relay topic
       client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic"), nil).isOkOr:
         assert false, "Failed to subscribe to relay"
-      await sleepAsync(FUTURE_TIMEOUT)
+      checkUntilTimeout:
+        server.hasGossipsubPeer("newTopic", client.switch.peerInfo.peerId)
 
       check:
         # the metadata exchange ran and recorded the disjoint shard sets

@@ -584,8 +584,11 @@ suite "Waku Relay":
         await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
-        not await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        not await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
+      for res in [
+        anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT),
+        anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT),
+      ]:
+        check not await res
 
       let
         (topic3, msg3) = handlerFuture.read()
@@ -622,11 +625,14 @@ suite "Waku Relay":
 
       # Then the messages are only published in anotherNode because it's disconnected from
       # the rest of the network
+      for res in [
+        handlerFuture.withTimeout(FUTURE_TIMEOUT),
+        handlerFuture2.withTimeout(FUTURE_TIMEOUT),
+        otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT),
+        otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT),
+      ]:
+        check not await res
       check:
-        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        not await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
-        not await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        not await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
 
@@ -664,8 +670,11 @@ suite "Waku Relay":
         await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
-        not await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        not await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
+      for res in [
+        anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT),
+        anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT),
+      ]:
+        check not await res
 
       let
         (topic5, msg5) = handlerFuture.read()

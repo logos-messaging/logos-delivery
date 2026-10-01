@@ -571,11 +571,7 @@ suite "Peer Manager":
 
           # When trying to connect those peers to a non-existent peer
           # Generate an invalid multiaddress, and patching both peerInfos with it so dialing fails
-          let
-            port = Port(8080)
-            ipAddress = IpAddress(family: IPv4, address_v4: [192, 168, 0, 1])
-            multiaddress =
-              MultiAddress.init(ipAddress, IpTransportProtocol.tcpProtocol, port)
+          let multiaddress = MultiAddress.init("/ip4/127.0.0.1/tcp/1").tryGet()
           serverRemotePeerInfo.addrs = @[multiaddress]
           clientRemotePeerInfo.addrs = @[multiaddress]
           await client.connectToNodes(@[serverRemotePeerInfo])

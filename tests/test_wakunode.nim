@@ -150,7 +150,6 @@ suite "WakuNode":
     for node in otherNodes:
       discard
         await node1.peerManager.connectPeer(node.switch.peerInfo.toRemotePeerInfo())
-      await sleepAsync(2.seconds) # Small delay to avoid hammering the connection process
 
     # Check that the number of connections matches the maxConnections
     check:

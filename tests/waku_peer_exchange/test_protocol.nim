@@ -23,7 +23,7 @@ import
     common/enr/builder,
     waku_enr/sharding,
   ],
-  ../testlib/[wakucore, wakunode, assertions],
+  ../testlib/[wakucore, wakunode, assertions, testasync],
   ./utils.nim
 
 suite "Waku Peer Exchange":
@@ -71,11 +71,9 @@ suite "Waku Peer Exchange":
           raiseAssert "disc2: " & error
 
         ## When
-        var attempts = 10
-        while (disc1.protocol.nodesDiscovered < 1 or disc2.protocol.nodesDiscovered < 1) and
-            attempts > 0:
-          await sleepAsync(1.seconds)
-          attempts -= 1
+        checkUntilTimeout:
+          disc1.protocol.nodesDiscovered >= 1
+          disc2.protocol.nodesDiscovered >= 1
 
         # node2 can be connected, so will be returned by peer exchange
         require (
@@ -329,7 +327,8 @@ suite "Waku Peer Exchange":
         require resp.isOk
 
       # Wait for streams to be closed
-      await sleepAsync(1.seconds)
+      checkUntilTimeout:
+        nodes.allIt(it.peerManager.getNumStreams(WakuPeerExchangeCodec) == (0, 0))
 
       # Check that all streams are closed for px
       check:

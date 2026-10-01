@@ -21,7 +21,7 @@ import
     rln/rln_evm/protocol_types,
     rln/rln_evm/constants,
   ],
-  ../testlib/[wakucore, futures, wakunode, testutils],
+  ../testlib/[wakucore, futures, wakunode, testasync, testutils],
   ./utils_onchain,
   ./rln/waku_rln_relay_utils
 
@@ -136,7 +136,9 @@ procSuite "WakuNode - RLN relay":
     ## Subscribe to the relay topic to add the custom relay handler defined above
     node3.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
-    await sleepAsync(2000.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer(DefaultPubsubTopic, node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer(DefaultPubsubTopic, node3.switch.peerInfo.peerId)
 
     # prepare the message payload
     let payload = "Hello".toBytes()
@@ -257,7 +259,10 @@ procSuite "WakuNode - RLN relay":
       assert false, "Failed to subscribe to pubsub topic: " & $error
     node3.subscribe((kind: PubsubSub, topic: $shards[1]), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
-    await sleepAsync(1000.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer($shards[0], node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer($shards[0], node3.switch.peerInfo.peerId)
+      node2.hasGossipsubPeer($shards[1], node3.switch.peerInfo.peerId)
 
     # generate some messages with rln proofs first. generating
     # the proof takes some time, so this is done before publishing
@@ -303,7 +308,9 @@ procSuite "WakuNode - RLN relay":
       discard await node2.publish(Opt.some($shards[1]), msg)
 
     # wait for gossip to propagate
-    await sleepAsync(5000.millis)
+    checkUntilTimeout:
+      rxMessagesTopic1 == 3
+      rxMessagesTopic2 == 3
 
     # check that node[2] got messages from both topics
     # and that rln was applied (just 1 msg is rx, rest are spam)
@@ -400,7 +407,9 @@ procSuite "WakuNode - RLN relay":
     # mount the relay handler
     node3.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
-    await sleepAsync(2000.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer(DefaultPubsubTopic, node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer(DefaultPubsubTopic, node3.switch.peerInfo.peerId)
 
     # prepare the message payload
     let payload = "valid".toBytes()
@@ -417,7 +426,6 @@ procSuite "WakuNode - RLN relay":
     message.proof[0] = message.proof[0] xor 0x01
 
     discard await node1.publish(Opt.some(DefaultPubsubTopic), message)
-    await sleepAsync(2000.millis)
 
     check:
       # the relayHandler of node3 never gets called
@@ -513,7 +521,8 @@ procSuite "WakuNode - RLN relay":
       )
       #  wm3 points to the next epoch
 
-    await sleepAsync(1000.millis)
+    checkUntilTimeout:
+      rln1.getCurrentEpoch() != epoch_1
     let epoch_2 = rln1.getCurrentEpoch()
 
     var
@@ -568,7 +577,9 @@ procSuite "WakuNode - RLN relay":
     # mount the relay handler for node3
     node3.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
-    await sleepAsync(2000.millis)
+    checkUntilTimeout:
+      node1.hasMeshPeer(DefaultPubsubTopic, node2.switch.peerInfo.peerId)
+      node2.hasMeshPeer(DefaultPubsubTopic, node3.switch.peerInfo.peerId)
 
     ## node1 publishes and relays 4 messages to node2
     ## verification at node2 occurs inside a topic validator which is installed as part of the waku-rln-relay mount proc
@@ -580,17 +591,18 @@ procSuite "WakuNode - RLN relay":
     discard await node1.publish(Opt.some(DefaultPubsubTopic), wm2)
     discard await node1.publish(Opt.some(DefaultPubsubTopic), wm3)
     discard await node1.publish(Opt.some(DefaultPubsubTopic), wm4)
-    await sleepAsync(2000.millis)
 
     let
-      res1 = await completionFut1.withTimeout(10.seconds)
-      res2 = await completionFut2.withTimeout(10.seconds)
+      res1 = completionFut1.withTimeout(10.seconds)
+      res2 = completionFut2.withTimeout(10.seconds)
+      res3 = completionFut3.withTimeout(10.seconds)
+      res4 = completionFut4.withTimeout(10.seconds)
 
     check:
-      (res1 and res2) == false
+      ((await res1) and (await res2)) == false
         # either of the wm1 and wm2 is found as spam hence not relayed
-      (await completionFut3.withTimeout(10.seconds)) == true
-      (await completionFut4.withTimeout(10.seconds)) == false
+      (await res3) == true
+      (await res4) == false
 
     await node1.stop()
     await node2.stop()

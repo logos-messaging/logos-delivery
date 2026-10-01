@@ -684,8 +684,7 @@ suite "Waku Filter - End to End":
       )
 
     ## stop the peers
-    for index in 0 ..< MaxFilterPeers:
-      await peers[index].stop()
+    await allFutures(peers.mapIt(it.stop()))
 
   asyncTest "unsubscribe errors":
     ## Tests most common error paths while unsubscribing
