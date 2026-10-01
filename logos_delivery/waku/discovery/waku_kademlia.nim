@@ -13,6 +13,7 @@ import
   libp2p/crypto/curve25519,
   libp2p/protocols/service_discovery,
   libp2p/protocols/service_discovery/types,
+  libp2p/protocols/kademlia,
   libp2p/protocols/kademlia/types,
   libp2p_mix/mix_protocol,
   libp2p_mix/curve25519
@@ -21,6 +22,10 @@ import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/api/events/discovery_events
+
+# `new` is generic, so the Table[Key, _] inside libp2p's ServiceDiscovery.new
+# resolves Key's `hash` and `==` from our caller's scope.
+export key_value.hash, key_value.`==`
 
 logScope:
   topics = "waku service discovery"

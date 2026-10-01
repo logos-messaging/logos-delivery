@@ -384,8 +384,8 @@
       }
     },
     "lsquic": {
-      "version": "#fb293834a3f90368e1f6c57aec2360cf8d840c5a",
-      "vcsRevision": "fb293834a3f90368e1f6c57aec2360cf8d840c5a",
+      "version": "#f156ed72554d16e925ed654833e7f37e8c8e7f8f",
+      "vcsRevision": "f156ed72554d16e925ed654833e7f37e8c8e7f8f",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
       "dependencies": [
@@ -398,7 +398,7 @@
         "boringssl"
       ],
       "checksums": {
-        "sha1": "6ca2849ff7c7a0d5271dc57ce869c72ba3111a2f"
+        "sha1": "89e99d3b9707a63f64226c4a6d653736d9f662f4"
       }
     },
     "presto": {
@@ -555,8 +555,8 @@
       }
     },
     "websock": {
-      "version": "#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
-      "vcsRevision": "387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+      "version": "#0432dc445c500b20963ef4b76e585c1a3943c254",
+      "vcsRevision": "0432dc445c500b20963ef4b76e585c1a3943c254",
       "url": "https://github.com/status-im/nim-websock",
       "downloadMethod": "git",
       "dependencies": [
@@ -571,7 +571,7 @@
         "zlib"
       ],
       "checksums": {
-        "sha1": "fd17a854686d9a19af40aba51f05d06b82fc30ec"
+        "sha1": "7c240c080f618855411bb0ee3984f6062123bcd4"
       }
     },
     "json_rpc": {
@@ -629,8 +629,8 @@
       }
     },
     "libp2p": {
-      "version": "2.3.5",
-      "vcsRevision": "05e8dfea23ce355b81c9ffc7df7dffdf9ce8106d",
+      "version": "#99f43f2b629d64595c39435ba3751ded883191e4",
+      "vcsRevision": "99f43f2b629d64595c39435ba3751ded883191e4",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
@@ -652,7 +652,7 @@
         "libplum"
       ],
       "checksums": {
-        "sha1": "e283d1299e90aee1eadf41352080b69d74c901db"
+        "sha1": "10d5cbcb8a532ba199e0fed5cb40ac380fea04f1"
       }
     },
     "sds": {
@@ -676,8 +676,8 @@
       }
     },
     "libp2p_mix": {
-      "version": "#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94",
-      "vcsRevision": "39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94",
+      "version": "#abc20522408f0038266ce807bab46cd19c5a9a6a",
+      "vcsRevision": "abc20522408f0038266ce807bab46cd19c5a9a6a",
       "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
@@ -692,7 +692,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "053909f0933b725018f7d87b27403a4b06d7f23a"
+        "sha1": "4a6de60bd1b86b2ba33c6f4902408717cdef79a5"
       }
     },
     "eth": {

@@ -361,11 +361,11 @@ proc stop*(wd: WakuDiscoveryV5): Future[void] {.async.} =
 
   wd.listening = false
 
-  wd.shardSubListener.withValue(handle):
+  wd.shardSubListener.ifValue(handle):
     await ShardSubscribedEvent.dropListener(wd.brokerCtx, handle)
   wd.shardSubListener = Opt.none(ShardSubscribedEventListener)
 
-  wd.shardUnsubListener.withValue(handle):
+  wd.shardUnsubListener.ifValue(handle):
     await ShardUnsubscribedEvent.dropListener(wd.brokerCtx, handle)
   wd.shardUnsubListener = Opt.none(ShardUnsubscribedEventListener)
 

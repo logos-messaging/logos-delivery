@@ -194,8 +194,8 @@
 
   lsquic = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-lsquic";
-    rev = "fb293834a3f90368e1f6c57aec2360cf8d840c5a";
-    sha256 = "0mixc5vm5s6ppbf289rmqs7mjbvwpaj96aczfjsqjapinig92xy1";
+    rev = "f156ed72554d16e925ed654833e7f37e8c8e7f8f";
+    sha256 = "0x5laxi1sd5z3ribzp6s8kip1hbr5c0jb2lj8vg3qgk0kjr9g7da";
     fetchSubmodules = true;
   };
 
@@ -278,8 +278,8 @@
 
   websock = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-websock";
-    rev = "387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d";
-    sha256 = "1v0m3x96fbp9jdzsys6mbxxc2xw3k3dqiv7wksfla89gc6z8w377";
+    rev = "0432dc445c500b20963ef4b76e585c1a3943c254";
+    sha256 = "17kdlywwrlnqx8chf8l1b5gsbix5mmgkpgcwrxgj58af029h4yhr";
     fetchSubmodules = true;
   };
 
@@ -306,8 +306,8 @@
 
   libp2p = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-libp2p";
-    rev = "05e8dfea23ce355b81c9ffc7df7dffdf9ce8106d";
-    sha256 = "0p43mbihrnhy2mw9hwnhkbb0vcljcfzq3b8ygjs0b5y3f2pd1hjk";
+    rev = "99f43f2b629d64595c39435ba3751ded883191e4";
+    sha256 = "0axb4rxypbm6pfh870xx0163qwfci68jjlg7xvg0x7pg0wm99wi8";
     fetchSubmodules = true;
   };
 
@@ -320,8 +320,8 @@
 
   libp2p_mix = pkgs.fetchgit {
     url = "https://github.com/logos-co/nim-libp2p-mix";
-    rev = "39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94";
-    sha256 = "098db702wviph33mzvlj4b20cpj10csfya2yx80rwlppc2brxqc4";
+    rev = "abc20522408f0038266ce807bab46cd19c5a9a6a";
+    sha256 = "0mdmr06y564m6mgn2k6xa42xpixjpml0hdhzfgqk6wwkplmz8c2h";
     fetchSubmodules = true;
   };
 

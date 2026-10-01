@@ -32,7 +32,8 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.5",
+  # No tag at pinning time; nim-libp2p master at version 2.4.0, with the kad liveness-loop fix (#3171, restored by #3185).
+  "https://github.com/vacp2p/nim-libp2p#99f43f2b629d64595c39435ba3751ded883191e4",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -41,7 +42,8 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+  # v0.4.1, the minimum nim-libp2p 2.4.0 accepts.
+  "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
@@ -82,19 +84,19 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 
 requires "https://github.com/status-im/nim-leopard#2e8de41205ea44b6f33b5cad676bab215b36c987"
 
-# v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
-# libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
+# v0.10.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.10.0
+# libp2p requires "lsquic >= 0.10.0" by name. The exact numeric constraint
 # keeps the resolution at the validated release instead of floating to
 # the newest one.
-requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
+requires "https://github.com/vacp2p/nim-lsquic#f156ed72554d16e925ed654833e7f37e8c8e7f8f"
 
 requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
 
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# Temporary pin to the mix commit that widens its libp2p requirement.
-requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
+# Temporary pin: logos-co/nim-libp2p-mix#61 (no withValue, libp2p >= 2.2.0).
+requires "https://github.com/logos-co/nim-libp2p-mix#abc20522408f0038266ce807bab46cd19c5a9a6a"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
