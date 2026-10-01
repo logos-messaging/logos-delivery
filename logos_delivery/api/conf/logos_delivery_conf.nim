@@ -32,7 +32,6 @@ proc init*(
   let merged = merge(?resolvePreset(preset), messagingOverrides)
   var kernelConf = ?toWakuNodeConf(merged, mode)
   kernelConf.preset = preset
-  kernelConf.entryLayer = entryLayer
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernelConf),

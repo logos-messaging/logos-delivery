@@ -15,7 +15,11 @@ suite "LogosDelivery API - Create node":
     # This is the actual minimal config but as the node auto-start, it is not suitable for tests
 
     ## When
-    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+    let ld = (
+      await LogosDelivery.new(
+        KernelConf(nodeConf), MessagingClientConf(), ReliableChannelManagerConf()
+      )
+    ).valueOr:
       raiseAssert "LogosDelivery.new (minimal config) failed: " & error
 
     ## Then
@@ -38,7 +42,11 @@ suite "LogosDelivery API - Create node":
     ]
 
     ## When
-    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+    let ld = (
+      await LogosDelivery.new(
+        KernelConf(nodeConf), MessagingClientConf(), ReliableChannelManagerConf()
+      )
+    ).valueOr:
       raiseAssert "LogosDelivery.new (full config) failed: " & error
 
     ## Then
@@ -63,7 +71,11 @@ suite "LogosDelivery API - Create node":
     ]
 
     ## When
-    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+    let ld = (
+      await LogosDelivery.new(
+        KernelConf(nodeConf), MessagingClientConf(), ReliableChannelManagerConf()
+      )
+    ).valueOr:
       raiseAssert "LogosDelivery.new (mixed entry nodes) failed: " & error
 
     ## Then

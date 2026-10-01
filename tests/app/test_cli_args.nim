@@ -56,7 +56,7 @@ suite "Waku external config - default values":
 
   test "Default entry layer is kernel":
     ## Given
-    let preConfig = defaultWakuNodeConf().get()
+    let preConfig = defaultLogosDeliveryNodeConf().get()
 
     ## Then
     check preConfig.entryLayer == EntryLayer.kernel
@@ -68,7 +68,9 @@ suite "Waku external config - apply preset":
 
     ## Given
     let preConfig = WakuNodeConf(
-      preset: "twn", relay: true, ethClientUrls: @["http://someaddress".EthRpcUrl]
+      preset: "twn",
+      relay: Opt.some(true),
+      ethClientUrls: @["http://someaddress".EthRpcUrl],
     )
 
     ## When
@@ -240,7 +242,7 @@ suite "Waku external config - store retention policy":
   test "Default retention policy":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     # storeMessageRetentionPolicy keeps its default: "time:<2 days in seconds>"
 
@@ -257,7 +259,7 @@ suite "Waku external config - store retention policy":
   test "Single custom retention policy":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "capacity:50000"
 
@@ -273,7 +275,7 @@ suite "Waku external config - store retention policy":
   test "Retention policies with whitespace around semicolons and colons":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "time:3600 ; capacity:10000 ; size     : 30GB"
 
@@ -290,7 +292,7 @@ suite "Waku external config - store retention policy":
   test "Invalid retention policy type returns error":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "foo:1234"
 
@@ -304,7 +306,7 @@ suite "Waku external config - store retention policy":
   test "Duplicated retention policy type returns error":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "time:3600;time:7200;capacity:10000"
 
@@ -319,7 +321,7 @@ suite "Waku external config - store sync":
   test "Store sync without store builds no store service":
     ## Given
     var conf = defaultWakuNodeConf().get()
-    conf.store = false
+    conf.store = Opt.some(false)
     conf.storeSync = true
 
     ## When

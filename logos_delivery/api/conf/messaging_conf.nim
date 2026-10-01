@@ -101,42 +101,15 @@ type MessagingClientConf* = object
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
     Opt[int64] ## Timeout of one Store query, in seconds (default 10, 1 .. 300).
 
-proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
-  ## Sets the protocol flags implied by the mode.
-  case mode
-  of LogosDeliveryMode.Core:
-    conf.relay = true
-    conf.filter = true
-    conf.lightpush = true
-    # Opt so an explicit --discv5-discovery=false set before the mode survives.
-    if conf.discv5Discovery.isNone():
-      conf.discv5Discovery = Opt.some(true)
-    conf.peerExchange = true
-    conf.rendezvous = true
-  of LogosDeliveryMode.Edge:
-    conf.peerExchange = true
-    conf.relay = false
-    conf.filter = false
-    conf.lightpush = false
-    conf.store = false
-  return ok()
-
 proc toWakuNodeConf*(
     self: MessagingClientConf, mode: LogosDeliveryMode
 ): ConfResult[WakuNodeConf] =
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
-  var conf = ?defaultWakuNodeConf()
-  ?applyMode(conf, mode)
-  # Keep the `mode` field consistent with the applied flags so a later
-  # `LogosDelivery.new(WakuNodeConf)` re-application is idempotent instead of
-  # clobbering these flags with the field's default (`Core`).
-  conf.mode = mode
-  # Derived from a `MessagingClientConf`, so never kernel-only: don't inherit the
-  # CLI default. `LogosDeliveryConf.init` overwrites this with the caller's layer.
-  conf.entryLayer = EntryLayer.channels
+  var conf = ?defaultWakuNodeConf(modeFlags = ModeProtocolFlags())
+  applyMode(conf, mode)
 
   if self.store.isSome():
-    conf.store = self.store.get()
+    conf.store = self.store
   if self.storeMessageDbUrl.isSome():
     conf.storeMessageDbUrl = self.storeMessageDbUrl.get()
   if self.storeMessageRetentionPolicy.isSome():
@@ -209,6 +182,7 @@ proc toWakuNodeConf*(
   conf.quicPort = self.quicPort
   conf.websocketSupport = self.websocketSupport.get(false)
   conf.quicSupport = self.quicSupport.get(true)
+  applyModeFlags(conf, DefaultKernelModeFlags)
 
   return ok(conf)
 

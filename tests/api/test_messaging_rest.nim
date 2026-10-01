@@ -28,8 +28,8 @@ import ../testlib/[wakucore, testasync, wakunodeconf]
 ## the same context the send/recv services emit on — so we do not depend on real
 ## network delivery.
 
-proc restNodeConf(): WakuNodeConf =
-  defaultTestWakuNodeConf(entryLayer = EntryLayer.messaging, rest = true)
+proc restNodeConf(): LogosDeliveryNodeConf =
+  defaultTestNodeConf(entryLayer = EntryLayer.messaging, rest = true)
 
 proc restClientFor(node: LogosDelivery): RestClientRef =
   let boundPort = node.waku.restServer.httpServer.address.port
@@ -195,7 +195,7 @@ suite "Messaging REST API":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          defaultTestWakuNodeConf(
+          defaultTestNodeConf(
             entryLayer = EntryLayer.messaging, rest = true, numShards = 0
           )
         )
@@ -228,7 +228,7 @@ suite "Messaging REST API":
 
   asyncTest "received cache capacity follows --rest-messaging-cache-capacity":
     var conf = restNodeConf()
-    conf.restMessagingCacheCapacity = 5
+    conf.kernel.restMessagingCacheCapacity = 5
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:

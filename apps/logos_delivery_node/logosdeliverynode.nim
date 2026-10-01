@@ -37,19 +37,19 @@ when isMainModule:
 
   const versionString = "version / git commit hash: " & git_version
 
-  var wakuNodeConf = WakuNodeConf.load(version = versionString).valueOr:
+  var nodeConf = LogosDeliveryNodeConf.load(version = versionString).valueOr:
     error "failure while loading the configuration", error = error
     quit(QuitFailure)
 
   ## Also called within LogosDelivery.new. The call to startRestServerEssentials
   ## needs the following line
-  logging.setupLog(wakuNodeConf.logLevel, wakuNodeConf.logFormat)
+  logging.setupLog(nodeConf.kernel.logLevel, nodeConf.kernel.logFormat)
 
   # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
   # (it runs `toWakuConf` internally), then builds the layers bottom-up:
   #   Waku <- MessagingClient <- ReliableChannelManager
   # How far up it goes is set by `--entry-layer` (default `kernel`: Waku only).
-  var node = (waitFor LogosDelivery.new(wakuNodeConf)).valueOr:
+  var node = (waitFor LogosDelivery.new(nodeConf)).valueOr:
     error "LogosDelivery initialization failed", error = error
     quit(QuitFailure)
 

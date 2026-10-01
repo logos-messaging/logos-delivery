@@ -195,7 +195,7 @@ proc setupNetwork(
     var conf = createApiNodeConf(numShards, mode)
     conf.localStoragePath = root
     if localStore:
-      conf.store = true
+      conf.store = Opt.some(true)
       conf.storeMessageDbUrl = "sqlite://" & (root / "local-store.sqlite3")
     subscriber = (await LogosDelivery.new(nodeConf(conf, messaging))).expect(
       "Failed to create subscriber"
@@ -1097,7 +1097,9 @@ suite "Messaging API, Receive Service (store recovery)":
     block:
       var node: LogosDelivery
       lockNewGlobalBrokerContext:
-        node = (await LogosDelivery.new(createApiNodeConf())).expect("create node")
+        node = (await LogosDelivery.new(testNodeConf(createApiNodeConf()))).expect(
+          "create node"
+        )
         (await node.start()).expect("start node")
       check GetPersistency.request(node.waku.brokerCtx).isOk()
       let topic = ContentTopic("/waku/2/recv-memory-only/proto")
@@ -1111,7 +1113,9 @@ suite "Messaging API, Receive Service (store recovery)":
     block:
       var node: LogosDelivery
       lockNewGlobalBrokerContext:
-        node = (await LogosDelivery.new(createApiNodeConf())).expect("create node")
+        node = (await LogosDelivery.new(testNodeConf(createApiNodeConf()))).expect(
+          "create node"
+        )
       check GetPersistency.request(node.waku.brokerCtx).isErr()
       check node.messagingClient.start().isOk()
       (

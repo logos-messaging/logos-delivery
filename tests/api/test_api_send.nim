@@ -223,7 +223,7 @@ suite "Waku API - Send":
   asyncTest "Check API availability (unhealthy node)":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -245,7 +245,7 @@ suite "Waku API - Send":
   asyncTest "Send fully validated":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -280,7 +280,7 @@ suite "Waku API - Send":
     ## Confirm all requests across multiple Store pages and validation batches.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -327,7 +327,7 @@ suite "Waku API - Send":
   asyncTest "Send only propagates":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -357,7 +357,7 @@ suite "Waku API - Send":
   asyncTest "Send only propagates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -391,7 +391,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -430,7 +430,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -470,7 +470,7 @@ suite "Waku API - Send":
   asyncTest "Send fully validates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -525,7 +525,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -577,7 +577,7 @@ suite "Waku API - Send":
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error

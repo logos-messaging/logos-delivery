@@ -389,10 +389,10 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
-    conf.relay = false
-    conf.filter = false
-    conf.lightpush = false
-    conf.store = false
+    conf.relay = Opt.some(false)
+    conf.filter = Opt.some(false)
+    conf.lightpush = Opt.some(false)
+    conf.store = Opt.some(false)
 
     let c = conf.toWakuConf().valueOr:
       raiseAssert error
@@ -405,7 +405,7 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
-    conf.relay = true
+    conf.relay = Opt.some(true)
 
     let c = conf.toWakuConf().valueOr:
       raiseAssert error

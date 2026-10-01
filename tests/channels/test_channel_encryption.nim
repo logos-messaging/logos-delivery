@@ -109,8 +109,7 @@ template setupChannelNode() =
   var brokerCtx {.inject.}: BrokerContext
   lockNewGlobalBrokerContext:
     brokerCtx = globalBrokerContext()
-    waku =
-      (await LogosDelivery.new(defaultTestWakuNodeConf())).expect("LogosDelivery.new")
+    waku = (await LogosDelivery.new(defaultTestNodeConf())).expect("LogosDelivery.new")
     manager = waku.reliableChannelManager
 
 template captureWire(sink: untyped) =

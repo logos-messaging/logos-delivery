@@ -14,22 +14,22 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
     check:
-      kc.relay == true
-      kc.filter == true
-      kc.lightpush == true
+      kc.relay == Opt.some(true)
+      kc.filter == Opt.some(true)
+      kc.lightpush == Opt.some(true)
       kc.discv5Discovery == Opt.some(true)
-      kc.peerExchange == true
-      kc.rendezvous == true
+      kc.peerExchange == Opt.some(true)
+      kc.rendezvous == Opt.some(true)
 
   test "Edge mode is client-only (no relay/filter/lightpush/store)":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Edge).valueOr:
         raiseAssert error
     check:
-      kc.relay == false
-      kc.filter == false
-      kc.lightpush == false
-      kc.store == false
-      kc.peerExchange == true
+      kc.relay == Opt.some(false)
+      kc.filter == Opt.some(false)
+      kc.lightpush == Opt.some(false)
+      kc.store == Opt.some(false)
+      kc.peerExchange == Opt.some(true)
       kc.discv5Discovery == Opt.some(true)
         # discovery stays on; mode does not force it off
 
@@ -37,8 +37,7 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
     var kc = defaultWakuNodeConf().valueOr:
       raiseAssert error
     kc.discv5Discovery = Opt.some(false)
-    applyMode(kc, LogosDeliveryMode.Core).isOkOr:
-      raiseAssert error
+    applyMode(kc, LogosDeliveryMode.Core)
     check kc.discv5Discovery == Opt.some(false)
 
 suite "MessagingClientConf - field mapping + transport policy":
@@ -169,7 +168,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       lc.messagingConf.isSome() # full node: messaging + channels mounted
       lc.channelsConf.isSome()
-      WakuNodeConf(lc.kernelConf).relay == true # Core enables relay
+      WakuNodeConf(lc.kernelConf).relay == Opt.some(true) # Core enables relay
       WakuNodeConf(lc.kernelConf).clusterId.isNone() # no cluster set
 
   test "mode + preset fold into the kernel conf":
@@ -178,7 +177,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     let kc = WakuNodeConf(lc.kernelConf)
     check:
       kc.preset == "logostest"
-      kc.relay == false # Edge disables relay
+      kc.relay == Opt.some(false) # Edge disables relay
 
   test "messaging overrides split: kernel fields to the kernel, reliability to the record":
     let lc = parseLogosDeliveryConf(
@@ -359,7 +358,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     let kc = WakuNodeConf(lc.kernelConf)
     check:
       kc.clusterId == Opt.some(7'u16)
-      kc.store == false # null left store unset; Core does not enable it
+      kc.store == Opt.some(false) # null left store unset; Core does not enable it
 
   test "an invalid Ethereum RPC URL is rejected at parse time":
     check parseLogosDeliveryConf(
@@ -385,7 +384,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
     check:
-      kc.store == true
+      kc.store == Opt.some(true)
       kc.storeMessageDbUrl == "sqlite://test.db"
       kc.storeMessageRetentionPolicy == "time:3600"
       kc.storeMaxNumDbConnections == 7
@@ -400,7 +399,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       lc.channelsConf.isNone()
     let kc = WakuNodeConf(lc.kernelConf)
     check:
-      kc.relay == false
+      kc.relay == Opt.some(false)
       kc.maxMessageSize == "150KiB"
 
   test "kernel entry layer requires a kernelConf":
@@ -469,8 +468,10 @@ suite "MessagingClientConf - store override":
     ).valueOr:
       raiseAssert error
     check:
-      kc.store == true # Edge defaults store off; the explicit opt-in wins
-      kc.relay == false # protocols are owned by the mode, not overridable
+      kc.store == Opt.some(true) # Edge defaults store off; the explicit opt-in wins
+      kc.relay == Opt.some(false)
+        # MessagingClientConf has no relay field (per spec); only the mode
+        # sets relay on the library API path
 
 suite "MessagingClientConf - anonymity level":
   test "an anonymity level above None asks the kernel to mount mix":
@@ -525,7 +526,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     ).valueOr:
       raiseAssert error
     check:
-      WakuNodeConf(lc.kernelConf).relay == true
+      WakuNodeConf(lc.kernelConf).relay == Opt.some(true)
       WakuNodeConf(lc.kernelConf).clusterId == Opt.some(7'u16)
       lc.messagingConf.isSome() # full stack
       lc.channelsConf.isSome()
@@ -548,9 +549,10 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     ).valueOr:
       raiseAssert error
     check:
-      WakuNodeConf(lc.kernelConf).relay == true
+      WakuNodeConf(lc.kernelConf).relay == Opt.some(true)
         # explicit flat field overrides the Edge default
-      WakuNodeConf(lc.kernelConf).filter == false # Edge default, not set explicitly
+      WakuNodeConf(lc.kernelConf).filter == Opt.some(false)
+        # Edge default, not set explicitly
       WakuNodeConf(lc.kernelConf).clusterId == Opt.some(7'u16)
 
   test "flat blob's reliabilityEnabled routes to the messaging conf, not the kernel":
@@ -591,7 +593,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
       """{"mode": "Edge", "preset": "logostest"}"""
     ).valueOr:
       raiseAssert error
-    check WakuNodeConf(structured.kernelConf).relay == false # Edge, structured
+    check WakuNodeConf(structured.kernelConf).relay == Opt.some(false) # Edge, structured
     # Adding a bare kernel field (relay) flips to flat, where the explicit flag wins;
     # relay == true is only reachable via the flat path, so it proves the routing.
     let flat = parseLogosDeliveryConf(
@@ -599,7 +601,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     ).valueOr:
       raiseAssert error
     check:
-      WakuNodeConf(flat.kernelConf).relay == true
+      WakuNodeConf(flat.kernelConf).relay == Opt.some(true)
       WakuNodeConf(flat.kernelConf).preset == "logostest"
 
   test "a wrapper key alongside a bare kernel field is rejected, not split":
@@ -621,3 +623,54 @@ suite "MessagingClientConf - pure-libp2p peers budget":
     let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
       raiseAssert error
     check kc.maxPureLibp2pPeers == Opt.some(7)
+
+suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
+  proc cliConf(
+      entryLayer: EntryLayer, mode = Opt.none(LogosDeliveryMode)
+  ): LogosDeliveryNodeConf =
+    var conf = defaultLogosDeliveryNodeConf().expect("defaults")
+    conf.entryLayer = entryLayer
+    conf.mode = mode
+    return conf
+
+  test "kernel entry: no upper layers; no mode is applied":
+    let plan = resolveCliConf(cliConf(EntryLayer.kernel)).expect("translate")
+    check:
+      plan.messagingConf.isNone()
+      plan.channelsConf.isNone()
+      plan.wakuConf.relay == true # no mode ran; `DefaultKernelModeFlags` applies
+
+  test "kernel entry rejects an explicit mode":
+    check resolveCliConf(cliConf(EntryLayer.kernel, Opt.some(LogosDeliveryMode.Edge)))
+      .isErr()
+
+  test "channels entry: both layer configs present; the mode runs":
+    let plan = resolveCliConf(
+        cliConf(EntryLayer.channels, Opt.some(LogosDeliveryMode.Edge))
+      )
+      .expect("translate")
+    check:
+      plan.messagingConf.isSome()
+      plan.channelsConf.isSome()
+      plan.wakuConf.relay == false # set by the Edge mode
+
+  test "an unset mode resolves to Core":
+    let plan = resolveCliConf(cliConf(EntryLayer.messaging)).expect("translate")
+    check:
+      plan.channelsConf.isNone()
+      plan.wakuConf.relay == true # set by the Core mode
+
+  test "an explicit flag has priority over the mode":
+    var conf = cliConf(EntryLayer.channels)
+    conf.kernel.relay = Opt.some(false)
+    let plan = resolveCliConf(conf).expect("translate")
+    check plan.wakuConf.relay == false # explicit wins over Core
+
+  test "the preset's messaging fields reach the messaging layer":
+    var conf = cliConf(EntryLayer.messaging)
+    conf.kernel.preset = "twn"
+    let plan = resolveCliConf(conf).expect("translate")
+    check:
+      # TWN sets p2pReliability off; the hard default is on. The flat-JSON and
+      # library API paths resolve this too, so all doors agree.
+      plan.messagingConf.get().reliabilityEnabled == Opt.some(false)

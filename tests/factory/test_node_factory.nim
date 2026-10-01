@@ -114,7 +114,7 @@ suite "Node Factory":
       storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
       storeAddress = "/ip4/127.0.0.1/tcp/60000"
     var cliConf = defaultWakuNodeConf().get()
-    cliConf.store = true
+    cliConf.store = Opt.some(true)
     cliConf.storeMessageDbUrl = "sqlite://store.sqlite3"
     cliConf.storeSync = true
     cliConf.storenode = storeAddress & "/p2p/" & $storePeerId

@@ -20,8 +20,8 @@ import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 ##   messaging -> waku + messagingClient
 ##   channels  -> waku + messagingClient + reliableChannelManager
 
-proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
-  defaultTestWakuNodeConf(entryLayer = entryLayer, rest = rest)
+proc nodeConf(entryLayer: EntryLayer, rest = false): LogosDeliveryNodeConf =
+  defaultTestNodeConf(entryLayer = entryLayer, rest = rest)
 
 proc restClientFor(node: LogosDelivery): RestClientRef =
   let boundPort = node.waku.restServer.httpServer.address.port
@@ -138,9 +138,9 @@ suite "LogosDelivery - relay REST API":
       contentTopicShard = $RelayShard(clusterId: TestClusterId, shardId: 3)
 
     var conf = nodeConf(EntryLayer.kernel, rest = true)
-    conf.numShardsInNetwork = 8
-    conf.shards = @[0'u16]
-    conf.contentTopics = @[contentTopic]
+    conf.kernel.numShardsInNetwork = 8
+    conf.kernel.shards = @[0'u16]
+    conf.kernel.contentTopics = @[contentTopic]
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:

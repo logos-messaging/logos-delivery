@@ -27,8 +27,8 @@ import snapshot_codec
 
 const TestTimeout = chronos.seconds(15)
 
-proc createApiNodeConf(): WakuNodeConf =
-  defaultTestWakuNodeConf()
+proc createApiNodeConf(): LogosDeliveryNodeConf =
+  defaultTestNodeConf()
 
 proc oneSegment(payload: seq[byte]): seq[byte] =
   ## The wire unit a peer actually sends: one encoded `SegmentMessage`. Every
@@ -1512,7 +1512,7 @@ suite "Reliable Channel - a mix fail-fast reaches the sender":
       brokerCtx = globalBrokerContext()
       waku = (
         await LogosDelivery.new(
-          KernelConf(createApiNodeConf()),
+          KernelConf(createApiNodeConf().kernel),
           MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Required)),
           ReliableChannelManagerConf(),
         )

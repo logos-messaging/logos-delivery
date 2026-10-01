@@ -79,12 +79,13 @@ proc parseFlatConf(
   # pre-refactor flat create_node parsed it: start from the kernel defaults and apply
   # the mode's protocol flags (the kernel no longer owns `mode`, so we expand it here,
   # like the old kernel builder did), then let explicit fields override.
-  var kernel = ?defaultWakuNodeConf()
-  ?applyMode(kernel, mode)
+  var kernel = ?defaultWakuNodeConf(modeFlags = ModeProtocolFlags())
+  applyMode(kernel, mode)
   ?applyJsonFieldsToConf(
     kernel, topJsonNode, "Failed to parse config field",
     "Unrecognized configuration option(s) found",
   )
+  applyModeFlags(kernel, DefaultKernelModeFlags)
 
   # [Legacy flat JSON config] Reliability is resolved from the preset by the messaging
   # layer (the kernel no longer carries it), so a flat blob's `preset` must lift it

@@ -1,3 +1,5 @@
+## CLI configuration of logosdeliverynode.
+
 import
   std/[strutils, strformat, sequtils],
   results,
@@ -56,6 +58,19 @@ const
   DefaultCLINat* = "any"
   DefaultCliRestMessagingCacheCapacity* = DefaultRestMessagingCacheCapacity
     ## Exported because confutils expands `defaultValue` where `load` is called.
+
+# Each `ModeProtocolFlags` field that the config and the mode do not set gets
+# its value from `DefaultKernelModeFlags`. Apply it after the mode, so that the
+# mode and the explicit flags have priority.
+const DefaultKernelModeFlags* = ModeProtocolFlags(
+  relay: Opt.some(DefaultCLIRelay),
+  filter: Opt.some(true),
+  lightpush: Opt.some(true),
+  store: Opt.some(false),
+  discv5Discovery: Opt.some(true),
+  peerExchange: Opt.some(DefaultCLIPeerExchange),
+  rendezvous: Opt.some(DefaultCLIRendezvous),
+)
 
 type ConfResult*[T] = Result[T, string]
 
@@ -160,20 +175,6 @@ type WakuNodeConf* = object
     defaultValue: "",
     name: "preset"
   .}: string
-
-  entryLayer* {.
-    desc:
-      "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
-    defaultValue: EntryLayer.kernel,
-    name: "entry-layer"
-  .}: EntryLayer
-
-  mode* {.
-    desc:
-      "Kernel operating mode: Edge (client-only) or Core (full service node). Applied only for --entry-layer=messaging|channels; ignored for kernel.",
-    defaultValue: LogosDeliveryMode.Core,
-    name: "mode"
-  .}: LogosDeliveryMode
 
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   clusterId* {.
@@ -297,10 +298,10 @@ hence would have reachability issues.""",
 
   ## Relay config
   relay* {.
-    desc: "Enable relay protocol: true|false",
-    defaultValue: DefaultCLIRelay,
+    desc: "Enable relay protocol: true|false. Default is true.",
+    defaultValue: Opt.none(bool),
     name: "relay"
-  .}: bool
+  .}: Opt[bool]
 
   relayPeerExchange* {.
     desc: "Enable gossipsub peer exchange in relay protocol: true|false",
@@ -380,8 +381,10 @@ hence would have reachability issues.""",
 
   ## Store and message store config
   store* {.
-    desc: "Enable/disable waku store protocol", defaultValue: false, name: "store"
-  .}: bool
+    desc: "Enable/disable waku store protocol. Default is false.",
+    defaultValue: Opt.none(bool),
+    name: "store"
+  .}: Opt[bool]
 
   storenode* {.
     desc: "Peer multiaddress to query for storage", defaultValue: "", name: "storenode"
@@ -451,8 +454,10 @@ hence would have reachability issues.""",
 
   ## Filter config
   filter* {.
-    desc: "Enable filter protocol: true|false", defaultValue: true, name: "filter"
-  .}: bool
+    desc: "Enable filter protocol: true|false. Default is true.",
+    defaultValue: Opt.none(bool),
+    name: "filter"
+  .}: Opt[bool]
 
   filternode* {.
     desc: "Peer multiaddr to request content filtering of messages.",
@@ -482,8 +487,10 @@ hence would have reachability issues.""",
 
   ## Lightpush config
   lightpush* {.
-    desc: "Enable lightpush protocol: true|false", defaultValue: true, name: "lightpush"
-  .}: bool
+    desc: "Enable lightpush protocol: true|false. Default is true.",
+    defaultValue: Opt.none(bool),
+    name: "lightpush"
+  .}: Opt[bool]
 
   lightpushnode* {.
     desc: "Peer multiaddr to request lightpush of published messages.",
@@ -579,8 +586,7 @@ hence would have reachability issues.""",
   ## Discovery v5 config
   discv5Discovery* {.
     desc: "Enable discovering nodes via Node Discovery v5. Default is true.",
-    defaultValue: Opt.some(true),
-    defaultValueDesc: "true",
+    defaultValue: Opt.none(bool),
     name: "discv5-discovery"
   .}: Opt[bool]
 
@@ -628,10 +634,11 @@ hence would have reachability issues.""",
 
   ## waku peer exchange config
   peerExchange* {.
-    desc: "Enable waku peer exchange protocol (responder side): true|false",
-    defaultValue: DefaultCLIPeerExchange,
+    desc:
+      "Enable waku peer exchange protocol (responder side): true|false. Default is true.",
+    defaultValue: Opt.none(bool),
     name: "peer-exchange"
-  .}: bool
+  .}: Opt[bool]
 
   peerExchangeNode* {.
     desc:
@@ -642,10 +649,10 @@ hence would have reachability issues.""",
 
   ## Rendez vous
   rendezvous* {.
-    desc: "Enable waku rendezvous discovery server",
-    defaultValue: DefaultCLIRendezvous,
+    desc: "Enable waku rendezvous discovery server. Default is true.",
+    defaultValue: Opt.none(bool),
     name: "rendezvous"
-  .}: bool
+  .}: Opt[bool]
 
   #Mix config
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
@@ -952,7 +959,7 @@ proc readValue*[T](
 
 proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
   try:
-    let conf = WakuNodeConf.load(
+    var conf = WakuNodeConf.load(
       version = version,
       secondarySources = proc(
           conf: WakuNodeConf, sources: auto
@@ -963,17 +970,91 @@ proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
           sources.addConfigFile(Toml, conf.configFile.get())
       ,
     )
+    applyModeFlags(conf, DefaultKernelModeFlags)
 
     ok(conf)
   except CatchableError:
     err(getCurrentExceptionMsg())
 
-proc defaultWakuNodeConf*(): ConfResult[WakuNodeConf] =
+proc defaultWakuNodeConf*(
+    modeFlags = DefaultKernelModeFlags
+): ConfResult[WakuNodeConf] =
+  ## The kernel config with its defaults. With `modeFlags = ModeProtocolFlags()`,
+  ## the protocol flags stay unset, so that a mode can set them first.
   try:
-    let conf = WakuNodeConf.load(version = "", cmdLine = @[])
+    var conf = WakuNodeConf.load(version = "", cmdLine = @[])
+    applyModeFlags(conf, modeFlags)
     return ok(conf)
   except CatchableError:
     return err("exception in defaultWakuNodeConf: " & getCurrentExceptionMsg())
+
+proc parseCmdArg*(T: type LogosDeliveryMode, s: string): T {.raises: [ValueError].} =
+  ## The generic `Opt[T]` flag parser dispatches to `parseCmdArg(T, ...)` for
+  ## the inner type, so `Opt[LogosDeliveryMode]` needs this overload (bare enum
+  ## fields parse through confutils' internal enum support instead).
+  case s.strip().toLowerAscii()
+  of "edge":
+    LogosDeliveryMode.Edge
+  of "core":
+    LogosDeliveryMode.Core
+  else:
+    raise
+      newException(ValueError, "Invalid mode: '" & s & "' (expected 'Edge' or 'Core')")
+
+proc completeCmdArg*(T: type LogosDeliveryMode, val: string): seq[string] =
+  return @[]
+
+type LogosDeliveryNodeConf* = object
+  ## LogosDeliveryNodeConf is the kernel configuration with two additional
+  ## fields.
+  ##
+  ## `entryLayer` lets logosdeliverynode users specify the layer-mount height,
+  ## which is never guessed from given CLI parameters.
+  ##
+  ## `mode` is a messaging-only option. The kernel layer has no mode: its
+  ## entire configuration must be given explicitly and it has its own
+  ## per-config-option defaults which add up to what you'd expect for
+  ## fleet-node use.
+  entryLayer* {.
+    desc:
+      "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
+    defaultValue: EntryLayer.kernel,
+    name: "entry-layer"
+  .}: EntryLayer
+
+  mode* {.
+    desc:
+      "Node operating mode: Edge (client-only) or Core (full service node). Applies to --entry-layer=messaging|channels; rejected for --entry-layer=kernel. Default is Core.",
+    defaultValue: Opt.none(LogosDeliveryMode),
+    name: "mode"
+  .}: Opt[LogosDeliveryMode]
+
+  kernel* {.flatten.}: WakuNodeConf
+
+proc load*(T: type LogosDeliveryNodeConf, version = ""): ConfResult[T] =
+  try:
+    let conf = LogosDeliveryNodeConf.load(
+      version = version,
+      secondarySources = proc(
+          conf: LogosDeliveryNodeConf, sources: auto
+      ) {.gcsafe, raises: [ConfigurationError].} =
+        sources.addConfigFile(Envvar, InputFile(NodeEnvvarPrefix))
+
+        if conf.kernel.configFile.isSome():
+          sources.addConfigFile(Toml, conf.kernel.configFile.get())
+      ,
+    )
+
+    ok(conf)
+  except CatchableError:
+    err(getCurrentExceptionMsg())
+
+proc defaultLogosDeliveryNodeConf*(): ConfResult[LogosDeliveryNodeConf] =
+  try:
+    let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
+    return ok(conf)
+  except CatchableError:
+    return err("exception in defaultLogosDeliveryNodeConf: " & getCurrentExceptionMsg())
 
 proc toNetworkPresetConf*(
     preset: string, clusterId: Opt[uint16]
@@ -1079,7 +1160,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withDnsAddrsNameServers(n.dnsAddrsNameServers)
   b.withDns4DomainName(n.dns4DomainName)
   b.withCircuitRelayClient(n.isRelayClient)
-  b.withRelay(n.relay)
+  if n.relay.isSome():
+    b.withRelay(n.relay.get())
   b.withRelayPeerExchange(n.relayPeerExchange)
   b.withRelayShardedPeerManagement(n.relayShardedPeerManagement)
   b.withStaticNodes(n.staticNodes)
@@ -1117,7 +1199,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.withContentTopics(n.contentTopics)
 
-  b.storeServiceConf.withEnabled(n.store)
+  if n.store.isSome():
+    b.storeServiceConf.withEnabled(n.store.get())
   b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)
@@ -1147,12 +1230,14 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
 
-  b.filterServiceConf.withEnabled(n.filter)
+  if n.filter.isSome():
+    b.filterServiceConf.withEnabled(n.filter.get())
   b.filterServiceConf.withSubscriptionTimeout(n.filterSubscriptionTimeout)
   b.filterServiceConf.withMaxPeersToServe(n.filterMaxPeersToServe)
   b.filterServiceConf.withMaxCriteria(n.filterMaxCriteria)
 
-  b.withLightPush(n.lightpush)
+  if n.lightpush.isSome():
+    b.withLightPush(n.lightpush.get())
 
   b.restServerConf.withEnabled(n.rest)
   b.restServerConf.withListenAddress(n.restAddress)
@@ -1180,9 +1265,11 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.discv5Conf.withBucketIpLimit(n.discv5BucketIpLimit)
   b.discv5Conf.withBitsPerHop(n.discv5BitsPerHop)
 
-  b.withPeerExchange(n.peerExchange)
+  if n.peerExchange.isSome():
+    b.withPeerExchange(n.peerExchange.get())
 
-  b.withRendezvous(n.rendezvous)
+  if n.rendezvous.isSome():
+    b.withRendezvous(n.rendezvous.get())
 
   b.webSocketConf.withEnabled(n.websocketSupport)
   b.webSocketConf.withWebSocketPort(n.websocketPort)

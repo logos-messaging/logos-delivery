@@ -228,19 +228,19 @@ proc runChannels(logos: LogosDelivery) {.async.} =
 when isMainModule:
   let args = CliArgs.load()
 
-  var conf = defaultWakuNodeConf().valueOr:
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
     echo "Failed to create default config: ", error
     quit(QuitFailure)
 
   conf.entryLayer = EntryLayer.channels
-  conf.tcpPort = Port(args.tcpPort)
-  conf.discv5UdpPort = Port(args.discv5UdpPort)
+  conf.kernel.tcpPort = Port(args.tcpPort)
+  conf.kernel.discv5UdpPort = Port(args.discv5UdpPort)
 
   if args.ethRpcEndpoint == "":
-    conf.preset = "logos.dev"
+    conf.kernel.preset = "logos.dev"
   else:
-    conf.preset = "twn"
-    conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
+    conf.kernel.preset = "twn"
+    conf.kernel.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 
   let node = (waitFor LogosDelivery.new(conf)).valueOr:
     echo "Failed to create node: ", error
