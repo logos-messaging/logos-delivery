@@ -113,10 +113,9 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
 
-      # Nim recompiles the C files whose generated code or compile command
-      # changed. nim-leopard reuses any Leopard-RS archive it finds in nimcache,
-      # so the key hashes the files that build depends on. Only master saves,
-      # one entry per commit; restore-keys pick the newest.
+      # Nim recompiles only the C files that changed, but nim-leopard reuses any
+      # Leopard-RS archive already in nimcache, so the key hashes the files its
+      # build depends on. Only master saves.
       - name: Restore nimcache
         id: nimcache
         uses: actions/cache/restore@v3

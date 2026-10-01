@@ -1,16 +1,15 @@
 name: 'Install nimble deps'
 description: >
-  Restores the pinned Nimble from cache, and the nimbledeps cache and the
-  Nimble package cache unless disabled, and runs `make build-deps`, which
-  installs the pinned Nimble, installs the dependencies recorded in
-  nimble.lock with it, and audits the result.
+  Runs `make build-deps`, which installs the pinned Nimble, installs
+  the dependencies recorded in nimble.lock with it, and audits the result.
+  Caches the pinned Nimble, and the nimbledeps and Nimble package cache.
 
 inputs:
   nim-version:
     description: 'The Nim version on PATH. A cache key component: the compiler builds the cached native libraries.'
     required: true
   cache:
-    description: 'Restore and save the nimbledeps cache and the Nimble package cache. Set "false" to disable. The pinned Nimble is cached either way.'
+    description: 'Restore and save the nimbledeps and Nimble package caches. Set "false" to disable. The pinned Nimble is cached either way.'
     default: 'true'
   make-args:
     description: 'Extra arguments for the C library rebuild make calls.'
@@ -59,7 +58,7 @@ runs:
       run: |
         make build-deps ${{ inputs.make-args }}
 
-    # Saved before the job ends, so a later failure or cancellation does not lose it.
+    # Save now instead of at job end, which a failed or cancelled job skips.
     - name: Save the pinned Nimble
       if: ${{ steps.pinned-nimble.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v3

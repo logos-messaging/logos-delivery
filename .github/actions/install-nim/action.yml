@@ -1,7 +1,7 @@
 name: 'Install Nim'
 description: >
-  Installs Nim with jiro4989/setup-nim-action. On macOS, where that action
-  builds Nim from source, the install is cached and a cache hit skips it.
+  Installs Nim with jiro4989/setup-nim-action. On macOS that action builds Nim
+  from source, so the result is cached.
 
 inputs:
   nim-version:
@@ -11,8 +11,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # c_code and nimcache only serve the build from source and hold ~2 GB.
-    # actions/cache excludes only listed entries, hence the children glob.
+    # Skip c_code and nimcache: only the build from source uses them (~2 GB).
     - name: Restore Nim
       id: cache
       if: ${{ runner.os == 'macOS' }}
@@ -31,7 +30,7 @@ runs:
         nim-version: ${{ inputs.nim-version }}
         repo-token: ${{ github.token }}
 
-    # Saved before the job ends, so a later failure or cancellation does not lose it.
+    # Save now instead of at job end, which a failed or cancelled job skips.
     - name: Save Nim
       if: ${{ runner.os == 'macOS' && steps.cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v3
@@ -42,7 +41,7 @@ runs:
           !.nim_runtime/nimcache
         key: ${{ steps.cache.outputs.cache-primary-key }}
 
-    # The PATH entries setup-nim-action adds, which a cache hit skips.
+    # setup-nim-action adds these to PATH, but it doesn't run on a cache hit.
     - name: Add Nim to PATH
       if: ${{ steps.cache.outputs.cache-hit == 'true' }}
       shell: bash
