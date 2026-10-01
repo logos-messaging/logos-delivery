@@ -4,7 +4,7 @@
 # the script must report the locked version. The script reads files, writes
 # nothing and exits 1 on any problem.
 #
-#   nim e scripts/audit_deps.nims
+#   make audit-deps
 #
 # `nimble setup` does not remove stale directories: after dropping a package,
 # delete nimbledeps/ before setup.

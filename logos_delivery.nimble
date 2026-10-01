@@ -116,7 +116,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  selfExec "c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -125,7 +125,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -148,11 +148,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   mkDir cBindingsDir
 
   if `type` == "static":
-    exec "nim c" & " --out:build/" & lib_name &
+    selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
-    exec "nim c" & " --out:build/" & lib_name &
+    selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
@@ -210,7 +210,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
-  exec "nim c" & " --out:" & outDir &
+  selfExec "c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
@@ -264,7 +264,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   # nim compiles and archives every C source it owns (generated code and the
   # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
-  exec "nim c" &
+  selfExec "c" &
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
       " --app:staticlib --out:" & nimLib &
