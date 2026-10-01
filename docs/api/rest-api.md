@@ -11,7 +11,7 @@ This API is divided in different _namespaces_ which group a set of resources:
 | `/store` | Retrieve the message history. See [13/WAKU2-STORE](https://rfc.vac.dev/spec/13/) RFC |
 | `/filter` | Control of the content filtering. See [12/WAKU2-FILTER](https://rfc.vac.dev/spec/12/) RFC |
 | `/admin` | Privileged access to the internal operations of the node. |
-| `/messaging` | The Messaging API: subscribe and send by content topic, and poll the send and received events. See [Messaging API](#messaging-api). |
+| `/messaging` | The Messaging API: subscribe and send by content topic, and read the send and received events. See [Messaging API](#messaging-api). |
 
 
 ### API Specification
@@ -44,7 +44,7 @@ The `page_size` flag in the Store API has a default value of 20 and a max value 
 
 ### Messaging API
 
-The `/messaging/v1` routes serve the Messaging API over REST. The node mounts them only with `--entry-layer=messaging` or `--entry-layer=channels`. A kernel-only node answers `404` with that hint. The routes need autosharding: set a network preset (`--preset=logos.test`, ...) or `--cluster-id` with `--num-shards-in-network`.
+The `/messaging/v1` routes serve the Messaging API over REST. The node mounts them only with `--entry-layer=messaging` or `--entry-layer=channels`. A node with `--entry-layer=kernel` answers HTTP `404`, with a hint to set one of these entry layers. The routes need autosharding: set a network preset (`--preset=twn`, `--preset=logos.dev`, `--preset=logos.test` or `--preset=status.prod`) or `--cluster-id` with `--num-shards-in-network`.
 
 ```bash
 # a service node: runs the Store service that confirms sends and serves backfill
@@ -75,20 +75,21 @@ A send is asynchronous. `200` means that the node accepted the message. The resu
 
 The receivers can have the message after an `error` event. The node does not resend a message after its `propagated` event.
 
-Each received record has the message hash, the full `WakuMessage` and a `source`: `live` for a message that arrived when it was published, `history` for a message that a Store peer returned at startup or after a connectivity gap. The node buffers only the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not sufficient. A send subscribes the node to its content topic, so the sender also receives its own messages.
+* Each received message comes as a JSON object with:
+  * the message hash
+  * the full `WakuMessage`
+  * a `source`: `live` for a message that arrived when it was published, or `history` for a message that a Store peer returned at startup or after the node came back online
+* The node keeps messages only for the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not enough.
+* A send subscribes the node to its content topic, so the sender also receives its own messages.
 
 At startup, the node gets from Store the messages that it missed while it was down. On its first start, it gets the last 24 h.
 
-A poll clears what it returns, for every client. The received buffer keeps the newest `--rest-messaging-cache-capacity` messages (default 50) and drops the oldest when full. These signals report evictions:
+`GET /messaging/v1/events/received` returns the messages that arrived since the last call, and the node then removes them. With more than one client, each message goes to one client only. Between two calls, the node holds at most `--rest-messaging-cache-capacity` messages (default 50), and drops the oldest ones when more arrive. Two signals show dropped messages:
 
-* each received record has a `seq`, from 1 without gaps
-* the metric `logos_delivery_rest_received_dropped_total`
-
-With one polling client, a gap in `seq` between two polls is the number of evicted records. With more clients, a gap can also be records that another client polled. `seq` starts again at 1 when the node restarts.
-
-An eviction is an observation loss of the client, not a network loss. To stop it, poll faster or increase the capacity. The `Message received` log line and the `logos_delivery_recv_messages_total{source=...}` metric count every delivery.
+* Each message has a `seq` number that goes up by 1 for each message. A jump in `seq` between two calls is the number of dropped messages, or of messages that another client got. `seq` starts again at 1 when the node restarts.
+* The metric `logos_delivery_rest_received_dropped_total` counts the dropped messages.
 
 Malformed bodies and content topics answer `400`. A node without autosharding answers `503`.
 
 ### Node configuration
-Find details [here](../operators/how-to/configure-rest-api.md). To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).
+To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).
