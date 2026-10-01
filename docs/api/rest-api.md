@@ -98,11 +98,9 @@ At startup, the node gets from Store the messages that it missed while it was do
 * Each message has a `seq` number that goes up by 1 for each message. A jump in `seq` between two calls is the number of dropped messages, or of messages that another client got. `seq` starts again at 1 when the node restarts.
 * The metric `logos_delivery_rest_received_dropped_total` counts the dropped messages.
 
-An evicted message was received, and only the client missed it. To stop evictions, poll faster or increase the capacity. The `Message received` log line and the `logos_delivery_recv_messages_total{source=...}` metric count every delivery.
-
 The send buffer keeps the statuses of the newest requests and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
 
-Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. A send to a full send queue gets HTTP `429` with a `Retry-After` header. `--send-queue-capacity` sets the size of the queue.
+Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. A send to a full send queue gets HTTP `429` with a `Retry-After` header.
 
 ### Node configuration
 To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).

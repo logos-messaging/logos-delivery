@@ -146,8 +146,12 @@ suite "Messaging REST API":
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "a send answers 429 with Retry-After when the send queue is full":
-    var conf = restNodeConf()
-    conf.messaging.sendQueueCapacity = Opt.some(1'u)
+    let conf = LogosDeliveryConf.init(
+      KernelConf(restNodeConf().kernel),
+      MessagingClientConf(sendQueueCapacity: Opt.some(1'u)),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
