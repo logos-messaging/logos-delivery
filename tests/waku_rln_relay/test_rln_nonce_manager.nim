@@ -98,3 +98,50 @@ suite "Nonce manager":
     check:
       nm.spent(0) == 0
       nm.reserve(0).get() == 0
+
+  test "restore resumes the stored epoch at the next unused id":
+    let nm = NonceManager.init(nonceLimit = 100)
+    nm.restore(7, 5)
+
+    check:
+      nm.epochIndex == 7
+      nm.spent(7) == 5
+      nm.reserve(7).get() == 5
+
+  test "restore clamps a count above the limit to a spent epoch":
+    let nm = NonceManager.init(nonceLimit = 3)
+    nm.restore(7, 10)
+
+    let res = nm.reserve(7)
+    check:
+      nm.spent(7) == 3
+      res.isErr()
+      res.error.kind == RlnErrorKind.BudgetExhausted
+
+  test "after restore, an earlier epoch is refused and a later one starts fresh":
+    ## The stored epoch can be ahead of the clock (the clock went back, or a
+    ## message was stamped ahead); the counter still never moves back.
+    let nm = NonceManager.init(nonceLimit = 100)
+    nm.restore(8, 2)
+
+    let earlier = nm.reserve(7)
+    check:
+      earlier.isErr()
+      earlier.error.kind == RlnErrorKind.Permanent
+      nm.reserve(9).get() == 0
+      nm.epochIndex == 9
+
+  test "restore never moves the counter back":
+    let nm = NonceManager.init(nonceLimit = 100)
+    discard nm.reserve(7).get()
+    discard nm.reserve(7).get()
+    discard nm.reserve(7).get()
+
+    nm.restore(7, 1) # fewer ids in the same epoch
+    nm.restore(6, 50) # an earlier epoch
+    check:
+      nm.epochIndex == 7
+      nm.spent(7) == 3
+
+    nm.restore(7, 5) # more ids in the same epoch
+    check nm.spent(7) == 5

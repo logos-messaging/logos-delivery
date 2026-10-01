@@ -25,6 +25,17 @@ type
 proc init*(T: type NonceManager, nonceLimit: Nonce): T =
   NonceManager(epochIndex: 0, nextId: 0, nonceLimit: nonceLimit)
 
+proc restore*(n: NonceManager, epochIndex: uint64, nextId: Nonce) =
+  ## Moves the counter to a state read back from storage: `nextId` ids already
+  ## drawn in `epochIndex`. Applied only when that state is ahead of the
+  ## counter (a later epoch, or more ids in the same epoch), so the counter
+  ## never moves back over an id that may already be in a proof. A count
+  ## above `nonceLimit` is clamped to it, so a corrupted row reads as a spent
+  ## epoch, never as unused ids.
+  if epochIndex > n.epochIndex or (epochIndex == n.epochIndex and nextId > n.nextId):
+    n.epochIndex = epochIndex
+    n.nextId = min(nextId, n.nonceLimit)
+
 proc reserve*(n: NonceManager, epochIndex: uint64): Result[Nonce, RlnError] =
   ## Draws the next message id for `epochIndex`, the epoch the proof will carry.
   ## An epoch earlier than the latest one drawn from fails `Permanent`: only the
