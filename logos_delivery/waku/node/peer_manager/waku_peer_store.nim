@@ -155,7 +155,10 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
   discard
     peerStore[NumberFailedConnBook].book.hasKeyOrPut(peer.peerId, peer.numberFailedConn)
   if peer.enr.isSome():
-    peerStore[ENRBook][peer.peerId] = peer.enr.get()
+    ## Never replace a stored ENR with an older one, or PX serves stale records.
+    let stored = peerStore[ENRBook][peer.peerId]
+    if stored.raw.len == 0 or stored.seqNum <= peer.enr.get().seqNum:
+      peerStore[ENRBook][peer.peerId] = peer.enr.get()
 
 proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
   peerStore[ShardBook][peerId] = shards
