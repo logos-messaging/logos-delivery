@@ -44,8 +44,17 @@ type
   # Keeps track of the ENR (Ethereum Node Record) of a peer
   ENRBook* = ref object of PeerBook[enr.Record]
 
+  # Keeps track of when a discovery mechanism last vouched for the peer's ENR
+  ENRAliveBook* = ref object of PeerBook[Moment]
+
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+const DiscoveredEnrTtl* = chronos.minutes(15)
+  ## How long a discovered ENR is trusted without being rediscovered or connected.
+
+proc isDiscoveryOrigin(origin: PeerOrigin): bool =
+  return origin in [Discv5, Kademlia]
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
@@ -110,6 +119,10 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
       var libp2pPubKey: crypto.PublicKey
       if peer.peerId.extractPublicKey(libp2pPubKey) and libp2pPubKey.scheme == Secp256k1:
         peerStore[KeyBook][peer.peerId] = libp2pPubKey
+
+  let effectiveOrigin = if origin != UnknownOrigin: origin else: peer.origin
+  if peer.enr.isSome() and effectiveOrigin.isDiscoveryOrigin():
+    peerStore[ENRAliveBook][peer.peerId] = Moment.now()
 
   ## Notice that the origin parameter is used to manually override the given peer origin.
   ## At the time of writing, this is used in waku_discv5 or waku_node (peer exchange.)
@@ -255,3 +268,24 @@ template forEnrPeers*(
     let peerOrigin {.inject.} = sourceBook.book.getOrDefault(pid, UnknownOrigin)
     let peerEnrRecord {.inject.} = enrRecord
     body
+
+proc hasFreshEnr*(peerStore: PeerStore, peerId: PeerId): bool =
+  ## A connected peer is alive. Otherwise a discovery mechanism must have
+  ## vouched for the ENR within DiscoveredEnrTtl.
+  if peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected) == Connected:
+    return true
+  let alive = peerStore[ENRAliveBook].book.getOrDefault(peerId, Moment())
+  ## No stamp means never vouched for. Moment is monotonic, so 0 is not "long ago".
+  return alive != Moment() and Moment.now() - alive <= DiscoveredEnrTtl
+
+proc pruneStaleEnrs*(peerStore: PeerStore): int =
+  ## Drops the ENR of discovered peers that were not rediscovered recently.
+  ## The rest of the peer's data is kept.
+  let stale = peerStore[ENRBook].book.keys.toSeq().filterIt(
+      peerStore[SourceBook].book.getOrDefault(it, UnknownOrigin).isDiscoveryOrigin() and
+        not peerStore.hasFreshEnr(it)
+    )
+  for peerId in stale:
+    peerStore[ENRBook].book.del(peerId)
+    peerStore[ENRAliveBook].book.del(peerId)
+  return stale.len

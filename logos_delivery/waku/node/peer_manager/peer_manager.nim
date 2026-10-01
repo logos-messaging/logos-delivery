@@ -1208,6 +1208,9 @@ proc prunePeerStoreLoop(pm: PeerManager) {.async.} =
   trace "Starting prune peerstore loop"
   while pm.started:
     pm.prunePeerStore()
+    let prunedEnrs = pm.switch.peerStore.pruneStaleEnrs()
+    if prunedEnrs > 0:
+      debug "pruned stale ENRs", count = prunedEnrs
     await sleepAsync(PrunePeerStoreInterval)
 
 # Ensures a healthy amount of connected relay peers
