@@ -317,8 +317,10 @@ proc setupProtocols(
   # ABI (`logosdelivery_rln_set_plugin`) for the external backend, CLI/preset
   # configuration for the on-chain one. With no source present the node starts
   # without RLN.
-  let rlnDescriptors =
-    [rlnLezDescriptor(), rlnEvmDescriptor(conf.rlnEvmConf, onFatalErrorAction)]
+  let rlnDescriptors = [
+    rlnLezDescriptor(),
+    rlnEvmDescriptor(conf.rlnEvmConf, onFatalErrorAction, node.brokerCtx),
+  ]
 
   let selectedRln = selectRlnPlugin(rlnDescriptors).valueOr:
     return err("failed call selectRlnPlugin: " & $error)

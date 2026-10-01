@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/tables, chronos, results
+import std/tables, chronos, results, brokers/broker_context
 
 import ./group_manager_base, ./nonce_manager, ./protocol_types
 
@@ -16,5 +16,8 @@ type RlnEvm* = ref object of RootObj
   groupManager*: RlnEvmGroupManagerBase
   onFatalErrorAction*: OnFatalErrorHandler
   nonceManager*: NonceManager
+  brokerCtx*: BrokerContext
+    ## The node's context, through which the backend reaches node services
+    ## such as its persistency.
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[Result[void, string]]

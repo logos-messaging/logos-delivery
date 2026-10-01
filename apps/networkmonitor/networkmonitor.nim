@@ -628,7 +628,7 @@ when isMainModule:
       onFatalErrorAction: onFatalErrorAction,
     )
 
-    let onchainRln = (waitFor mountOnchain(rlnConf)).valueOr:
+    let onchainRln = (waitFor mountOnchain(rlnConf, node.brokerCtx)).valueOr:
       error "failed to setup RLN", error = error
       quit(QuitFailure)
     node.mountRln(onchainRln.toRlnPlugin(), RlnCommonConf())

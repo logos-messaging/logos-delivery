@@ -10,7 +10,8 @@ import
   web3/eth_api_types,
   eth/keys,
   results,
-  stew/[byteutils, arrayops]
+  stew/[byteutils, arrayops],
+  brokers/broker_context
 
 import
   ./group_manager,
@@ -179,7 +180,9 @@ proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
     await sleepAsync(sleepDuration)
 
 proc mount(
-    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
+    conf: WakuRlnConfig,
+    brokerCtx: BrokerContext,
+    registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   var
     groupManager: RlnEvmGroupManagerBase
@@ -219,6 +222,7 @@ proc mount(
   rlnEvm = RlnEvm(
     groupManager: groupManager,
     nonceManager: NonceManager.init(conf.userMessageLimit),
+    brokerCtx: brokerCtx,
     rlnEpochSizeSec: conf.epochSizeSec,
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
@@ -336,31 +340,38 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
 proc new*(
     T: type RlnEvm,
     conf: WakuRlnConfig,
+    brokerCtx: BrokerContext,
     registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.
+  ## `brokerCtx` is the node's context (`WakuNode.brokerCtx`).
   try:
-    return await mount(conf, registrationHandler)
+    return await mount(conf, brokerCtx, registrationHandler)
   except CatchableError:
     return err("could not mount the rln-relay protocol: " & getCurrentExceptionMsg())
 
 proc mountOnchain*(
-    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
+    conf: WakuRlnConfig,
+    brokerCtx: BrokerContext,
+    registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## `RlnEvm.new` plus the contract-limit check, shared by this backend's
   ## descriptor and code that mounts the backend directly (tests, example
   ## apps).
-  let rln = ?(await RlnEvm.new(conf, registrationHandler))
+  let rln = ?(await RlnEvm.new(conf, brokerCtx, registrationHandler))
   if conf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit:
     error "Rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
   return ok(rln)
 
 proc rlnEvmDescriptor*(
-    conf: Opt[RlnConf], onFatalErrorAction: OnFatalErrorHandler
+    conf: Opt[RlnConf],
+    onFatalErrorAction: OnFatalErrorHandler,
+    brokerCtx: BrokerContext,
 ): RlnPluginDescriptor =
   ## Selected when on-chain RLN configuration came from the CLI or a preset.
+  ## `brokerCtx` is the node's context, handed to the mounted backend.
   proc present(): bool =
     conf.isSome()
 
@@ -377,7 +388,7 @@ proc rlnEvmDescriptor*(
       epochSizeSec: evmConf.epochSizeSec,
       onFatalErrorAction: onFatalErrorAction,
     )
-    let rln = (await mountOnchain(rlnConf)).valueOr:
+    let rln = (await mountOnchain(rlnConf, brokerCtx)).valueOr:
       return err(
         "failed to mount waku RLN relay protocol: failed to set rln validator: " & error
       )

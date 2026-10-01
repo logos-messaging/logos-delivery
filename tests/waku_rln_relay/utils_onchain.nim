@@ -800,7 +800,7 @@ proc mountOnchainRln*(
 ): Future[RlnEvm] {.async.} =
   ## Mounts the on-chain RLN backend built from `conf` on `node` and returns
   ## it, for tests that use the backend directly.
-  let rln = (await mountOnchain(conf, registrationHandler)).valueOr:
+  let rln = (await mountOnchain(conf, node.brokerCtx, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
   node.mountRln(rln.toRlnPlugin(), RlnCommonConf(), spamHandler)
   return rln
