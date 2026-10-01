@@ -212,6 +212,10 @@ proc mount(
   (await groupManager.init()).isOkOr:
     return err("could not initialize the group manager: " & $error)
 
+  # Prefetch the Merkle proof path so readiness does not wait for a publish.
+  if groupManager.idCredentials.isSome():
+    groupManager.scheduleMerkleProofRefresh()
+
   rlnEvm = RlnEvm(
     groupManager: groupManager,
     nonceManager: NonceManager.init(conf.userMessageLimit, conf.epochSizeSec.float),

@@ -848,7 +848,41 @@ procSuite "Onchain group manager":
     check:
       isReady == false
 
-  test "isReady should return true if ethRpc is ready":
+  test "isReady: member is not ready until its Merkle proof path is fetched":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    check:
+      manager.merkleProofCache.len == 0
+      (waitFor manager.isReady()) == false
+
+    (waitFor manager.ensureFreshMerkleProofPath()).isOkOr:
+      raiseAssert "failed to fetch path: " & error
+
+    check (waitFor manager.isReady()) == true
+
+    manager.invalidateMerkleProofCache()
+    check (waitFor manager.isReady()) == false
+
+  test "isReady: scheduleMerkleProofRefresh makes a member ready in the background":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    manager.scheduleMerkleProofRefresh()
+    check (waitFor manager.isReady()) == false
+
+    waitFor manager.proofPathRefreshInFlightFut.join()
+    check (waitFor manager.isReady()) == true
+
+  test "isReady should return true if ethRpc is ready (validation-only node)":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 

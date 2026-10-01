@@ -47,6 +47,7 @@ type
     merkleProofCache*: seq[byte]
     merkleProofCacheGeneration: uint64
     proofPathRefreshInFlightFut*: Future[seq[byte]]
+    proofPathRefreshLoopFut: Future[void]
     lastRootsRefreshMoment*: Moment
     rootsRefreshInFlightFut*: Future[void]
 
@@ -316,17 +317,28 @@ method invalidateMerkleProofCache*(g: RlnEvmGroupManager) {.gcsafe, raises: [].}
   g.merkleProofCache = @[]
   g.merkleProofCacheGeneration.inc()
 
+const MerkleProofRefreshRetryInterval = 5.seconds
+
 method scheduleMerkleProofRefresh*(g: RlnEvmGroupManager) {.gcsafe, raises: [].} =
-  ## Invalidates the cache and spawns a detached refetch; a failed refetch is
-  ## logged and repaired by the next `ensureFreshMerkleProofPath`.
+  ## Invalidates the cache and refetches in the background, retrying until a
+  ## path is cached: `isReady` depends on it, so a failed refetch must not
+  ## leave the node unready until its next publish.
   g.invalidateMerkleProofCache()
 
-  proc refresh() {.async.} =
-    let res = await g.ensureFreshMerkleProofPath()
-    if res.isErr():
-      debug "merkle proof refresh failed", error = res.error
+  if not g.proofPathRefreshLoopFut.isNil() and not g.proofPathRefreshLoopFut.finished():
+    return
 
-  asyncSpawn refresh()
+  proc refreshLoop() {.async.} =
+    while g.initialized and g.membershipIndex.isSome() and g.merkleProofCache.len == 0:
+      let res = await g.ensureFreshMerkleProofPath()
+      if res.isErr():
+        debug "merkle proof refresh failed, retrying", error = res.error
+      # A path can also come back uncached when invalidations keep racing the
+      # fetch, so back off whenever the cache is still empty.
+      if g.merkleProofCache.len == 0:
+        await sleepAsync(MerkleProofRefreshRetryInterval)
+
+  g.proofPathRefreshLoopFut = refreshLoop()
 
 method register*(
     g: RlnEvmGroupManager, rateCommitment: RateCommitment
@@ -710,6 +722,9 @@ method init*(g: RlnEvmGroupManager): Future[Result[void, string]] {.async.} =
 method stop*(
     g: RlnEvmGroupManager
 ): Future[void] {.async: (raises: [CancelledError]).} =
+  if not g.proofPathRefreshLoopFut.isNil():
+    await g.proofPathRefreshLoopFut.cancelAndWait()
+
   if g.ethRpc.isSome():
     g.ethRpc.get().ondisconnect = nil
     try:
@@ -725,7 +740,7 @@ method stop*(
 
   g.initialized = false
 
-method isReady*(g: RlnEvmGroupManager): Future[bool] {.async.} =
+proc isConfigured(g: RlnEvmGroupManager): bool =
   checkInitialized(g).isOkOr:
     return false
 
@@ -735,5 +750,20 @@ method isReady*(g: RlnEvmGroupManager): Future[bool] {.async.} =
 
   if g.wakuRlnContract.isNone():
     debug "Waku RLN contract is not configured"
+    return false
+  return true
+
+method isReady*(g: RlnEvmGroupManager): Future[bool] {.async.} =
+  ## A member is ready once it can generate a proof, i.e. its Merkle proof
+  ## path is cached. A node without credentials only validates, and
+  ## `validateRoot` fetches roots on demand, so being configured is enough.
+  if not g.isConfigured():
+    return false
+
+  if g.idCredentials.isNone():
+    return true
+
+  if g.membershipIndex.isNone() or g.merkleProofCache.len == 0:
+    debug "Merkle proof path is not fetched yet"
     return false
   return true
