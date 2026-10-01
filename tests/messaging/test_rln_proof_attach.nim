@@ -8,8 +8,12 @@ import
   logos_delivery/waku/node/waku_node/relay,
   logos_delivery/waku/api/publish,
   logos_delivery/waku/factory/waku_conf,
-  logos_delivery/waku/rln/rln_api,
-  logos_delivery/waku/rln/rln_lez/[rln_lez, transport]
+  logos_delivery/waku/rln/[rln_api, rln_plugin],
+  logos_delivery/waku/rln/rln_lez/[rln_lez, transport],
+  logos_delivery/api/events/messaging_client_events,
+  logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
+  logos_delivery/messaging/delivery_service/send_service/
+    [send_service, send_processor, delivery_task]
 import
   ../testlib/[testasync, wakunodeconf],
   ../waku_rln_relay/utils_onchain,
@@ -47,6 +51,43 @@ proc lezGetQuota(
 
 var lezPlugin = LogosDeliveryRlnPlugin(get_epoch_quota: lezGetQuota)
 
+type FailingProofBackend = ref object
+  ## Fails every proof with `failWith`; the test can change it between rounds.
+  failWith: RlnErrorKind
+  attempts: int
+
+proc mountFailingRln(waku: Waku, failWith: RlnErrorKind): FailingProofBackend =
+  let backend = FailingProofBackend(failWith: failWith)
+
+  proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+    backend.attempts.inc()
+    return err(RlnError.init(backend.failWith, "scripted attach failure"))
+
+  waku.node.rlnPlugin = Opt.some(RlnPlugin(name: "stub", generateProof: generate))
+  return backend
+
+type CountingProcessor = ref object of BaseSendProcessor
+  ## Propagates every task it is given; `calls` shows whether a task got out.
+  calls: int
+
+method isValidProcessor(self: CountingProcessor, task: DeliveryTask): bool {.gcsafe.} =
+  return true
+
+method sendImpl(self: CountingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  inc self.calls
+  task.state = DeliveryState.SuccessfullyPropagated
+
+proc buildTask(id: string): DeliveryTask =
+  let msg = testMessage()
+  let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
+  return DeliveryTask(
+    requestId: RequestId(id),
+    pubsubTopic: pubsubTopic,
+    msg: msg,
+    msgHash: computeMessageHash(pubsubTopic, msg),
+    state: DeliveryState.Entry,
+  )
+
 suite "SendService RLN proof attach":
   asyncTest "passes the message through unproven when RLN is not mounted":
     ## The default (no-RLN) configuration must be unaffected: no proof is
@@ -79,6 +120,91 @@ suite "SendService RLN proof attach":
       quota.epochIndex == 42
       quota.rateLimit == 100
       quota.remaining == 7
+
+suite "SendService RLN proof attach - failing backend":
+  ## A Permanent attach error cannot clear on a later round, so the task fails
+  ## with one `MessageErrorEvent` and never reaches a send processor.
+  const PermanentReason =
+    "Failed to attach RLN proof: Permanent: scripted attach failure"
+
+  var
+    waku {.threadvar.}: Waku
+    errors {.threadvar.}: seq[MessageErrorEvent]
+    listener {.threadvar.}: MessageErrorEventListener
+
+  asyncSetup:
+    waku = (await Waku.new(testConf())).expect("Waku.new")
+    errors = @[]
+    listener = MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(e: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(e),
+      )
+      .expect("listen")
+
+  asyncTeardown:
+    await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
+    discard await waku.stop()
+
+  proc newService(processor: BaseSendProcessor): SendService =
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    return SendService.new(false, waku, manager, processor).expect("SendService.new")
+
+  asyncTest "send() fails the task at once":
+    let backend = waku.mountFailingRln(RlnErrorKind.Permanent)
+    let processor = CountingProcessor()
+    let service = newService(processor)
+    let task = buildTask("permanent-in-send")
+
+    await service.send(task)
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      task.state == DeliveryState.FailedToDeliver
+      processor.calls == 0
+      errors.len == 1
+      errors[0].requestId == task.requestId
+      errors[0].error == PermanentReason
+
+    # Not cached, so a later pass neither retries nor reports it again.
+    await service.trySendMessages()
+    service.evaluateAndCleanUp()
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      backend.attempts == 1
+      errors.len == 1
+
+  asyncTest "a service pass fails a parked task whose attach turns Permanent":
+    ## The task parks while the backend is not ready. By the next round its
+    ## message epoch can be out of reach, which the backend reports as Permanent.
+    let backend = waku.mountFailingRln(RlnErrorKind.NotReady)
+    let processor = CountingProcessor()
+    let service = newService(processor)
+    let task = buildTask("permanent-in-pass")
+
+    await service.send(task)
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      task.state == DeliveryState.NextRoundRetry
+      errors.len == 0
+
+    backend.failWith = RlnErrorKind.Permanent
+    await service.trySendMessages()
+    check:
+      task.state == DeliveryState.FailedToDeliver
+      processor.calls == 0
+
+    service.evaluateAndCleanUp()
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      errors.len == 1
+      errors[0].requestId == task.requestId
+      errors[0].error == PermanentReason
+
+    # Evicted, so the next pass does not draw for it again.
+    await service.trySendMessages()
+    check backend.attempts == 2
 
 suite "SendService RLN proof attach - RLN mounted":
   var
