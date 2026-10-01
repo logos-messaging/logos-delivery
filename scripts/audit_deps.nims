@@ -1,7 +1,8 @@
 # Checks the installed packages against nimble.lock: every lock entry must be
 # present at its vcsRevision, and nothing else may be installed. `nim` is
-# skipped: Nimble installs it as a binary, not a git checkout. The script
-# reads files, writes nothing and exits 1 on any problem.
+# skipped: Nimble installs it as a binary, not a git checkout. The Nim running
+# the script must report the locked version. The script reads files, writes
+# nothing and exits 1 on any problem.
 #
 #   nim e scripts/audit_deps.nims
 #
@@ -94,6 +95,13 @@ proc main() =
     bad.add("no nimbledeps/pkgs2 directory; run setup first")
   else:
     bad.add installedMismatches(lock, pkgs2, ok, total)
+
+  # The Nim running this script must be the locked one.
+  let lockedNim = lock{"nim", "version"}.getStr()
+  if lockedNim.len == 0:
+    bad.add("nimble.lock has no nim entry")
+  elif NimVersion != lockedNim:
+    bad.add("nim: lock has " & lockedNim & ", running " & NimVersion)
 
   for b in bad:
     echo "audit: " & b
