@@ -6,8 +6,6 @@ on:
     - cron: '10 5 * * *'
   workflow_dispatch:
 
-env:
-
 jobs:
   c-abi-nightly:
     runs-on: ubuntu-22.04

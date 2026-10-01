@@ -3,8 +3,6 @@ name: tests
 on:
   workflow_call:
 
-env:
-
 jobs:
   test:
     strategy:
