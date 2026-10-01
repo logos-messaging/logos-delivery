@@ -13,10 +13,10 @@ runs:
   steps:
     # c_code and nimcache only serve the build from source and hold ~2 GB.
     # actions/cache excludes only listed entries, hence the children glob.
-    - name: Cache Nim
+    - name: Restore Nim
       id: cache
       if: ${{ runner.os == 'macOS' }}
-      uses: actions/cache@v3
+      uses: actions/cache/restore@v3
       with:
         path: |
           .nim_runtime/*
@@ -30,6 +30,17 @@ runs:
       with:
         nim-version: ${{ inputs.nim-version }}
         repo-token: ${{ github.token }}
+
+    # Saved before the job ends, so a later failure or cancellation does not lose it.
+    - name: Save Nim
+      if: ${{ runner.os == 'macOS' && steps.cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v3
+      with:
+        path: |
+          .nim_runtime/*
+          !.nim_runtime/c_code
+          !.nim_runtime/nimcache
+        key: ${{ steps.cache.outputs.cache-primary-key }}
 
     # The PATH entries setup-nim-action adds, which a cache hit skips.
     - name: Add Nim to PATH

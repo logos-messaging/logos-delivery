@@ -10,7 +10,7 @@ inputs:
     description: 'The Nim version on PATH. A cache key component: the compiler builds the cached native libraries.'
     required: true
   cache:
-    description: 'Restore and save the nimbledeps cache. Set "false" to disable.'
+    description: 'Restore and save the nimbledeps cache and the Nimble package cache. Set "false" to disable. The pinned Nimble is cached either way.'
     default: 'true'
   make-args:
     description: 'Extra arguments for the C library rebuild make calls.'
@@ -47,8 +47,9 @@ runs:
         echo "name=$(basename "$(dirname "$dir")")" >> "$GITHUB_OUTPUT"
 
     # A hit lets `make build-deps` skip building the pinned Nimble from source.
-    - name: Cache the pinned Nimble
-      uses: actions/cache@v3
+    - name: Restore the pinned Nimble
+      id: pinned-nimble
+      uses: actions/cache/restore@v3
       with:
         path: ~/.local/${{ steps.nimble.outputs.name }}
         key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.nimble.outputs.name }}-v1-nim${{ inputs.nim-version }}
@@ -57,3 +58,11 @@ runs:
       shell: bash
       run: |
         make build-deps ${{ inputs.make-args }}
+
+    # Saved before the job ends, so a later failure or cancellation does not lose it.
+    - name: Save the pinned Nimble
+      if: ${{ steps.pinned-nimble.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v3
+      with:
+        path: ~/.local/${{ steps.nimble.outputs.name }}
+        key: ${{ steps.pinned-nimble.outputs.cache-primary-key }}
