@@ -26,6 +26,7 @@ import
     rln/rln_evm/protocol_types,
     rln/rln_evm/constants,
     rln/rln_evm/bindings,
+    rln/rln_evm/retry_wrapper,
     node/waku_node,
     node/waku_node/relay,
   ],
@@ -38,6 +39,10 @@ const DEFAULT_ANVIL_STATE_PATH* =
   "tests/waku_rln_relay/anvil_state/state-deployed-contracts-mint-and-approved.json.gz"
 const TOKEN_ADDRESS* = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 const WAKU_RLNV2_PROXY_ADDRESS* = "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
+
+# Anvil mines a transaction within milliseconds of receiving it.
+const AnvilReceiptRetryStrategy* =
+  RetryStrategy(retryDelay: 100.millis, retryCount: 100)
 
 proc generateCredentials*(): IdentityCredential =
   let credRes = membershipKeyGen()
@@ -101,6 +106,19 @@ proc getTokenBalance(
 proc ethToWei(eth: UInt256): UInt256 =
   eth * 1000000000000000000.u256
 
+proc getMinedTransactionReceipt(
+    web3: Web3, txHash: TxHash, retryStrategy: RetryStrategy
+): Future[Result[ReceiptObject, string]] {.async.} =
+  return await retryWrapper(
+    retryStrategy,
+    "Failed to get the transaction receipt",
+    proc(): Future[ReceiptObject] {.async.} =
+      let receipt = await web3.provider.eth_getTransactionReceipt(txHash)
+      if receipt.isNil():
+        raise newException(CatchableError, "transaction not yet mined")
+      return receipt,
+  )
+
 proc sendMintCall(
     web3: Web3,
     accountFrom: Address,
@@ -140,12 +158,13 @@ proc sendMintCall(
   tx.data = Opt.some(byteutils.hexToSeqByte(mintCallData))
 
   trace "Sending mint call"
-  discard await web3.send(tx)
+  let txHash = await web3.send(tx)
 
   let balanceOfSelector = "0x70a08231"
   let balanceCallData = balanceOfSelector & paddedAddress
 
-  await sleepAsync(200.milliseconds)
+  let receipt = await web3.getMinedTransactionReceipt(txHash, AnvilReceiptRetryStrategy)
+  assert receipt.isOk(), receipt.error
 
   if doBalanceAssert:
     let balanceAfterMint = await getTokenBalance(web3, tokenAddress, recipientAddress)
@@ -280,7 +299,10 @@ proc approveTokenAllowanceAndVerify*(
 
     trace "Sending approve call", tx = tx
     let txHash = await web3.send(tx)
-    let receipt = await web3.getMinedTransactionReceipt(txHash)
+    let receipt = (
+      await web3.getMinedTransactionReceipt(txHash, AnvilReceiptRetryStrategy)
+    ).valueOr:
+      return err("Approval transaction failed: " & error)
 
     if receipt.status.isNone():
       return err("Approval transaction failed receipt is none")
@@ -403,7 +425,8 @@ proc sendEthTransfer*(
   # TODO: handle the error if sending fails
   let txHash = await web3.send(tx)
 
-  await sleepAsync(200.milliseconds)
+  let receipt = await web3.getMinedTransactionReceipt(txHash, AnvilReceiptRetryStrategy)
+  assert receipt.isOk(), receipt.error
 
   if doBalanceAssert:
     let balanceAfterWei = await web3.provider.eth_getBalance(accountTo, "latest")
@@ -763,6 +786,7 @@ proc setupRlnEvm*(
     chainId: CHAIN_ID,
     ethPrivateKey: Opt.some($privateKey),
     rlnInstance: rlnInstance,
+    receiptRetryStrategy: AnvilReceiptRetryStrategy,
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr
     ,
@@ -787,6 +811,7 @@ proc buildRlnEvm*(
     chainId: CHAIN_ID,
     ethPrivateKey: Opt.some(privateKey),
     rlnInstance: rlnInstanceRes.get(),
+    receiptRetryStrategy: AnvilReceiptRetryStrategy,
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr
     ,
@@ -802,6 +827,8 @@ proc mountOnchainRln*(
   ## it, for tests that use the backend directly.
   let rln = (await mountOnchain(conf, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
+  cast[RlnEvmGroupManager](rln.groupManager).receiptRetryStrategy =
+    AnvilReceiptRetryStrategy
   node.mountRln(rln.toRlnPlugin(), RlnCommonConf(), spamHandler)
   return rln
 

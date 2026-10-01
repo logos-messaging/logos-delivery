@@ -208,7 +208,9 @@ procSuite "Peer Manager":
   asyncTest "quic dialer falls back to tcp when the peer's quic port is closed":
     ## A stale or wrong quic-v1 address for a tcp-only peer: nothing listens
     ## on that udp port.
+    let quicDialTimeout = chronos.milliseconds(300)
     let dialer = newTestWakuNode(generateSecp256k1Key())
+    DeliveryDialer.install(dialer.switch, quicDialTimeout)
     let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
     await allFutures(dialer.start(), server.start())
 
@@ -223,14 +225,16 @@ procSuite "Peer Manager":
     let started = Moment.now()
     require await dialer.peerManager.connectPeer(peer)
     check:
-      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      Moment.now() - started < quicDialTimeout + chronos.seconds(2)
       dialer.connectedOverTcpOnly(server)
 
     await allFutures(dialer.stop(), server.stop())
 
   asyncTest "quic dialer falls back to tcp when the peer's quic packets are dropped":
     ## A firewall that drops udp silently: a socket that reads and ignores.
+    let quicDialTimeout = chronos.milliseconds(300)
     let dialer = newTestWakuNode(generateSecp256k1Key())
+    DeliveryDialer.install(dialer.switch, quicDialTimeout)
     let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
     await allFutures(dialer.start(), server.start())
 
@@ -244,7 +248,7 @@ procSuite "Peer Manager":
     let started = Moment.now()
     require await dialer.peerManager.connectPeer(peer)
     check:
-      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      Moment.now() - started < quicDialTimeout + chronos.seconds(2)
       dialer.connectedOverTcpOnly(server)
 
     await blackhole.closeWait()
@@ -253,7 +257,9 @@ procSuite "Peer Manager":
   asyncTest "quic dialer opens a stream over tcp when the peer's quic packets are dropped":
     ## The stream path (peerManager.dialPeer) goes through the dialer's `dial`,
     ## not `connect`.
+    let quicDialTimeout = chronos.milliseconds(300)
     let dialer = newTestWakuNode(generateSecp256k1Key())
+    DeliveryDialer.install(dialer.switch, quicDialTimeout)
     let server = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
     await allFutures(dialer.start(), server.start())
 
@@ -268,7 +274,7 @@ procSuite "Peer Manager":
     let conn = await dialer.peerManager.dialPeer(peer, "/ipfs/id/1.0.0")
     require conn.isSome()
     check:
-      Moment.now() - started < QuicDialTimeout + chronos.seconds(2)
+      Moment.now() - started < quicDialTimeout + chronos.seconds(2)
       dialer.connectedOverTcpOnly(server)
 
     await conn.get().close()

@@ -91,6 +91,10 @@ type SendService* = ref object of RootObj
   maxValidationAge*: timer.Duration
     ## How long after its first propagation a task may wait for store
     ## confirmation before it is failed.
+  archiveTime*: timer.Duration
+    ## A task is asked about in Store only once its propagation and its last
+    ## Store query are older than this, giving a Store node time to archive it.
+    ## Also the pause of the Store validation loop while no Store peer is available.
   maxTaskCacheSize*: int
   serviceLoopInterval: timer.Duration
   inFlightSends: int
@@ -169,6 +173,7 @@ proc new*(
     maxDeliveryTime: maxDeliveryTime(anonymityLevel),
     maxParkedAge: maxParkedAge,
     maxValidationAge: maxValidationAge,
+    archiveTime: ArchiveTime,
     maxTaskCacheSize: maxTaskCacheSize,
     serviceLoopInterval: serviceLoopInterval,
   )
@@ -209,7 +214,7 @@ proc nextStoreValidationBatch*(
     self: SendService, tasks: openArray[DeliveryTask], now: Moment
 ): seq[DeliveryTask] =
   ## Selects up to one Store page of tasks that await Store validation and whose
-  ## propagation and last query are older than `ArchiveTime`. The tasks that
+  ## propagation and last query are older than `archiveTime`. The tasks that
   ## waited longest come first, and ties keep cache order.
   const batchSize = int(MaxPageSize)
   var eligible: seq[DeliveryTask]
@@ -217,10 +222,10 @@ proc nextStoreValidationBatch*(
     if not self.awaitsStoreValidation(task):
       continue
     if task.firstPropagatedTime.isNone() or
-        now - task.firstPropagatedTime.get() <= ArchiveTime:
+        now - task.firstPropagatedTime.get() <= self.archiveTime:
       continue
     if task.lastStoreQueryTime.isSome() and
-        now - task.lastStoreQueryTime.get() <= ArchiveTime:
+        now - task.lastStoreQueryTime.get() <= self.archiveTime:
       continue
     eligible.add(task)
   eligible.sort(
@@ -277,7 +282,7 @@ proc storeValidationLoop(self: SendService) {.async.} =
         else:
           debug "Skipping store validation, no store peer available",
             messageCount = batch.len
-          delay = ArchiveTime
+          delay = self.archiveTime
     except CancelledError as exc:
       raise exc
     except CatchableError as exc:

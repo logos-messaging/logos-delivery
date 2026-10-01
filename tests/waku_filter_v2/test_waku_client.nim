@@ -2126,6 +2126,8 @@ suite "Waku Filter - End to End":
 
         # When sending the MaxPushSize message
         pushHandlerFuture = newPushHandlerFuture() # Clear previous future
+        # the client never reads an oversized push, so only the push timeout ends it
+        wakuFilter.messagePushTimeout = FUTURE_TIMEOUT
         await wakuFilter.handleMessage(pubsubTopic, msg5)
 
         # Then the message is not pushed to the client

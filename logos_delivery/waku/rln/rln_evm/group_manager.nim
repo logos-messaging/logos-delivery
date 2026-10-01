@@ -39,6 +39,7 @@ type
     ethRpc*: Opt[Web3]
     wakuRlnContract*: Opt[WakuRlnContractWithSender]
     registrationTxHash*: Opt[TxHash]
+    receiptRetryStrategy*: RetryStrategy = RetryStrategy.new()
     chainId*: UInt256
     keystorePath*: Opt[string]
     keystorePassword*: Opt[string]
@@ -409,7 +410,7 @@ method register*(
   # wait for the transaction to be mined and get the receipt
   let tsReceipt = (
     await retryWrapper(
-      RetryStrategy.new(),
+      g.receiptRetryStrategy,
       "Failed to get the transaction receipt",
       proc(): Future[ReceiptObject] {.async.} =
         let r = await ethRpc.provider.eth_getTransactionReceipt(txHash)

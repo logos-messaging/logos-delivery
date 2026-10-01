@@ -232,6 +232,7 @@ suite "Waku rln relay":
         raiseAssert $error
 
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
+    manager.receiptRetryStrategy = AnvilReceiptRetryStrategy
     let idCredentials = generateCredentials()
 
     (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -288,6 +289,7 @@ suite "Waku rln relay":
         raiseAssert $error
 
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
+    manager.receiptRetryStrategy = AnvilReceiptRetryStrategy
     let idCredentials = generateCredentials()
 
     (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -337,6 +339,7 @@ suite "Waku rln relay":
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager1 = cast[RlnEvmGroupManager](wakuRlnRelay1.groupManager)
+    manager1.receiptRetryStrategy = AnvilReceiptRetryStrategy
     let idCredentials1 = generateCredentials()
 
     (await manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -350,6 +353,7 @@ suite "Waku rln relay":
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager2 = cast[RlnEvmGroupManager](wakuRlnRelay2.groupManager)
+    manager2.receiptRetryStrategy = AnvilReceiptRetryStrategy
     let idCredentials2 = generateCredentials()
 
     (await manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:

@@ -4,7 +4,7 @@ import results, std/[sequtils, net, sets, os, osproc, tempfiles, strutils]
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
@@ -116,6 +116,7 @@ proc setupNetwork(
     localStore = false,
     numShards: uint16 = 1,
     storeNodeShards: seq[uint16] = @[],
+    activityWriteInterval = Opt.none(Duration),
 ): Future[TestNetwork] {.async.} =
   ## A started subscriber on `testTopic` with one message archived between its
   ## start and its subscription, so only Store can deliver it. With
@@ -125,6 +126,7 @@ proc setupNetwork(
   ## a temporary one. With `remoteFilter` the store node serves filter. With
   ## `localStore` the subscriber serves Store. `storeNodeShards` limits the
   ## shards the store node advertises. `testTopic` must autoshard to shard 0.
+  ## `activityWriteInterval` replaces the subscriber's short one.
   let ownedRoot =
     if storageRoot.len == 0:
       createTempDir("recv-api-", "")
@@ -200,6 +202,10 @@ proc setupNetwork(
     subscriber = (await LogosDelivery.new(nodeConf(conf, messaging))).expect(
       "Failed to create subscriber"
     )
+    subscriber.shortenIntervals()
+    if activityWriteInterval.isSome():
+      subscriber.messagingClient.recvService.activityWriteInterval =
+        activityWriteInterval.get()
     (await subscriber.start()).expect("Failed to start subscriber")
 
   let missedPayload = "This message was missed".toBytes()
@@ -259,6 +265,8 @@ const RestartTopic = ContentTopic("/waku/2/recv-process-restart/proto")
 const TestShard = PubsubTopic("/waku/2/rs/3/0")
 const SecondShard = PubsubTopic("/waku/2/rs/3/1") ## shard 1 of a two-shard network
 const OfflineCount = 105 ## archived between two subscriber processes, two Store pages
+const RestartDelayExtra = chronos.milliseconds(500)
+  ## the restarted process's `delayExtra`
 const Hour = chronos.hours(1).nanos
 
 proc runRestartedReceiver(
@@ -272,6 +280,8 @@ proc runRestartedReceiver(
   let subscriber = (
     await LogosDelivery.new(nodeConf(conf, backfillOverrides(backfillEnabled)))
   ).expect("new process subscriber")
+  subscriber.shortenIntervals()
+  subscriber.messagingClient.recvService.delayExtra = RestartDelayExtra
   let events =
     newReceiveEventListenerManager(subscriber.waku.brokerCtx, max(expectedCount, 1))
   (await subscriber.start()).expect("start new process subscriber")
@@ -551,7 +561,7 @@ suite "Messaging API, Receive Service (store recovery)":
       await sleepAsync(1.seconds)
       await net.runRestartedProcess(root, OfflineCount + 1)
 
-    # Phase 2: disabled, only the reconnection check runs, and its `DelayExtra`
+    # Phase 2: disabled, only the reconnection check runs, and its `delayExtra`
     # lookback is waited out first, so the child retrieves nothing. The saved
     # timestamp stays for a later run.
     block:
@@ -564,7 +574,7 @@ suite "Messaging API, Receive Service (store recovery)":
       (await net.subscriber.stop()).expect("stop previous session")
       net.subscriber = nil
       await net.archiveOffline()
-      await sleepAsync(DelayExtra + 1.seconds)
+      await sleepAsync(RestartDelayExtra + 1.seconds)
       await net.runRestartedProcess(root, 0, backfillEnabled = false)
       await net.runRestartedProcess(root, OfflineCount + 1)
 
@@ -582,6 +592,7 @@ suite "Messaging API, Receive Service (store recovery)":
         node = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
           "create node"
         )
+        node.shortenIntervals()
         (await node.start()).expect("start node")
       let topic = ContentTopic("/waku/2/recv-late-subscribe/proto")
       let subscribedAt = now()
@@ -640,22 +651,28 @@ suite "Messaging API, Receive Service (store recovery)":
       await sleepAsync(1500.milliseconds)
       check (await job.readRecoveryHint()).expect("read record") == Opt.some(atStart)
       net.knowStorePeer()
+      let catchUpSettlePeriod =
+        net.subscriber.messagingClient.recvService.catchUpSettlePeriod
       let cutoff = await job.waitForAdvance(
-        atStart, within = CatchUpRetryPeriod + CatchUpSettlePeriod + 15.seconds
+        atStart, within = CatchUpRetryPeriod + catchUpSettlePeriod + 15.seconds
       )
       check cutoff < now()
 
     # Phase 6: after the startup catch-up exits, a received message advances
-    # the hint to its receipt time, at most once per `ActivityWriteInterval`.
+    # the hint to its receipt time, at most once per `activityWriteInterval`.
     block:
       let root = createTempDir("recv-api-live-", "")
       defer:
         removeDir(root)
       let topic = ContentTopic("/waku/2/recv-live/proto")
-      let net = await setupNetwork(topic, root)
+      # The second live message must land inside the interval.
+      let net =
+        await setupNetwork(topic, root, activityWriteInterval = Opt.some(3.seconds))
       defer:
         await net.teardown()
       let events = net.events
+      let activityWriteInterval =
+        net.subscriber.messagingClient.recvService.activityWriteInterval
       let persistency = Persistency.new(root).expect("open root")
       defer:
         persistency.close()
@@ -666,7 +683,7 @@ suite "Messaging API, Receive Service (store recovery)":
       let setupWrite = await job.waitForAdvance(events.receivedMessages[0].timestamp)
       check setupWrite <= now()
       await net.joinMesh()
-      await sleepAsync(ActivityWriteInterval) # past the throttle of that write
+      await sleepAsync(activityWriteInterval) # past the throttle of that write
       events.targetCount = 2
       events.receivedEvent.clear()
       let beforeLive = now()
@@ -682,7 +699,7 @@ suite "Messaging API, Receive Service (store recovery)":
       await sleepAsync(1500.milliseconds)
       check (await job.readRecoveryHint()).expect("read record") == Opt.some(afterFirst)
       # After the interval the next one writes again.
-      await sleepAsync(ActivityWriteInterval)
+      await sleepAsync(activityWriteInterval)
       events.targetCount = 4
       events.receivedEvent.clear()
       await net.publishLive(topic, "live three")
@@ -910,6 +927,8 @@ suite "Messaging API, Receive Service (store recovery)":
       check await eventManager.waitForEvents(TestTimeout) # the setup message
       await net.waitForFilterSubscriptionHealth(healthy = true)
       await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      # The gap message must be archived before the resubscription's Store check.
+      net.subscriber.waku.node.subscriptionManager.edgeFilterSubLoopDebounce = 1.seconds
       let offline = net.waitForFilterSubscriptionHealth(healthy = false)
       await net.storeNode.wakuFilter.subscriptions.removePeer(
         net.subscriber.waku.node.switch.peerInfo.peerId
@@ -998,7 +1017,7 @@ suite "Messaging API, Receive Service (store recovery)":
 
   asyncTest "a topic subscribed while the catch-up settles is caught up to its own time":
     ## The app restores its subscriptions one call at a time. After the first
-    ## topic is caught up, the worker waits `CatchUpSettlePeriod` for another.
+    ## topic is caught up, the worker waits `catchUpSettlePeriod` for another.
     ## A topic subscribed in that window is caught up to its own pass, so the
     ## worker delivers a message archived after the first pass and before the
     ## subscription. Silence ends the worker, and a topic subscribed after that
@@ -1100,6 +1119,7 @@ suite "Messaging API, Receive Service (store recovery)":
         node = (await LogosDelivery.new(testNodeConf(createApiNodeConf()))).expect(
           "create node"
         )
+        node.shortenIntervals()
         (await node.start()).expect("start node")
       check GetPersistency.request(node.waku.brokerCtx).isOk()
       let topic = ContentTopic("/waku/2/recv-memory-only/proto")
@@ -1116,6 +1136,7 @@ suite "Messaging API, Receive Service (store recovery)":
         node = (await LogosDelivery.new(testNodeConf(createApiNodeConf()))).expect(
           "create node"
         )
+        node.shortenIntervals()
       check GetPersistency.request(node.waku.brokerCtx).isErr()
       check node.messagingClient.start().isOk()
       (
@@ -1147,6 +1168,7 @@ suite "Messaging API, Receive Service (store recovery)":
         node = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
           "create node"
         )
+        node.shortenIntervals()
         (await node.start()).expect("start node")
       (await node.messagingClient.subscribe(ContentTopic("/waku/2/recv-bad-job/proto"))).expect(
         "subscribe"

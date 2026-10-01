@@ -180,6 +180,8 @@ type
     edgeFilterWakeup*: AsyncEvent
     edgeFilterSubLoopFut*: Future[void]
     edgeFilterConnectionLoopFut*: Future[void]
+    edgeFilterLoopInterval*: Duration
+    edgeFilterSubLoopDebounce*: Duration
     peerEventListener*: WakuPeerEventListener
     ownsEdgeShardHealthProvider*: bool
     ownsEdgeFilterPeerCountProvider*: bool

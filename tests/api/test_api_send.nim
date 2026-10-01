@@ -3,7 +3,7 @@
 import results, std/[strutils, sets]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
 import logos_delivery/waku/factory/waku_conf
@@ -225,6 +225,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
       # node is not connected !
@@ -247,6 +248,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -282,6 +284,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -329,6 +332,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -359,6 +363,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -395,6 +400,7 @@ suite "Waku API - Send":
         )
       ).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -434,6 +440,7 @@ suite "Waku API - Send":
         )
       ).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
       # No connectToNodes: the sender has no reachable peer at T0.
@@ -472,6 +479,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -529,10 +537,13 @@ suite "Waku API - Send":
         )
       ).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.waku.node.connectToNodes(@[fakeLightpushNodePeerInfo])
+
+    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -547,7 +558,7 @@ suite "Waku API - Send":
 
     echo "Sent message with requestId=", requestId
     # Wait for events with timeout
-    const eventTimeout = 62.seconds
+    const eventTimeout = 30.seconds
     discard await eventManager.waitForEvents(eventTimeout)
 
     eventManager.validate({SendEventOutcome.Error}, requestId)
@@ -579,6 +590,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
+      node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
@@ -587,8 +599,8 @@ suite "Waku API - Send":
         @[relayNode1PeerInfo, isolatedStoreNodePeerInfo]
       )
 
-    # Longer than the 3 s archive delay, so the store node is queried first.
-    node.messagingClient.sendService.maxValidationAge = 5.seconds
+    # Longer than `archiveTime`, so the store node is queried first.
+    node.messagingClient.sendService.maxValidationAge = 2.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:

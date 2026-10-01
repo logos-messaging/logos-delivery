@@ -37,6 +37,7 @@ type QuicDialBudget = ref object of Transport
   ## only. Identify and metadata then run on an established connection, outside
   ## the budget. The switch keeps the unwrapped transport for listening.
   quic: Transport
+  dialTimeout: Duration
 
 method handles*(
     self: QuicDialBudget, address: MultiAddress
@@ -55,10 +56,10 @@ method dial*(
   if dir != Direction.Out:
     return await self.quic.dial(hostname, address, peerId, dir)
   try:
-    return await self.quic.dial(hostname, address, peerId, dir).wait(QuicDialTimeout)
+    return await self.quic.dial(hostname, address, peerId, dir).wait(self.dialTimeout)
   except AsyncTimeoutError as e:
     raise newException(
-      TransportDialError, "quic dial timed out after " & $QuicDialTimeout, e
+      TransportDialError, "quic dial timed out after " & $self.dialTimeout, e
     )
 
 method upgrade*(
@@ -71,10 +72,12 @@ type DeliveryDialer* = ref object of Dialer
   ## and dial go through here. Dials quic addresses before tcp, and bounds the
   ## quic handshake so tcp is still tried when quic does not answer.
 
-proc install*(T: typedesc[DeliveryDialer], switch: Switch) =
+proc install*(
+    T: typedesc[DeliveryDialer], switch: Switch, quicDialTimeout = QuicDialTimeout
+) =
   let transports = switch.transports.mapIt(
     if it of QuicTransport:
-      Transport(QuicDialBudget(quic: it))
+      Transport(QuicDialBudget(quic: it, dialTimeout: quicDialTimeout))
     else:
       it
   )

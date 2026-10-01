@@ -87,6 +87,10 @@ type RecvService* = ref object of RootObj
     ## `CancelledError` and does not raise it again, so a cancel may not reach the
     ## catch-up task. Remove this flag when broker requests raise it again.
 
+  delayExtra*: Duration = DelayExtra
+  activityWriteInterval*: Duration = ActivityWriteInterval
+  catchUpSettlePeriod*: Duration = CatchUpSettlePeriod
+
 proc getMissingMsgsFromStore(
     self: RecvService, msgHashes: seq[WakuMessageHash]
 ): Future[Result[seq[TupleHashAndMsg], string]] {.async.} =
@@ -159,8 +163,8 @@ proc checkStore*(self: RecvService) {.async.} =
           includeData: false,
           pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: toSeq(contentTopics),
-          startTime: Opt.some(self.startTimeToCheck - DelayExtra.nanos),
-          endTime: Opt.some(self.endTimeToCheck + DelayExtra.nanos),
+          startTime: Opt.some(self.startTimeToCheck - self.delayExtra.nanos),
+          endTime: Opt.some(self.endTimeToCheck + self.delayExtra.nanos),
         )
       )
     ).valueOr:
@@ -243,14 +247,14 @@ proc listenForReadiness(self: RecvService, E: typedesc): auto =
   return listener
 
 proc listenForReceipts(
-    brokerCtx: BrokerContext, job: persistency.Job
+    brokerCtx: BrokerContext, job: persistency.Job, activityWriteInterval: Duration
 ): Result[MessageReceivedEventListener, string] =
   ## Every accepted message, live or from Store, moves the hint to now, at
-  ## most one time per `ActivityWriteInterval`.
+  ## most one time per `activityWriteInterval`.
   var lastWrite = Moment()
   let onReceived = proc(event: MessageReceivedEvent) {.async: (raises: []).} =
     let now = Moment.now()
-    if not job.running or now - lastWrite < ActivityWriteInterval:
+    if not job.running or now - lastWrite < activityWriteInterval:
       return
     lastWrite = now # before the await, so a burst writes one time
     try:
@@ -277,7 +281,7 @@ proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
       await job.writeRecoveryHint(startedAt)
         # a first run stores its start for the next run
       startedAt - FirstRunHistory.nanos
-  let receipts = listenForReceipts(self.brokerCtx, job).valueOr:
+  let receipts = listenForReceipts(self.brokerCtx, job, self.activityWriteInterval).valueOr:
     warn "Store catch-up aborted", reason = error
     return
   self.backfill.hintListener = Opt.some(receipts)
@@ -324,7 +328,7 @@ proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
         # next subscription, and stop when none comes. A wake that brings no
         # work does not extend the wait.
         if settleUntil.isNone():
-          settleUntil = Opt.some(Moment.now() + CatchUpSettlePeriod)
+          settleUntil = Opt.some(Moment.now() + self.catchUpSettlePeriod)
         let remaining = settleUntil.get() - Moment.now()
         if remaining <= ZeroDuration or not await wake.wait().withTimeout(remaining):
           break

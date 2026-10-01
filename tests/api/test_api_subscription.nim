@@ -4,7 +4,7 @@ import results, std/[strutils, sequtils, net, sets, tables]
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
 
@@ -75,6 +75,7 @@ proc setupSubscriberNode(conf: LogosDeliveryNodeConf): Future[LogosDelivery] {.a
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
     node = (await LogosDelivery.new(conf)).expect("Failed to create subscriber node")
+    node.shortenIntervals()
     (await node.start()).expect("Failed to start subscriber node")
   return node
 
@@ -670,6 +671,7 @@ suite "Messaging API, SubscriptionManager":
 
     let conf = defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
     var subscriber: LogosDelivery
+    # The shipped debounce keeps the drop below two peers long enough to observe.
     lockNewGlobalBrokerContext:
       subscriber = (
         await LogosDelivery.new(
@@ -807,6 +809,7 @@ suite "Messaging API, SubscriptionManager":
           testNodeConf(conf, mode = messaging_conf.LogosDeliveryMode.Edge)
         )
       ).expect("Failed to create edge subscriber")
+      subscriber.shortenIntervals()
       (await subscriber.start()).expect("Failed to start edge subscriber")
 
     await subscriber.waku.node.connectToNodes(

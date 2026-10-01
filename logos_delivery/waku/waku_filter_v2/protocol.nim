@@ -22,6 +22,8 @@ logScope:
 
 const MaxContentTopicsPerRequest* = 100
 
+const MessagePushTimeout = 20.seconds
+
 type WakuFilter* = ref object of LPProtocol
   subscriptions*: FilterSubscriptions
     # a mapping of peer ids to a sequence of filter criteria
@@ -30,6 +32,7 @@ type WakuFilter* = ref object of LPProtocol
   peerRequestRateLimiter*: PerPeerRateLimiter
   subscriptionsManagerFut: Future[void]
   peerConnections: Table[PeerId, Connection]
+  messagePushTimeout*: Duration = MessagePushTimeout
 
 proc pingSubscriber(wf: WakuFilter, peerId: PeerID): FilterSubscribeResult =
   debug "Pinging subscriber", peerId = peerId
@@ -238,7 +241,6 @@ proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
   ## Periodic report of number of subscriptions
   logos_delivery_filter_subscriptions.set(wf.subscriptions.peersSubscribed.len.float64)
 
-const MessagePushTimeout = 20.seconds
 proc handleMessage*(
     wf: WakuFilter, pubsubTopic: PubsubTopic, message: WakuMessage
 ) {.async.} =
@@ -263,7 +265,7 @@ proc handleMessage*(
     let messagePush = MessagePush(pubsubTopic: pubsubTopic, wakuMessage: message)
 
     if not await wf.pushToPeers(subscribedPeers, messagePush).withTimeout(
-      MessagePushTimeout
+      wf.messagePushTimeout
     ):
       debug "Timed out pushing message to peers",
         pubsubTopic = pubsubTopic,

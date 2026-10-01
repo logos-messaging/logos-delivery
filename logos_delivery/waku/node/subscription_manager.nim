@@ -115,12 +115,19 @@ proc doRelayUnsubscribe(node: WakuNode, shard: PubsubTopic): bool =
     ShardUnsubscribedEvent.emit(node.brokerCtx, ShardUnsubscribedEvent(topic: shard))
   return unsubscribed
 
+const EdgeFilterLoopInterval = chronos.seconds(30)
+  ## Interval for the edge filter health ping loop.
+const EdgeFilterSubLoopDebounce = chronos.seconds(1)
+  ## Debounce delay to coalesce rapid-fire wakeups into a single reconciliation pass.
+
 proc new*(T: type SubscriptionManager, node: WakuNode): T =
   T(
     node: node,
     shards: initTable[PubsubTopic, ShardSubscription](),
     edgeFilterSubStates: initTable[PubsubTopic, EdgeFilterSubState](),
     edgeFilterWakeup: newAsyncEvent(),
+    edgeFilterLoopInterval: EdgeFilterLoopInterval,
+    edgeFilterSubLoopDebounce: EdgeFilterSubLoopDebounce,
   )
 
 func wanted(entry: ShardSubscription): bool =
@@ -301,10 +308,6 @@ const EdgeFilterSubscribeTimeout = chronos.seconds(15)
   ## Timeout for a single filter subscribe/unsubscribe RPC to a service peer.
 const EdgeFilterPingTimeout = chronos.seconds(5)
   ## Timeout for a filter ping health check.
-const EdgeFilterLoopInterval = chronos.seconds(30)
-  ## Interval for the edge filter health ping loop.
-const EdgeFilterSubLoopDebounce = chronos.seconds(1)
-  ## Debounce delay to coalesce rapid-fire wakeups into a single reconciliation pass.
 
 type EdgeFilterSubscribeTask = object
   peer: RemotePeerInfo
@@ -435,7 +438,7 @@ proc edgeFilterConnectionLoop(self: SubscriptionManager) {.async.} =
   ## Periodically pings all tracked filter service peers to verify they are
   ## still alive at the application layer. Peers that fail the ping are removed.
   while true:
-    await sleepAsync(EdgeFilterLoopInterval)
+    await sleepAsync(self.edgeFilterLoopInterval)
 
     if self.node.wakuFilterClient.isNil():
       debug "filter client is nil within edge filter connection loop"
@@ -512,7 +515,7 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
 
   while true:
     await self.edgeFilterWakeup.wait()
-    await sleepAsync(EdgeFilterSubLoopDebounce)
+    await sleepAsync(self.edgeFilterSubLoopDebounce)
     self.edgeFilterWakeup.clear()
     trace "edgeFilterSubLoop: woke up"
 
