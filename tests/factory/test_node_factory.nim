@@ -71,7 +71,7 @@ suite "Node Factory":
 
   asynctest "The command line default rate limits reach the mounted protocols":
     # Given the configuration of a binary started without --rate-limit
-    let conf = defaultWakuNodeConf().get().toWakuConf().valueOr:
+    let conf = defaultKernelConf().get().toWakuConf().valueOr:
         raiseAssert error
 
     # When the node is set up
@@ -94,7 +94,7 @@ suite "Node Factory":
     let
       storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
       storeAddress = "/ip4/127.0.0.1/tcp/60000"
-    var cliConf = defaultWakuNodeConf().get()
+    var cliConf = defaultKernelConf().get()
     cliConf.storenode = storeAddress & "/p2p/" & $storePeerId
     let conf = cliConf.toWakuConf().valueOr:
       raiseAssert error
@@ -113,8 +113,8 @@ suite "Node Factory":
     let
       storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
       storeAddress = "/ip4/127.0.0.1/tcp/60000"
-    var cliConf = defaultWakuNodeConf().get()
-    cliConf.store = true
+    var cliConf = defaultKernelConf().get()
+    cliConf.store = Opt.some(true)
     cliConf.storeMessageDbUrl = "sqlite://store.sqlite3"
     cliConf.storeSync = true
     cliConf.storenode = storeAddress & "/p2p/" & $storePeerId
@@ -135,7 +135,7 @@ suite "Node Factory":
     let
       filterPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
       filterAddress = "/ip4/127.0.0.1/tcp/60000"
-    var cliConf = defaultWakuNodeConf().get()
+    var cliConf = defaultKernelConf().get()
     cliConf.filternode = filterAddress & "/p2p/" & $filterPeerId
     let conf = cliConf.toWakuConf().valueOr:
       raiseAssert error
@@ -154,7 +154,7 @@ suite "Node Factory":
     let
       lightPushPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
       lightPushAddress = "/ip4/127.0.0.1/tcp/60000"
-    var cliConf = defaultWakuNodeConf().get()
+    var cliConf = defaultKernelConf().get()
     cliConf.lightpushnode = lightPushAddress & "/p2p/" & $lightPushPeerId
     let conf = cliConf.toWakuConf().valueOr:
       raiseAssert error
@@ -186,7 +186,7 @@ suite "Node Factory":
     responder.peerManager.addPeer(discoveredPeer, PeerOrigin.Discv5)
 
     # And the configuration of a binary started with --peer-exchange-node naming the responder
-    var cliConf = defaultWakuNodeConf().get()
+    var cliConf = defaultKernelConf().get()
     cliConf.tcpPort = Port(0)
     cliConf.peerExchangeNode =
       "/ip4/127.0.0.1/tcp/" & $responder.boundTcpPort() & "/p2p/" &

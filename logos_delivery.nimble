@@ -13,15 +13,15 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "tools"]
 
-const RequiredNimVersion = "2.2.6"
-  ## This is the nim compiler version that we are working on. Other versions may behave differently.
-const RequiredNimblePin = "07caee397d628c9e93d81048268365c4c2414a80"
-  ## The Nimble the build installs, as a git revision or a release version. This
-  ## revision matches URL requirements to nimble.lock by URL.
+const RequiredNimblePin = "0.26.0"
+  ## The Nimble release the build installs.
 
 ### Dependencies
 requires "nim == 2.2.6",
-  "chronos >= 4.4.0 & < 4.5.0",
+  # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
+  # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
+  # solver keeps the name node on the newest tag.
+  "chronos#0de7b335d0ad5557ad5ba71a4b7662f7b201750e",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -32,7 +32,7 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.5",
+  "libp2p == 2.4.0",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -41,7 +41,8 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+  # v0.4.1: libp2p 2.4.0 requires websock >= 0.4.1 and locks this version.
+  "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
@@ -119,7 +120,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  selfExec "c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -128,7 +129,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -151,11 +152,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   mkDir cBindingsDir
 
   if `type` == "static":
-    exec "nim c" & " --out:build/" & lib_name &
+    selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
-    exec "nim c" & " --out:build/" & lib_name &
+    selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
@@ -213,7 +214,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
-  exec "nim c" & " --out:" & outDir &
+  selfExec "c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
@@ -267,7 +268,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   # nim compiles and archives every C source it owns (generated code and the
   # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
-  exec "nim c" &
+  selfExec "c" &
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
       " --app:staticlib --out:" & nimLib &
@@ -489,6 +490,10 @@ task liblogosdeliveryStaticMac, "Generate bindings":
   buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
+
+task auditdeps, "Check the installed packages against nimble.lock":
+  # A task runs under the Nim that Nimble installs for the locked `nim` entry.
+  selfExec "e --hints:off scripts/audit_deps.nims"
 
 task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR":
   ## Formats every Nim source file that differs from the base branch.

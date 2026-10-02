@@ -63,8 +63,10 @@ proc sendPushRequest(
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
     return lightpushResultInternalError(decodeRpcFailure)
 
+  # Rate-limited and oversized requests are rejected before the requestId is read.
   if response.requestId != req.requestId and
-      response.statusCode != LightPushErrorCode.TOO_MANY_REQUESTS:
+      response.statusCode notin
+      [LightPushErrorCode.TOO_MANY_REQUESTS, LightPushErrorCode.PAYLOAD_TOO_LARGE]:
     debug "Response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
     return lightpushResultInternalError("response failure, requestId mismatch")

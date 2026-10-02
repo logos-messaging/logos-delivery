@@ -22,6 +22,10 @@ proc encodeBytes*(
 ): RestResult[seq[byte]] =
   return encodeBytesOf(value, contentType)
 
+proc messagingGetSubscriptionsV1*(): RestResponse[seq[ContentTopic]] {.
+  rest, endpoint: "/messaging/v1/subscriptions", meth: HttpMethod.MethodGet
+.}
+
 proc messagingPostSubscriptionsV1*(
   body: seq[ContentTopic]
 ): RestResponse[string] {.

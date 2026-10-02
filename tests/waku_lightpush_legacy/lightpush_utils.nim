@@ -7,6 +7,7 @@ logScope:
 
 import
   logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_lightpush_legacy,
   logos_delivery/waku/waku_lightpush_legacy/[client, common],
   logos_delivery/waku/common/rate_limit/setting,
@@ -16,11 +17,13 @@ proc newTestWakuLegacyLightpushNode*(
     switch: Switch,
     handler: PushMessageHandler,
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
+    maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): Future[WakuLegacyLightPush] {.async.} =
   let
     peerManager = PeerManager.new(switch)
-    proto =
-      WakuLegacyLightPush.new(peerManager, crypto.newRng(), handler, rateLimitSetting)
+    proto = WakuLegacyLightPush.new(
+      peerManager, crypto.newRng(), handler, rateLimitSetting, maxMessageSize
+    )
 
   await proto.start()
   switch.mount(proto)

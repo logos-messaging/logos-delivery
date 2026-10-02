@@ -22,7 +22,6 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} -d:chronicles_colors:none"
-  NIM_VERSION: '2.2.6'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
@@ -55,18 +54,9 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
-      - name: Install Nim ${{ env.NIM_VERSION }}
-        if: ${{ steps.secrets.outcome == 'success' }}
-        uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install nimble deps
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: ./.github/actions/nimble-deps
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build binaries
         if: ${{ steps.secrets.outcome == 'success' }}

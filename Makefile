@@ -26,12 +26,13 @@ NIMBLE_TOOLDIR := $(HOME)/.local/nimble-$(REQUIRED_NIMBLE_PIN)/bin
 NIMBLE := $(NIMBLE_TOOLDIR)/nimble
 export PATH := $(NIMBLE_TOOLDIR):$(HOME)/.nimble/bin:$(PATH)
 
-# NIM binary location
-NIM_BINARY := $(shell which nim 2>/dev/null)
+# Passed after every Nimble command, so Nimble uses the locked Nim instead of
+# downloading the latest one first. Empty until the first setup has installed it.
+NIMBLE_TASK_FLAGS = $(if $(NIM),--nim:$(NIM))
 
-# Options go after the command. Nimble reads pre-command options as compiler
-# options.
-NIMBLE_TASK_FLAGS = --useSystemNim
+# The Nim that `nimble setup` installs for the locked `nim` entry. Recursive,
+# so it resolves after setup has populated nimbledeps/.
+NIM = $(firstword $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim.exe 2>/dev/null) $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim 2>/dev/null))
 
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
@@ -100,7 +101,7 @@ endif
 ## Main ##
 ##########
 # The Makefile automatically bootstraps dependency setup when needed for build and test targets.
-.PHONY: all test clean examples ffi-examples deps nimble install-nim install-nimble print-nimble-path
+.PHONY: all test clean examples ffi-examples deps nimble install-nimble print-nimble-path print-nim-path
 
 # default target
 all: | logosdeliverynode liblogosdelivery
@@ -145,7 +146,7 @@ $(NIMBLEDEPS_STAMP): nimble.lock logos_delivery.nimble | install-nimble logos_de
 # This compares the installed packages with nimble.lock and writes nothing.
 .PHONY: audit-deps
 audit-deps:
-	nim e --hints:off scripts/audit_deps.nims
+	$(NIMBLE) auditdeps $(NIMBLE_TASK_FLAGS)
 
 # Must be phony so the recipe always runs and the sub-make re-evaluates
 # BEARSSL_NIMBLEDEPS_DIR / NAT_TRAVERSAL_NIMBLEDEPS_DIR (parse-time variables)
@@ -163,20 +164,17 @@ clean:
 	rm nimble.paths 2> /dev/null || true
 	if [ -x "$(NIMBLE)" ]; then "$(NIMBLE)" clean; fi
 
-REQUIRED_NIM_VERSION    := $(shell grep -E '^const RequiredNimVersion\s*=' logos_delivery.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
-
-install-nim:
-ifneq ($(detected_OS),Windows)
-	scripts/install_nim.sh $(REQUIRED_NIM_VERSION)
-endif
-
-install-nimble: install-nim
+install-nimble:
 	scripts/install_nimble.sh $(REQUIRED_NIMBLE_PIN) $(NIMBLE_TOOLDIR)
 
 build:
 	mkdir -p build
 
 nimble: install-nimble
+
+# This prints the path of the Nim that Nimble installed, for patching it.
+print-nim-path:
+	@echo "$(NIM)"
 
 # This prints the directory of the Nimble that make runs, for use in a shell.
 print-nimble-path:
@@ -328,7 +326,7 @@ testlogosdelivery: | build-deps build rln-deps librln
 logosdeliverynode: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nim c --out:build/logosdeliverynode --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
+		$(NIM) c --out:build/logosdeliverynode --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) logosdeliverynode $(NIMBLE_TASK_FLAGS)
@@ -372,7 +370,7 @@ lightpushwithmix: | build-deps build deps librln
 
 api_example: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nim api_example $(NIM_PARAMS) logos_delivery.nims
+		$(NIM) api_example $(NIM_PARAMS) logos_delivery.nims
 
 build/%: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
@@ -556,7 +554,7 @@ endif
 
 liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
 ifeq ($(detected_OS),Windows)
-	nim c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
+	$(NIM) c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
 else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble $(NIMBLE_TASK_FLAGS)
 endif

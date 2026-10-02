@@ -91,7 +91,7 @@ suite "LM API health checking":
     serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
     lockNewGlobalBrokerContext:
-      client = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
+      client = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
         raiseAssert error
       (await client.start()).isOkOr:
         raiseAssert error
@@ -277,7 +277,7 @@ suite "LM API health checking":
       var edgeConf = defaultTestWakuNodeConf(mode = Edge)
       edgeConf.maxMessageSize = "150 KiB"
 
-      edgeWaku = (await LogosDelivery.new(edgeConf)).valueOr:
+      edgeWaku = (await LogosDelivery.new(testNodeConf(edgeConf, mode = Edge))).valueOr:
         raiseAssert "Failed to create edge node: " & error
 
       (await edgeWaku.start()).isOkOr:

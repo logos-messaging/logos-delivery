@@ -9,7 +9,6 @@ on:
 
 env:
   NPROC: 4
-  NIM_VERSION: '2.2.6'
   CCACHE_VERSION: '4.14'
   CCACHE_SHA256: 2568347a697e103ca1b073981c704ad76fb2507d066c38dba038dd73399d968f
 
@@ -106,16 +105,9 @@ jobs:
       run: |
         which upx gcc g++ make cmake cargo rustc python nasm
 
-    - name: Install Nim ${{ env.NIM_VERSION }}
-      uses: jiro4989/setup-nim-action@v2
-      with:
-        nim-version: ${{ env.NIM_VERSION }}
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install nimble deps
       uses: ./.github/actions/nimble-deps
       with:
-        nim-version: ${{ env.NIM_VERSION }}
         make-args: CC=gcc
 
     - name: Creating tmp directory
@@ -155,7 +147,7 @@ jobs:
     - name: Building ${{ matrix.target }}
       run: |
         export HOME="$(cygpath -u "$USERPROFILE")"
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$PATH"
         "$CCACHE_BIN/ccache.exe" --zero-stats
         ${{ matrix.make }} NIMFLAGS="--gcc.path:$CCACHE_BIN"
 
@@ -165,7 +157,7 @@ jobs:
 
     - name: Audit installed deps
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
+        export HOME="$(cygpath -u "$USERPROFILE")"
         make audit-deps
 
     - name: Check Executable

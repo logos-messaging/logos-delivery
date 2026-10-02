@@ -328,6 +328,27 @@ suite "SendService RLN proof attach - RLN mounted":
       res.error.kind == RlnErrorKind.Permanent
       onchainRln.nonceManager.nextId == 0'u64
 
+  asyncTest "a failed proof generation returns its message id":
+    ## The send service retries a `Transient` failure on the next round. The
+    ## failed attempt built no proof, so the retry draws the same id instead of
+    ## spending a second one on a message the rate limit manager charged once.
+    let gm = cast[RlnEvmGroupManager](onchainRln.groupManager)
+    # Not a whole number of 32-byte path elements, so generation fails.
+    gm.merkleProofCache = @[1'u8]
+    let msg = testMessage()
+
+    let res = await waku.attachRlnProof(msg)
+    check:
+      res.isErr()
+      res.error.kind == RlnErrorKind.Transient
+      onchainRln.nonceManager.nextId == 0'u64
+
+    gm.invalidateMerkleProofCache()
+    let retried = (await waku.attachRlnProof(msg)).expect("retry")
+    check:
+      retried.proof.len > 0
+      onchainRln.nonceManager.nextId == 1'u64
+
   asyncTest "refuses an untimestamped message":
     let res = await waku.attachRlnProof(messageAt(0))
     check:

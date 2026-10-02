@@ -1,9 +1,10 @@
 # Checks the installed packages against nimble.lock: every lock entry must be
 # present at its vcsRevision, and nothing else may be installed. `nim` is
-# skipped (--useSystemNim). The script reads files, writes nothing and exits 1
-# on any problem.
+# skipped: Nimble installs it as a binary, not a git checkout. The Nim running
+# the script must report the locked version. The script reads files, writes
+# nothing and exits 1 on any problem.
 #
-#   nim e scripts/audit_deps.nims
+#   make audit-deps
 #
 # `nimble setup` does not remove stale directories: after dropping a package,
 # delete nimbledeps/ before setup.
@@ -38,7 +39,7 @@ proc installedMismatches(lock: JsonNode, pkgs2: string, ok: var int, total: var 
   var inst: seq[Installed]
   var metaless: seq[string]
   for path in listDirs(pkgs2):
-    let d = path.split('/')[^1]
+    let d = path.replace('\\', '/').split('/')[^1]
     let metaPath = path & "/nimblemeta.json"
     if not fileExists(metaPath):
       metaless.add(d)
@@ -53,10 +54,13 @@ proc installedMismatches(lock: JsonNode, pkgs2: string, ok: var int, total: var 
 
   var matchedDirs: HashSet[string]
   for name in names:
+    let entry = lock[name]
     if name == "nim":
+      # Nimble installs Nim as a binary release: no vcsRevision, so match the
+      # directory by its name, which carries the locked version and checksum.
+      matchedDirs.incl("nim-" & entry["version"].getStr() & "-" & entry["checksums"]["sha1"].getStr())
       continue
     total += 1
-    let entry = lock[name]
     let want = entry["vcsRevision"].getStr()
     let i = findInstalled(inst, normUrl(entry["url"].getStr()), want)
     if i < 0:
@@ -91,6 +95,13 @@ proc main() =
     bad.add("no nimbledeps/pkgs2 directory; run setup first")
   else:
     bad.add installedMismatches(lock, pkgs2, ok, total)
+
+  # The Nim running this script must be the locked one.
+  let lockedNim = lock{"nim", "version"}.getStr()
+  if lockedNim.len == 0:
+    bad.add("nimble.lock has no nim entry")
+  elif NimVersion != lockedNim:
+    bad.add("nim: lock has " & lockedNim & ", running " & NimVersion)
 
   for b in bad:
     echo "audit: " & b

@@ -34,7 +34,8 @@ const ProtocolsTable = {
   "rendezvous": "/rendezvous/",
   "ipfs-ping": "/ipfs/ping/",
   "peer-exchange": "/vac/waku/peer-exchange/",
-  "mix": "mix/1.0.0",
+  "store-sync": "/vac/waku/reconciliation/",
+  "mix": "/mix/1.",
 }.toTable
 
 const WebSocketPortOffset = 1000
@@ -58,7 +59,7 @@ type WakuCanaryConf* = object
 
   protocols* {.
     desc:
-      "Protocol required to be supported: store,relay,lightpush,filter (can be used multiple times)",
+      "Protocol required to be supported: store,storev3,relay,lightpush,filter,peer-exchange,store-sync,mix,... (can be used multiple times)",
     name: "protocol",
     abbr: "p"
   .}: seq[string]

@@ -7,12 +7,13 @@ import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
+  logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/waku/[common/base64, waku_core, waku_node],
   logos_delivery/waku/rest_api/endpoint/client
 import tools/confutils/cli_args
 import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 
-## Validates the layer-selection invariant of `LogosDelivery.new(WakuNodeConf)`:
+## Validates the layer-selection invariant of `LogosDelivery.new(LogosDeliveryNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
 ## entry layers that call for them.
 ##
@@ -20,8 +21,8 @@ import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 ##   messaging -> waku + messagingClient
 ##   channels  -> waku + messagingClient + reliableChannelManager
 
-proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
-  defaultTestWakuNodeConf(entryLayer = entryLayer, rest = rest)
+proc nodeConf(entryLayer: EntryLayer, rest = false): LogosDeliveryNodeConf =
+  defaultTestNodeConf(entryLayer = entryLayer, rest = rest)
 
 proc restClientFor(node: LogosDelivery): RestClientRef =
   let boundPort = node.waku.restServer.httpServer.address.port
@@ -67,6 +68,19 @@ suite "LogosDelivery - entry layer selection":
       not node.reliableChannelManager.isNil()
       node.ensureMessaging().isOk()
       node.ensureChannels().isOk()
+    (await node.stop()).isOkOr:
+      raiseAssert "stop failed: " & error
+
+  asyncTest "messaging: the messaging flags reach the send service":
+    var conf = nodeConf(EntryLayer.messaging)
+    conf.messaging.anonymityLevel = Opt.some(AnonymityLevel.Preferred)
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+    check:
+      node.messagingClient.sendService.maxDeliveryTime ==
+        maxDeliveryTime(AnonymityLevel.Preferred)
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 
@@ -138,9 +152,9 @@ suite "LogosDelivery - relay REST API":
       contentTopicShard = $RelayShard(clusterId: TestClusterId, shardId: 3)
 
     var conf = nodeConf(EntryLayer.kernel, rest = true)
-    conf.numShardsInNetwork = 8
-    conf.shards = @[0'u16]
-    conf.contentTopics = @[contentTopic]
+    conf.kernel.numShardsInNetwork = 8
+    conf.kernel.shards = @[0'u16]
+    conf.kernel.contentTopics = @[contentTopic]
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:

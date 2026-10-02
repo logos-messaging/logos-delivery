@@ -8,8 +8,9 @@ import logos_delivery/messaging/rate_limit_manager/rate_limit_config
 
 export kernel_conf, rate_limit_config
 
-# `LogosDeliveryMode` and `EntryLayer` are defined at the leaf (`cli_args`) so
-# they can appear on `WakuNodeConf`; re-exported here via `kernel_conf`.
+# `LogosDeliveryMode` and `EntryLayer` are defined in the leaf module `modes`, so
+# that they can appear on `LogosDeliveryNodeConf` in `cli_args`. `kernel_conf`
+# re-exports them here.
 
 type MessagingClientConf* = object
   clusterId* {.name: "cluster-id".}: Opt[uint16] ## Network cluster id.
@@ -101,42 +102,15 @@ type MessagingClientConf* = object
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
     Opt[int64] ## Timeout of one Store query, in seconds (default 10, 1 .. 300).
 
-proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
-  ## Sets the protocol flags implied by the mode.
-  case mode
-  of LogosDeliveryMode.Core:
-    conf.relay = true
-    conf.filter = true
-    conf.lightpush = true
-    # Opt so an explicit --discv5-discovery=false set before the mode survives.
-    if conf.discv5Discovery.isNone():
-      conf.discv5Discovery = Opt.some(true)
-    conf.peerExchange = true
-    conf.rendezvous = true
-  of LogosDeliveryMode.Edge:
-    conf.peerExchange = true
-    conf.relay = false
-    conf.filter = false
-    conf.lightpush = false
-    conf.store = false
-  return ok()
-
 proc toWakuNodeConf*(
     self: MessagingClientConf, mode: LogosDeliveryMode
 ): ConfResult[WakuNodeConf] =
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
-  var conf = ?defaultWakuNodeConf()
-  ?applyMode(conf, mode)
-  # Keep the `mode` field consistent with the applied flags so a later
-  # `LogosDelivery.new(WakuNodeConf)` re-application is idempotent instead of
-  # clobbering these flags with the field's default (`Core`).
-  conf.mode = mode
-  # Derived from a `MessagingClientConf`, so never kernel-only: don't inherit the
-  # CLI default. `LogosDeliveryConf.init` overwrites this with the caller's layer.
-  conf.entryLayer = EntryLayer.channels
+  var conf = ?defaultKernelConf(modeFlags = ModeProtocolFlags())
+  applyMode(conf, mode)
 
   if self.store.isSome():
-    conf.store = self.store.get()
+    conf.store = self.store
   if self.storeMessageDbUrl.isSome():
     conf.storeMessageDbUrl = self.storeMessageDbUrl.get()
   if self.storeMessageRetentionPolicy.isSome():
@@ -188,14 +162,6 @@ proc toWakuNodeConf*(
     conf.rlnRelayUserMessageLimit = self.rlnUserMessageLimit
   if self.rlnDisableValidation.isSome():
     conf.rlnDisableValidation = self.rlnDisableValidation.get()
-  if self.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
-    # The send path can only use a mix that the node mounts.
-    if conf.mix == Opt.some(false):
-      return err(
-        "anonymityLevel=" & $self.anonymityLevel.get() &
-          " needs mix, but mix=false was set"
-      )
-    conf.mix = Opt.some(true)
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():
@@ -209,6 +175,7 @@ proc toWakuNodeConf*(
   conf.quicPort = self.quicPort
   conf.websocketSupport = self.websocketSupport.get(false)
   conf.quicSupport = self.quicSupport.get(true)
+  applyModeFlags(conf, DefaultKernelModeFlags)
 
   return ok(conf)
 
@@ -251,3 +218,13 @@ proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =
     return ok(MessagingClientConf())
   let npc = npcOpt.get()
   return ok(MessagingClientConf(reliabilityEnabled: Opt.some(npc.p2pReliability)))
+
+proc init*(
+    T: type MessagingClientConf, flags: MessagingNodeConf, preset: string
+): ConfResult[MessagingClientConf] =
+  ## The messaging config of a node that starts from the command line. A set flag
+  ## overrides the value of the network preset.
+  let fromFlags = MessagingClientConf(
+    reliabilityEnabled: flags.reliabilityEnabled, anonymityLevel: flags.anonymityLevel
+  )
+  return ok(merge(?resolvePreset(preset), fromFlags))

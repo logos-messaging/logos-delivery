@@ -74,26 +74,26 @@ type LogosDelivery* = ref object ## Entry point. Holds one instance of each API 
   messagingClient*: MessagingClient
   reliableChannelManager*: ReliableChannelManager
 
-proc new*(
-    T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
+proc buildLogosDeliveryStack(
+    wakuConf: WakuConf,
+    messagingConf: Opt[MessagingClientConf],
+    channelsConf: Opt[ReliableChannelManagerConf],
+    appCallbacks: AppCallbacks,
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Builds the stack bottom-up from a resolved per-layer config; each layer is
-  ## mounted iff its config is present.
-  let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
-      return err("failed to handle the configuration: " & error)
+  ## Mounts each layer iff its config object is given.
   let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
   let messagingClient =
-    if conf.messagingConf.isSome():
-      MessagingClient.new(conf.messagingConf.get(), waku).valueOr:
+    if messagingConf.isSome():
+      MessagingClient.new(messagingConf.get(), waku).valueOr:
         return err("failed to create MessagingClient: " & error)
     else:
       nil
 
   let reliableChannelManager =
-    if conf.channelsConf.isSome():
-      ReliableChannelManager.new(conf.channelsConf.get(), waku.brokerCtx).valueOr:
+    if channelsConf.isSome():
+      ReliableChannelManager.new(channelsConf.get(), waku.brokerCtx).valueOr:
         return err("failed to create ReliableChannelManager: " & error)
     else:
       nil
@@ -106,35 +106,75 @@ proc new*(
     )
   )
 
-proc new*(
-    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
-): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Builds the stack from a kernel `WakuNodeConf`, selecting which API layers to
-  ## instantiate by `conf.entryLayer`:
-  ##   kernel    -> transport only; `conf.mode` is ignored and the config is used as-is
-  ##   messaging -> kernel + messaging client
-  ##   channels  -> kernel + messaging + reliable channels
-  ## For `messaging`/`channels`, `conf.mode` (Edge/Core) sets the kernel protocol
-  ## flags first (messaging-level concern); for `kernel` it is skipped.
-  var kernelConf = conf
-  if conf.entryLayer != EntryLayer.kernel:
-    applyMode(kernelConf, conf.mode).isOkOr:
-      return err("failed to apply mode: " & error)
+proc resolveCliConf*(
+    conf: LogosDeliveryNodeConf
+): Result[
+    tuple[
+      kernelConf: KernelConf,
+      messagingConf: Opt[MessagingClientConf],
+      channelsConf: Opt[ReliableChannelManagerConf],
+    ],
+    string,
+] =
+  ## CLI translation: `conf.entryLayer` selects which layers are mounted.
+  var messagingConf = Opt.none(MessagingClientConf)
+  var ldNodeConf = conf
 
-  let ldConf = LogosDeliveryConf(
-    kernelConf: KernelConf(kernelConf),
-    messagingConf:
-      if conf.entryLayer == EntryLayer.kernel:
-        Opt.none(MessagingClientConf)
-      else:
-        Opt.some(MessagingClientConf()),
-    channelsConf:
-      if conf.entryLayer == EntryLayer.channels:
-        Opt.some(ReliableChannelManagerConf())
-      else:
-        Opt.none(ReliableChannelManagerConf),
+  if ldNodeConf.entryLayer == EntryLayer.kernel:
+    # User has given a mode but the kernel entry layer takes no mode.
+    # That's inconsistent, so fail.
+    if ldNodeConf.mode.isSome():
+      return err("mode requires the 'messaging' or 'channels' entry layer")
+    if ldNodeConf.messaging.isSet():
+      return
+        err("the Messaging API flags require the 'messaging' or 'channels' entry layer")
+  else:
+    applyMode(ldNodeConf.kernel, ldNodeConf.mode.get(LogosDeliveryMode.Core))
+    # `LogosDeliveryConf.init` mounts mix for an anonymity level above `None`,
+    # for every config path.
+    let ldConf = ?LogosDeliveryConf.init(
+      KernelConf(ldNodeConf.kernel),
+      ?MessagingClientConf.init(ldNodeConf.messaging, ldNodeConf.kernel.preset),
+      Opt.none(ReliableChannelManagerConf),
+    )
+    ldNodeConf.kernel = WakuNodeConf(ldConf.kernelConf)
+    messagingConf = ldConf.messagingConf
+  applyModeFlags(ldNodeConf.kernel, DefaultKernelModeFlags)
+
+  return ok(
+    (
+      kernelConf: KernelConf(ldNodeConf.kernel),
+      messagingConf: messagingConf,
+      channelsConf:
+        if ldNodeConf.entryLayer == EntryLayer.channels:
+          Opt.some(ReliableChannelManagerConf())
+        else:
+          Opt.none(ReliableChannelManagerConf),
+    )
   )
-  return await LogosDelivery.new(ldConf, appCallbacks)
+
+proc new*(
+    T: type LogosDelivery, conf: LogosDeliveryNodeConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## CLI adapter: translates the logosdeliverynode config and builds the stack.
+  let resolved = resolveCliConf(conf).valueOr:
+    return err("failed to translate the configuration: " & error)
+  let wakuConf = WakuNodeConf(resolved.kernelConf).toWakuConf().valueOr:
+      return err("failed to translate the configuration: " & error)
+  return await buildLogosDeliveryStack(
+    wakuConf, resolved.messagingConf, resolved.channelsConf, appCallbacks
+  )
+
+proc new*(
+    T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Builds the stack from a resolved per-layer config; each layer is
+  ## mounted iff its config is present.
+  let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
+      return err("failed to handle the configuration: " & error)
+  return await buildLogosDeliveryStack(
+    wakuConf, conf.messagingConf, conf.channelsConf, appCallbacks
+  )
 
 proc new*(
     T: type LogosDelivery, kernelConf: KernelConf, appCallbacks: AppCallbacks = nil
@@ -152,14 +192,11 @@ proc new*(
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Full stack: kernel + messaging + channels. Messaging is never skipped; a
   ## kernel-only node uses `new(kernelConf)` instead.
-  return await LogosDelivery.new(
-    LogosDeliveryConf(
-      kernelConf: kernelConf,
-      messagingConf: Opt.some(messagingOverrides),
-      channelsConf: Opt.some(channelsOverrides),
-    ),
-    appCallbacks,
-  )
+  let conf = LogosDeliveryConf.init(
+    kernelConf, messagingOverrides, Opt.some(channelsOverrides)
+  ).valueOr:
+    return err("failed to build the node config: " & error)
+  return await LogosDelivery.new(conf, appCallbacks)
 
 proc new*(
     T: type LogosDelivery,

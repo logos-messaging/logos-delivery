@@ -3,11 +3,13 @@
 ## Message ids for RLN proofs.
 ##
 ## Every proof spends one message id from the epoch's budget of `nonceLimit`
-## ids. Ids must be unique within an epoch: a message id reused under the
-## same epoch reveals a second share of the sender's identity secret. The
-## manager counts ids per absolute epoch index (`unixTime div epochSize`, the
-## epoch the proof carries) and never moves back to an earlier epoch, so an
-## epoch that has already been drawn from cannot hand out an id twice.
+## ids. Ids must be unique among the proofs sent in an epoch: two sent proofs
+## with the same message id in one epoch reveal two shares of the sender's
+## identity secret, enough to recover it. The manager counts ids per absolute
+## epoch index (`unixTime div epochSize`, the epoch the proof carries) and
+## never moves back to an earlier epoch. An id is handed out a second time
+## only after `release`, which the caller uses when the generation that drew
+## the id built no proof.
 
 import results
 import logos_delivery/waku/rln/types
@@ -47,6 +49,15 @@ proc reserve*(n: NonceManager, epochIndex: uint64): Result[Nonce, RlnError] =
   let id = n.nextId
   n.nextId.inc()
   return ok(id)
+
+proc release*(n: NonceManager, epochIndex: uint64, id: Nonce) =
+  ## Returns `id` to the budget of `epochIndex` after the proof generation that
+  ## drew it failed. The next `reserve` hands `id` out again, so the caller must
+  ## not send any proof already built with it. Only the latest id drawn can be
+  ## returned: once another reservation followed, or the counter moved to a
+  ## later epoch, `id` stays spent.
+  if epochIndex == n.epochIndex and id + 1 == n.nextId:
+    n.nextId = id
 
 proc spent*(n: NonceManager, epochIndex: uint64): Nonce =
   ## Message ids drawn in `epochIndex`: zero for any epoch other than the

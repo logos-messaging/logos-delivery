@@ -483,9 +483,10 @@ suite "Waku v2 Rest API - lightpush":
       await restLightPushTest.shutdown()
 
     # When
+    # Over the relay limit but within the lightpush read cap, so relay rejects it
     let message: RelayWakuMessage = fakeWakuMessage(
         contentTopic = DefaultContentTopic,
-        payload = getByteSequence(DefaultMaxWakuMessageSize + 64 * 1024),
+        payload = getByteSequence(DefaultMaxWakuMessageSize + 1),
       )
       .toRelayWakuMessage()
 

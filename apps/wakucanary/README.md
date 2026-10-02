@@ -12,8 +12,8 @@ The following options are available:
 
  -a, --address        Multiaddress of the peer node to attempt to dial.
  -t, --timeout        Timeout to consider that the connection failed [=chronos.seconds(10)].
- -p, --protocol       Protocol required to be supported: store,relay,lightpush,filter (can be used
-                      multiple times).
+ -p, --protocol       Protocol required to be supported: store,storev3,relay,lightpush,filter,
+                      peer-exchange,store-sync,mix,... (can be used multiple times).
  -l, --log-level      Sets the log level [=LogLevel.DEBUG].
  -np, --node-port     Listening port for waku node [=60000].
      --websocket-secure-key-path  Secure websocket key path:   '/path/to/key.txt' .
@@ -22,6 +22,30 @@ The following options are available:
  -s, --shard         Shards index to subscribe to topics [ Argument may be repeated ]
 
 ```
+
+Supported `--protocol` values. A protocol is reported as supported when the peer
+advertises (via identify) a protocol id starting with the given prefix.
+
+| `--protocol`    | Protocol id prefix               |
+| --------------- | -------------------------------- |
+| `relay`         | `/vac/waku/relay/`               |
+| `store`         | `/vac/waku/store/`               |
+| `storev3`       | `/vac/waku/store-query/3`        |
+| `store-sync`    | `/vac/waku/reconciliation/`      |
+| `lightpush`     | `/vac/waku/lightpush/`           |
+| `filter`        | `/vac/waku/filter-subscribe/2`   |
+| `filter-push`   | `/vac/waku/filter-push/`         |
+| `peer-exchange` | `/vac/waku/peer-exchange/`       |
+| `metadata`      | `/vac/waku/metadata/`            |
+| `mix`           | `/mix/1.`                        |
+| `rendezvous`    | `/rendezvous/`                   |
+| `ipfs-id`       | `/ipfs/id/`                      |
+| `ipfs-ping`     | `/ipfs/ping/`                    |
+| `autonat`       | `/libp2p/autonat/`               |
+| `circuit-relay` | `/libp2p/circuit/relay/`         |
+
+RLN relay is not a separate libp2p protocol (it validates messages inside relay)
+and is not advertised in the ENR, so it can't be checked by the canary.
 
 The tool can be built as:
 
@@ -38,6 +62,19 @@ $ ./build/wakucanary \
   --protocol=filter \
   --cluster-id=16 \
   --shard=64
+$ echo $?
+0
+```
+
+A node that supports peer exchange, store sync and mix.
+
+```console
+$ ./build/wakucanary \
+  --address=/ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAm... \
+  --protocol=peer-exchange \
+  --protocol=store-sync \
+  --protocol=mix \
+  --cluster-id=1
 $ echo $?
 0
 ```

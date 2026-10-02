@@ -1,6 +1,12 @@
 {.push raises: [].}
 
-import chronos, chronicles, results, json_serialization, json_serialization/std/options
+import
+  std/[algorithm, sets],
+  chronos,
+  chronicles,
+  results,
+  json_serialization,
+  json_serialization/std/options
 import presto/[route, common]
 import
   logos_delivery/waku/waku,
@@ -12,6 +18,7 @@ import
   logos_delivery/messaging/messaging_client,
   logos_delivery/messaging/api/subscription,
   logos_delivery/messaging/api/send,
+  logos_delivery/messaging/delivery_service/send_service,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   ./types,
@@ -32,6 +39,11 @@ const ROUTE_MESSAGING_EVENTS_RECEIVEDV1* = "/messaging/v1/events/received"
 
 const AutoshardingRequiredMsg =
   "autosharding is not configured: content-topic subscriptions and sends need --preset or --num-shards-in-network"
+
+const SendQueueFullMsg = "Send queue full, retry later"
+
+const SendQueueFullRetryAfterSec = "1"
+  ## The send service removes finished tasks from its queue once per second.
 
 proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string] =
   ## Rejects a content topic that autosharding cannot resolve.
@@ -102,6 +114,17 @@ proc installMessagingApiHandlers*(
   router.api(MethodOptions, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do() -> RestApiResponse:
     return RestApiResponse.ok()
 
+  router.api(MethodGet, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do() -> RestApiResponse:
+    ## Returns the content topics that the messaging client subscribes to, sorted.
+    var topics: seq[ContentTopic]
+    for (_, contentTopics) in client.waku.subscribedContentTopics():
+      for contentTopic in contentTopics:
+        topics.add(contentTopic)
+    topics.sort()
+    return RestApiResponse.jsonResponse(topics, status = Http200).valueOr:
+      error "An error occurred while building the json response", error = error
+      return RestApiResponse.internalServerError($error)
+
   router.api(MethodPost, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
@@ -164,6 +187,15 @@ proc installMessagingApiHandlers*(
 
     if not autoshardingConfigured:
       return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
+
+    if client.sendService.isFull():
+      debug "Messaging SEND rejected, the send queue is full"
+      return RestApiResponse.error(
+        Http429,
+        SendQueueFullMsg,
+        $MIMETYPE_TEXT,
+        [("Retry-After", SendQueueFullRetryAfterSec)],
+      )
 
     let requestId = (await client.send(envelope)).valueOr:
       error "Messaging SEND failed", error = error

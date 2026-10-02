@@ -106,11 +106,11 @@ when isMainModule:
   # If bootstrap option is chosen we expect our clients will not mounted
   # so we will mount PeerExchange manually to gather possible service peers,
   # if got some we will mount the client protocols afterward.
-  wakuNodeConf.peerExchange = false
-  wakuNodeConf.relay = false
-  wakuNodeConf.filter = false
-  wakuNodeConf.lightpush = false
-  wakuNodeConf.store = false
+  wakuNodeConf.peerExchange = Opt.some(false)
+  wakuNodeConf.relay = Opt.some(false)
+  wakuNodeConf.filter = Opt.some(false)
+  wakuNodeConf.lightpush = Opt.some(false)
+  wakuNodeConf.store = Opt.some(false)
 
   wakuNodeConf.rest = false
   wakuNodeConf.relayServiceRatio = "40:60"

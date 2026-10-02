@@ -1,26 +1,29 @@
 {.push raises: [].}
 
-import std/[sequtils, sets]
+import std/[sequtils, sets, tables]
 import
   chronos,
   chronicles,
   results,
   stew/byteutils,
   libp2p/[peerid, multiaddress, switch, extended_peer_record],
-  libp2p/extended_peer_record,
   libp2p/crypto/crypto,
   libp2p/crypto/rng,
   libp2p/crypto/curve25519,
   libp2p/protocols/service_discovery,
   libp2p/protocols/service_discovery/types,
   libp2p/protocols/kademlia/types,
-  libp2p_mix/mix_protocol,
-  libp2p_mix/curve25519
+  libp2p/protocols/kademlia/key_value,
+  libp2p_mix/mix_protocol
 
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/api/events/discovery_events
+
+# `WakuKademlia.new` is generic, so `ServiceDiscovery.new` instantiates in the
+# caller, which needs `hash`/`==` of the distinct kademlia `Key` in scope.
+export key_value.hash, key_value.`==`
 
 logScope:
   topics = "waku service discovery"
@@ -37,7 +40,10 @@ type WakuKademlia* = ref object
   randomLookupInterval: Duration
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
-  servicesToAdvertise: HashSet[ServiceInfo]
+  servicesToAdvertise: Table[ServiceInfo, Opt[seq[byte]]]
+    ## The services this node advertises, each with the record to publish as
+    ## is, or none when libp2p builds the record. `start` advertises them and
+    ## `stop` stops advertising them, so a restart advertises them again.
 
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
@@ -234,13 +240,14 @@ proc new*(
   if bootstrapNodes.len == 0:
     debug "Creating service discovery as seed node (no bootstrap nodes)"
 
+  ## `start` advertises the configured services, once the addresses are committed.
   let protocol = ServiceDiscovery.new(
     switch,
     bootstrapNodes = bootstrapNodes,
     config = kadDhtConfig,
     rng = rng,
     client = clientMode,
-    services = servicesToAdvertise.toSeq(),
+    services = @[],
     discoConfig = discoConfig,
     xprPublishing = xprPublishing,
   )
@@ -251,14 +258,34 @@ proc new*(
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
     servicesToDiscover: servicesToDiscover,
-    servicesToAdvertise: servicesToAdvertise,
   )
+  for service in servicesToAdvertise:
+    self.servicesToAdvertise[service] = Opt.none(seq[byte])
 
   return ok(self)
+
+proc advertiseServices(self: WakuKademlia) =
+  ## Advertises the services not advertised yet. A failure keeps the service.
+  var added = false
+  for service, advert in self.servicesToAdvertise:
+    if service in self.protocol.services:
+      continue
+    self.protocol.startAdvertising(service, advert).isOkOr:
+      notice "Failed to advertise configured service",
+        service = service.id, error = error
+      continue
+    added = true
+
+  ## Republish the self record: it listed no services at protocol start.
+  if added:
+    self.protocol.addressChanged.fire()
 
 proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
     discard self.protocol.registerInterest(serviceId)
+
+  ## Runs after switch.start, so the record has the announced addresses.
+  self.advertiseServices()
 
   ## A zero interval disables the random walk; it is the default. The walk
   ## returns the self-published records of the DHT peers it meets, so it
@@ -301,6 +328,11 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
     await stopLoop(self.randomLookupLoop, "random lookup")
     self.randomLookupLoop = nil
 
+  ## Stopped services stay marked as provided upstream and a restart rejects
+  ## them, so stop advertising them here. noCancel: a cancelled stop must finish.
+  for service in self.servicesToAdvertise.keys.toSeq():
+    await noCancel self.protocol.stopAdvertising(service.id)
+
   info "Kademlia discovery stopped"
 
 proc addServiceToDiscover*(self: WakuKademlia, service: string) =
@@ -317,7 +349,7 @@ proc addServiceToAdvertise*(
     self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
       warn "Failed to advertise service", service = service.id, error = error
       return
-    self.servicesToAdvertise.incl(service)
+    self.servicesToAdvertise[service] = Opt.some(advert)
     debug "Added service to advertise", service = service.id
 
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
@@ -328,7 +360,8 @@ proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
 proc removeServiceToAdvertise*(
     self: WakuKademlia, service: ServiceInfo
 ) {.async: (raises: [CancelledError]).} =
-  if not self.servicesToAdvertise.missingOrExcl(service):
+  if self.servicesToAdvertise.hasKey(service):
+    self.servicesToAdvertise.del(service)
     await self.protocol.stopAdvertising(service.id)
     debug "Removed service to advertise", service = service.id
 
@@ -337,7 +370,7 @@ proc removeServiceToAdvertise*(
 ) {.async: (raises: [CancelledError]).} =
   ## Id-based variant: looks up the stored ServiceInfo (set equality includes
   ## the advertised payload, which the caller may not have at hand).
-  for service in self.servicesToAdvertise:
+  for service in self.servicesToAdvertise.keys:
     if service.id == serviceId:
       await self.removeServiceToAdvertise(service)
       return

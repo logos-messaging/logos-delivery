@@ -23,8 +23,8 @@ For more details see the [source code](logos_delivery/waku/README.md)
 These instructions are generic. For more detailed instructions, see the source code above.
 
 Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
-- Nim 2.2.6
-- Nimble: `make nimble` installs the pin from `logos_delivery.nimble`. Check it with the `git hash:` line of `nimble --version`.
+- Nim 2.2.6: installed by Nimble from the `nim` entry in `nimble.lock`
+- Nimble: `make nimble` installs the pin from `logos_delivery.nimble`. Check it with `nimble --version`.
 
 `make` runs the pinned Nimble itself. To use it in a shell:
 
@@ -94,7 +94,7 @@ pacman -S --noconfirm --needed mingw-w64-x86_64-python
 pacman -S --noconfirm --needed mingw-w64-x86_64-nasm
 ```
 
-`make` does not install Nim on Windows: `install-nim` is skipped there, and dependency setup calls `nim`, so it must already be on PATH. Install the version `logos_delivery.nimble` declares in `RequiredNimVersion` yourself, with `choosenim` or the official Windows build. The `ci / build-windows` job installs the same version with `jiro4989/setup-nim-action`.
+On Windows, `make` also lets Nimble install Nim during dependency setup, so only Nimble's own build needs a Nim on PATH.
 
 Verify before building:
 ```bash

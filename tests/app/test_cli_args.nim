@@ -27,7 +27,7 @@ suite "Waku external config - default values":
     let defaultSubscribeShards: seq[uint16] = @[]
 
     ## Given
-    let preConfig = defaultWakuNodeConf().get()
+    let preConfig = defaultKernelConf().get()
 
     ## When
     let res = preConfig.toWakuConf()
@@ -43,7 +43,7 @@ suite "Waku external config - default values":
     let defaultSubscribeShards: seq[uint16] = @[]
 
     ## Given
-    var preConfig = defaultWakuNodeConf().get()
+    var preConfig = defaultKernelConf().get()
     preConfig.numShardsInNetwork = 0.uint16
 
     ## When
@@ -56,7 +56,7 @@ suite "Waku external config - default values":
 
   test "Default entry layer is kernel":
     ## Given
-    let preConfig = defaultWakuNodeConf().get()
+    let preConfig = defaultLogosDeliveryNodeConf().get()
 
     ## Then
     check preConfig.entryLayer == EntryLayer.kernel
@@ -68,7 +68,9 @@ suite "Waku external config - apply preset":
 
     ## Given
     let preConfig = WakuNodeConf(
-      preset: "twn", relay: true, ethClientUrls: @["http://someaddress".EthRpcUrl]
+      preset: "twn",
+      relay: Opt.some(true),
+      ethClientUrls: @["http://someaddress".EthRpcUrl],
     )
 
     ## When
@@ -239,8 +241,8 @@ suite "Waku external config - Shards":
 suite "Waku external config - store retention policy":
   test "Default retention policy":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     # storeMessageRetentionPolicy keeps its default: "time:<2 days in seconds>"
 
@@ -256,8 +258,8 @@ suite "Waku external config - store retention policy":
 
   test "Single custom retention policy":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "capacity:50000"
 
@@ -272,8 +274,8 @@ suite "Waku external config - store retention policy":
 
   test "Retention policies with whitespace around semicolons and colons":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "time:3600 ; capacity:10000 ; size     : 30GB"
 
@@ -289,8 +291,8 @@ suite "Waku external config - store retention policy":
 
   test "Invalid retention policy type returns error":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "foo:1234"
 
@@ -303,8 +305,8 @@ suite "Waku external config - store retention policy":
 
   test "Duplicated retention policy type returns error":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = true
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(true)
     conf.storeMessageDbUrl = "sqlite://test.db"
     conf.storeMessageRetentionPolicy = "time:3600;time:7200;capacity:10000"
 
@@ -318,8 +320,8 @@ suite "Waku external config - store retention policy":
 suite "Waku external config - store sync":
   test "Store sync without store builds no store service":
     ## Given
-    var conf = defaultWakuNodeConf().get()
-    conf.store = false
+    var conf = defaultKernelConf().get()
+    conf.store = Opt.some(false)
     conf.storeSync = true
 
     ## When
@@ -496,13 +498,13 @@ suite "Waku external config - environment variables":
 
 suite "Waku external config - REST server caches":
   test "messaging cache capacity must be at least 1":
-    var conf = defaultWakuNodeConf().get()
+    var conf = defaultKernelConf().get()
     conf.rest = true
     conf.restMessagingCacheCapacity = 0
     check conf.toWakuConf().isErr()
 
   test "messaging cache capacity flows into the REST server conf":
-    var conf = defaultWakuNodeConf().get()
+    var conf = defaultKernelConf().get()
     conf.rest = true
     conf.restMessagingCacheCapacity = 1
     let res = conf.toWakuConf()
@@ -510,7 +512,20 @@ suite "Waku external config - REST server caches":
     check res.get().restServerConf.get().messagingCacheCapacity == 1'u32
 
   test "relay cache capacity must be at least 1":
-    var conf = defaultWakuNodeConf().get()
+    var conf = defaultKernelConf().get()
     conf.rest = true
     conf.restRelayCacheCapacity = 0
     check conf.toWakuConf().isErr()
+
+suite "Node config - Messaging API flags":
+  test "the messaging flags parse from the command line":
+    let conf = LogosDeliveryNodeConf.load(
+      version = "", cmdLine = @["--reliability=false", "--anonymity-level=Required"]
+    )
+    check:
+      conf.messaging.reliabilityEnabled == Opt.some(false)
+      conf.messaging.anonymityLevel == Opt.some(AnonymityLevel.Required)
+
+  test "the messaging flags are unset by default":
+    let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
+    check not conf.messaging.isSet()

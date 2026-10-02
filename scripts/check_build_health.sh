@@ -297,12 +297,8 @@ expect_make_fails  "an arbitrary unknown target fails"  definitely-not-a-target
 expect_make_parses "make test <file> still parses"      test tests/all_tests_waku.nim
 
 # --------------------------------------------------------------------------
-# Setup and the custom tasks build with the Nim on PATH.
+# Setup audits the result. Nimble installs the locked Nim itself.
 # --------------------------------------------------------------------------
-expect_recipe "setup uses the system Nim" \
-  '--useSystemNim' nimbledeps/.nimble-setup
-expect_recipe "custom tasks use the system Nim" \
-  '--useSystemNim' logosdeliverynode
 expect_recipe "setup audits the result" \
   "audit-deps" nimbledeps/.nimble-setup
 expect_recipe "build-deps audits after the native rebuilds" \

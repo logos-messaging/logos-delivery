@@ -1,13 +1,10 @@
 name: 'Install nimble deps'
 description: >
   Restores the nimbledeps cache and the Nimble package cache unless disabled,
-  and runs `make build-deps`, which installs the pinned Nimble, installs the
-  dependencies recorded in nimble.lock with it, and audits the result.
+  and runs `make build-deps`, which installs the pinned Nimble, installs Nim
+  and the dependencies recorded in nimble.lock with it, and audits the result.
 
 inputs:
-  nim-version:
-    description: 'The Nim version on PATH. A cache key component: the compiler builds the cached native libraries.'
-    required: true
   cache:
     description: 'Restore and save the nimbledeps cache. Set "false" to disable.'
     default: 'true'
@@ -26,7 +23,7 @@ runs:
         path: |
           nimbledeps/
           nimble.paths
-        key: ${{ runner.os }}-${{ runner.arch }}-nimbledeps-v6-nim${{ inputs.nim-version }}-${{ hashFiles('nimble.lock', 'logos_delivery.nimble', 'BearSSL.mk', 'Nat.mk') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-nimbledeps-v6-${{ hashFiles('nimble.lock', 'logos_delivery.nimble', 'BearSSL.mk', 'Nat.mk') }}
 
     # Bump v1 to start the cache over.
     - name: Cache the Nimble package cache

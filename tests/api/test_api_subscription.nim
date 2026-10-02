@@ -71,7 +71,7 @@ type TestNetwork = ref object
     # The receiver node in tests. Edge node in edge tests, Core node in relay tests.
   publisherPeerInfo: RemotePeerInfo
 
-proc setupSubscriberNode(conf: WakuNodeConf): Future[LogosDelivery] {.async.} =
+proc setupSubscriberNode(conf: LogosDeliveryNodeConf): Future[LogosDelivery] {.async.} =
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
     node = (await LogosDelivery.new(conf)).expect("Failed to create subscriber node")
@@ -125,7 +125,7 @@ proc setupNetwork(
 
     await net.meshBuddy.connectToNodes(@[net.publisherPeerInfo])
 
-  net.subscriber = await setupSubscriberNode(defaultTestWakuNodeConf(mode, numShards))
+  net.subscriber = await setupSubscriberNode(defaultTestNodeConf(mode, numShards))
 
   await net.subscriber.waku.node.connectToNodes(@[net.publisherPeerInfo])
 
@@ -470,8 +470,8 @@ suite "Messaging API, SubscriptionManager":
     await verifyNetworkState(activeSubs)
 
   asyncTest "Subscription API, relay node configured with one shard is subscribed to every shard":
-    var conf = defaultTestWakuNodeConf(numShards = 8)
-    conf.shards = @[1'u16]
+    var conf = defaultTestNodeConf(numShards = 8)
+    conf.kernel.shards = @[1'u16]
     let node = await setupSubscriberNode(conf)
     defer:
       (await node.stop()).expect("Failed to stop node")
@@ -671,8 +671,11 @@ suite "Messaging API, SubscriptionManager":
     let conf = defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
     var subscriber: LogosDelivery
     lockNewGlobalBrokerContext:
-      subscriber =
-        (await LogosDelivery.new(conf)).expect("Failed to create edge subscriber")
+      subscriber = (
+        await LogosDelivery.new(
+          testNodeConf(conf, mode = messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).expect("Failed to create edge subscriber")
       (await subscriber.start()).expect("Failed to start edge subscriber")
 
     # Connect edge subscriber to both filter servers so selectPeers finds both
@@ -799,8 +802,11 @@ suite "Messaging API, SubscriptionManager":
     let conf = defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
     var subscriber: LogosDelivery
     lockNewGlobalBrokerContext:
-      subscriber =
-        (await LogosDelivery.new(conf)).expect("Failed to create edge subscriber")
+      subscriber = (
+        await LogosDelivery.new(
+          testNodeConf(conf, mode = messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).expect("Failed to create edge subscriber")
       (await subscriber.start()).expect("Failed to start edge subscriber")
 
     await subscriber.waku.node.connectToNodes(

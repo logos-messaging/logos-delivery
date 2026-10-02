@@ -34,6 +34,7 @@ import
   ./test_waku_dnsdisc,
   ./waku_discv5/test_waku_discv5,
   ./waku_kademlia/test_waku_kademlia,
+  ./waku_kademlia/test_node_advertising,
   ./waku_discovery/test_external_service_discovery,
   ./waku_discovery/test_self_advertisement,
   ./waku_discovery/test_signed_service_record
@@ -44,6 +45,7 @@ import
   ./wakunode_rest/test_rest_admin,
   ./wakunode_rest/test_rest_debug,
   ./wakunode_rest/test_rest_filter,
+  ./wakunode_rest/test_rest_health,
   ./wakunode_rest/test_rest_lightpush,
   ./wakunode_rest/test_rest_relay,
   ./wakunode_rest/test_rest_store

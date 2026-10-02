@@ -20,6 +20,29 @@ proc init*(T: type LogosDeliveryConf, kernelConf: KernelConf): LogosDeliveryConf
 
 proc init*(
     T: type LogosDeliveryConf,
+    kernelConf: KernelConf,
+    messagingConf: MessagingClientConf,
+    channelsConf: Opt[ReliableChannelManagerConf],
+): ConfResult[LogosDeliveryConf] =
+  ## A node with the Messaging API. An anonymity level above `None` mounts mix,
+  ## because the send path can use only a mix that the node mounts.
+  var kernel = WakuNodeConf(kernelConf)
+  let anonymityLevel = messagingConf.anonymityLevel.get(AnonymityLevel.None)
+  if anonymityLevel != AnonymityLevel.None:
+    if kernel.mix == Opt.some(false):
+      return
+        err("anonymityLevel=" & $anonymityLevel & " needs mix, but mix=false was set")
+    kernel.mix = Opt.some(true)
+  return ok(
+    LogosDeliveryConf(
+      kernelConf: KernelConf(kernel),
+      messagingConf: Opt.some(messagingConf),
+      channelsConf: channelsConf,
+    )
+  )
+
+proc init*(
+    T: type LogosDeliveryConf,
     entryLayer: EntryLayer = EntryLayer.channels,
     mode: LogosDeliveryMode,
     preset: string,
@@ -32,21 +55,15 @@ proc init*(
   let merged = merge(?resolvePreset(preset), messagingOverrides)
   var kernelConf = ?toWakuNodeConf(merged, mode)
   kernelConf.preset = preset
-  kernelConf.entryLayer = entryLayer
-  return ok(
-    LogosDeliveryConf(
-      kernelConf: KernelConf(kernelConf),
-      messagingConf:
-        if entryLayer != EntryLayer.kernel:
-          Opt.some(merged)
-        else:
-          Opt.none(MessagingClientConf),
-      channelsConf:
-        if entryLayer == EntryLayer.channels:
-          Opt.some(channelsOverrides)
-        else:
-          Opt.none(ReliableChannelManagerConf),
-    )
+  if entryLayer == EntryLayer.kernel:
+    return ok(LogosDeliveryConf.init(KernelConf(kernelConf)))
+  return LogosDeliveryConf.init(
+    KernelConf(kernelConf),
+    merged,
+    if entryLayer == EntryLayer.channels:
+      Opt.some(channelsOverrides)
+    else:
+      Opt.none(ReliableChannelManagerConf),
   )
 
 {.pop.}

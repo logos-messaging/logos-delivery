@@ -80,7 +80,11 @@ proc mountLegacyLightPush*(
   let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
   node.wakuLegacyLightPush = WakuLegacyLightPush.new(
-    node.peerManager, node.rng, pushHandler, Opt.some(rateLimit)
+    node.peerManager,
+    node.rng,
+    pushHandler,
+    Opt.some(rateLimit),
+    node.wakuRelay.maxMessageSize,
   )
 
   if node.started:
@@ -215,7 +219,12 @@ proc mountLightPush*(
   let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
   node.wakuLightPush = WakuLightPush.new(
-    node.peerManager, node.rng, pushHandler, node.wakuAutoSharding, Opt.some(rateLimit)
+    node.peerManager,
+    node.rng,
+    pushHandler,
+    node.wakuAutoSharding,
+    Opt.some(rateLimit),
+    node.wakuRelay.maxMessageSize,
   )
 
   if node.started:

@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[tables, strutils, sequtils, os, net, random, sets],
+  std/[tables, sequtils, os, net, random, sets],
   chronos,
   chronicles,
   metrics,
@@ -13,13 +13,12 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
-  libp2p/[multiaddress, multicodec, peerinfo, wire],
+  libp2p/[multiaddress, multicodec, peerinfo, wire, address_manager],
   libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/builders,
-  libp2p/transports/transport,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
   libp2p/utils/offsettedseq,
@@ -134,14 +133,15 @@ type
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
-      ## Copy of the committed peerInfo addresses once start resolves them.
+      ## Copy of peerInfo.addrs. Holds the configured addresses until the first start.
     configuredAnnounced: seq[MultiAddress]
-      ## Operator-configured addresses, set at construction.
-      ## Every recomputation of the announced addresses starts from this field.
+      ## Operator-configured addresses. Input of the base mapper.
+    baseMapper: AddressMapper
+      ## First mapper in the AddressManager. NAT and relay mappers run after it.
     baseAnnounced: Opt[seq[MultiAddress]]
-      ## The configured addresses made concrete at start: bound ports
-      ## substituted, wildcard hosts rewritten to the primary IP.
-      ## The first mapper in the chain answers with this set.
+      ## What the base mapper last resolved: the configured addresses made
+      ## concrete against the bound listen addresses. None until the first
+      ## mapper run of a start, and again after a stop.
     explicitAnnounced: seq[MultiAddress]
       ## The configured addresses with a host the operator chose. A base
       ## entry that is not here stands in for a wildcard bind host.
@@ -156,8 +156,6 @@ type
     onCommittedAddresses*: proc() {.gcsafe, raises: [].}
       ## Runs after every copy of the committed addresses.
       ## waku.nim uses it to refresh the ENR.
-    extMultiAddrsOnly: bool
-      ## Announce only the configured addresses. Set at construction.
     started*: bool # Indicates that node has started listening
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
@@ -331,7 +329,7 @@ proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
 
 proc copyCommittedAddresses*(node: WakuNode) =
   ## Copy the committed peerInfo addresses into announcedAddresses, update mix's
-  ## own hop, and refresh the ENR, once start has resolved the addresses.
+  ## own hop, and refresh the ENR, once the base mapper has resolved the addresses.
   ## A `Waku` installs its own refresh, which also keeps the live discv5 record.
   if node.baseAnnounced.isNone():
     return
@@ -369,27 +367,28 @@ proc new*(
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
-    extMultiAddrsOnly: netConfig.extMultiAddrsOnly,
     enrHost: netConfig.enrIp,
     enrPort: netConfig.enrPort,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )
 
-  if node.extMultiAddrsOnly:
-    ## Set before start. libp2p skips the mapper chain when this is non-empty.
-    ## NetConfig.init guarantees non-empty entries with concrete ports.
+  if netConfig.extMultiAddrsOnly:
+    ## libp2p announces this list as is. NetConfig.init guarantees concrete entries.
     switch.peerInfo.announcedAddrs = netConfig.announcedAddresses
 
-  ## The base mapper answers with the resolved addresses.
-  ## NAT and relay mappers run after it. Until then it drops zero-port entries.
-  let baseMapper = proc(
+  ## Resolves the configured addresses against the listen addresses libp2p
+  ## passes in. After the bind, this gives the announced base. The entries
+  ## with a host the operator chose are kept apart for the ENR.
+  node.baseMapper = proc(
       listenAddrs: seq[MultiAddress]
   ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
-    let base = node.baseAnnounced.valueOr:
-      return listenAddrs.filterIt(not it.hasZeroPort())
+    let base = resolveAnnouncedAddresses(node.configuredAnnounced, listenAddrs)
+    node.explicitAnnounced = resolveAnnouncedAddresses(
+      node.configuredAnnounced.filterIt(not it.isWildcardHost()), listenAddrs
+    )
+    node.baseAnnounced = Opt.some(base)
     return base
-  switch.peerInfo.addressMappers.add(baseMapper)
   switch.peerInfo.addObserver(
     proc(p: PeerInfo) {.gcsafe, raises: [].} =
       node.copyCommittedAddresses()
@@ -749,50 +748,6 @@ proc mountRendezvous*(
   except LPError:
     error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
-proc resolveAnnouncedBaseAddresses(node: WakuNode) =
-  ## Runs once per start, after the sockets bind.
-  ## Here the configured addresses become real: port 0 becomes
-  ## the bound port, and a wildcard host becomes the primary IP.
-  ## Everything the node announces builds on this set.
-  if node.extMultiAddrsOnly:
-    ## announcedAddrs bypasses the mappers. The configured set is final.
-    node.baseAnnounced = Opt.some(node.configuredAnnounced)
-    node.announcedAddresses = node.configuredAnnounced
-    node.explicitAnnounced = node.configuredAnnounced
-    return
-
-  let substituted =
-    substituteBoundPorts(node.configuredAnnounced, node.switch.peerInfo.listenAddrs)
-  ## A wildcard host and an unresolved port are what libp2p calls undialable.
-  node.explicitAnnounced = substituted.filterIt(it.isConcreteEndpoint())
-
-  const LoopbackIp = parseIpAddress("127.0.0.1")
-  var primaryIp = LoopbackIp
-  try:
-    primaryIp = getPrimaryIPAddr()
-  except Exception as e:
-    ## getPrimaryIPAddr declares a bare Exception effect on Windows, so
-    ## a narrower catch fails the raises check there.
-    debug "Could not retrieve the primary IP address", msg = e.msg
-
-  var resolved = newSeq[MultiAddress](0)
-  for address in substituted:
-    let ip = address.getIp().valueOr:
-      resolved.add(address)
-      continue
-    if not ip.isWildcard():
-      resolved.add(address)
-      continue
-    let rewritten = address.replaceIp(primaryIp).valueOr:
-      resolved.add(address)
-      continue
-    resolved.add(rewritten)
-
-  let base = resolved.filterIt(not it.hasZeroPort())
-  node.baseAnnounced = Opt.some(base)
-  node.announcedAddresses = base
-  info "Announced base resolved", addrs = $base, explicit = $node.explicitAnnounced
-
 proc startProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.setProvider(
     node.brokerCtx,
@@ -882,14 +837,17 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
+  ## The AddressManager drops its mappers on stop. Add ours before the services do.
+  node.switch.addressManager.removeMapper(node.baseMapper)
+  node.switch.addressManager.addMapper(node.baseMapper, AddrSource.Listen)
+
+  ## Binds the transports, resolves peerInfo.addrs, then starts the protocols.
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
-  ## The sockets are bound now. Resolve the announced addresses, commit
-  ## them, and copy once. The observer fires only on a changed commit.
-  resolveAnnouncedBaseAddresses(node)
-  await node.switch.peerInfo.update()
+  ## Copy again: the observer skips an unchanged restart.
   node.copyCommittedAddresses()
+  info "Announced addresses resolved", addrs = $node.announcedAddresses
 
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.

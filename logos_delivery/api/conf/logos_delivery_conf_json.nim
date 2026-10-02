@@ -79,12 +79,13 @@ proc parseFlatConf(
   # pre-refactor flat create_node parsed it: start from the kernel defaults and apply
   # the mode's protocol flags (the kernel no longer owns `mode`, so we expand it here,
   # like the old kernel builder did), then let explicit fields override.
-  var kernel = ?defaultWakuNodeConf()
-  ?applyMode(kernel, mode)
+  var kernel = ?defaultKernelConf(modeFlags = ModeProtocolFlags())
+  applyMode(kernel, mode)
   ?applyJsonFieldsToConf(
     kernel, topJsonNode, "Failed to parse config field",
     "Unrecognized configuration option(s) found",
   )
+  applyModeFlags(kernel, DefaultKernelModeFlags)
 
   # [Legacy flat JSON config] Reliability is resolved from the preset by the messaging
   # layer (the kernel no longer carries it), so a flat blob's `preset` must lift it
@@ -92,23 +93,8 @@ proc parseFlatConf(
   if kernel.preset.len > 0:
     messaging = merge(?resolvePreset(kernel.preset), messaging)
 
-  # [Legacy flat JSON config] This shape builds its own kernel record, so it
-  # applies the level here. `toWakuNodeConf` does the same for the structured
-  # shape.
-  if messaging.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
-    if kernel.mix == Opt.some(false):
-      return err(
-        "anonymityLevel=" & $messaging.anonymityLevel.get() &
-          " needs mix, but mix=false was set"
-      )
-    kernel.mix = Opt.some(true)
-
-  return ok(
-    LogosDeliveryConf(
-      kernelConf: KernelConf(kernel),
-      messagingConf: Opt.some(messaging),
-      channelsConf: Opt.some(ReliableChannelManagerConf()),
-    )
+  return LogosDeliveryConf.init(
+    KernelConf(kernel), messaging, Opt.some(ReliableChannelManagerConf())
   )
 
 proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
@@ -143,7 +129,7 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     if not top.hasKey(KeyKernelConf):
       return err("kernel entry layer requires a 'kernelConf' object")
     let (_, v) = top.getOrDefault(KeyKernelConf)
-    let kernel = ?parseOverrides(?defaultWakuNodeConf(), v, "kernelConf")
+    let kernel = ?parseOverrides(?defaultKernelConf(), v, "kernelConf")
     top.del(KeyKernelConf)
     if top.len > 0:
       return err(

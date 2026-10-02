@@ -30,7 +30,7 @@ import
 
 proc testWakuNode(): WakuNode =
   let
-    privkey = crypto.PrivateKey.random(Secp256k1, rng).tryGet()
+    privkey = generateSecp256k1Key()
     bindIp = parseIpAddress("0.0.0.0")
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
@@ -115,4 +115,35 @@ suite "Waku v2 REST API - health":
 
     await restServer.stop()
     await restServer.closeWait()
+    await node.stop()
+
+  asyncTest "RLN member reports READY only once its Merkle proof path is fetched":
+    let node = testWakuNode()
+    await node.start()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+
+    let healthMonitor = NodeHealthMonitor.new(node)
+    let rln = await node.mountOnchainRln(
+      getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+    )
+
+    # Without credentials the node only validates proofs.
+    check (await healthMonitor.getProtocolHealthInfo(RlnRelayProtocol)).health ==
+      HealthStatus.READY
+
+    let rlnManager = cast[RlnEvmGroupManager](rln.groupManager)
+    (await rlnManager.register(generateCredentials(), UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register: " & error
+
+    # A member with no Merkle proof path cannot generate proofs yet.
+    check (await healthMonitor.getProtocolHealthInfo(RlnRelayProtocol)).health ==
+      HealthStatus.SYNCHRONIZING
+
+    (await rlnManager.ensureFreshMerkleProofPath()).isOkOr:
+      assert false, "Failed to fetch Merkle proof path: " & error
+
+    check (await healthMonitor.getProtocolHealthInfo(RlnRelayProtocol)).health ==
+      HealthStatus.READY
+
     await node.stop()

@@ -81,9 +81,10 @@ suite "Waku Legacy Lightpush - End To End":
 
   suite "Waku LightPush Validation Tests":
     asyncTest "Validate message size exceeds limit":
+      # Over the relay limit but within the lightpush read cap, so relay rejects it
       let msgOverLimit = fakeWakuMessage(
         contentTopic = contentTopic,
-        payload = getByteSequence(DefaultMaxWakuMessageSize + 64 * 1024),
+        payload = getByteSequence(DefaultMaxWakuMessageSize + 1),
       )
 
       # When the client publishes an over-limit message

@@ -5,7 +5,7 @@ WAKUCANARY_BINARY="../../../build/wakucanary"
 PEER_ADDRESS="/dns4/store-01.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAm3xVDaz6SRJ6kErwC21zBJEZjavVXg7VSkoWzaV1aMA3F"
 TIMEOUT=5
 LOG_LEVEL="info"
-PROTOCOLS=("store" "relay" "lightpush" "filter")
+PROTOCOLS=("store" "relay" "lightpush" "filter" "peer-exchange" "store-sync" "mix")
 
 # === Logging Setup ===
 LOG_DIR="logs"

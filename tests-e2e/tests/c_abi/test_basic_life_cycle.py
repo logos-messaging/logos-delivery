@@ -34,8 +34,10 @@ class TestLogosDeliveryLifecycle:
             with self._create_start_node({**node_config, "staticnodes": [get_node_multiaddr(node)]}, peer_collector.event_callback):
                 assert wait_for_mesh(peer_collector), "peer never meshed with the node"
 
-    def test_peer_cannot_mesh_with_restarted_node(self, node_config):
-        # Current behaviour, questioned: a restarted node rejects every peer that connects after the restart.
+    def test_peer_meshes_with_restarted_node(self, node_config):
+        # A restarted node accepts the peers that connect after the restart.
+        # nim-libp2p before 2.4.0 kept the connection manager closed after a stop,
+        # so a restarted node dropped every inbound stream (nim-libp2p PR 3068).
         node_config.update({"numShardsInNetwork": 1})
         with self._create_start_node(node_config) as node:
             stop_result = node.stop_node()
@@ -46,7 +48,7 @@ class TestLogosDeliveryLifecycle:
 
             peer_collector = EventCollector()
             with self._create_start_node({**node_config, "staticnodes": [get_node_multiaddr(node)]}, peer_collector.event_callback):
-                assert not wait_for_mesh(peer_collector), "peer meshed with the restarted node"
+                assert wait_for_mesh(peer_collector), "peer never meshed with the restarted node"
 
     def test_recreate_node_after_destroy(self, node_config):
         node = self._create_start_node(node_config)

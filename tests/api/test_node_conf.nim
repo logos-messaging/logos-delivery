@@ -14,7 +14,7 @@ import
 suite "WakuNodeConf - preset integration":
   test "TWN preset applies TheWakuNetworkConf":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "twn"
 
@@ -30,7 +30,7 @@ suite "WakuNodeConf - preset integration":
 
   test "LogosDev preset applies LogosDevConf":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
 
@@ -46,7 +46,7 @@ suite "WakuNodeConf - preset integration":
 
   test "LogosDev preset routes multiaddr entry nodes into kad bootstrap":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
 
@@ -63,7 +63,7 @@ suite "WakuNodeConf - preset integration":
 
   test "LogosTest preset applies LogosTestConf":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "logostest"
 
@@ -79,7 +79,7 @@ suite "WakuNodeConf - preset integration":
 
   test "Cluster id 2 applies LogosDevConf":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.clusterId = Opt.some(2'u16)
 
@@ -97,7 +97,7 @@ suite "WakuNodeConf - preset integration":
 
   test "StatusProd preset applies StatusProdConf":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "status.prod"
 
@@ -116,7 +116,7 @@ suite "WakuNodeConf - preset integration":
 
   test "Invalid preset returns error":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "status.prod"
 
@@ -135,7 +135,7 @@ suite "WakuNodeConf - preset integration":
 
   test "Invalid preset returns error":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "nonexistent"
 
@@ -148,7 +148,7 @@ suite "WakuNodeConf - preset integration":
 suite "WakuNodeConf - external discovery":
   test "off by default":
     ## Given
-    let conf = defaultWakuNodeConf().valueOr:
+    let conf = defaultKernelConf().valueOr:
       raiseAssert error
 
     ## When
@@ -162,7 +162,7 @@ suite "WakuNodeConf - external discovery":
 
   test "enabling it builds the conf with the given intervals":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.pluginKadDiscovery = Opt.some(true)
     conf.kadServiceLookupIntervalSec = 15
@@ -181,7 +181,7 @@ suite "WakuNodeConf - external discovery":
 
   test "enabling it without intervals falls back to the defaults":
     ## Given
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.pluginKadDiscovery = Opt.some(true)
 
@@ -203,7 +203,7 @@ suite "WakuNodeConf - service discovery exclusivity":
   test "internal and external together are refused":
     ## The same libp2p protocol from two hosts, each with its own switch and
     ## peer store: the node would join the DHT twice under two identities.
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
     conf.pluginKadDiscovery = Opt.some(true)
@@ -216,7 +216,7 @@ suite "WakuNodeConf - service discovery exclusivity":
   test "a preset enabling kademlia yields to an explicit plugin request":
     ## The operator names the plugin; the preset's in-process default steps
     ## aside, and the preset's entry nodes become the plugin's DHT peers.
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
     conf.pluginKadDiscovery = Opt.some(true)
@@ -230,7 +230,7 @@ suite "WakuNodeConf - service discovery exclusivity":
         NetworkPresetConf.LogosDevConf().entryNodes
 
   test "--kad-bootstrap-node feeds the plugin instead of enabling in-process kademlia":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.pluginKadDiscovery = Opt.some(true)
     conf.kadBootstrapNodes = @[
@@ -244,14 +244,14 @@ suite "WakuNodeConf - service discovery exclusivity":
       wakuConf.externalDiscoveryConf.get().bootstrapNodes == conf.kadBootstrapNodes
 
   test "a malformed plugin bootstrap node is refused":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.pluginKadDiscovery = Opt.some(true)
     conf.kadBootstrapNodes = @["/ip4/127.0.0.1/tcp/44001"]
     check conf.toWakuConf().isErr()
 
   test "turning kademlia off lets external run under a preset":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
     conf.pluginKadDiscovery = Opt.some(true)
@@ -265,19 +265,19 @@ suite "WakuNodeConf - service discovery exclusivity":
 
   test "either alone, and neither, are all fine":
     ## Both off is a valid node: discv5 or static peers may be doing the work.
-    var internalOnly = defaultWakuNodeConf().valueOr:
+    var internalOnly = defaultKernelConf().valueOr:
       raiseAssert error
     internalOnly.enableKadDiscovery = Opt.some(true)
     let a = internalOnly.toWakuConf().valueOr:
       raiseAssert error
 
-    var externalOnly = defaultWakuNodeConf().valueOr:
+    var externalOnly = defaultKernelConf().valueOr:
       raiseAssert error
     externalOnly.pluginKadDiscovery = Opt.some(true)
     let b = externalOnly.toWakuConf().valueOr:
       raiseAssert error
 
-    let c = defaultWakuNodeConf().valueOr(raiseAssert "defaults").toWakuConf().valueOr:
+    let c = defaultKernelConf().valueOr(raiseAssert "defaults").toWakuConf().valueOr:
         raiseAssert error
 
     check:
@@ -288,7 +288,7 @@ suite "WakuNodeConf - service discovery exclusivity":
   test "discv5 stays independent of both":
     ## Discv5 is a different protocol over a different peer set; the exclusion
     ## rule must not touch it.
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.discv5Discovery = Opt.some(true)
     conf.pluginKadDiscovery = Opt.some(true)
@@ -386,13 +386,13 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
   test "a node that serves nothing runs kademlia in client mode":
     ## An edge node consumes discovery rather than providing it, so it should
     ## not hold routing state for others.
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
-    conf.relay = false
-    conf.filter = false
-    conf.lightpush = false
-    conf.store = false
+    conf.relay = Opt.some(false)
+    conf.filter = Opt.some(false)
+    conf.lightpush = Opt.some(false)
+    conf.store = Opt.some(false)
 
     let c = conf.toWakuConf().valueOr:
       raiseAssert error
@@ -402,10 +402,10 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
       c.kademliaDiscoveryConf.get().clientMode
 
   test "a serving node stays a full kademlia participant":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
-    conf.relay = true
+    conf.relay = Opt.some(true)
 
     let c = conf.toWakuConf().valueOr:
       raiseAssert error
@@ -421,21 +421,21 @@ suite "QUIC port defaults":
     return wakuConf.quicConf.get().port
 
   test "an unset quic port follows the tcp port":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     check conf.quicPortOf() == conf.tcpPort
     conf.tcpPort = Port(30304)
     check conf.quicPortOf() == Port(30304)
 
   test "an explicit quic port wins over the tcp port":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.tcpPort = Port(30304)
     conf.quicPort = Opt.some(Port(40404))
     check conf.quicPortOf() == Port(40404)
 
   test "ports-shift moves a defaulted quic port with the tcp port":
-    var conf = defaultWakuNodeConf().valueOr:
+    var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.tcpPort = Port(30304)
     conf.portsShift = 2
