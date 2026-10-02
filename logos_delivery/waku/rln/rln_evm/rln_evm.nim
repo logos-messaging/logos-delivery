@@ -326,8 +326,8 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
     defer:
       try:
         rlnEvm.reserveLock.release()
-      except AsyncLockError:
-        discard # acquired above, so the release cannot fail
+      except AsyncLockError as e:
+        error "RLN reserveLock released while not held", error = e.msg
     ?(await rlnEvm.ensureMessageIdsLoaded())
 
     let rateLimit = uint64(limit)

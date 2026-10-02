@@ -94,11 +94,11 @@ proc ensureMessageIdsLoaded*(
     )
   let job = openMessageIdStore(brokerCtx).valueOr:
     debug "RLN message id store not available", error = error
-    return err(RlnError.notReady("message id store: " & error))
+    return err(RlnError.notReady("message id store not available: " & error))
   let key = messageIdKey(credentials.idSecretHash)
   let stored = (await job.loadMessageIds(key)).valueOr:
     debug "RLN message id store could not be read", error = error
-    return err(RlnError.notReady("message id store: " & error))
+    return err(RlnError.notReady("message id store could not be read: " & error))
 
   if stored.isSome():
     let row = stored.get()
@@ -130,8 +130,8 @@ proc reserveDurably(
   defer:
     try:
       rlnEvm.reserveLock.release()
-    except AsyncLockError:
-      discard # acquired above, so the release cannot fail
+    except AsyncLockError as e:
+      error "RLN reserveLock released while not held", error = e.msg
 
   ?(await rlnEvm.ensureMessageIdsLoaded())
   let id = ?rlnEvm.nonceManager.reserve(epochIndex)
@@ -150,11 +150,12 @@ proc releaseDurably(
   ## Returns `id` after a failed proof generation and saves the lowered count,
   ## unless another draw followed. A failed save is only logged: a higher
   ## stored count is safe, and at worst a restart skips the id.
+  await rlnEvm.reserveLock.acquire()
   defer:
     try:
       rlnEvm.reserveLock.release()
-    except AsyncLockError:
-      discard # acquired above, so the release cannot fail
+    except AsyncLockError as e:
+      error "RLN reserveLock released while not held", error = e.msg
 
   let before = rlnEvm.nonceManager.nextId
   rlnEvm.nonceManager.release(epochIndex, id)
@@ -186,9 +187,8 @@ proc generateRLNProofWithNonce(
 proc generateRLNProof*(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async: (raises: [CancelledError]).} =
-  ## Generates a proof with `nonce`; if its merkle root is stale, refetches the
-  ## merkle path and regenerates once. The retry reuses `nonce` so one message
-  ## spends one id, matching what the rate limit manager counts.
+  ## Draws a message id for the epoch of `senderEpochTime`, saves the new
+  ## count and builds the proof. A failed generation returns the id.
   rlnEvm.checkTimestampBounds(senderEpochTime).isOkOr:
     return err($error)
   let epochIndex = rlnEvm.epochIndexOf(senderEpochTime)
