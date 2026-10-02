@@ -17,7 +17,8 @@ import
   json_rpc/rpcclient,
   libp2p/crypto/crypto,
   eth/keys,
-  results
+  results,
+  brokers/request_broker
 
 import
   logos_delivery/waku/[
@@ -28,6 +29,7 @@ import
     rln/rln_evm/bindings,
     node/waku_node,
     node/waku_node/relay,
+    persistency/persistency,
   ],
   ../testlib/common
 
@@ -800,6 +802,19 @@ proc mountOnchainRln*(
 ): Future[RlnEvm] {.async.} =
   ## Mounts the on-chain RLN backend built from `conf` on `node` and returns
   ## it, for tests that use the backend directly.
+  ##
+  ## The backend saves every message id it draws, so it needs the node's
+  ## persistency, which `Waku.start` provides and these tests skip. When none
+  ## is provided under the node's context, one in-memory store is provided
+  ## and serves every backend mounted on that context for the rest of the
+  ## test process. Rows are per identity and tests register fresh
+  ## credentials, so no test sees another's count.
+  if GetPersistency.request(node.brokerCtx).isErr():
+    let persistency = Persistency.new(InMemoryStoragePath).valueOr:
+      raise newException(CatchableError, "in-memory persistency: " & $error)
+    discard GetPersistency.reprovideIt(node.brokerCtx):
+      ok(persistency)
+
   let rln = (await mountOnchain(conf, node.brokerCtx, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
   node.mountRln(rln.toRlnPlugin(), RlnCommonConf(), spamHandler)

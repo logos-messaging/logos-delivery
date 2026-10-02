@@ -9,7 +9,9 @@ import
   logos_delivery/waku/api/publish,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/rln/[rln_api, rln_plugin],
+  logos_delivery/waku/rln/rln_evm/message_id_store,
   logos_delivery/waku/rln/rln_lez/[rln_lez, transport],
+  logos_delivery/waku/persistency/persistency,
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
@@ -338,15 +340,43 @@ suite "SendService RLN proof attach - RLN mounted":
     let msg = testMessage()
 
     let res = await waku.attachRlnProof(msg)
+    let storedAfterFailure =
+      (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.Transient
       onchainRln.nonceManager.nextId == 0'u64
+      storedAfterFailure.nextId == 0'u64 # the saved count is lowered again
 
     gm.invalidateMerkleProofCache()
     let retried = (await waku.attachRlnProof(msg)).expect("retry")
+    let storedAfterRetry =
+      (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
     check:
       retried.proof.len > 0
+      onchainRln.nonceManager.nextId == 1'u64
+      storedAfterRetry.nextId == 1'u64
+
+  asyncTest "a drawn id's count is saved before its proof is returned":
+    let now = nowSec()
+    discard (await waku.attachRlnProof(messageAt(now))).expect("attachRlnProof")
+
+    let stored = (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
+    check:
+      stored.epochIndex == now div TestEpochSizeSec
+      stored.nextId == 1'u64
+
+  asyncTest "a failed save returns no proof and spends no id":
+    ## Sending after a failed save is the unsafe direction: the id could be
+    ## drawn again after a restart. The draw is undone and the task retried.
+    let now = nowSec()
+    discard (await waku.attachRlnProof(messageAt(now, "a"))).expect("first")
+    GetPersistency.request(waku.node.brokerCtx).expect("persistency").closeJob(RlnJobId)
+
+    let res = await waku.attachRlnProof(messageAt(now, "b"))
+    check:
+      res.isErr()
+      res.error.kind == RlnErrorKind.Transient
       onchainRln.nonceManager.nextId == 1'u64
 
   asyncTest "refuses an untimestamped message":

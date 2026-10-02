@@ -29,6 +29,7 @@ proc testRlnEvm(ctx: BrokerContext, secret: seq[byte] = @[1'u8]): RlnEvm =
       idCredentials: Opt.some(IdentityCredential(idSecretHash: secret))
     ),
     nonceManager: NonceManager.init(nonceLimit = 100),
+    reserveLock: newAsyncLock(),
     rlnEpochSizeSec: TestEpochSizeSec,
     rlnMaxTimestampGap: 20,
     brokerCtx: ctx,

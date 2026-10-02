@@ -28,5 +28,8 @@ type RlnEvm* = ref object of RootObj
   refusedUntil*: uint64
     ## Set when the loaded row's epoch is ahead of the clock: the quota
     ## reports no budget for earlier epochs until the clock reaches it.
+  reserveLock*: AsyncLock
+    ## Held while a message id is drawn and its count saved
+    ## (`reserveDurably`), so saves land in the order the ids were drawn.
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[Result[void, string]]

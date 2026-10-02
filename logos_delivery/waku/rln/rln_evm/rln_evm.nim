@@ -223,6 +223,7 @@ proc mount(
     groupManager: groupManager,
     nonceManager: NonceManager.init(conf.userMessageLimit),
     brokerCtx: brokerCtx,
+    reserveLock: newAsyncLock(),
     rlnEpochSizeSec: conf.epochSizeSec,
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
