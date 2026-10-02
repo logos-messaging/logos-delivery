@@ -23,11 +23,11 @@ const
     ## Hashed into every row key. Changing it strands every stored row, and a
     ## node upgraded in the middle of an epoch would draw from zero again.
 
-type StoredIds* = object
+type StoredMessageIds* = object
   epochIndex*: uint64 ## Last epoch ids were drawn in.
   nextId*: Nonce ## Next unused id in `epochIndex`.
 
-proc storeKey*(idSecretHash: IdentitySecretHash): Key =
+proc messageIdKey*(idSecretHash: IdentitySecretHash): Key =
   ## Row key of one identity: `sha256(MessageIdKeyTag ‖ idSecretHash)`.
   var input = newSeqOfCap[byte](MessageIdKeyTag.len + idSecretHash.len)
   for c in MessageIdKeyTag:
@@ -42,7 +42,7 @@ proc encodeIds(epochIndex: uint64, nextId: Nonce): seq[byte] =
   pb.finish()
   return pb.buffer
 
-proc decodeIds(bytes: seq[byte]): Result[StoredIds, string] =
+proc decodeIds(bytes: seq[byte]): Result[StoredMessageIds, string] =
   let pb = initProtoBuffer(bytes)
   var epochIndex, nextId: uint64
   let hasEpochIndex = pb.getField(1, epochIndex).valueOr:
@@ -53,9 +53,9 @@ proc decodeIds(bytes: seq[byte]): Result[StoredIds, string] =
     return err("missing epoch index field")
   if not hasNextId:
     return err("missing next id field")
-  return ok(StoredIds(epochIndex: epochIndex, nextId: nextId))
+  return ok(StoredMessageIds(epochIndex: epochIndex, nextId: nextId))
 
-proc openIdStore*(brokerCtx: BrokerContext): Result[persistency.Job, string] =
+proc openMessageIdStore*(brokerCtx: BrokerContext): Result[persistency.Job, string] =
   ## Opens the `rln` job of the persistency provided under `brokerCtx`. Fails
   ## while none is provided (before `Waku.start`) or when the job does not
   ## open. The first open blocks the calling thread while the job's worker
@@ -66,9 +66,9 @@ proc openIdStore*(brokerCtx: BrokerContext): Result[persistency.Job, string] =
     return err("could not open persistency job " & RlnJobId & ": " & $error)
   return ok(job)
 
-proc loadIds*(
+proc loadMessageIds*(
     job: persistency.Job, key: Key
-): Future[Result[Opt[StoredIds], string]] {.async: (raises: [CancelledError]).} =
+): Future[Result[Opt[StoredMessageIds], string]] {.async: (raises: [CancelledError]).} =
   ## The identity's stored row; none when it has never drawn an id. A row that
   ## does not decode is an error, never a fresh start.
   if job.isNil() or not job.running:
@@ -82,12 +82,12 @@ proc loadIds*(
     except CatchableError as e:
       return err("read message ids: unexpected error " & $e.name & ": " & e.msg)
   if stored.isNone():
-    return ok(Opt.none(StoredIds))
+    return ok(Opt.none(StoredMessageIds))
   let ids = decodeIds(stored.get()).valueOr:
     return err("decode message ids: " & error)
   return ok(Opt.some(ids))
 
-proc saveIds*(
+proc saveMessageIds*(
     job: persistency.Job, key: Key, epochIndex: uint64, nextId: Nonce
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   ## Writes the identity's row and resolves once it is committed. A proof may

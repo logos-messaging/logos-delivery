@@ -74,7 +74,7 @@ proc absDiff*(e1, e2: Epoch): uint64 =
   else:
     return epoch2 - epoch1
 
-proc ensureIdsLoaded*(
+proc ensureMessageIdsLoaded*(
     rlnEvm: RlnEvm
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   ## Loads this identity's message id row on first use and applies the start
@@ -88,7 +88,7 @@ proc ensureIdsLoaded*(
   ## first `reserve`, and an earlier one is refused. A row ahead of the clock
   ## (the clock went back, or a message was stamped ahead) also sets
   ## `refusedUntil`.
-  if not rlnEvm.idStore.isNil():
+  if not rlnEvm.messageIdStore.isNil():
     return ok()
 
   let credentials = rlnEvm.groupManager.idCredentials.valueOr:
@@ -97,11 +97,11 @@ proc ensureIdsLoaded*(
     return err(
       RlnError.permanent("mounted without a broker context, so no message id store")
     )
-  let job = openIdStore(brokerCtx).valueOr:
+  let job = openMessageIdStore(brokerCtx).valueOr:
     debug "RLN message id store not available", error = error
     return err(RlnError.notReady("message id store: " & error))
-  let key = storeKey(credentials.idSecretHash)
-  let stored = (await job.loadIds(key)).valueOr:
+  let key = messageIdKey(credentials.idSecretHash)
+  let stored = (await job.loadMessageIds(key)).valueOr:
     debug "RLN message id store could not be read", error = error
     return err(RlnError.notReady("message id store: " & error))
 
@@ -119,8 +119,8 @@ proc ensureIdsLoaded*(
         warn "RLN message ids were last drawn in an epoch ahead of the clock; no ids are drawn until the clock reaches it. If the clock is right, deleting rln.db resets the counter",
           storedEpoch = row.epochIndex, currentEpoch = currentEpoch
 
-  rlnEvm.idStore = job
-  rlnEvm.idStoreKey = key
+  rlnEvm.messageIdStore = job
+  rlnEvm.messageIdKey = key
   info "RLN message id store loaded"
   return ok()
 
@@ -142,11 +142,11 @@ proc reserveDurably(
     except AsyncLockError:
       discard # acquired above, so the release cannot fail
 
-  ?(await rlnEvm.ensureIdsLoaded())
+  ?(await rlnEvm.ensureMessageIdsLoaded())
   let id = ?rlnEvm.nonceManager.reserve(epochIndex)
   (
-    await rlnEvm.idStore.saveIds(
-      rlnEvm.idStoreKey, epochIndex, rlnEvm.nonceManager.nextId
+    await rlnEvm.messageIdStore.saveMessageIds(
+      rlnEvm.messageIdKey, epochIndex, rlnEvm.nonceManager.nextId
     )
   ).isOkOr:
     rlnEvm.nonceManager.release(epochIndex, id)
@@ -173,8 +173,8 @@ proc releaseDurably(
   if rlnEvm.nonceManager.nextId == before:
     return
   (
-    await rlnEvm.idStore.saveIds(
-      rlnEvm.idStoreKey, epochIndex, rlnEvm.nonceManager.nextId
+    await rlnEvm.messageIdStore.saveMessageIds(
+      rlnEvm.messageIdKey, epochIndex, rlnEvm.nonceManager.nextId
     )
   ).isOkOr:
     debug "RLN message id count not lowered in the store after a failed proof generation",

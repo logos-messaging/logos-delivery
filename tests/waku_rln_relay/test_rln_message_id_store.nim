@@ -41,10 +41,10 @@ proc currentEpoch(): uint64 =
   uint64(epochTime() / float64(TestEpochSizeSec))
 
 suite "RLN message id store":
-  test "storeKey is stable per identity and differs between identities":
+  test "messageIdKey is stable per identity and differs between identities":
     check:
-      storeKey(@[1'u8, 2, 3]) == storeKey(@[1'u8, 2, 3])
-      storeKey(@[1'u8, 2, 3]) != storeKey(@[1'u8, 2, 4])
+      messageIdKey(@[1'u8, 2, 3]) == messageIdKey(@[1'u8, 2, 3])
+      messageIdKey(@[1'u8, 2, 3]) != messageIdKey(@[1'u8, 2, 4])
 
   asyncTest "an identity with no row loads as none":
     let p = Persistency.new(InMemoryStoragePath).get()
@@ -52,29 +52,29 @@ suite "RLN message id store":
       p.close()
     let job = p.openJob(RlnJobId).get()
 
-    let loaded = await job.loadIds(storeKey(@[1'u8]))
+    let loaded = await job.loadMessageIds(messageIdKey(@[1'u8]))
     check:
       loaded.isOk()
       loaded.get().isNone()
 
-  asyncTest "saveIds then loadIds round-trips, and a later save replaces the row":
+  asyncTest "saveMessageIds then loadMessageIds round-trips, and a later save replaces the row":
     let p = Persistency.new(InMemoryStoragePath).get()
     defer:
       p.close()
     let job = p.openJob(RlnJobId).get()
-    let k = storeKey(@[1'u8])
+    let k = messageIdKey(@[1'u8])
 
     # Zero values are stored, not dropped: a released id 0 saves nextId 0.
-    let saved1 = await job.saveIds(k, 7, 0)
+    let saved1 = await job.saveMessageIds(k, 7, 0)
     check saved1.isOk()
-    let first = (await job.loadIds(k)).get().get()
+    let first = (await job.loadMessageIds(k)).get().get()
     check:
       first.epochIndex == 7
       first.nextId == 0
 
-    let saved2 = await job.saveIds(k, 8, 3)
+    let saved2 = await job.saveMessageIds(k, 8, 3)
     check saved2.isOk()
-    let second = (await job.loadIds(k)).get().get()
+    let second = (await job.loadMessageIds(k)).get().get()
     check:
       second.epochIndex == 8
       second.nextId == 3
@@ -84,17 +84,17 @@ suite "RLN message id store":
     defer:
       p.close()
     let job = p.openJob(RlnJobId).get()
-    let a = storeKey(@[1'u8])
-    let b = storeKey(@[2'u8])
+    let a = messageIdKey(@[1'u8])
+    let b = messageIdKey(@[2'u8])
 
-    let savedA = await job.saveIds(a, 7, 4)
-    let savedB = await job.saveIds(b, 9, 1)
+    let savedA = await job.saveMessageIds(a, 7, 4)
+    let savedB = await job.saveMessageIds(b, 9, 1)
     check:
       savedA.isOk()
       savedB.isOk()
 
-    let rowA = (await job.loadIds(a)).get().get()
-    let rowB = (await job.loadIds(b)).get().get()
+    let rowA = (await job.loadMessageIds(a)).get().get()
+    let rowB = (await job.loadMessageIds(b)).get().get()
     check:
       rowA.epochIndex == 7
       rowA.nextId == 4
@@ -106,13 +106,13 @@ suite "RLN message id store":
     defer:
       p.close()
     let job = p.openJob(RlnJobId).get()
-    let k = storeKey(@[1'u8])
+    let k = messageIdKey(@[1'u8])
 
     # Written under the store's category ("rln") with bytes that are not a
     # message id row.
     let written = await job.putAcked("rln", k, @[0xff'u8, 0xff])
     check written.isOk()
-    let loaded = await job.loadIds(k)
+    let loaded = await job.loadMessageIds(k)
     check loaded.isErr()
 
   asyncTest "a closed job is an error, not an empty row":
@@ -120,17 +120,17 @@ suite "RLN message id store":
     let job = p.openJob(RlnJobId).get()
     p.close()
 
-    let loaded = await job.loadIds(storeKey(@[1'u8]))
-    let saved = await job.saveIds(storeKey(@[1'u8]), 7, 1)
+    let loaded = await job.loadMessageIds(messageIdKey(@[1'u8]))
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), 7, 1)
     check:
       loaded.isErr()
       saved.isErr()
 
-  test "openIdStore fails while no persistency is provided":
+  test "openMessageIdStore fails while no persistency is provided":
     let ctx = NewBrokerContext()
-    check openIdStore(ctx).isErr()
+    check openMessageIdStore(ctx).isErr()
 
-  test "openIdStore opens the rln job of the provided persistency":
+  test "openMessageIdStore opens the rln job of the provided persistency":
     let ctx = NewBrokerContext()
     let p = Persistency.new(InMemoryStoragePath).get()
     defer:
@@ -140,7 +140,7 @@ suite "RLN message id store":
     defer:
       GetPersistency.clearProvider(ctx)
 
-    let job = openIdStore(ctx).get()
+    let job = openMessageIdStore(ctx).get()
     check:
       job.id == RlnJobId
       p.hasJob(RlnJobId)
@@ -155,30 +155,30 @@ suite "RLN EVM: loading the message id store":
     let rln = testRlnEvm(ctx)
     rln.groupManager.idCredentials = Opt.none(IdentityCredential)
 
-    let res = await rln.ensureIdsLoaded()
+    let res = await rln.ensureMessageIdsLoaded()
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady
-      rln.idStore.isNil()
+      rln.messageIdStore.isNil()
 
   asyncTest "without a persistency it is NotReady, and a later call loads":
     let ctx = NewBrokerContext()
     let rln = testRlnEvm(ctx)
 
-    let before = await rln.ensureIdsLoaded()
+    let before = await rln.ensureMessageIdsLoaded()
     check:
       before.isErr()
       before.error.kind == RlnErrorKind.NotReady
-      rln.idStore.isNil()
+      rln.messageIdStore.isNil()
 
     let p = providedStore(ctx)
     defer:
       p.close()
       GetPersistency.clearProvider(ctx)
-    let after = await rln.ensureIdsLoaded()
+    let after = await rln.ensureMessageIdsLoaded()
     check:
       after.isOk()
-      not rln.idStore.isNil()
+      not rln.messageIdStore.isNil()
 
   asyncTest "no stored row leaves the full budget":
     let ctx = NewBrokerContext()
@@ -188,7 +188,7 @@ suite "RLN EVM: loading the message id store":
       GetPersistency.clearProvider(ctx)
     let rln = testRlnEvm(ctx)
 
-    let res = await rln.ensureIdsLoaded()
+    let res = await rln.ensureMessageIdsLoaded()
     check:
       res.isOk()
       rln.nonceManager.spent(currentEpoch()) == 0
@@ -204,10 +204,10 @@ suite "RLN EVM: loading the message id store":
     let rln = testRlnEvm(ctx)
     let epoch = currentEpoch()
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), epoch, 5)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), epoch, 5)
     check saved.isOk()
 
-    let res = await rln.ensureIdsLoaded()
+    let res = await rln.ensureMessageIdsLoaded()
     check:
       res.isOk()
       rln.refusedUntil == 0
@@ -222,10 +222,10 @@ suite "RLN EVM: loading the message id store":
     let rln = testRlnEvm(ctx)
     let epoch = currentEpoch()
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), epoch - 1, 7)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), epoch - 1, 7)
     check saved.isOk()
 
-    let res = await rln.ensureIdsLoaded()
+    let res = await rln.ensureMessageIdsLoaded()
     check:
       res.isOk()
       rln.refusedUntil == 0
@@ -240,10 +240,10 @@ suite "RLN EVM: loading the message id store":
     let rln = testRlnEvm(ctx)
     let epoch = currentEpoch()
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), epoch + 3, 2)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), epoch + 3, 2)
     check saved.isOk()
 
-    let res = await rln.ensureIdsLoaded()
+    let res = await rln.ensureMessageIdsLoaded()
     let draw = rln.nonceManager.reserve(epoch)
     check:
       res.isOk()
@@ -260,15 +260,15 @@ suite "RLN EVM: loading the message id store":
     let rln = testRlnEvm(ctx)
     let epoch = currentEpoch()
 
-    let first = await rln.ensureIdsLoaded()
+    let first = await rln.ensureMessageIdsLoaded()
     check first.isOk()
 
     # A row written after the load is not picked up by a second call.
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), epoch, 9)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), epoch, 9)
     check saved.isOk()
 
-    let second = await rln.ensureIdsLoaded()
+    let second = await rln.ensureMessageIdsLoaded()
     check:
       second.isOk()
       rln.nonceManager.reserve(epoch).get() == 0
@@ -281,7 +281,7 @@ suite "RLN EVM: epoch quota from the message id store":
       p.close()
       GetPersistency.clearProvider(ctx)
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), currentEpoch(), 5)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), currentEpoch(), 5)
     check saved.isOk()
 
     let plugin = testRlnEvm(ctx).toRlnPlugin()
@@ -298,7 +298,7 @@ suite "RLN EVM: epoch quota from the message id store":
       GetPersistency.clearProvider(ctx)
     let epoch = currentEpoch()
     let job = p.openJob(RlnJobId).get()
-    let saved = await job.saveIds(storeKey(@[1'u8]), epoch + 3, 2)
+    let saved = await job.saveMessageIds(messageIdKey(@[1'u8]), epoch + 3, 2)
     check saved.isOk()
 
     let plugin = testRlnEvm(ctx).toRlnPlugin()

@@ -20,11 +20,11 @@ type RlnEvm* = ref object of RootObj
   brokerCtx*: Opt[BrokerContext]
     ## The node's context, through which the backend reaches node services
     ## such as its persistency.
-  idStore*: persistency.Job
+  messageIdStore*: persistency.Job
     ## The node's `rln` persistency job, holding this identity's message id
     ## row. Nil until the first draw or quota read loads it
-    ## (`ensureIdsLoaded`).
-  idStoreKey*: Key ## This identity's row key in `idStore`.
+    ## (`ensureMessageIdsLoaded`).
+  messageIdKey*: Key ## This identity's row key in `messageIdStore`.
   refusedUntil*: uint64
     ## Set when the loaded row's epoch is ahead of the clock: the quota
     ## reports no budget for earlier epochs until the clock reaches it.

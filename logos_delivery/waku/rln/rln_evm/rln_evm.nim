@@ -328,7 +328,7 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
         rlnEvm.reserveLock.release()
       except AsyncLockError:
         discard # acquired above, so the release cannot fail
-    ?(await rlnEvm.ensureIdsLoaded())
+    ?(await rlnEvm.ensureMessageIdsLoaded())
 
     let rateLimit = uint64(limit)
     let epochIndex = rlnEvm.epochIndexOf(timestamp.float64)

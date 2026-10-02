@@ -340,8 +340,11 @@ suite "SendService RLN proof attach - RLN mounted":
     let msg = testMessage()
 
     let res = await waku.attachRlnProof(msg)
-    let storedAfterFailure =
-      (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
+    let storedAfterFailure = (
+        await onchainRln.messageIdStore.loadMessageIds(onchainRln.messageIdKey)
+      )
+      .get()
+      .get()
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.Transient
@@ -350,8 +353,11 @@ suite "SendService RLN proof attach - RLN mounted":
 
     gm.invalidateMerkleProofCache()
     let retried = (await waku.attachRlnProof(msg)).expect("retry")
-    let storedAfterRetry =
-      (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
+    let storedAfterRetry = (
+        await onchainRln.messageIdStore.loadMessageIds(onchainRln.messageIdKey)
+      )
+      .get()
+      .get()
     check:
       retried.proof.len > 0
       onchainRln.nonceManager.nextId == 1'u64
@@ -361,7 +367,11 @@ suite "SendService RLN proof attach - RLN mounted":
     let now = nowSec()
     discard (await waku.attachRlnProof(messageAt(now))).expect("attachRlnProof")
 
-    let stored = (await onchainRln.idStore.loadIds(onchainRln.idStoreKey)).get().get()
+    let stored = (
+        await onchainRln.messageIdStore.loadMessageIds(onchainRln.messageIdKey)
+      )
+      .get()
+      .get()
     check:
       stored.epochIndex == now div TestEpochSizeSec
       stored.nextId == 1'u64
