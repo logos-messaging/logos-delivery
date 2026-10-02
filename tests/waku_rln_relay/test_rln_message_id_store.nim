@@ -4,8 +4,9 @@ import std/times
 import chronos, results, testutils/unittests
 import brokers/[broker_context, request_broker]
 import logos_delivery/waku/persistency/persistency
-import logos_delivery/waku/rln/rln_evm/[message_id_store, nonce_manager, proof]
+import logos_delivery/waku/rln/rln_evm/[message_id_store, nonce_manager, proof, rln_evm]
 import logos_delivery/waku/rln/rln_evm/group_manager_base
+import logos_delivery/waku/rln/rln_plugin
 import logos_delivery/waku/rln/rln_evm/types as rln_evm_types
 import logos_delivery/waku/rln/types as rln_api_types
 
@@ -26,7 +27,8 @@ proc testRlnEvm(ctx: BrokerContext, secret: seq[byte] = @[1'u8]): RlnEvm =
   ## enough for the message id store.
   RlnEvm(
     groupManager: RlnEvmGroupManagerBase(
-      idCredentials: Opt.some(IdentityCredential(idSecretHash: secret))
+      idCredentials: Opt.some(IdentityCredential(idSecretHash: secret)),
+      userMessageLimit: Opt.some(UserMessageLimit(100)),
     ),
     nonceManager: NonceManager.init(nonceLimit = 100),
     reserveLock: newAsyncLock(),
@@ -270,3 +272,47 @@ suite "RLN EVM: loading the message id store":
     check:
       second.isOk()
       rln.nonceManager.reserve(epoch).get() == 0
+
+suite "RLN EVM: epoch quota from the message id store":
+  asyncTest "the quota counts ids saved before a restart":
+    let ctx = NewBrokerContext()
+    let p = providedStore(ctx)
+    defer:
+      p.close()
+      GetPersistency.clearProvider(ctx)
+    let job = p.openJob(RlnJobId).get()
+    let saved = await job.saveIds(storeKey(@[1'u8]), currentEpoch(), 5)
+    check saved.isOk()
+
+    let plugin = testRlnEvm(ctx).toRlnPlugin()
+    let quota = (await plugin.getEpochQuota(uint64(epochTime()))).get()
+    check:
+      quota.rateLimit == 100
+      quota.remaining == 95
+
+  asyncTest "a stored epoch ahead of the clock leaves earlier epochs without budget":
+    let ctx = NewBrokerContext()
+    let p = providedStore(ctx)
+    defer:
+      p.close()
+      GetPersistency.clearProvider(ctx)
+    let epoch = currentEpoch()
+    let job = p.openJob(RlnJobId).get()
+    let saved = await job.saveIds(storeKey(@[1'u8]), epoch + 3, 2)
+    check saved.isOk()
+
+    let plugin = testRlnEvm(ctx).toRlnPlugin()
+    let now = (await plugin.getEpochQuota(uint64(epochTime()))).get()
+    let stored = (await plugin.getEpochQuota((epoch + 3) * TestEpochSizeSec)).get()
+    check:
+      now.remaining == 0
+      stored.remaining == 98
+
+  asyncTest "the quota is NotReady while the store cannot load":
+    let ctx = NewBrokerContext()
+    let plugin = testRlnEvm(ctx).toRlnPlugin()
+
+    let quota = await plugin.getEpochQuota(uint64(epochTime()))
+    check:
+      quota.isErr()
+      quota.error.kind == RlnErrorKind.NotReady

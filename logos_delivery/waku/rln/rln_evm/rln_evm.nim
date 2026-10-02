@@ -314,13 +314,29 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
 
   proc quota(timestamp: uint64): Future[Result[EpochQuota, RlnError]] {.async.} =
     ## The membership has a single implicit scope, and the nonce manager
-    ## tracks spent budget only for the epoch it last drew from.
+    ## tracks spent budget only for the epoch it last drew from. The budget is
+    ## read once the message id store has loaded, so ids spent before a
+    ## restart count; until it loads the quota is `NotReady`. An epoch before
+    ## `refusedUntil` (a stored epoch ahead of the clock) has no budget: its
+    ## draws would be refused.
     let limit = rlnEvm.groupManager.userMessageLimit.valueOr:
       return err(RlnError.notReady("the user message limit is not set"))
 
+    await rlnEvm.reserveLock.acquire()
+    defer:
+      try:
+        rlnEvm.reserveLock.release()
+      except AsyncLockError:
+        discard # acquired above, so the release cannot fail
+    ?(await rlnEvm.ensureIdsLoaded())
+
     let rateLimit = uint64(limit)
     let epochIndex = rlnEvm.epochIndexOf(timestamp.float64)
-    let spent = min(rlnEvm.nonceManager.spent(epochIndex), rateLimit)
+    let spent =
+      if epochIndex < rlnEvm.refusedUntil:
+        rateLimit
+      else:
+        min(rlnEvm.nonceManager.spent(epochIndex), rateLimit)
 
     return ok(
       EpochQuota(
