@@ -224,8 +224,11 @@ suite "Sharding":
           Opt.some(topics[i]),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
         )
-      for res in serverHandlers[0 .. 2].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          serverHandlers[0 .. 2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # Then the other topics keep delivering
       for i in 3 .. topics.high:
@@ -270,8 +273,9 @@ suite "Sharding":
           Opt.some(topic),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
         )
-      for res in serverHandlers.mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (await allFinished(serverHandlers.mapIt(it.waitForResult(FUTURE_TIMEOUT)))).allIt(
+        it.read().isErr()
+      )
 
   suite "Automatic Sharding Mechanics":
     asyncTest "Content Topic-Based Shard Dialing":
@@ -382,8 +386,11 @@ suite "Sharding":
           Opt.some(shards[i]),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopics[i]),
         )
-      for res in serverHandlers[0 .. 2].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          serverHandlers[0 .. 2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # Then the other content topics keep delivering
       for i in 3 .. contentTopics.high:
@@ -455,8 +462,9 @@ suite "Sharding":
           Opt.some(shards[i]),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
         )
-      for res in serverHandlers.mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (await allFinished(serverHandlers.mapIt(it.waitForResult(FUTURE_TIMEOUT)))).allIt(
+        it.read().isErr()
+      )
 
     asyncTest "Resubscribing after unsubscribing from all content topics restores delivery":
       # Given a connected server and client delivering on every content topic
@@ -975,10 +983,11 @@ suite "Sharding":
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
-      for res in [serverHandler2, clientHandler2].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [serverHandler2, clientHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When the client publishes a message in the topic2
       serverHandler1.reset()
@@ -993,10 +1002,11 @@ suite "Sharding":
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
-      for res in [serverHandler1, clientHandler1].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [serverHandler1, clientHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
     asyncTest "Configure Node with Multiple Content Topics":
       # Given a connected server and client subscribed to multiple content topics
@@ -1025,10 +1035,11 @@ suite "Sharding":
       # Then the server and client receive the message in contentTopic1's handlers, but not in contentTopic2's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
-      for res in [serverHandler2, clientHandler2].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [serverHandler2, clientHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When the client publishes a message in contentTopic2
       serverHandler1.reset()
@@ -1043,10 +1054,11 @@ suite "Sharding":
       # Then the server and client receive the message in contentTopic2's handlers, but not in contentTopic1's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
-      for res in [serverHandler1, clientHandler1].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [serverHandler1, clientHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
     asyncTest "Configure Node combining Multiple Pubsub and Content Topics":
       # Given a connected server and client subscribed to multiple pubsub topics and content topics
@@ -1082,11 +1094,14 @@ suite "Sharding":
       # Then the server and client receive the message in topic1's handlers, but not in topic234's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
-      for res in [
-        serverHandler2, clientHandler2, serverHandler3, clientHandler3, serverHandler4,
-        clientHandler4,
-      ].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [
+            serverHandler2, clientHandler2, serverHandler3, clientHandler3,
+            serverHandler4, clientHandler4,
+          ].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When the client publishes a message in the topic2
       serverHandler1.reset()
@@ -1105,11 +1120,14 @@ suite "Sharding":
       # Then the server and client receive the message in topic2's handlers, but not in topic134's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
-      for res in [
-        serverHandler1, clientHandler1, serverHandler3, clientHandler3, serverHandler4,
-        clientHandler4,
-      ].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [
+            serverHandler1, clientHandler1, serverHandler3, clientHandler3,
+            serverHandler4, clientHandler4,
+          ].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When the client publishes a message in the topic3
       serverHandler1.reset()
@@ -1128,11 +1146,14 @@ suite "Sharding":
       # Then the server and client receive the message in topic3's handlers, but not in topic124's
       assertResultOk(await serverHandler3.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler3.waitForResult(FUTURE_TIMEOUT))
-      for res in [
-        serverHandler1, clientHandler1, serverHandler2, clientHandler2, serverHandler4,
-        clientHandler4,
-      ].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [
+            serverHandler1, clientHandler1, serverHandler2, clientHandler2,
+            serverHandler4, clientHandler4,
+          ].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When the client publishes a message in the topic4
       serverHandler1.reset()
@@ -1151,11 +1172,14 @@ suite "Sharding":
       # Then the server and client receive the message in topic4's handlers, but not in topic123's
       assertResultOk(await serverHandler4.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await clientHandler4.waitForResult(FUTURE_TIMEOUT))
-      for res in [
-        serverHandler1, clientHandler1, serverHandler2, clientHandler2, serverHandler3,
-        clientHandler3,
-      ].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [
+            serverHandler1, clientHandler1, serverHandler2, clientHandler2,
+            serverHandler3, clientHandler3,
+          ].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
     asyncTest "Protocol with Unconfigured PubSub Topic Fails":
       # Given a
@@ -1178,8 +1202,11 @@ suite "Sharding":
 
       # Then the publish is rejected, and neither node receives the message
       check publishResult.isErr()
-      for res in [serverHandler, clientHandler].mapIt(it.waitForResult(FUTURE_TIMEOUT)):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [serverHandler, clientHandler].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
     asyncTest "Waku LightPush Sharding (Static Sharding)":
       # Given a connected server and client using two different pubsub topics
@@ -1210,10 +1237,11 @@ suite "Sharding":
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
-      for res in [clientHandler2, serverHandler2].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [clientHandler2, serverHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
       # When a peer publishes a message (the client, for testing easeness) in topic2
       serverHandler1.reset()
@@ -1229,10 +1257,11 @@ suite "Sharding":
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
-      for res in [clientHandler1, serverHandler1].mapIt(
-        it.waitForResult(FUTURE_TIMEOUT)
-      ):
-        check (await res).isErr()
+      check (
+        await allFinished(
+          [clientHandler1, serverHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
+        )
+      ).allIt(it.read().isErr())
 
     asyncTest "Waku Filter Sharding (Static Sharding)":
       # Given a connected server and client using two different pubsub topics
