@@ -842,7 +842,11 @@ proc messageOnNewRoot(
   ## and returns a message proven against that new root.
   var sender: RlnEvm
   lockNewGlobalBrokerContext:
-    sender = (await RlnEvm.new(rlnConfigAt(manager, MembershipIndex(2), ethClientUrl))).valueOr:
+    sender = (
+      await RlnEvm.new(
+        rlnConfigAt(manager, MembershipIndex(2), ethClientUrl), globalBrokerContext()
+      )
+    ).valueOr:
       raiseAssert $error
   let senderManager = cast[RlnEvmGroupManager](sender.groupManager)
   (await senderManager.register(generateCredentials(), UserMessageLimit(20))).isOkOr:
