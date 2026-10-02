@@ -141,14 +141,6 @@ Many flags only configure a feature that another flag enables. If such a flag is
 | `--enable-kad-discovery` or `--plugin-kad-discovery` | `--kad-bootstrap-node`, `--kad-random-lookup-interval`, `--kad-service-lookup-interval` |
 | `--rln-relay` | `--rln-relay-cred-path`, `--rln-relay-cred-password`, `--rln-relay-eth-client-address`, `--rln-relay-eth-contract-address`, `--rln-relay-chain-id`, `--rln-relay-user-message-limit`, `--rln-relay-epoch-sec`, `--rln-relay-membership-index` |
 
-### Deprecated flags
-
-These flags are hidden from `--help` but still accepted, so existing configurations keep working. Passing one on the command line prints a deprecation warning to stderr; setting one in the TOML file or through `LOGOS_DELIVERY_NODE_*` environment variables does not.
-
-- `--dns-discovery`: ignored; `--dns-discovery-url` enables DNS discovery.
-- `--rln-relay-dynamic`: not needed; on-chain RLN is the only mode and the default.
-- `--rln-relay-eth-private-key`: ignored by the node; only the `rlnkeystore` tool uses it.
-
 ## Configuration use cases
 
 This is an index of tutorials explaining how to configure your nwaku node for different use cases.
