@@ -546,17 +546,10 @@ suite "Waku external config - deprecated flags":
     ## Then
     check:
       conf.dnsDiscovery == true
+      conf.rlnRelayEthPrivateKey == "0xabc"
       wakuConf.dnsDiscoveryConf.isNone()
       wakuConf.discv5Conf.isSome() == defaultWakuConf.discv5Conf.isSome()
       wakuConf.rlnEvmConf.isNone()
-      deprecatedFlagWarnings(conf) ==
-        @[
-          "--dns-discovery is deprecated and ignored: --dns-discovery-url enables DNS discovery",
-          "--rln-relay-eth-private-key is deprecated and ignored: only the RLN keystore generator uses it",
-        ]
-
-  test "default config has no deprecation warnings":
-    check deprecatedFlagWarnings(defaultKernelConf().get()).len == 0
 
   test "on-chain RLN no longer needs --rln-relay-dynamic":
     ## Given
@@ -573,33 +566,28 @@ suite "Waku external config - deprecated flags":
     check:
       wakuConf.rlnEvmConf.isSome()
       wakuConf.rlnEvmConf.get().dynamic
-      deprecatedFlagWarnings(conf).len == 0
 
   test "--rln-relay-dynamic is still accepted":
     ## Given
-    let cmdLine = @[
-      "--rln-relay=true", "--rln-relay-dynamic=true", "--rln-relay-chain-id=1",
+    let rlnFlags = @[
+      "--rln-relay=true", "--rln-relay-chain-id=1",
       "--rln-relay-eth-contract-address=0x0000000000000000000000000000000000000001",
     ]
 
     ## When
-    let conf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
-    let wakuConf = conf.toWakuConf().valueOr:
-      raiseAssert error
+    let withTrue = WakuNodeConf
+      .load(version = "", cmdLine = rlnFlags & "--rln-relay-dynamic=true")
+      .toWakuConf()
+    let withFalse = WakuNodeConf
+      .load(version = "", cmdLine = rlnFlags & "--rln-relay-dynamic=false")
+      .toWakuConf()
 
     ## Then
     check:
-      wakuConf.rlnEvmConf.get().dynamic
-      deprecatedFlagWarnings(conf) ==
-        @[
-          "--rln-relay-dynamic is deprecated and ignored: on-chain RLN is the only mode"
-        ]
-
-  test "--rln-relay-dynamic=false is reported as unsupported":
-    var conf = defaultKernelConf().get()
-    conf.rlnRelayDynamic = Opt.some(false)
-    check deprecatedFlagWarnings(conf) ==
-      @["--rln-relay-dynamic=false is not supported: on-chain RLN is the only mode"]
+      withTrue.isOk()
+      withTrue.get().rlnEvmConf.get().dynamic
+      withFalse.isOk()
+      not withFalse.get().rlnEvmConf.get().dynamic
 
 suite "Waku external config - ignored dependent flags":
   proc warningsOf(conf: WakuNodeConf): seq[string] =

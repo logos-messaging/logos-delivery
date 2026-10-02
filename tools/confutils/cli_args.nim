@@ -132,8 +132,8 @@ type WakuNodeConf* = object
   .}: string
 
   rlnRelayEthPrivateKey* {.
-    hidden,
-    desc: "Deprecated and ignored. Only the RLN keystore generator uses it.",
+    obsolete: "ignored, set it on the rlnkeystore tool instead",
+    desc: "Deprecated and ignored. Only the rlnkeystore tool uses it.",
     defaultValue: "",
     name: "rln-relay-eth-private-key"
   .}: string
@@ -333,7 +333,7 @@ hence would have reachability issues.""",
   .}: Opt[uint]
 
   rlnRelayDynamic* {.
-    hidden,
+    obsolete: "not needed, on-chain RLN is the only mode",
     desc: "Deprecated. On-chain dynamic group management is the only RLN mode.",
     defaultValue: Opt.none(bool),
     name: "rln-relay-dynamic"
@@ -570,7 +570,7 @@ hence would have reachability issues.""",
 
   ## DNS discovery config
   dnsDiscovery* {.
-    hidden,
+    obsolete: "ignored, use --dns-discovery-url",
     desc: "Deprecated and ignored. Set --dns-discovery-url instead.",
     defaultValue: false,
     name: "dns-discovery"
@@ -1095,27 +1095,6 @@ proc toNetworkPresetConf*(
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
-func deprecatedFlagWarnings*(n: WakuNodeConf): seq[string] =
-  ## Deprecated flags are still accepted, so that existing configs keep working.
-  var warnings: seq[string]
-  if n.dnsDiscovery:
-    warnings.add(
-      "--dns-discovery is deprecated and ignored: --dns-discovery-url enables DNS discovery"
-    )
-  if n.rlnRelayDynamic == Opt.some(false):
-    warnings.add(
-      "--rln-relay-dynamic=false is not supported: on-chain RLN is the only mode"
-    )
-  elif n.rlnRelayDynamic.isSome():
-    warnings.add(
-      "--rln-relay-dynamic is deprecated and ignored: on-chain RLN is the only mode"
-    )
-  if n.rlnRelayEthPrivateKey != "":
-    warnings.add(
-      "--rln-relay-eth-private-key is deprecated and ignored: only the RLN keystore generator uses it"
-    )
-  return warnings
-
 func ignoredFlagWarnings*(
     n: WakuNodeConf, defaults: WakuNodeConf, conf: WakuConf
 ): seq[string] =
@@ -1240,8 +1219,6 @@ func ignoredFlagWarnings*(
   return warnings
 
 proc logConfigWarnings(n: WakuNodeConf, conf: WakuConf) =
-  for msg in deprecatedFlagWarnings(n):
-    warn "deprecated configuration flag", detail = msg
   let defaults = defaultKernelConf(ModeProtocolFlags()).valueOr:
     return
   for msg in ignoredFlagWarnings(n, defaults, conf):

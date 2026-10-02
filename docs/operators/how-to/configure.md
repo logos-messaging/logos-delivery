@@ -143,11 +143,11 @@ Many flags only configure a feature that another flag enables. If such a flag is
 
 ### Deprecated flags
 
-These flags are hidden from `--help` but still accepted, so existing configurations keep working. Setting one to a non-default value logs a warning at startup.
+These flags are hidden from `--help` but still accepted, so existing configurations keep working. Passing one on the command line prints a deprecation warning to stderr; setting one in the TOML file or through `LOGOS_DELIVERY_NODE_*` environment variables does not.
 
 - `--dns-discovery`: ignored; `--dns-discovery-url` enables DNS discovery.
 - `--rln-relay-dynamic`: not needed; on-chain RLN is the only mode and the default.
-- `--rln-relay-eth-private-key`: ignored by the node; only the RLN keystore generator uses it.
+- `--rln-relay-eth-private-key`: ignored by the node; only the `rlnkeystore` tool uses it.
 
 ## Configuration use cases
 
