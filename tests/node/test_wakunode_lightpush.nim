@@ -343,6 +343,30 @@ suite "RLN Proofs as a Lightpush Service":
         response.isErr()
         response.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
 
+    asyncTest "a timestamp outside the validators' bound is INVALID_MESSAGE":
+      ## Proof generation refuses it as Permanent before anything is
+      ## published. The fault is in the request, so it is the client's
+      ## INVALID_MESSAGE, not the node's OUT_OF_RLN_PROOF.
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return lighpushErrorResult(
+          LightPushErrorCode.INTERNAL_SERVER_ERROR, "must not be published"
+        )
+      server.wakuLightPush.pushHandler = stub
+
+      let anHourAgo = now() - 3_600_000_000_000 # nanoseconds
+      let response = await server.lightpushPublish(
+        Opt.some(pubsubTopic), fakeWakuMessage(ts = anHourAgo)
+      )
+
+      check:
+        callCount == 0
+        response.isErr()
+        response.error.code == LightPushErrorCode.INVALID_MESSAGE
+
     asyncTest "rejection passes through unchanged when RLN is not mounted":
       # Detach the RLN backend so there is no refresh hook to call, even for an
       # RLN-tagged 420. Restore before teardown so server.stop() stops the

@@ -31,6 +31,7 @@ import
   ../../common/rate_limit/setting,
   ../../rln,
   ../../rln/rln_plugin
+from ../../rln/types import RlnErrorKind
 
 logScope:
   topics = "waku node lightpush api"
@@ -350,10 +351,17 @@ proc lightpushPublish*(
   # the downstream ensureTimestampSet then becomes a no-op.
   let message = ensureTimestampSet(message)
 
+  # A Permanent failure comes from the message itself, such as a timestamp
+  # outside the validators' bound, so it is the client's INVALID_MESSAGE, as
+  # the relay validator answered before proof generation checked it. Any
+  # other failure is the node's: it has no proof to offer right now.
   let msgWithProof = (await attachProof(node.rlnPlugin, message)).valueOr:
-    return lighpushErrorResult(
-      LightPushErrorCode.OUT_OF_RLN_PROOF, "failed to attach RLN proof: " & $error
-    )
+    let code =
+      if error.kind == RlnErrorKind.Permanent:
+        LightPushErrorCode.INVALID_MESSAGE
+      else:
+        LightPushErrorCode.OUT_OF_RLN_PROOF
+    return lighpushErrorResult(code, "failed to attach RLN proof: " & $error)
 
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
