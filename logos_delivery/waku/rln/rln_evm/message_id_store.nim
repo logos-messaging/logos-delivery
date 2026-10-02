@@ -49,8 +49,10 @@ proc decodeIds(bytes: seq[byte]): Result[StoredIds, string] =
     return err("epoch index: " & $error)
   let hasNextId = pb.getField(2, nextId).valueOr:
     return err("next id: " & $error)
-  if not hasEpochIndex or not hasNextId:
-    return err("missing field")
+  if not hasEpochIndex:
+    return err("missing epoch index field")
+  if not hasNextId:
+    return err("missing next id field")
   return ok(StoredIds(epochIndex: epochIndex, nextId: nextId))
 
 proc openIdStore*(brokerCtx: BrokerContext): Result[persistency.Job, string] =
@@ -70,7 +72,7 @@ proc loadIds*(
   ## The identity's stored row; none when it has never drawn an id. A row that
   ## does not decode is an error, never a fresh start.
   if job.isNil() or not job.running:
-    return err("message id store is closed")
+    return err("read message ids: store is closed")
   let stored =
     try:
       (await job.get(RlnCategory, key)).valueOr:
@@ -78,7 +80,7 @@ proc loadIds*(
     except CancelledError as e:
       raise e
     except CatchableError as e:
-      return err("read message ids: " & e.msg)
+      return err("read message ids: unexpected error " & $e.name & ": " & e.msg)
   if stored.isNone():
     return ok(Opt.none(StoredIds))
   let ids = decodeIds(stored.get()).valueOr:
@@ -91,12 +93,12 @@ proc saveIds*(
   ## Writes the identity's row and resolves once it is committed. A proof may
   ## carry an id only after the saved `nextId` is above it.
   if job.isNil() or not job.running:
-    return err("message id store is closed")
+    return err("write message ids: store is closed")
   try:
     (await job.putAcked(RlnCategory, key, encodeIds(epochIndex, nextId))).isOkOr:
       return err("write message ids: " & $error)
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    return err("write message ids: " & e.msg)
+    return err("write message ids: unexpected error " & $e.name & ": " & e.msg)
   return ok()
