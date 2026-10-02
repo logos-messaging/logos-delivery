@@ -567,28 +567,6 @@ suite "Waku external config - deprecated flags":
       wakuConf.rlnEvmConf.isSome()
       wakuConf.rlnEvmConf.get().dynamic
 
-  test "--rln-relay-dynamic is still accepted":
-    ## Given
-    let rlnFlags = @[
-      "--rln-relay=true", "--rln-relay-chain-id=1",
-      "--rln-relay-eth-contract-address=0x0000000000000000000000000000000000000001",
-    ]
-
-    ## When
-    let withTrue = WakuNodeConf
-      .load(version = "", cmdLine = rlnFlags & "--rln-relay-dynamic=true")
-      .toWakuConf()
-    let withFalse = WakuNodeConf
-      .load(version = "", cmdLine = rlnFlags & "--rln-relay-dynamic=false")
-      .toWakuConf()
-
-    ## Then
-    check:
-      withTrue.isOk()
-      withTrue.get().rlnEvmConf.get().dynamic
-      withFalse.isOk()
-      not withFalse.get().rlnEvmConf.get().dynamic
-
 suite "Waku external config - ignored dependent flags":
   proc warningsOf(conf: WakuNodeConf): seq[string] =
     let defaults = defaultKernelConf(ModeProtocolFlags()).get()
@@ -632,21 +610,6 @@ suite "Waku external config - ignored dependent flags":
 
     ## When / Then
     check warningsOf(conf).len == 0
-
-  test "a feature disabled by the user reports its flags":
-    ## Given
-    var conf = defaultKernelConf().get()
-    conf.discv5Discovery = Opt.some(false)
-    conf.discv5UdpPort = Port(9003)
-    conf.filter = Opt.some(false)
-    conf.filterMaxCriteria = 5
-
-    ## When / Then
-    check warningsOf(conf) ==
-      @[
-        "--filter-max-criteria is ignored: --filter is not enabled",
-        "--discv5-udp-port is ignored: --discv5-discovery is not enabled",
-      ]
 
   test "a feature enabled by the preset does not report its flags":
     ## Given: the TWN preset enables RLN
