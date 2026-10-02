@@ -77,17 +77,12 @@ proc absDiff*(e1, e2: Epoch): uint64 =
 proc ensureMessageIdsLoaded*(
     rlnEvm: RlnEvm
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
-  ## Loads this identity's message id row on first use and applies the start
-  ## policy; returns at once when already loaded. No id may be drawn before it
-  ## succeeds. A backend mounted without a broker context has no store and
-  ## fails `Permanent`; every other failure is `NotReady` and leaves the store
-  ## unloaded, so the next call retries.
+  ## Loads this identity's saved message id count on first use; no id may be
+  ## drawn until this succeeds. Fails `Permanent` without a broker context,
+  ## otherwise `NotReady`, and the next call retries.
   ##
-  ## A stored row moves the counter forward (`NonceManager.restore`): the
-  ## same epoch resumes at the stored id, a later epoch starts fresh at its
-  ## first `reserve`, and an earlier one is refused. A row ahead of the clock
-  ## (the clock went back, or a message was stamped ahead) also sets
-  ## `refusedUntil`.
+  ## A count saved for an epoch ahead of the clock also sets `refusedUntil`:
+  ## no ids are drawn until the clock reaches that epoch.
   if not rlnEvm.messageIdStore.isNil():
     return ok()
 
@@ -112,8 +107,8 @@ proc ensureMessageIdsLoaded*(
     let currentEpoch = rlnEvm.epochIndexOf(now)
     if row.epochIndex > currentEpoch:
       rlnEvm.refusedUntil = row.epochIndex
-      # Within the validators' timestamp tolerance a row one epoch ahead is a
-      # message stamped just ahead; beyond it, the clock or the row is wrong.
+      # Within the timestamp tolerance this is a message stamped early;
+      # beyond it, the clock or the saved row is wrong.
       let rowEpochStart = float64(row.epochIndex) * float64(rlnEvm.rlnEpochSizeSec)
       if rowEpochStart - now > float64(rlnEvm.rlnMaxTimestampGap):
         warn "RLN message ids were last drawn in an epoch ahead of the clock; no ids are drawn until the clock reaches it. If the clock is right, deleting rln.db resets the counter",
@@ -127,14 +122,10 @@ proc ensureMessageIdsLoaded*(
 proc reserveDurably(
     rlnEvm: RlnEvm, epochIndex: uint64
 ): Future[Result[Nonce, RlnError]] {.async: (raises: [CancelledError]).} =
-  ## Draws a message id for `epochIndex` and saves the new count before
-  ## returning the id, so every id in a proof is below the stored count and a
-  ## restart cannot hand it out again. `reserveLock` is held throughout, so
-  ## saves land in the order the ids were drawn.
-  ##
-  ## A store that is not loaded is `NotReady`. A failed save returns the id
-  ## to the budget and is `Transient`. Either way no id leaves this proc, and
-  ## the send service retries the task on a later round.
+  ## Draws a message id and saves the new count before returning it, so a
+  ## restart never reissues an id already in a proof. Holds `reserveLock` so
+  ## saves land in draw order. An unloaded store is `NotReady`; a failed save
+  ## returns the id and is `Transient`.
   await rlnEvm.reserveLock.acquire()
   defer:
     try:
@@ -156,12 +147,9 @@ proc reserveDurably(
 proc releaseDurably(
     rlnEvm: RlnEvm, epochIndex: uint64, id: Nonce
 ) {.async: (raises: [CancelledError]).} =
-  ## Returns `id` to the epoch's budget after a generation that built no
-  ## proof, and saves the lowered count. Nothing is saved when `release`
-  ## leaves the counter unchanged because another draw followed. A failed
-  ## save is only logged: the stored count stays above the in-memory one,
-  ## the safe direction, and at worst a restart skips the id.
-  await rlnEvm.reserveLock.acquire()
+  ## Returns `id` after a failed proof generation and saves the lowered count,
+  ## unless another draw followed. A failed save is only logged: a higher
+  ## stored count is safe, and at worst a restart skips the id.
   defer:
     try:
       rlnEvm.reserveLock.release()
@@ -198,10 +186,9 @@ proc generateRLNProofWithNonce(
 proc generateRLNProof*(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async: (raises: [CancelledError]).} =
-  ## Draws a message id from the epoch of `senderEpochTime`, the epoch the
-  ## proof carries, saves the new count (`reserveDurably`) and builds the
-  ## proof. A failed generation returns the id to the epoch's budget, since
-  ## no proof carrying it exists.
+  ## Generates a proof with `nonce`; if its merkle root is stale, refetches the
+  ## merkle path and regenerates once. The retry reuses `nonce` so one message
+  ## spends one id, matching what the rate limit manager counts.
   rlnEvm.checkTimestampBounds(senderEpochTime).isOkOr:
     return err($error)
   let epochIndex = rlnEvm.epochIndexOf(senderEpochTime)
@@ -215,14 +202,9 @@ proc generateRLNProof*(
 proc proveWithRootRefresh(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64, nonce: Nonce
 ): Future[Result[seq[byte], RlnError]] {.async.} =
-  ## Generates a proof against an already drawn `nonce` and checks its merkle
-  ## root against the acceptable-root window. If the root is stale, invalidates
-  ## the cache and regenerates once against a refetched path.
-  ##
-  ## The regeneration reuses `nonce`: only the merkle path differs between the
-  ## two, so drawing again would spend two message ids from the epoch budget on
-  ## a message that is sent once. That would drift the budget the rate limit
-  ## manager accounts for away from the one the nonce manager enforces.
+  ## Generates a proof with `nonce`; if its merkle root is stale, refetches the
+  ## merkle path and regenerates once. The retry reuses `nonce` so one message
+  ## spends one id, matching what the rate limit manager counts.
   let proofBytes = (
     await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
   ).valueOr:
@@ -245,21 +227,13 @@ proc proveWithRootRefresh(
 proc generateRLNProofWithRootRefresh*(
     rlnEvm: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], RlnError]] {.async.} =
-  ## Generates an RLN proof whose merkle root is in the acceptable-root window,
-  ## see `proveWithRootRefresh`. Returns the proof bytes.
+  ## Generates an RLN proof with an acceptable merkle root (see
+  ## `proveWithRootRefresh`), drawing and saving its message id first.
   ##
-  ## The message id is drawn from the epoch of `senderEpochTime`, the epoch
-  ## the proof carries, once the time is within the validators' bound, and
-  ## its count is saved before the proof is built (`reserveDurably`). A
-  ## spent epoch budget is `BudgetExhausted`; a time out of bounds or an
-  ## epoch the manager has already moved past is `Permanent`, since no later
-  ## retry can prove it. A message id store that is not loaded is
-  ## `NotReady` and a failed save `Transient`, so the task waits for a later
-  ## round.
-  ##
-  ## A failed generation is `Transient` and returns the id to the epoch's
-  ## budget: no proof carrying it is returned, so the send service's retry of
-  ## the same task draws it again instead of spending a second id.
+  ## Fails `Permanent` for a time out of bounds or an epoch already passed,
+  ## `BudgetExhausted` when the epoch's ids are spent, `NotReady` when the store
+  ## is not loaded, and `Transient` when the save or generation fails. A failed
+  ## generation returns the id, so the retry reuses it.
   ?rlnEvm.checkTimestampBounds(senderEpochTime)
   let epochIndex = rlnEvm.epochIndexOf(senderEpochTime)
   let nonce = ?(await rlnEvm.reserveDurably(epochIndex))
