@@ -533,8 +533,7 @@ suite "Node config - Messaging API flags":
 suite "Waku external config - deprecated flags":
   test "deprecated flags still parse and leave the config unchanged":
     ## Given
-    let cmdLine =
-      @["--keep-alive=false", "--dns-discovery", "--rln-relay-eth-private-key=0xabc"]
+    let cmdLine = @["--dns-discovery", "--rln-relay-eth-private-key=0xabc"]
 
     ## When
     var conf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
@@ -546,14 +545,12 @@ suite "Waku external config - deprecated flags":
 
     ## Then
     check:
-      conf.keepAlive == false
       conf.dnsDiscovery == true
       wakuConf.dnsDiscoveryConf.isNone()
       wakuConf.discv5Conf.isSome() == defaultWakuConf.discv5Conf.isSome()
       wakuConf.rlnEvmConf.isNone()
       deprecatedFlagWarnings(conf) ==
         @[
-          "--keep-alive is deprecated and ignored: keep-alive is always active",
           "--dns-discovery is deprecated and ignored: --dns-discovery-url enables DNS discovery",
           "--rln-relay-eth-private-key is deprecated and ignored: only the RLN keystore generator uses it",
         ]

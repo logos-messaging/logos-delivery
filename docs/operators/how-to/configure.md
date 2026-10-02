@@ -145,7 +145,6 @@ Many flags only configure a feature that another flag enables. If such a flag is
 
 These flags are hidden from `--help` but still accepted, so existing configurations keep working. Setting one to a non-default value logs a warning at startup.
 
-- `--keep-alive`: ignored; keep-alive is always active.
 - `--dns-discovery`: ignored; `--dns-discovery-url` enables DNS discovery.
 - `--rln-relay-dynamic`: not needed; on-chain RLN is the only mode and the default.
 - `--rln-relay-eth-private-key`: ignored by the node; only the RLN keystore generator uses it.

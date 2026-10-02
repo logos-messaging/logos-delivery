@@ -409,8 +409,7 @@ proc startNode*(
     node: WakuNode, conf: WakuConf, dynamicBootstrapNodes: seq[RemotePeerInfo] = @[]
 ): Future[Result[void, string]] {.async: (raises: []).} =
   ## Start a configured node and all mounted protocols.
-  ## Connect to static nodes and start
-  ## keep-alive, if configured.
+  ## Connect to static nodes and start keep-alive.
 
   info "Running nwaku node", version = git_version
 

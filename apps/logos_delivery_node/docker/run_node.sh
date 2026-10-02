@@ -79,7 +79,6 @@ exec /usr/local/bin/logosdeliverynode\
     --lightpush=true\
     --peer-exchange=true\
     --mix=true\
-    --keep-alive=true\
     --max-connections=150\
     --discv5-discovery=true\
     --discv5-udp-port=9005\

@@ -77,7 +77,6 @@ exec /usr/bin/logosdeliverynode\
   --relay=true\
   --filter=false\
   --lightpush=false\
-  --keep-alive=true\
   --max-connections=150\
   --cluster-id="${CLUSTER_ID}"\
   --discv5-discovery=true\

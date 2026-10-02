@@ -358,14 +358,6 @@ hence would have reachability issues.""",
     name: "staticnode"
   .}: seq[string]
 
-  keepAlive* {.
-    hidden,
-    desc:
-      "Deprecated since >=v0.37. This param is ignored and keep alive is always active",
-    defaultValue: true,
-    name: "keep-alive"
-  .}: bool
-
   numShardsInNetwork* {.
     desc:
       "Enables autosharding and set number of shards in the cluster, set to `0` to use static sharding",
@@ -1106,8 +1098,6 @@ proc toNetworkPresetConf*(
 func deprecatedFlagWarnings*(n: WakuNodeConf): seq[string] =
   ## Deprecated flags are still accepted, so that existing configs keep working.
   var warnings: seq[string]
-  if not n.keepAlive:
-    warnings.add("--keep-alive is deprecated and ignored: keep-alive is always active")
   if n.dnsDiscovery:
     warnings.add(
       "--dns-discovery is deprecated and ignored: --dns-discovery-url enables DNS discovery"

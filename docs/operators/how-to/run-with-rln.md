@@ -65,8 +65,6 @@ docker run -i -t -p 60000:60000 -p 9000:9000/udp wakuorg/nwaku:v0.36.0 \
   --rln-relay-eth-client-address:"$LINEA_SEPOLIA_HTTP_NODE_ADDRESS"
 ```
 
-> Note: You can choose to keep connections to other nodes alive by adding the `--keep-alive` flag.
-
 Following is the list of additional fields that have been added to the
 runtime arguments -
 
