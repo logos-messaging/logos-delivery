@@ -54,7 +54,9 @@ type
     .}
       ## Budget snapshot for the epoch derived from `timestamp` (Unix seconds),
       ## so the epoch and the remaining budget cannot straddle an epoch
-      ## boundary. Nil for backends that keep no budget.
+      ## boundary. The answer must count message ids spent before a restart:
+      ## the backend that draws the ids owns that state and must persist it.
+      ## Nil for backends that keep no budget.
 
   RlnCommonConf* = object
     ## Node-side RLN relay settings, independent of the mounted backend. A
