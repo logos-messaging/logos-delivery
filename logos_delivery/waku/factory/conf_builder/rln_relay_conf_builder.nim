@@ -6,6 +6,7 @@ logScope:
 
 const
   DefaultRlnRelayEnabled*: bool = false
+  DefaultRlnRelayDynamic*: bool = true ## On-chain membership is the only supported mode.
   DefaultRlnRelayEpochSizeSec*: uint64 = 1
   DefaultRlnRelayUserMessageLimit*: uint64 = 1
 
@@ -82,8 +83,6 @@ proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
 
   if b.chainId.isNone():
     return err("RLN Relay Chain Id is not specified")
-  if b.dynamic.isNone():
-    return err("rlnRelay.dynamic is not specified")
   if b.ethClientUrls.get(newSeq[string](0)).len == 0:
     return err("rlnRelay.ethClientUrls is not specified")
   if b.ethContractAddress.get("") == "":
@@ -95,7 +94,7 @@ proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
           chainId: b.chainId.get(),
           credIndex: b.credIndex,
           creds: creds,
-          dynamic: b.dynamic.get(),
+          dynamic: b.dynamic.get(DefaultRlnRelayDynamic),
           ethClientUrls: b.ethClientUrls.get(),
           ethContractAddress: b.ethContractAddress.get(),
           epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),

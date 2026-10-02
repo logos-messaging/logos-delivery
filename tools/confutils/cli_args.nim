@@ -99,39 +99,41 @@ type WakuNodeConf* = object
   .}: logging.LogFormat
 
   rlnRelayCredPath* {.
-    desc: "The path for persisting rln-relay credential",
+    desc: "The path for persisting rln-relay credential (requires --rln-relay)",
     defaultValue: "",
     name: "rln-relay-cred-path"
   .}: string
 
   ethClientUrls* {.
     desc:
-      "HTTP address of an Ethereum testnet client e.g., http://localhost:8540/. Argument may be repeated.",
+      "HTTP address of an Ethereum testnet client e.g., http://localhost:8540/. Argument may be repeated. (requires --rln-relay)",
     defaultValue: @[EthRpcUrl("http://localhost:8540/")],
     name: "rln-relay-eth-client-address"
   .}: seq[EthRpcUrl]
 
   rlnRelayEthContractAddress* {.
-    desc: "Address of membership contract on an Ethereum testnet.",
+    desc:
+      "Address of membership contract on an Ethereum testnet. (requires --rln-relay)",
     defaultValue: "",
     name: "rln-relay-eth-contract-address"
   .}: string
 
   rlnRelayChainId* {.
     desc:
-      "Chain ID of the provided contract (optional, will fetch from RPC provider if not used)",
+      "Chain ID of the provided contract (optional, will fetch from RPC provider if not used) (requires --rln-relay)",
     defaultValue: 0,
     name: "rln-relay-chain-id"
   .}: uint
 
   rlnRelayCredPassword* {.
-    desc: "Password for encrypting RLN credentials",
+    desc: "Password for encrypting RLN credentials (requires --rln-relay)",
     defaultValue: "",
     name: "rln-relay-cred-password"
   .}: string
 
   rlnRelayEthPrivateKey* {.
-    desc: "Private key for broadcasting transactions",
+    hidden,
+    desc: "Deprecated and ignored. Only the RLN keystore generator uses it.",
     defaultValue: "",
     name: "rln-relay-eth-private-key"
   .}: string
@@ -140,7 +142,7 @@ type WakuNodeConf* = object
   rlnRelayUserMessageLimit* {.
     desc:
       "Set a user message limit for the rln membership registration. Must be a positive integer. Default is " &
-      $DefaultRlnRelayUserMessageLimit & ".",
+      $DefaultRlnRelayUserMessageLimit & ". (requires --rln-relay)",
     defaultValue: Opt.none(uint64),
     name: "rln-relay-user-message-limit"
   .}: Opt[uint64]
@@ -149,7 +151,7 @@ type WakuNodeConf* = object
   rlnEpochSizeSec* {.
     desc:
       "Epoch size in seconds used to rate limit RLN memberships. Default is " &
-      $DefaultRlnRelayEpochSizeSec & " second.",
+      $DefaultRlnRelayEpochSizeSec & " second. (requires --rln-relay)",
     defaultValue: Opt.none(uint64),
     name: "rln-relay-epoch-sec"
   .}: Opt[uint64]
@@ -326,12 +328,13 @@ hence would have reachability issues.""",
   .}: Opt[bool]
 
   rlnRelayCredIndex* {.
-    desc: "the index of the onchain commitment to use",
+    desc: "The index of the onchain commitment to use (requires --rln-relay)",
     name: "rln-relay-membership-index"
   .}: Opt[uint]
 
   rlnRelayDynamic* {.
-    desc: "Enable  waku-rln-relay with on-chain dynamic group management: true|false.",
+    hidden,
+    desc: "Deprecated. On-chain dynamic group management is the only RLN mode.",
     defaultValue: Opt.none(bool),
     name: "rln-relay-dynamic"
   .}: Opt[bool]
@@ -356,6 +359,7 @@ hence would have reachability issues.""",
   .}: seq[string]
 
   keepAlive* {.
+    hidden,
     desc:
       "Deprecated since >=v0.37. This param is ignored and keep alive is always active",
     defaultValue: true,
@@ -393,62 +397,65 @@ hence would have reachability issues.""",
 
   storeMessageRetentionPolicy* {.
     desc:
-      "Message store retention policy. Multiple policies may be provided as a semicolon-separated string and are applied as a union. Time retention policy: 'time:<seconds>'. Capacity retention policy: 'capacity:<count>'. Size retention policy: 'size:<xMB/xGB>'. Set to 'none' to disable. Example: 'time:3600;size:1GB;capacity:100'.",
+      "Message store retention policy. Multiple policies may be provided as a semicolon-separated string and are applied as a union. Time retention policy: 'time:<seconds>'. Capacity retention policy: 'capacity:<count>'. Size retention policy: 'size:<xMB/xGB>'. Set to 'none' to disable. Example: 'time:3600;size:1GB;capacity:100'. (requires --store)",
     defaultValue: "time:" & $2.days.seconds,
     name: "store-message-retention-policy"
   .}: string
 
   storeMessageDbUrl* {.
-    desc: "The database connection URL for peristent storage.",
+    desc: "The database connection URL for persistent storage. (requires --store)",
     defaultValue: "sqlite://store.sqlite3",
     name: "store-message-db-url"
   .}: string
 
   storeMessageDbVacuum* {.
     desc:
-      "Enable database vacuuming at start. Only supported by SQLite database engine.",
+      "Enable database vacuuming at start. Only supported by SQLite database engine. (requires --store)",
     defaultValue: false,
     name: "store-message-db-vacuum"
   .}: bool
 
   storeMessageDbMigration* {.
-    desc: "Enable database migration at start.",
+    desc: "Enable database migration at start. (requires --store)",
     defaultValue: true,
     name: "store-message-db-migration"
   .}: bool
 
   storeMaxNumDbConnections* {.
-    desc: "Maximum number of simultaneous Postgres connections.",
+    desc: "Maximum number of simultaneous Postgres connections. (requires --store)",
     defaultValue: 50,
     name: "store-max-num-db-connections"
   .}: int
 
   storeResume* {.
-    desc: "Enable store resume functionality", defaultValue: false, name: "store-resume"
+    desc: "Enable store resume functionality (requires --store)",
+    defaultValue: false,
+    name: "store-resume"
   .}: bool
 
   ## Sync config
   storeSync* {.
-    desc: "Enable store sync protocol: true|false",
+    desc: "Enable store sync protocol: true|false (requires --store)",
     defaultValue: false,
     name: "store-sync"
   .}: bool
 
   storeSyncInterval* {.
-    desc: "Interval between store sync attempts. In seconds.",
+    desc: "Interval between store sync attempts. In seconds. (requires --store-sync)",
     defaultValue: 300, # 5 minutes
     name: "store-sync-interval"
   .}: uint32
 
   storeSyncRange* {.
-    desc: "Amount of time to sync. In seconds.",
-    defaultValue: 3600, # 1 hours
+    desc: "Amount of time to sync. In seconds. (requires --store-sync)",
+    defaultValue: 3600, # 1 hour
     name: "store-sync-range"
   .}: uint32
 
   storeSyncRelayJitter* {.
     hidden,
-    desc: "Time offset to account for message propagation jitter. In seconds.",
+    desc:
+      "Time offset to account for message propagation jitter. In seconds. (requires --store-sync)",
     defaultValue: 20,
     name: "store-sync-relay-jitter"
   .}: uint32
@@ -468,20 +475,20 @@ hence would have reachability issues.""",
 
   filterSubscriptionTimeout* {.
     desc:
-      "Timeout for filter subscription without ping or refresh it, in seconds. Only for v2 filter protocol.",
+      "Timeout in seconds for a filter subscription that is not pinged or refreshed. (requires --filter)",
     defaultValue: 300, # 5 minutes
     name: "filter-subscription-timeout"
   .}: uint16
 
   filterMaxPeersToServe* {.
-    desc: "Maximum number of peers to serve at a time. Only for v2 filter protocol.",
+    desc: "Maximum number of filter peers to serve at a time. (requires --filter)",
     defaultValue: 1000,
     name: "filter-max-peers-to-serve"
   .}: uint32
 
   filterMaxCriteria* {.
     desc:
-      "Maximum number of pubsub- and content topic combination per peers at a time. Only for v2 filter protocol.",
+      "Maximum number of pubsub and content topic combinations per peer at a time. (requires --filter)",
     defaultValue: 1000,
     name: "filter-max-criteria"
   .}: uint32
@@ -505,41 +512,41 @@ hence would have reachability issues.""",
   .}: bool
 
   restAddress* {.
-    desc: "Listening address of the REST HTTP server.",
+    desc: "Listening address of the REST HTTP server. (requires --rest)",
     defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
     name: "rest-address"
   .}: IpAddress
 
   restPort* {.
-    desc: "Listening port of the REST HTTP server.",
+    desc: "Listening port of the REST HTTP server. (requires --rest)",
     defaultValue: 8645,
     name: "rest-port"
   .}: uint16
 
   restRelayCacheCapacity* {.
-    desc: "Capacity of the Relay REST API message cache.",
+    desc: "Capacity of the Relay REST API message cache. (requires --rest)",
     defaultValue: 50,
     name: "rest-relay-cache-capacity"
   .}: uint32
 
   restMessagingCacheCapacity* {.
     desc:
-      "Capacity of the messaging REST API received-messages cache. The newest messages are kept until polled.",
+      "Capacity of the messaging REST API received-messages cache. The newest messages are kept until polled. (requires --rest)",
     defaultValue: DefaultCliRestMessagingCacheCapacity,
     name: "rest-messaging-cache-capacity"
   .}: uint32
 
   restAdmin* {.
-    desc: "Enable access to REST HTTP Admin API: true|false",
+    desc: "Enable access to REST HTTP Admin API: true|false (requires --rest)",
     defaultValue: false,
     name: "rest-admin"
   .}: bool
 
   restAllowOrigin* {.
     desc:
-      "Allow cross-origin requests from the specified origin." &
-      "Argument may be repeated." & "Wildcards: * or ? allowed." &
-      "Ex.: \"localhost:*\" or \"127.0.0.1:8080\"",
+      "Allow cross-origin requests from the specified origin. " &
+      "Argument may be repeated. Wildcards: * or ? allowed. " &
+      "Ex.: \"localhost:*\" or \"127.0.0.1:8080\" (requires --rest)",
     defaultValue: newSeq[string](),
     name: "rest-allow-origin"
   .}: seq[string]
@@ -552,13 +559,13 @@ hence would have reachability issues.""",
   .}: bool
 
   metricsServerAddress* {.
-    desc: "Listening address of the metrics server.",
+    desc: "Listening address of the metrics server. (requires --metrics-server)",
     defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
     name: "metrics-server-address"
   .}: IpAddress
 
   metricsServerPort* {.
-    desc: "Listening HTTP port of the metrics server.",
+    desc: "Listening HTTP port of the metrics server. (requires --metrics-server)",
     defaultValue: 8008,
     name: "metrics-server-port"
   .}: uint16
@@ -571,8 +578,8 @@ hence would have reachability issues.""",
 
   ## DNS discovery config
   dnsDiscovery* {.
-    desc:
-      "Deprecated, please set dns-discovery-url instead. Enable discovering nodes via DNS",
+    hidden,
+    desc: "Deprecated and ignored. Set --dns-discovery-url instead.",
     defaultValue: false,
     name: "dns-discovery"
   .}: bool
@@ -592,14 +599,14 @@ hence would have reachability issues.""",
   .}: Opt[bool]
 
   discv5UdpPort* {.
-    desc: "Listening UDP port for Node Discovery v5.",
+    desc: "Listening UDP port for Node Discovery v5. (requires --discv5-discovery)",
     defaultValue: 9000,
     name: "discv5-udp-port"
   .}: Port
 
   discv5BootstrapNodes* {.
     desc:
-      "Text-encoded ENR for bootstrap node. Used when connecting to the network. Argument may be repeated.",
+      "Text-encoded ENR for bootstrap node. Used when connecting to the network. Argument may be repeated. (requires --discv5-discovery)",
     name: "discv5-bootstrap-node"
   .}: seq[string]
 
@@ -607,28 +614,31 @@ hence would have reachability issues.""",
     desc:
       "Discovery can automatically update its ENR with the IP address " &
       "and UDP port as seen by other nodes it communicates with. " &
-      "This option allows to enable/disable this functionality",
+      "This option allows to enable/disable this functionality (requires --discv5-discovery)",
     defaultValue: false,
     name: "discv5-enr-auto-update"
   .}: bool
 
   discv5TableIpLimit* {.
     hidden,
-    desc: "Maximum amount of nodes with the same IP in discv5 routing tables",
+    desc:
+      "Maximum amount of nodes with the same IP in discv5 routing tables (requires --discv5-discovery)",
     defaultValue: 10,
     name: "discv5-table-ip-limit"
   .}: uint
 
   discv5BucketIpLimit* {.
     hidden,
-    desc: "Maximum amount of nodes with the same IP in discv5 routing table buckets",
+    desc:
+      "Maximum amount of nodes with the same IP in discv5 routing table buckets (requires --discv5-discovery)",
     defaultValue: 2,
     name: "discv5-bucket-ip-limit"
   .}: uint
 
   discv5BitsPerHop* {.
     hidden,
-    desc: "Kademlia's b variable, increase for less hops per lookup",
+    desc:
+      "Kademlia's b variable, increase for less hops per lookup (requires --discv5-discovery)",
     defaultValue: 1,
     name: "discv5-bits-per-hop"
   .}: int
@@ -665,13 +675,13 @@ hence would have reachability issues.""",
 
   mixkey* {.
     desc:
-      "ED25519 private key as 64 char hex string , without 0x. If not provided, a random key will be generated.",
+      "ED25519 private key as 64 char hex string, without 0x. If not provided, a random key will be generated. (requires --mix)",
     name: "mixkey"
   .}: Opt[string]
 
   mixnodes* {.
     desc:
-      "A mix node to seed the pool with, as multiaddr:mixPubKey. The multiaddress carries a /p2p/<peer id> on TCP or QUIC-v1 over IPv4 (directly or through a circuit relay), or names its host (dns4), which is resolved after the mount. Argument may be repeated.",
+      "A mix node to seed the pool with, as multiaddr:mixPubKey. The multiaddress carries a /p2p/<peer id> on TCP or QUIC-v1 over IPv4 (directly or through a circuit relay), or names its host (dns4), which is resolved after the mount. Argument may be repeated. (requires --mix)",
     name: "mixnode"
   .}: seq[MixNodePubInfo]
 
@@ -687,19 +697,20 @@ hence would have reachability issues.""",
 
   kadBootstrapNodes* {.
     desc:
-      "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated.",
+      "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated. (requires --enable-kad-discovery or --plugin-kad-discovery)",
     name: "kad-bootstrap-node"
   .}: seq[string]
 
   kadRandomLookupIntervalSec* {.
     desc:
-      "Interval seconds between random kademlia lookups. 0 (the default) disables them.",
+      "Interval seconds between random kademlia lookups. 0 (the default) disables them. (requires --enable-kad-discovery or --plugin-kad-discovery)",
     defaultValue: 0,
     name: "kad-random-lookup-interval"
   .}: uint32
 
   kadServiceLookupIntervalSec* {.
-    desc: "Interval seconds between service-specific kademlia lookups.",
+    desc:
+      "Interval seconds between service-specific kademlia lookups. (requires --enable-kad-discovery or --plugin-kad-discovery)",
     defaultValue: 60,
     name: "kad-service-lookup-interval"
   .}: uint32
@@ -719,41 +730,44 @@ hence would have reachability issues.""",
 
   ## websocket config
   websocketSupport* {.
-    desc: "Enable websocket:  true|false",
-    defaultValue: false,
-    name: "websocket-support"
+    desc: "Enable websocket: true|false", defaultValue: false, name: "websocket-support"
   .}: bool
 
   websocketPort* {.
-    desc: "WebSocket listening port.", defaultValue: 8000, name: "websocket-port"
+    desc: "WebSocket listening port. (requires --websocket-support)",
+    defaultValue: 8000,
+    name: "websocket-port"
   .}: Port
 
   websocketSecureSupport* {.
-    desc: "Enable secure websocket:  true|false",
+    desc: "Enable secure websocket: true|false (requires --websocket-support)",
     defaultValue: false,
     name: "websocket-secure-support"
   .}: bool
 
   websocketSecureKeyPath* {.
-    desc: "Secure websocket key path:   '/path/to/key.txt' ",
+    desc:
+      "Secure websocket key path: '/path/to/key.txt' (requires --websocket-secure-support)",
     defaultValue: "",
     name: "websocket-secure-key-path"
   .}: string
 
   websocketSecureCertPath* {.
-    desc: "Secure websocket Certificate path:   '/path/to/cert.txt' ",
+    desc:
+      "Secure websocket certificate path: '/path/to/cert.txt' (requires --websocket-secure-support)",
     defaultValue: "",
     name: "websocket-secure-cert-path"
   .}: string
 
   ## quic config
   quicSupport* {.
-    desc: "Enable QUIC transport:  true|false", defaultValue: true, name: "quic-support"
+    desc: "Enable QUIC transport: true|false", defaultValue: true, name: "quic-support"
   .}: bool
 
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   quicPort* {.
-    desc: "QUIC (UDP) listening port. Default is the TCP port (--tcp-port).",
+    desc:
+      "QUIC (UDP) listening port. Default is the TCP port (--tcp-port). (requires --quic-support)",
     defaultValue: Opt.none(Port),
     name: "quic-port"
   .}: Opt[Port]
@@ -762,9 +776,9 @@ hence would have reachability issues.""",
   rateLimits* {.
     desc:
       "Rate limit settings for different protocols." &
-      "Format: protocol:volume/period<unit>" &
-      " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter> if not defined it means a global setting" &
-      " 'volume' and period must be an integer value. " &
+      " Format: protocol:volume/period<unit>." &
+      " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter>; if not defined it means a global setting." &
+      " 'volume' and 'period' must be integer values." &
       " 'unit' must be one of <h|m|s|ms> - hours, minutes, seconds, milliseconds respectively. " &
       "Argument may be repeated.",
     defaultValue: newSeq[string](0),
@@ -1089,6 +1103,160 @@ proc toNetworkPresetConf*(
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
+func deprecatedFlagWarnings*(n: WakuNodeConf): seq[string] =
+  ## Deprecated flags are still accepted, so that existing configs keep working.
+  var warnings: seq[string]
+  if not n.keepAlive:
+    warnings.add("--keep-alive is deprecated and ignored: keep-alive is always active")
+  if n.dnsDiscovery:
+    warnings.add(
+      "--dns-discovery is deprecated and ignored: --dns-discovery-url enables DNS discovery"
+    )
+  if n.rlnRelayDynamic == Opt.some(false):
+    warnings.add(
+      "--rln-relay-dynamic=false is not supported: on-chain RLN is the only mode"
+    )
+  elif n.rlnRelayDynamic.isSome():
+    warnings.add(
+      "--rln-relay-dynamic is deprecated and ignored: on-chain RLN is the only mode"
+    )
+  if n.rlnRelayEthPrivateKey != "":
+    warnings.add(
+      "--rln-relay-eth-private-key is deprecated and ignored: only the RLN keystore generator uses it"
+    )
+  return warnings
+
+func ignoredFlagWarnings*(
+    n: WakuNodeConf, defaults: WakuNodeConf, conf: WakuConf
+): seq[string] =
+  ## Flags that differ from `defaults` while the feature they configure is off
+  ## in `conf`, the effective config (CLI, mode and preset applied).
+  template changed(field: untyped): bool =
+    n.field != defaults.field
+
+  let
+    store = conf.storeServiceConf.isSome()
+    storeSync = store and conf.storeServiceConf.get().storeSyncConf.isSome()
+    filter = conf.filterServiceConf.isSome()
+    rest = conf.restServerConf.isSome()
+    metrics = conf.metricsServerConf.isSome()
+    discv5 = conf.discv5Conf.isSome()
+    webSocket = conf.webSocketConf.isSome()
+    webSocketSecure = webSocket and conf.webSocketConf.get().secureConf.isSome()
+    quic = conf.quicConf.isSome()
+    mix = conf.mixConf.isSome()
+    kad = conf.kademliaDiscoveryConf.isSome() or conf.externalDiscoveryConf.isSome()
+    kadParent = "enable-kad-discovery or --plugin-kad-discovery"
+    rln = conf.rlnEvmConf.isSome()
+
+  # (flag, parent flag, parent enabled, flag set)
+  let dependentFlags = [
+    (
+      "store-message-retention-policy",
+      "store",
+      store,
+      changed(storeMessageRetentionPolicy),
+    ),
+    ("store-message-db-url", "store", store, changed(storeMessageDbUrl)),
+    ("store-message-db-vacuum", "store", store, changed(storeMessageDbVacuum)),
+    ("store-message-db-migration", "store", store, changed(storeMessageDbMigration)),
+    ("store-max-num-db-connections", "store", store, changed(storeMaxNumDbConnections)),
+    ("store-resume", "store", store, changed(storeResume)),
+    ("store-sync", "store", store, changed(storeSync)),
+    ("store-sync-interval", "store-sync", storeSync, changed(storeSyncInterval)),
+    ("store-sync-range", "store-sync", storeSync, changed(storeSyncRange)),
+    ("store-sync-relay-jitter", "store-sync", storeSync, changed(storeSyncRelayJitter)),
+    (
+      "filter-subscription-timeout",
+      "filter",
+      filter,
+      changed(filterSubscriptionTimeout),
+    ),
+    ("filter-max-peers-to-serve", "filter", filter, changed(filterMaxPeersToServe)),
+    ("filter-max-criteria", "filter", filter, changed(filterMaxCriteria)),
+    ("rest-address", "rest", rest, changed(restAddress)),
+    ("rest-port", "rest", rest, changed(restPort)),
+    ("rest-relay-cache-capacity", "rest", rest, changed(restRelayCacheCapacity)),
+    ("rest-messaging-cache-capacity", "rest", rest, changed(restMessagingCacheCapacity)),
+    ("rest-admin", "rest", rest, changed(restAdmin)),
+    ("rest-allow-origin", "rest", rest, changed(restAllowOrigin)),
+    ("metrics-server-address", "metrics-server", metrics, changed(metricsServerAddress)),
+    ("metrics-server-port", "metrics-server", metrics, changed(metricsServerPort)),
+    ("discv5-udp-port", "discv5-discovery", discv5, changed(discv5UdpPort)),
+    ("discv5-bootstrap-node", "discv5-discovery", discv5, changed(discv5BootstrapNodes)),
+    ("discv5-enr-auto-update", "discv5-discovery", discv5, changed(discv5EnrAutoUpdate)),
+    ("discv5-table-ip-limit", "discv5-discovery", discv5, changed(discv5TableIpLimit)),
+    ("discv5-bucket-ip-limit", "discv5-discovery", discv5, changed(discv5BucketIpLimit)),
+    ("discv5-bits-per-hop", "discv5-discovery", discv5, changed(discv5BitsPerHop)),
+    ("websocket-port", "websocket-support", webSocket, changed(websocketPort)),
+    (
+      "websocket-secure-support",
+      "websocket-support",
+      webSocket,
+      changed(websocketSecureSupport),
+    ),
+    (
+      "websocket-secure-key-path",
+      "websocket-secure-support",
+      webSocketSecure,
+      changed(websocketSecureKeyPath),
+    ),
+    (
+      "websocket-secure-cert-path",
+      "websocket-secure-support",
+      webSocketSecure,
+      changed(websocketSecureCertPath),
+    ),
+    ("quic-port", "quic-support", quic, changed(quicPort)),
+    ("mixkey", "mix", mix, changed(mixkey)),
+    ("mixnode", "mix", mix, n.mixnodes.len > 0),
+    ("kad-bootstrap-node", kadParent, kad, changed(kadBootstrapNodes)),
+    ("kad-random-lookup-interval", kadParent, kad, changed(kadRandomLookupIntervalSec)),
+    (
+      "kad-service-lookup-interval",
+      kadParent,
+      kad,
+      changed(kadServiceLookupIntervalSec),
+    ),
+    ("rln-relay-cred-path", "rln-relay", rln, changed(rlnRelayCredPath)),
+    ("rln-relay-cred-password", "rln-relay", rln, changed(rlnRelayCredPassword)),
+    (
+      "rln-relay-eth-client-address",
+      "rln-relay",
+      rln,
+      n.ethClientUrls.mapIt(string(it)) != defaults.ethClientUrls.mapIt(string(it)),
+    ),
+    (
+      "rln-relay-eth-contract-address",
+      "rln-relay",
+      rln,
+      changed(rlnRelayEthContractAddress),
+    ),
+    ("rln-relay-chain-id", "rln-relay", rln, changed(rlnRelayChainId)),
+    (
+      "rln-relay-user-message-limit",
+      "rln-relay",
+      rln,
+      changed(rlnRelayUserMessageLimit),
+    ),
+    ("rln-relay-epoch-sec", "rln-relay", rln, changed(rlnEpochSizeSec)),
+    ("rln-relay-membership-index", "rln-relay", rln, changed(rlnRelayCredIndex)),
+  ]
+
+  var warnings: seq[string]
+  for (flag, parent, parentEnabled, isSet) in dependentFlags:
+    if isSet and not parentEnabled:
+      warnings.add("--" & flag & " is ignored: --" & parent & " is not enabled")
+  return warnings
+
+proc logConfigWarnings(n: WakuNodeConf, conf: WakuConf) =
+  for msg in deprecatedFlagWarnings(n):
+    warn "deprecated configuration flag", detail = msg
+  let defaults = defaultKernelConf(ModeProtocolFlags()).valueOr:
+    return
+  for msg in ignoredFlagWarnings(n, defaults, conf):
+    warn "configuration flag ignored", detail = msg
+
 proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   var b = WakuConfBuilder.init()
 
@@ -1321,4 +1489,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
 
-  return b.build()
+  let conf = ?b.build()
+  logConfigWarnings(n, conf)
+  return ok(conf)
