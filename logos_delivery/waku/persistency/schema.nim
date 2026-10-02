@@ -25,13 +25,6 @@ const
     ) WITHOUT ROWID;
     """
 
-  ApplyPragmasSql* = """
-    PRAGMA synchronous = NORMAL;
-    PRAGMA temp_store = MEMORY;
-    PRAGMA busy_timeout = 5000;
-    PRAGMA foreign_keys = OFF;
-    """
-
 proc applyPragmas*(db: SqliteDatabase): DatabaseResult[void] =
   ## Apply the connection-level pragmas. journal_mode=WAL is already set by
   ## SqliteDatabase.new.
