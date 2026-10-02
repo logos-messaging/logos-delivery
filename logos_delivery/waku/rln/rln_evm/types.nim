@@ -17,7 +17,7 @@ type RlnEvm* = ref object of RootObj
   groupManager*: RlnEvmGroupManagerBase
   onFatalErrorAction*: OnFatalErrorHandler
   nonceManager*: NonceManager
-  brokerCtx*: BrokerContext
+  brokerCtx*: Opt[BrokerContext]
     ## The node's context, through which the backend reaches node services
     ## such as its persistency.
   idStore*: persistency.Job

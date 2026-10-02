@@ -228,7 +228,7 @@ suite "Waku rln relay":
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
     var rln: RlnEvm
     lockNewGlobalBrokerContext:
-      rln = (await RlnEvm.new(wakuRlnConfig, globalBrokerContext())).valueOr:
+      rln = (await RlnEvm.new(wakuRlnConfig, Opt.some(globalBrokerContext()))).valueOr:
         raiseAssert $error
 
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
@@ -284,7 +284,7 @@ suite "Waku rln relay":
 
     var rln: RlnEvm
     lockNewGlobalBrokerContext:
-      rln = (await RlnEvm.new(wakuRlnConfig, globalBrokerContext())).valueOr:
+      rln = (await RlnEvm.new(wakuRlnConfig, Opt.some(globalBrokerContext()))).valueOr:
         raiseAssert $error
 
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
@@ -333,7 +333,7 @@ suite "Waku rln relay":
     let rlnConf1 = getWakuRlnConfig(manager = manager, index = index1)
     var wakuRlnRelay1: RlnEvm
     lockNewGlobalBrokerContext:
-      wakuRlnRelay1 = (await RlnEvm.new(rlnConf1, globalBrokerContext())).valueOr:
+      wakuRlnRelay1 = (await RlnEvm.new(rlnConf1, Opt.some(globalBrokerContext()))).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager1 = cast[RlnEvmGroupManager](wakuRlnRelay1.groupManager)
@@ -346,7 +346,7 @@ suite "Waku rln relay":
     let rlnConf2 = getWakuRlnConfig(manager = manager, index = index2)
     var wakuRlnRelay2: RlnEvm
     lockNewGlobalBrokerContext:
-      wakuRlnRelay2 = (await RlnEvm.new(rlnConf2, globalBrokerContext())).valueOr:
+      wakuRlnRelay2 = (await RlnEvm.new(rlnConf2, Opt.some(globalBrokerContext()))).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager2 = cast[RlnEvmGroupManager](wakuRlnRelay2.groupManager)
@@ -477,7 +477,7 @@ suite "Waku rln relay":
       )
       var rln: RlnEvm
       lockNewGlobalBrokerContext:
-        rln = (await RlnEvm.new(wakuRlnConfig, globalBrokerContext())).valueOr:
+        rln = (await RlnEvm.new(wakuRlnConfig, Opt.some(globalBrokerContext()))).valueOr:
           raiseAssert $error
 
       let rlnMaxEpochGap = rln.rlnMaxEpochGap

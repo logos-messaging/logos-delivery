@@ -844,7 +844,8 @@ proc messageOnNewRoot(
   lockNewGlobalBrokerContext:
     sender = (
       await RlnEvm.new(
-        rlnConfigAt(manager, MembershipIndex(2), ethClientUrl), globalBrokerContext()
+        rlnConfigAt(manager, MembershipIndex(2), ethClientUrl),
+        Opt.some(globalBrokerContext()),
       )
     ).valueOr:
       raiseAssert $error

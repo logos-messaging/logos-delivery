@@ -553,7 +553,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      let onchainRln = (waitFor mountOnchain(rlnConf, node.brokerCtx)).valueOr:
+      let onchainRln = (waitFor mountOnchain(rlnConf, Opt.some(node.brokerCtx))).valueOr:
         error "failed to set rln validator", error = error
         quit(QuitFailure)
       node.mountRln(onchainRln.toRlnPlugin(), RlnCommonConf(), Opt.some(spamHandler))

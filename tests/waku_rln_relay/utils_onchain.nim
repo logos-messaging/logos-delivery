@@ -815,7 +815,7 @@ proc mountOnchainRln*(
     discard GetPersistency.reprovideIt(node.brokerCtx):
       ok(persistency)
 
-  let rln = (await mountOnchain(conf, node.brokerCtx, registrationHandler)).valueOr:
+  let rln = (await mountOnchain(conf, Opt.some(node.brokerCtx), registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
   node.mountRln(rln.toRlnPlugin(), RlnCommonConf(), spamHandler)
   return rln

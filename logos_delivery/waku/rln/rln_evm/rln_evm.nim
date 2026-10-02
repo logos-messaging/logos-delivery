@@ -181,7 +181,7 @@ proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
 
 proc mount(
     conf: WakuRlnConfig,
-    brokerCtx: BrokerContext,
+    brokerCtx: Opt[BrokerContext],
     registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   var
@@ -357,13 +357,14 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
 proc new*(
     T: type RlnEvm,
     conf: WakuRlnConfig,
-    brokerCtx: BrokerContext,
+    brokerCtx = Opt.none(BrokerContext),
     registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.
-  ## `brokerCtx` is the node's context (`WakuNode.brokerCtx`).
+  ## `brokerCtx` is the node's context (`WakuNode.brokerCtx`), which proof
+  ## generation needs; a backend mounted without one can only validate proofs.
   try:
     return await mount(conf, brokerCtx, registrationHandler)
   except CatchableError:
@@ -371,7 +372,7 @@ proc new*(
 
 proc mountOnchain*(
     conf: WakuRlnConfig,
-    brokerCtx: BrokerContext,
+    brokerCtx = Opt.none(BrokerContext),
     registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[RlnEvm, string]] {.async.} =
   ## `RlnEvm.new` plus the contract-limit check, shared by this backend's
@@ -405,7 +406,7 @@ proc rlnEvmDescriptor*(
       epochSizeSec: evmConf.epochSizeSec,
       onFatalErrorAction: onFatalErrorAction,
     )
-    let rln = (await mountOnchain(rlnConf, brokerCtx)).valueOr:
+    let rln = (await mountOnchain(rlnConf, Opt.some(brokerCtx))).valueOr:
       return err(
         "failed to mount waku RLN relay protocol: failed to set rln validator: " & error
       )

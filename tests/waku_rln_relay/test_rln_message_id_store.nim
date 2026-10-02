@@ -34,7 +34,7 @@ proc testRlnEvm(ctx: BrokerContext, secret: seq[byte] = @[1'u8]): RlnEvm =
     reserveLock: newAsyncLock(),
     rlnEpochSizeSec: TestEpochSizeSec,
     rlnMaxTimestampGap: 20,
-    brokerCtx: ctx,
+    brokerCtx: Opt.some(ctx),
   )
 
 proc currentEpoch(): uint64 =

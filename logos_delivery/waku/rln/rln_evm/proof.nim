@@ -79,8 +79,9 @@ proc ensureIdsLoaded*(
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   ## Loads this identity's message id row on first use and applies the start
   ## policy; returns at once when already loaded. No id may be drawn before it
-  ## succeeds: every failure is `NotReady` and leaves the store unloaded, so
-  ## the next call retries.
+  ## succeeds. A backend mounted without a broker context has no store and
+  ## fails `Permanent`; every other failure is `NotReady` and leaves the store
+  ## unloaded, so the next call retries.
   ##
   ## A stored row moves the counter forward (`NonceManager.restore`): the
   ## same epoch resumes at the stored id, a later epoch starts fresh at its
@@ -92,7 +93,11 @@ proc ensureIdsLoaded*(
 
   let credentials = rlnEvm.groupManager.idCredentials.valueOr:
     return err(RlnError.notReady("no identity credential to key the message id store"))
-  let job = openIdStore(rlnEvm.brokerCtx).valueOr:
+  let brokerCtx = rlnEvm.brokerCtx.valueOr:
+    return err(
+      RlnError.permanent("mounted without a broker context, so no message id store")
+    )
+  let job = openIdStore(brokerCtx).valueOr:
     debug "RLN message id store not available", error = error
     return err(RlnError.notReady("message id store: " & error))
   let key = storeKey(credentials.idSecretHash)
