@@ -258,7 +258,7 @@ type WakuNodeConf* = object
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   maxPureLibp2pPeers* {.
     desc:
-      "Max inbound peers that are not waku nodes but offer a protocol this node consumes (kademlia service discovery, mix). 0 admits none. Default is 0; network presets set 50.",
+      "Max inbound peers that are not waku nodes but offer a protocol this node consumes (kademlia service discovery, mix). 0 admits none. Default is 20 without a network preset; logos.dev and logos.test presets set 50, other presets 0.",
     defaultValue: Opt.none(int),
     name: "max-pure-libp2p-peers"
   .}: Opt[int]
@@ -1156,6 +1156,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withColocationLimit(n.colocationLimit)
   if n.maxPureLibp2pPeers.isSome():
     b.withMaxPureLibp2pPeers(n.maxPureLibp2pPeers.get())
+  elif networkPresetConf.isNone():
+    b.withMaxPureLibp2pPeers(20)
 
   if n.peerStoreCapacity.isSome:
     b.withPeerStoreCapacity(n.peerStoreCapacity.get())
