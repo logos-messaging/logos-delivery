@@ -53,7 +53,7 @@ type
 const DiscoveredEnrTtl* = chronos.minutes(15)
   ## How long a discovered ENR is trusted without being rediscovered or connected.
 
-proc isDiscoveryOrigin(origin: PeerOrigin): bool =
+func isDiscoveryOrigin(origin: PeerOrigin): bool =
   return origin in [Discv5, Kademlia]
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
@@ -241,13 +241,15 @@ proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInf
 proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(it.connectedness != CannotConnect)
 
+proc supportsShard*(peer: RemotePeerInfo, cluster, shard: uint16): bool =
+  return
+    (peer.enr.isSome() and peer.enr.get().containsShard(cluster, shard)) or
+    peer.shards.contains(shard)
+
 proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16
 ): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(
-    (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
-      it.shards.contains(shard)
-  )
+  return peerStore.peers.filterIt(it.supportsShard(cluster, shard))
 
 proc getPeersByCapability*(
     peerStore: PeerStore, cap: Capabilities
@@ -255,19 +257,18 @@ proc getPeersByCapability*(
   return
     peerStore.peers.filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
 
-template forEnrPeers*(
-    peerStore: PeerStore,
-    peerId, peerConnectedness, peerOrigin, peerEnrRecord, body: untyped,
-) =
-  let enrBook = peerStore[ENRBook]
-  let connBook = peerStore[ConnectionBook]
-  let sourceBook = peerStore[SourceBook]
-  for pid, enrRecord in tables.pairs(enrBook.book):
-    let peerId {.inject.} = pid
-    let peerConnectedness {.inject.} = connBook.book.getOrDefault(pid, NotConnected)
-    let peerOrigin {.inject.} = sourceBook.book.getOrDefault(pid, UnknownOrigin)
-    let peerEnrRecord {.inject.} = enrRecord
-    body
+iterator enrPeers*(
+    peerStore: PeerStore
+): tuple[
+  peerId: PeerId, connectedness: Connectedness, origin: PeerOrigin, enr: enr.Record
+] =
+  for peerId, enrRecord in tables.pairs(peerStore[ENRBook].book):
+    yield (
+      peerId,
+      peerStore.connectedness(peerId),
+      peerStore[SourceBook].book.getOrDefault(peerId, UnknownOrigin),
+      enrRecord,
+    )
 
 proc hasFreshEnr*(peerStore: PeerStore, peerId: PeerId): bool =
   ## A connected peer is alive. Otherwise a discovery mechanism must have

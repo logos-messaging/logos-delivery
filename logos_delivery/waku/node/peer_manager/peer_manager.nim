@@ -95,7 +95,7 @@ type ConnectionChangeHandler* = proc(
   peerId: PeerId, peerEvent: PeerEventKind
 ): Future[void] {.gcsafe, raises: [Defect].}
 
-type PeerManager* = ref object of RootObj
+type PeerManager* = ref object
   brokerCtx: BrokerContext
   switch*: Switch
   wakuMetadata*: WakuMetadata
@@ -267,10 +267,7 @@ proc selectPeers*(
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
       return @[]
 
-    peers.keepItIf(
-      (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
-        (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
-    )
+    peers.keepItIf(it.supportsShard(shardInfo.clusterId, shardInfo.shardId))
 
   shuffle(peers)
   return peers
@@ -280,25 +277,15 @@ proc selectPeer*(
 ): Opt[RemotePeerInfo] =
   ## Selects a single peer for a given protocol, checking service slots first
   ## (for non-relay protocols).
+  # WakuRelay has no slots; other protocols use their slotted peer if any
+  if proto != WakuRelayCodec:
+    pm.serviceSlots.withValue(proto, serviceSlot):
+      trace "Got peer from service slots",
+        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
+      return Opt.some(serviceSlot[])
+
+  # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
   let peers = pm.selectPeers(proto, shard)
-
-  # No criteria for selecting a peer for WakuRelay, random one
-  if proto == WakuRelayCodec:
-    # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
-    if peers.len > 0:
-      trace "Got peer from peerstore",
-        peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
-      return Opt.some(peers[0])
-    trace "No peer found for protocol", protocol = proto
-    return Opt.none(RemotePeerInfo)
-
-  # For other protocols, we select the peer that is slotted for the given protocol
-  pm.serviceSlots.withValue(proto, serviceSlot):
-    trace "Got peer from service slots",
-      peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
-    return Opt.some(serviceSlot[])
-
-  # If not slotted, we select a random peer for the given protocol
   if peers.len > 0:
     trace "Got peer from peerstore",
       peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
@@ -588,27 +575,19 @@ proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]
 
   return (inPeers, outPeers)
 
+func uniquePeersCount(inOut: (seq[PeerId], seq[PeerId])): int =
+  let (inPeers, outPeers) = inOut
+  return (inPeers & outPeers).toHashSet().len
+
 proc getConnectedPeersCount*(pm: PeerManager, protocol: string): int =
   ## Returns the total number of unique connected peers (inbound + outbound)
   ## with active streams for a specific protocol.
-  let (inPeers, outPeers) = pm.connectedPeers(protocol)
-  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
-  for p in inPeers:
-    peers.incl(p)
-  for p in outPeers:
-    peers.incl(p)
-  return peers.len
+  return pm.connectedPeers(protocol).uniquePeersCount()
 
 proc getCapablePeersCount*(pm: PeerManager, protocol: string): int =
   ## Returns the total number of unique connected peers (inbound + outbound)
   ## who have identified themselves as supporting the given protocol.
-  let (inPeers, outPeers) = pm.capablePeers(protocol)
-  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
-  for p in inPeers:
-    peers.incl(p)
-  for p in outPeers:
-    peers.incl(p)
-  return peers.len
+  return pm.capablePeers(protocol).uniquePeersCount()
 
 proc getPeersForShard*(pm: PeerManager, protocolId: string, shard: PubsubTopic): int =
   let (inPeers, outPeers) = pm.connectedPeers(protocolId)
@@ -839,9 +818,7 @@ proc hasInboundConnection(pm: PeerManager, peerId: PeerId): bool =
   false
 
 proc inboundPureLibp2pCount(pm: PeerManager): int =
-  for peerId in pm.pureLibp2pPeers:
-    if pm.hasInboundConnection(peerId):
-      inc result
+  return pm.pureLibp2pPeers.toSeq().countIt(pm.hasInboundConnection(it))
 
 proc admitPureLibp2pPeer(pm: PeerManager, peerId: PeerId): bool =
   ## The budget counts inbound connections only. An outbound one is a peer

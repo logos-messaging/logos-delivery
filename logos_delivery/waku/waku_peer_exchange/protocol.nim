@@ -111,17 +111,16 @@ proc getEnrsFromStore(
   let k = min(MaxPeersCacheSize, numPeers.int)
   let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
   var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
-  wpx.peerManager.switch.peerStore.forEnrPeers(
-    peerId, peerConnectedness, peerOrigin, peerEnrRecord
-  ):
-    if peerConnectedness == CannotConnect:
+  let peerStore = wpx.peerManager.switch.peerStore
+  for (peerId, connectedness, origin, peerEnrRecord) in peerStore.enrPeers():
+    if connectedness == CannotConnect:
       debug "Could not retrieve ENR because cannot connect to peer",
         remotePeerId = peerId
       continue
-    if not wpx.peerManager.switch.peerStore.hasFreshEnr(peerId):
+    if not peerStore.hasFreshEnr(peerId):
       debug "Skipping ENR not rediscovered recently", remotePeerId = peerId
       continue
-    poolFilter(wpx.cluster, peerOrigin, peerEnrRecord).isOkOr:
+    poolFilter(wpx.cluster, origin, peerEnrRecord).isOkOr:
       debug "Could not get ENR because no peer matched pool", error = error
       continue
     if i < k:
