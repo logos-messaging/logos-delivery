@@ -109,7 +109,10 @@ proc newSdsPersistence*(job: Job): Persistence {.gcsafe, raises: [].} =
       let payload = serializeMessage(m).valueOr:
         return err("updateHistory: encode message: " & $error)
       ops.add TxOp(
-        category: CatLog, key: key(channelId, m.messageId), kind: txPut, payload: payload
+        category: CatLog,
+        key: key(channelId, m.messageId),
+        kind: txPut,
+        payload: payload,
       )
     for id in update.evict:
       ops.add TxOp(category: CatLog, key: key(channelId, id), kind: txDelete)
