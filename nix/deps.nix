@@ -313,8 +313,8 @@
 
   sds = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-sds.git";
-    rev = "b12f5ee07c5b764303b51fb948b32a4ade1de3b5";
-    sha256 = "1z8f0v1ww7y6zssdacjxfs6s4862dwckw25df3yn1v0qnz40rpc8";
+    rev = "8ccee6e84f12506c66b27dc36c06e8a6ddcf20a0";
+    sha256 = "0d5d7m6njkab1sdznz5hqcy94z4pf9f7h679a5pfxckx7rhn798j";
     fetchSubmodules = true;
   };
 

@@ -106,11 +106,10 @@ proc newSdsPersistence*(job: Job): Persistence {.gcsafe, raises: [].} =
     # One transactional batch: append rows (txPut) and evictions (txDelete).
     var ops = newSeq[TxOp]()
     for m in update.append:
+      let payload = serializeMessage(m).valueOr:
+        return err("updateHistory: encode message: " & $error)
       ops.add TxOp(
-        category: CatLog,
-        key: key(channelId, m.messageId),
-        kind: txPut,
-        payload: encode(m).buffer,
+        category: CatLog, key: key(channelId, m.messageId), kind: txPut, payload: payload
       )
     for id in update.evict:
       ops.add TxOp(category: CatLog, key: key(channelId, id), kind: txDelete)
@@ -141,7 +140,7 @@ proc newSdsPersistence*(job: Job): Persistence {.gcsafe, raises: [].} =
           return err("loadChannel: scan log: " & $error)
         var msgs = newSeq[SdsMessage]()
         for row in rows:
-          let m = SdsMessage.decode(row.payload).valueOr:
+          let m = deserializeMessage(row.payload).valueOr:
             warn "sds-persistency: skipping undecodable log row", channelId
             continue
           msgs.add(m)

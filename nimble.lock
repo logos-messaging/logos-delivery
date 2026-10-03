@@ -656,14 +656,14 @@
       }
     },
     "sds": {
-      "version": "#b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
-      "vcsRevision": "b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
+      "version": "#8ccee6e84f12506c66b27dc36c06e8a6ddcf20a0",
+      "vcsRevision": "8ccee6e84f12506c66b27dc36c06e8a6ddcf20a0",
       "url": "https://github.com/logos-messaging/nim-sds.git",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
         "chronos",
-        "libp2p",
+        "protobuf_serialization",
         "chronicles",
         "stew",
         "stint",
@@ -672,7 +672,7 @@
         "ffi"
       ],
       "checksums": {
-        "sha1": "175f65038b9877cdf974b07c5f83081f810d5fbe"
+        "sha1": "2071e9c444a36dd43edf1287c43f13ff1c8aea8a"
       }
     },
     "libp2p_mix": {
