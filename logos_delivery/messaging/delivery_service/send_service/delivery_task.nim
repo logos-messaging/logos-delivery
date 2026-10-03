@@ -48,6 +48,10 @@ type DeliveryTask* = ref object
   propagatedAnonymously*: bool
     ## Set when an anonymous path propagated the message. No store node confirms
     ## it: the query would name the message from this node's own address.
+  seenOnNetwork*: bool
+    ## Set when this node receives the message from the network after an
+    ## mix send attempt starts. The exit publishes before it replies, so the send
+    ## is complete also when the reply is lost.
   lastStoreQueryTime*: Opt[Moment]
     ## When a Store peer was last asked about this task, none before the first query.
   errorDesc*: string

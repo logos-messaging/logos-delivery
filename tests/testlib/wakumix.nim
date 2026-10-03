@@ -142,6 +142,7 @@ type
     enabled: bool ## True until the first request.
     requested*: AsyncEvent
     reply*: AsyncEvent
+    publishResult*: Opt[WakuLightPushResult] ## The result of the first request.
 
   MixNet* = object
     nodes*: seq[WakuNode]
@@ -160,11 +161,14 @@ proc mountHookedLightpush(node: WakuNode, hook: ExitHook) =
   let handler: PushMessageHandler = proc(
       pubsubTopic: PubsubTopic, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
-    if hook.enabled:
-      hook.enabled = false
-      hook.requested.fire()
-      await hook.reply.wait()
-    return await relayHandler(pubsubTopic, message)
+    if not hook.enabled:
+      return await relayHandler(pubsubTopic, message)
+    hook.enabled = false
+    hook.requested.fire()
+    await hook.reply.wait()
+    let published = await relayHandler(pubsubTopic, message)
+    hook.publishResult = Opt.some(published)
+    return published
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager,
     node.rng,
