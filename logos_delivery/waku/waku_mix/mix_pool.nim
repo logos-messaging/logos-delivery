@@ -1,10 +1,13 @@
 ## The mix pool. It follows the peer store of the node. A peer is a pool member
-## when it has a mix key and a hop address that the policy accepts.
+## when it has a mix key and a hop address that the policy accepts. A send dials
+## pool peers through it.
 
 {.push raises: [].}
 
 import
+  std/[sequtils, tables],
   chronicles,
+  chronos,
   results,
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
@@ -28,6 +31,9 @@ type MixPool* = ref object
   known: MixNodePool ## Each peer with a mix key, in the peer store of the node.
   members: PeerStore ## One hop address for each pool member.
   nodePool: MixNodePool ## The pool over `members` that nim-libp2p-mix reads.
+  dials: Table[PeerId, Future[bool].Raising([CancelledError])]
+    ## The last dial of each peer. A later attempt joins it.
+  dialsStopped: bool ## True from `stop` to `start`. Then no send starts a dial.
 
 const publicDirectAddressPolicy* = proc(ma: MultiAddress): bool {.gcsafe, raises: [].} =
   ## Accepts a public address that is not a relay route. Only a relay client can
@@ -145,6 +151,57 @@ proc addChangeHandler*(pool: MixPool, handler: PeerBookChangeHandler) =
 proc add*(pool: MixPool, info: MixPubInfo) =
   ## Adds a configured mix node to the peer store.
   pool.known.add(info)
+
+proc dialPeer(
+    pool: MixPool, peerId: PeerId
+): Future[bool] {.async: (raises: [CancelledError]).} =
+  ## Dials `peerId` at its hop addresses. An existing connection counts as a
+  ## success.
+  let addresses = pool.hopAddresses(peerId)
+  if addresses.len == 0:
+    return false
+  try:
+    await pool.peerManager.switch.connect(peerId, addresses).wait(DefaultDialTimeout)
+  except AsyncTimeoutError:
+    debug "Mix peer dial timed out", peerId = peerId, addresses = $addresses
+    return false
+  except DialFailedError as exc:
+    debug "Mix peer dial failed",
+      peerId = peerId, addresses = $addresses, error = exc.msg
+    return false
+  debug "Mix peer dial succeeded", peerId = peerId
+  return true
+
+proc dial*(pool: MixPool, peerId: PeerId): Future[bool].Raising([CancelledError]) =
+  ## Returns the running dial of `peerId`, or starts a new one. A second libp2p
+  ## dial of the same peer waits for the first one, and then dials again when
+  ## there is no connection.
+  pool.dials.withValue(peerId, running):
+    if not running[].finished():
+      return running[]
+  var done: seq[PeerId]
+  for id, running in pool.dials:
+    if running.finished():
+      done.add(id)
+  for id in done:
+    pool.dials.del(id)
+  let started = pool.dialPeer(peerId)
+  pool.dials[peerId] = started
+  return started
+
+proc stopped*(pool: MixPool): bool =
+  ## True from `stop` to `start`.
+  pool.dialsStopped
+
+proc start*(pool: MixPool) =
+  ## Allows dials again.
+  pool.dialsStopped = false
+
+proc stop*(pool: MixPool) {.async: (raises: []).} =
+  ## Cancels the dials, and sets `stopped` until `start`.
+  pool.dialsStopped = true
+  await noCancel allFutures(toSeq(pool.dials.values()).mapIt(it.cancelAndWait()))
+  pool.dials.clear()
 
 proc new*(
     T: typedesc[MixPool], peerManager: PeerManager, policy: PeerAddressPolicy

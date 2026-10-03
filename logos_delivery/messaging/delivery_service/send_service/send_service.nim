@@ -61,9 +61,9 @@ const StoreValidationQueryTimeout = chronos.seconds(15)
   ## `DefaultDialTimeout`, so a dead Store peer leaves time for another.
 
 const MaxSendsInFlight* = 4
-  ## The number of sends a service pass starts before it waits for them. One
-  ## unanswered mix reply (`MixReplyTimeout`) then holds only its batch, and the
-  ## batch size also caps the burst that one pass sends.
+  ## A service pass sends in groups of this size. The sends of a group occur at
+  ## the same time. The next group starts when all of them end. A mix send can
+  ## continue for a maximum of `MixReplyHopTimeout` plus `MixReplyTimeout`.
 
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
