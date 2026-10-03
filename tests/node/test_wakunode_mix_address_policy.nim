@@ -117,6 +117,7 @@ suite "Waku Mix - hop address policy":
     check:
       node.wakuMix.updateSelfHop(@[route], @[]) == Opt.some(route)
       node.wakuMix.selfHopUsable()
+      not node.wakuMix.selfHopAllowed()
 
   test "a default node has no transport for a relay route":
     ## `publicDirectAddressPolicy` rejects relay routes because of this.
@@ -180,9 +181,11 @@ suite "Waku Mix - hop address policy":
       mixHealth() == HealthStatus.NOT_READY
 
   asyncTest "the self hop of a sender behind NAT still ends its reply paths":
-    ## The address policy applies only to the hops of other nodes.
+    ## The address policy refuses this self hop, so the node does not advertise
+    ## itself. The hop still ends the reply paths.
     let node = await mixNode()
     let selfHop = MultiAddress.init("/ip4/192.168.1.20/tcp/60000").tryGet()
     check:
       node.wakuMix.updateSelfHop(@[selfHop], @[]) == Opt.some(selfHop)
       node.wakuMix.selfHopUsable()
+      not node.wakuMix.selfHopAllowed()

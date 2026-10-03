@@ -48,6 +48,12 @@ const
   MixStoppingError* = "mix is stopping" ## The error of a send after the pool stops.
 
 type
+  SelfHopSource* {.pure.} = enum
+    ## The source of the self hop address.
+    Observed ## Other peers observed the host, as discv5 and autonat do.
+    Local ## An address of this machine, or a port mapping of its gateway.
+    Configured ## The operator stated the address.
+
   WakuMix* = ref object of MixProtocol
     peerManager*: PeerManager
     clusterId: uint16
@@ -58,6 +64,8 @@ type
       ## encodes.
     pool*: MixPool ## The mix pool. The `nodePool` of `MixProtocol` reads its members.
     delays: DelayStrategy ## The delay strategy of `MixProtocol.init`, for `buildSurb`.
+    advertised*: bool ## True while this node advertises itself as a mix node.
+    notAdvertisingReason*: string ## The last logged reason not to advertise.
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -370,6 +378,10 @@ proc selfHopUsable*(mix: WakuMix): bool =
     return false
   let info = mix.localMixPubInfo()
   return mix_multiaddr.multiAddrToBytes(info.peerId, info.multiAddr).isOk()
+
+proc selfHopAllowed*(mix: WakuMix): bool =
+  ## True when the encoder and the address policy accept the self hop.
+  return mix.selfHopUsable() and mix.pool.accepts(mix.localMixPubInfo().multiAddr)
 
 proc updateSelfHop*(
     mix: WakuMix, preferred: seq[MultiAddress], fallback: seq[MultiAddress]

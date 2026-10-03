@@ -164,6 +164,7 @@ suite "Waku Mix - the node's own hop":
       node.announcedAddresses.allIt("/dns4/" in $it)
       $node.selfHop() == "/ip4/203.0.113.9/tcp/30303"
       node.wakuMix.selfHopUsable()
+      node.selfHopSource() == SelfHopSource.Configured
     await node.stop()
 
   asyncTest "the host a name resolved to outranks a relay route":
@@ -238,6 +239,17 @@ suite "Waku Mix - the node's own hop":
     check $node.selfHop() == "/ip4/198.51.100.7/tcp/30303"
     await node.stop()
 
+  asyncTest "a concrete listen address gives a configured self hop":
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0), quicEnabled = false
+    )
+    await node.mountTestMix()
+    await node.start()
+    check:
+      $node.selfHop() == "/ip4/127.0.0.1/tcp/" & $node.boundTcpPort()
+      node.selfHopSource() == SelfHopSource.Configured
+    await node.stop()
+
   asyncTest "a host discv5 confirmed outranks the primary interface":
     ## A host that discv5 confirmed is known from outside; a commit after start
     ## gives it to mix.
@@ -246,12 +258,16 @@ suite "Waku Mix - the node's own hop":
     )
     await node.mountTestMix()
     await node.start()
-    check "0.0.0.0" notin $node.selfHop()
+    check:
+      "0.0.0.0" notin $node.selfHop()
+      node.selfHopSource() == SelfHopSource.Local
 
     node.enrLearnedEndpoint =
       Opt.some(DiscoveryEndpoint((ip: parseIpAddress("203.0.113.9"), udp: Port(9000))))
     node.copyCommittedAddresses()
-    check $node.selfHop() == "/ip4/203.0.113.9/tcp/" & $node.boundTcpPort()
+    check:
+      $node.selfHop() == "/ip4/203.0.113.9/tcp/" & $node.boundTcpPort()
+      node.selfHopSource() == SelfHopSource.Observed
     await node.stop()
 
   asyncTest "a node with no address mix can encode starts, and mix says so":
