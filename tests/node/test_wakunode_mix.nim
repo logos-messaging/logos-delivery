@@ -34,7 +34,11 @@ proc boundTcpPort(node: WakuNode): Port =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let mixKeys = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+  (
+    await node.mountMix(
+      DefaultClusterId, mixKeys.privateKey, @[], addressPolicy = defaultAddressPolicy
+    )
+  ).isOkOr:
     raiseAssert "Failed to mount mix: " & $error
 
 proc mixHealth(node: WakuNode): ProtocolHealth =
@@ -328,7 +332,11 @@ suite "Waku Mix - pool size":
     # Mount before start, as the node factory does: a switch that runs cannot
     # mount a new protocol.
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], addressPolicy = defaultAddressPolicy
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
 
     await node.start()
@@ -408,6 +416,7 @@ suite "Waku Mix - pool size":
         DefaultClusterId,
         mixKeys.privateKey,
         @[bootnode("/ip4/127.0.0.1/tcp/60030"), bootnode("/ip6/::1/tcp/60031")],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
@@ -506,7 +515,14 @@ suite "Waku Mix - bootstrap nodes":
   ): Future[WakuNode] {.async.} =
     let node = newTestWakuNode(generateSecp256k1Key(), nameResolver = nameResolver)
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, bootnodes)).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId,
+        mixKeys.privateKey,
+        bootnodes,
+        addressPolicy = defaultAddressPolicy,
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
     await node.start()
     await node.mixNodesResolved()
@@ -541,6 +557,7 @@ suite "Waku Mix - bootstrap nodes":
         DefaultClusterId,
         mixKeys.privateKey,
         @[selfEntry, mixBootnode("/ip4/127.0.0.1/tcp/60106")],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
@@ -712,6 +729,7 @@ suite "Waku Mix - name resolution in the background":
           pubKey: keys.publicKey,
         ),
       ],
+      addressPolicy = defaultAddressPolicy,
     )
     check await mount.withTimeout(chronos.seconds(1)) # no wait on the names
     if mount.finished():
@@ -751,6 +769,7 @@ suite "Waku Mix - name resolution in the background":
             pubKey: keys.publicKey,
           ),
         ],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -778,6 +797,7 @@ suite "Waku Mix - name resolution in the background":
           mixBootnode("/dns4/fast-04.invalid/tcp/30303"),
           mixBootnode("/dns4/slow-01.invalid/tcp/30303"),
         ],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -797,6 +817,7 @@ suite "Waku Mix - name resolution in the background":
         DefaultClusterId,
         keys.privateKey,
         @[mixBootnode("/dns4/gated-01.invalid/tcp/30303")],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error

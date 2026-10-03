@@ -19,7 +19,10 @@ import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_enr,
-  logos_delivery/waku/node/peer_manager/waku_peer_store
+  logos_delivery/waku/node/peer_manager/waku_peer_store,
+  ./mix_pool
+
+export mix_pool
 
 logScope:
   topics = "waku mix"
@@ -37,6 +40,7 @@ type
       ## `true` when the last hop derivation found no address the encoder accepts.
       ## The hop that mix still holds is then a leftover, unusable even if it
       ## encodes.
+    pool*: MixPool ## The mix pool. The `nodePool` of `MixProtocol` reads its members.
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -99,26 +103,19 @@ proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
   )
 
 proc poolSize*(mix: WakuMix): int =
-  ## The number of pool members a path can use. `nodePool.get` needs an IPv4 TCP
-  ## or QUIC-v1 address and a secp256k1 key; `MixNodePool.len` checks neither.
-  ## Walks the pool; `mixReady` calls it once per send attempt.
-  var routable = 0
-  for peerId in mix.nodePool.peerIds():
-    if mix.nodePool.get(peerId).isSome():
-      routable.inc()
-  return routable
+  ## The number of pool members.
+  mix.pool.len
 
 proc updatePoolSize*(size: int) =
-  ## Sets `mix_pool_size`; this is its only writer. The mount, `addBootNodes`
-  ## and each health pass publish the count they just read: routability can
-  ## change when no peer-store handler fires, as when an `AddressBook` entry's
-  ## TTL runs out.
+  ## Sets `mix_pool_size`. This is its only writer. The mount, `addBootNodes`
+  ## and each health pass publish the count that they read.
   mix_pool_size.set(size)
 
 proc processBootNodes(
     bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
 ) =
   var count = 0
+  var refused: seq[string]
   for node in bootnodes:
     let pInfo = parsePeerInfo(node.multiAddr).valueOr:
       error "Failed to get peer id from multiaddress: ",
@@ -146,20 +143,25 @@ proc processBootNodes(
     # addresses with its transport patterns, and the suffix stops the match.
     let multiAddr = pInfo.addrs[0]
 
-    # The pool entry comes first: `nodePool.add` writes `Infinite` confidence,
-    # and libp2p does not lower a confidence that it holds.
-    let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
-    mix.nodePool.add(mixPubInfo)
+    # `add` comes before `addPeer`. `add` writes a new address with `Infinite`
+    # confidence, and `addPeer` does not lower that confidence.
+    mix.pool.add(MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey))
     count.inc()
+    if not mix.pool.accepts(multiAddr):
+      refused.add(node.multiAddr)
 
     peermgr.addPeer(
       RemotePeerInfo.init(
         peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
       )
     )
+  if refused.len > 0:
+    warn "Configured mix nodes have no public direct address and are not on " &
+      "mix paths. Set --mix-allow-all-addresses=true for a local simulation, a " &
+      "test or a private network",
+      refused = refused.len, examples = refused[0 ..< min(refused.len, 3)]
   # `count` is the accepted entries; the addresses of one peer make one member.
-  let routable = mix.poolSize()
-  info "Using mix bootstrap nodes", entries = count, poolSize = routable
+  info "Using mix bootstrap nodes", entries = count, poolSize = mix.poolSize()
 
 proc addBootNodes*(mix: WakuMix, bootnodes: seq[MixNodePubInfo]) =
   ## Adds bootstrap nodes resolved after the mount, and publishes the pool size.
@@ -173,6 +175,7 @@ proc new*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
+    addressPolicy: PeerAddressPolicy,
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
@@ -183,7 +186,12 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
-  var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
+  let m = WakuMix(
+    peerManager: peermgr,
+    clusterId: clusterId,
+    pubKey: mixPubKey,
+    pool: MixPool.new(peermgr, addressPolicy),
+  )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
@@ -193,7 +201,9 @@ proc new*(
       )
     ),
   )
-
+  # `init` sets `nodePool` to the peer store of the switch. Paths must use only
+  # the pool members.
+  m.nodePool = m.pool.nodePool
   processBootNodes(bootnodes, peermgr, m)
 
   let usable = m.poolSize()
