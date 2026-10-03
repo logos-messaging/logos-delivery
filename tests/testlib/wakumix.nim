@@ -90,6 +90,16 @@ proc discover*(
   node.peerManager.addPeer(found.toRemotePeerInfo().expect("discovered peer"))
   return peerId
 
+proc discoverNode*(node: WakuNode, entry: MixNodePubInfo) =
+  ## Stores a discovery record with the address and the mix key of `entry`.
+  let peer = parsePeerInfo(entry.multiAddr).tryGet()
+  let found = DiscoveredPeer(
+    peerId: $peer.peerId,
+    addrs: peer.addrs.mapIt($it),
+    services: @[DiscoveredService(id: MixProtocolID, data: @(entry.pubKey))],
+  )
+  node.peerManager.addPeer(found.toRemotePeerInfo().expect("discovered peer"))
+
 proc bootnode*(address: string): MixNodePubInfo =
   let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
   let keys = generateKeyPair().expect("mix key pair")
@@ -108,6 +118,16 @@ proc deadPeers*(node: WakuNode, count: int): seq[PeerId] =
 
 proc inPool*(node: WakuNode, peerId: PeerId): bool =
   node.wakuMix.nodePool.get(peerId).isSome()
+
+proc failed*(node: WakuNode, peerId: PeerId): bool =
+  node.wakuMix.pool.failed(peerId)
+
+proc addOtherConnection*(node: WakuNode): Future[WakuNode] {.async.} =
+  ## Starts a node without mix and connects `node` to it. A failed mix dial
+  ## counts only while the node has another connection.
+  let other = await startNodeWithoutMix()
+  await node.switch.connect(other.peerInfo.peerId, other.peerInfo.addrs)
+  return other
 
 proc hopOf*(node: WakuNode, peerId: PeerId): MultiAddress =
   node.wakuMix.nodePool.get(peerId).expect("pool entry").multiAddr
@@ -240,7 +260,8 @@ proc stop*(net: MixNet, senders: seq[WakuNode]) {.async.} =
     await node.stop()
 
 proc connectExit*(net: MixNet, sender: WakuNode) {.async.} =
-  ## Connects the sender to the exit.
+  ## Connects the sender to the exit. A failed mix dial counts only while the
+  ## sender has another connection.
   await sender.switch.connect(net.exit.peerInfo.peerId, net.exit.peerInfo.addrs)
 
 proc connectedNodes*(net: MixNet, sender: WakuNode): seq[int] =
@@ -341,6 +362,17 @@ proc unresponsiveServer*(accepted: ref int = nil): StreamServer =
       discard await transp.read()
     except CatchableError:
       discard
+    await transp.closeWait()
+
+  let server = createStreamServer(initTAddress("127.0.0.1", Port(0)), serve)
+  server.start()
+  return server
+
+proc closingServer*(accepted: ref int = nil): StreamServer =
+  ## Takes TCP connections, counts them in `accepted`, and closes them at once.
+  proc serve(server: StreamServer, transp: StreamTransport) {.async: (raises: []).} =
+    if not accepted.isNil():
+      accepted[].inc()
     await transp.closeWait()
 
   let server = createStreamServer(initTAddress("127.0.0.1", Port(0)), serve)
