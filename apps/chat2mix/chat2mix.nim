@@ -178,14 +178,14 @@ proc readNick(transp: StreamTransport): Future[string] {.async.} =
 
 proc startMetricsServer(
     serverIp: IpAddress, serverPort: Port
-): Result[MetricsHttpServerRef, string] =
+): Future[Result[MetricsHttpServerRef, string]] {.async.} =
   info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $serverPort
 
   let server = MetricsHttpServerRef.new($serverIp, serverPort).valueOr:
     return err("metrics HTTP server start failed: " & $error)
 
   try:
-    waitFor server.start()
+    await server.start()
   except CatchableError:
     return err("metrics HTTP server start failed: " & getCurrentExceptionMsg())
 
@@ -214,7 +214,7 @@ proc publish(c: Chat, line: string) {.async.} =
       # Attempt lightpush with mix
 
       (
-        waitFor c.node.lightpushPublish(
+        await c.node.lightpushPublish(
           Opt.some(c.conf.getPubsubTopic(c.node, c.contentTopic)),
           message,
           Opt.none(RemotePeerInfo),
@@ -558,7 +558,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         info "Connecting to discovered peers"
         discoveredNodes = discoveredPeers.get()
         echo "Discovered and connecting to " & $discoveredNodes
-        waitFor chat.node.connectToNodes(discoveredNodes)
+        await chat.node.connectToNodes(discoveredNodes)
       else:
         warn "Failed to find peers via DNS discovery", error = discoveredPeers.error
     else:
@@ -656,13 +656,17 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     startMetricsLog()
 
   if conf.metricsServer:
-    let metricsServer = startMetricsServer(
-      conf.metricsServerAddress, Port(conf.metricsServerPort + conf.portsShift)
-    )
+    (
+      await startMetricsServer(
+        conf.metricsServerAddress, Port(conf.metricsServerPort + conf.portsShift)
+      )
+    ).isOkOr:
+      error "Failed to start metrics server", error = error
 
   await chat.readWriteLoop()
 
-  runForever()
+  # `processInput` waits here until the process stops.
+  await newFuture[void]("chat2mix.processInput")
 
 proc main(rng: crypto.Rng) {.async.} =
   let (rfd, wfd) = createAsyncPipe()
