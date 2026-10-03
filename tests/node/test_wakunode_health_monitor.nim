@@ -808,11 +808,32 @@ suite "Health Monitor - mix readiness":
       nodeA.addMixPeer(62000 + i, lightpush = true)
     check await waitForStatus(ConnectionStatus.PartiallyConnected)
 
-    # Delete only the address of a member. The mix key stays, so only the pool
-    # change handler can start the next health check.
-    let member = nodeA.wakuMix.nodePool.peerIds()[0]
-    discard nodeA.peerManager.switch.peerStore[AddressBook].del(member)
+    # One pass of the pool loop removes each discovered peer with an old record.
+    let ttl = nodeA.wakuMix.pool.discoveredTtl
+    nodeA.wakuMix.pool.discoveredTtl = ZeroDuration
+    nodeA.wakuMix.pool.maintain()
     check await waitForStatus(ConnectionStatus.Disconnected)
+
+    # A record with lightpush gives a pool member its exit role after a peer
+    # store delete.
+    nodeA.wakuMix.pool.discoveredTtl = ttl
+    let deleted = mixPeerInfo(62200)
+    nodeA.peerManager.addPeer(deleted)
+    nodeA.peerManager.switch.peerStore.delete(deleted.peerId)
+    for i in 1 ..< MinMixPoolSize:
+      nodeA.addMixPeer(62200 + i)
+    # Only a health pass writes the gauge, so the loop has seen each change.
+    checkUntilTimeout:
+      mix_pool_size.value == float64(MinMixPoolSize)
+    check lastStatus == ConnectionStatus.Disconnected
+    nodeA.peerManager.addPeer(
+      RemotePeerInfo.init(
+        deleted.peerId,
+        @[MultiAddress.init("/ip4/127.0.0.1/tcp/62200").tryGet()],
+        protocols = @[WakuLightPushCodec],
+      )
+    )
+    check await waitForStatus(ConnectionStatus.PartiallyConnected)
 
     await monitorA.stopHealthMonitor()
     await nodeB.stop()

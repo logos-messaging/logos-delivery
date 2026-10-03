@@ -1,6 +1,7 @@
-## The mix pool. It follows the peer store of the node. A peer is a pool member
-## when it has a mix key and a hop address that the policy accepts. A send dials
-## pool peers through it.
+## The mix pool. It keeps each mix node that this node knows, with a copy of its
+## addresses, protocols, ENR and shards. It keeps one hop address for each pool
+## member. A delete in the peer store of the node does not remove a mix node,
+## change its hop or end its role as an exit.
 
 {.push raises: [].}
 
@@ -10,30 +11,65 @@ import
   chronos,
   results,
   libp2p/crypto/curve25519,
-  libp2p/crypto/crypto,
+  libp2p/crypto/[crypto, secp],
   libp2p_mix,
   libp2p_mix/mix_protocol,
   libp2p_mix/multiaddr as mix_multiaddr,
   libp2p/[multiaddress, peerid, peerinfo, peerstore, peeraddrpolicy, switch, wire]
+from eth/p2p/discoveryv5/enr import Record
 
 import
   logos_delivery/waku/node/peer_manager,
-  logos_delivery/waku/node/peer_manager/waku_peer_store
+  logos_delivery/waku/node/peer_manager/waku_peer_store,
+  logos_delivery/waku/waku_enr/sharding
 
 export peeraddrpolicy
 
 logScope:
   topics = "waku mix pool"
 
+const
+  MixPoolLoopInterval = chronos.seconds(15) ## The time between two pool passes.
+  DiscoveredMixNodeTtl = chronos.hours(1)
+  MaxDiscoveredMixNodes = 1000
+
+type
+  MixNodeSource {.pure.} = enum
+    Discovered ## A peer record with a mix key.
+    Configured ## `--mixnode` or a preset.
+
+  KnownMixNode = object ## It is a pool member while it has a hop address.
+    source: MixNodeSource
+    mixPubKey: Curve25519Key
+    libp2pPubKey: SkPublicKey
+    lastDialed: Opt[MultiAddress]
+      ## The remote address of the last outbound connection to the node.
+    stored: seq[MultiAddress] ## The last peer store addresses that a hop can carry.
+    configured: seq[MultiAddress] ## The addresses of `--mixnode` or a preset.
+    # The exit choice reads these copies of the peer store.
+    protocols: seq[string]
+    enr: Record
+    shards: seq[uint16]
+    lastSeen: Moment
+      ## The time of the last peer record with a mix key, successful dial or
+      ## connection.
+
 type MixPool* = ref object
   peerManager: PeerManager
   policy: PeerAddressPolicy ## Accepts or rejects each hop address.
-  known: MixNodePool ## Each peer with a mix key, in the peer store of the node.
+  known: Table[PeerId, KnownMixNode] ## Each mix node that the pool knows.
   members: PeerStore ## One hop address for each pool member.
   nodePool: MixNodePool ## The pool over `members` that nim-libp2p-mix reads.
   dials: Table[PeerId, Future[bool].Raising([CancelledError])]
     ## The last dial of each peer. A later attempt joins it.
   dialsStopped: bool ## True from `stop` to `start`. Then no send starts a dial.
+  loop: Future[void]
+  # The settings are public for tests.
+  poolLoopInterval*: Duration = MixPoolLoopInterval
+  discoveredTtl*: Duration = DiscoveredMixNodeTtl
+    ## A discovered node leaves after this time with no peer record with a mix
+    ## key, no successful dial and no connection.
+  maxDiscovered*: int = MaxDiscoveredMixNodes ## The limit of discovered nodes.
 
 const publicDirectAddressPolicy* = proc(ma: MultiAddress): bool {.gcsafe, raises: [].} =
   ## Accepts a public address that is not a relay route. Only a relay client can
@@ -63,12 +99,15 @@ func store(pool: MixPool): PeerStore =
   pool.peerManager.switch.peerStore
 
 proc hopAddresses(pool: MixPool, peerId: PeerId): seq[MultiAddress] =
-  ## The addresses of `peerId` that a hop can carry, the last dialed first.
+  ## The addresses of `peerId` that a hop can carry, from the copies of the pool.
+  ## The last dialed address comes first, then the last peer store addresses,
+  ## then the configured addresses.
   var candidates: seq[MultiAddress]
-  let lastSeen = pool.store[LastSeenOutboundBook][peerId]
-  if lastSeen.isSome():
-    candidates.add(lastSeen.get().stripPeerId())
-  candidates.add(pool.store[AddressBook][peerId])
+  pool.known.withValue(peerId, node):
+    if node.lastDialed.isSome():
+      candidates.add(node.lastDialed.get())
+    candidates.add(node.stored)
+    candidates.add(node.configured)
   var carried: seq[MultiAddress]
   for address in candidates:
     if address notin carried and pool.usableHopAddress(peerId, address):
@@ -83,21 +122,12 @@ proc hopAddress(pool: MixPool, peerId: PeerId): Opt[MultiAddress] =
   return Opt.some(carried[0])
 
 proc poolEntry(pool: MixPool, peerId: PeerId): Opt[MixPubInfo] =
-  ## The pool entry for `peerId`. The peer needs a mix key, a secp256k1 key and a
-  ## hop address. This node never gets an entry.
-  let store = pool.store
-  if peerId == pool.peerManager.switch.peerInfo.peerId:
-    return Opt.none(MixPubInfo)
-  let mixPubKey = store[MixPubKeyBook][peerId]
-  if mixPubKey == default(Curve25519Key):
-    return Opt.none(MixPubInfo)
-  # `addPeer` and `MixNodePool.add` write the key book with each mix key.
-  let pubKey = store[KeyBook][peerId]
-  if pubKey.scheme != Secp256k1:
-    return Opt.none(MixPubInfo)
+  ## The pool entry for `peerId`.
   let address = pool.hopAddress(peerId).valueOr:
     return Opt.none(MixPubInfo)
-  return Opt.some(MixPubInfo.init(peerId, address, mixPubKey, pubKey.skkey))
+  pool.known.withValue(peerId, node):
+    return Opt.some(MixPubInfo.init(peerId, address, node.mixPubKey, node.libp2pPubKey))
+  return Opt.none(MixPubInfo)
 
 proc len*(pool: MixPool): int =
   ## The number of pool members.
@@ -108,7 +138,7 @@ func nodePool*(pool: MixPool): MixNodePool =
   pool.nodePool
 
 proc refreshPeer(pool: MixPool, peerId: PeerId) =
-  ## Makes the pool entry of `peerId` agree with the peer store of the node.
+  ## Makes the pool entry of `peerId` agree with the known node.
   let members = pool.members
   let hop = pool.poolEntry(peerId).valueOr:
     if peerId in members[MixPubKeyBook]:
@@ -132,25 +162,133 @@ proc refreshPeer(pool: MixPool, peerId: PeerId) =
     if joined:
       trace "Mix peer joined the pool", peerId = peerId, hop = $hop.multiAddr
 
-proc addBookHandlers(pool: MixPool) =
-  ## Refreshes a peer when a book that decides its entry changes. The peer store
-  ## cannot remove these handlers.
+proc copyPeerInfo(pool: MixPool, peerId: PeerId) =
+  ## Copies the addresses, protocols, ENR and shards of `peerId` from the peer
+  ## store. The pool keeps its copy of a book when the peer store has no entry.
   let store = pool.store
-  let onChange = proc(peerId: PeerId) {.gcsafe, raises: [].} =
-    if peerId in store[MixPubKeyBook] or peerId in pool.members[MixPubKeyBook]:
+  let lastDialed = store[LastSeenOutboundBook][peerId]
+  let stored = store[AddressBook][peerId]
+  let protocols = store[ProtoBook][peerId]
+  let record = store[ENRBook][peerId]
+  let shards = store[ShardBook][peerId]
+  pool.known.withValue(peerId, node):
+    if lastDialed.isSome():
+      node.lastDialed = Opt.some(lastDialed.get().stripPeerId())
+    if stored.len > 0:
+      # A record with only addresses that a hop cannot carry empties this copy.
+      node.stored = stored.filterIt(pool.usableHopAddress(peerId, it))
+    if protocols.len > 0:
+      if pool.peerManager.switch.isConnected(peerId):
+        # Identify writes the full list on a connection, so it replaces the copy.
+        node.protocols = protocols
+      else:
+        # After a delete, the book has only the protocols of a discovery
+        # record, such as the mix service of a kademlia record.
+        for protocol in protocols:
+          if protocol notin node.protocols:
+            node.protocols.add(protocol)
+    if record.raw.len > 0:
+      node.enr = record
+    if shards.len > 0:
+      node.shards = shards
+
+proc hasProtocol*(pool: MixPool, peerId: PeerId, protocol: string): bool =
+  ## True when the last known protocols of the mix node `peerId` have `protocol`.
+  pool.known.withValue(peerId, node):
+    return protocol in node.protocols
+  return false
+
+proc hasShard*(pool: MixPool, peerId: PeerId, cluster, shard: uint16): bool =
+  ## True when the last known ENR or shards of the mix node `peerId` have `shard`
+  ## of `cluster`.
+  pool.known.withValue(peerId, node):
+    return node.enr.containsShard(cluster, shard) or shard in node.shards
+  return false
+
+proc evictAtLimit(pool: MixPool) =
+  ## Removes one discovered node when the pool has `maxDiscovered` of them. A
+  ## node that is not a pool member goes first. Then the node with the oldest
+  ## `lastSeen` goes.
+  let members = pool.members[MixPubKeyBook]
+  var count = 0
+  var removed: Opt[PeerId]
+  var removedRank: (bool, Moment)
+  for peerId, node in pool.known:
+    if node.source == MixNodeSource.Configured:
+      continue
+    count.inc()
+    let rank = (peerId in members, node.lastSeen)
+    if removed.isNone() or rank < removedRank:
+      removed = Opt.some(peerId)
+      removedRank = rank
+  if count < pool.maxDiscovered or removed.isNone():
+    return
+  pool.known.del(removed.get())
+  trace "Mix peer removed at the limit of discovered nodes", peerId = removed.get()
+  pool.refreshPeer(removed.get())
+
+proc learn(pool: MixPool, peerId: PeerId) =
+  ## Adds or updates the known node `peerId` when the peer store has its mix key.
+  ## When the peer store deletes the key, the pool keeps the node.
+  let mixPubKey = pool.store[MixPubKeyBook][peerId]
+  if mixPubKey == default(Curve25519Key) or
+      peerId == pool.peerManager.switch.peerInfo.peerId:
+    return
+  if peerId notin pool.known:
+    # The peer id contains the libp2p key of the hop.
+    var libp2pPubKey: crypto.PublicKey
+    if not peerId.extractPublicKey(libp2pPubKey) or libp2pPubKey.scheme != Secp256k1:
+      return
+    pool.evictAtLimit()
+    pool.known[peerId] =
+      KnownMixNode(source: MixNodeSource.Discovered, libp2pPubKey: libp2pPubKey.skkey)
+  pool.known.withValue(peerId, node):
+    # The last key wins, also for a configured node.
+    node.mixPubKey = mixPubKey
+    node.lastSeen = Moment.now()
+  pool.copyPeerInfo(peerId)
+  pool.refreshPeer(peerId)
+
+proc addBookHandlers(pool: MixPool) =
+  ## Adds a handler to each peer store book that the pool copies. The peer store
+  ## cannot remove the handlers. A handler reads only these books, because
+  ## `PeerStore.del` iterates over the books and a read of a missing book adds a
+  ## book.
+  let store = pool.store
+  store[MixPubKeyBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      pool.learn(peerId)
+  )
+  let onPeerInfo = proc(peerId: PeerId) {.gcsafe, raises: [].} =
+    if peerId in pool.known:
+      pool.copyPeerInfo(peerId)
       pool.refreshPeer(peerId)
-  store[MixPubKeyBook].addHandler(onChange)
-  store[AddressBook].addHandler(onChange)
-  store[LastSeenOutboundBook].addHandler(onChange)
-  store[KeyBook].addHandler(onChange)
+  store[AddressBook].addHandler(onPeerInfo)
+  store[LastSeenOutboundBook].addHandler(onPeerInfo)
+  store[ProtoBook].addHandler(onPeerInfo)
+  store[ENRBook].addHandler(onPeerInfo)
+  store[ShardBook].addHandler(onPeerInfo)
 
 proc addChangeHandler*(pool: MixPool, handler: PeerBookChangeHandler) =
   ## Calls `handler` when a peer joins or leaves the pool.
   pool.members[MixPubKeyBook].addHandler(handler)
 
 proc add*(pool: MixPool, info: MixPubInfo) =
-  ## Adds a configured mix node to the peer store.
-  pool.known.add(info)
+  ## Adds a configured mix node. The node stays for the life of the pool. The
+  ## call also writes the node to the peer store, so that this node can dial it.
+  if info.peerId == pool.peerManager.switch.peerInfo.peerId:
+    return
+  # A node that the pool knows keeps its copies.
+  var node = pool.known.getOrDefault(info.peerId)
+  node.source = MixNodeSource.Configured
+  if info.multiAddr notin node.configured:
+    node.configured.add(info.multiAddr)
+  node.mixPubKey = info.mixPubKey
+  node.libp2pPubKey = info.libp2pPubKey
+  node.lastSeen = Moment.now()
+  pool.known[info.peerId] = node
+  MixNodePool.new(pool.store).add(info)
+  pool.refreshPeer(info.peerId)
 
 proc dialPeer(
     pool: MixPool, peerId: PeerId
@@ -169,6 +307,8 @@ proc dialPeer(
     debug "Mix peer dial failed",
       peerId = peerId, addresses = $addresses, error = exc.msg
     return false
+  pool.known.withValue(peerId, node):
+    node.lastSeen = Moment.now()
   debug "Mix peer dial succeeded", peerId = peerId
   return true
 
@@ -193,13 +333,45 @@ proc stopped*(pool: MixPool): bool =
   ## True from `stop` to `start`.
   pool.dialsStopped
 
+proc removeExpiredNodes(pool: MixPool) =
+  ## Removes each discovered node with no connection and a `lastSeen` older than
+  ## `discoveredTtl`.
+  let now = Moment.now()
+  var old: seq[PeerId]
+  for peerId, node in pool.known.mpairs():
+    if node.source == MixNodeSource.Configured:
+      continue
+    if pool.peerManager.switch.isConnected(peerId):
+      node.lastSeen = now
+    elif now - node.lastSeen >= pool.discoveredTtl:
+      old.add(peerId)
+  for peerId in old:
+    pool.known.del(peerId)
+    trace "Mix peer removed, not seen within its time to live",
+      peerId = peerId, discoveredTtl = $pool.discoveredTtl
+    pool.refreshPeer(peerId)
+
+proc maintain*(pool: MixPool) =
+  ## One pass of the pool loop. Public for tests.
+  pool.removeExpiredNodes()
+
+proc poolLoop(pool: MixPool) {.async: (raises: [CancelledError]).} =
+  while true:
+    pool.maintain()
+    await sleepAsync(pool.poolLoopInterval)
+
 proc start*(pool: MixPool) =
-  ## Allows dials again.
+  ## Allows dials again and runs the pool loop.
   pool.dialsStopped = false
+  if pool.loop.isNil() or pool.loop.finished():
+    pool.loop = pool.poolLoop()
 
 proc stop*(pool: MixPool) {.async: (raises: []).} =
-  ## Cancels the dials, and sets `stopped` until `start`.
+  ## Cancels the pool loop and the dials, and sets `stopped` until `start`.
   pool.dialsStopped = true
+  if not pool.loop.isNil():
+    await pool.loop.cancelAndWait()
+    pool.loop = nil
   await noCancel allFutures(toSeq(pool.dials.values()).mapIt(it.cancelAndWait()))
   pool.dials.clear()
 
@@ -210,11 +382,10 @@ proc new*(
   let pool = T(
     peerManager: peerManager,
     policy: policy,
-    known: MixNodePool.new(peerManager.switch.peerStore),
     members: members,
     nodePool: MixNodePool.new(members),
   )
   pool.addBookHandlers()
-  for peerId in pool.known.peerIds():
-    pool.refreshPeer(peerId)
+  for peerId in toSeq(pool.store[MixPubKeyBook].book.keys()):
+    pool.learn(peerId)
   return pool

@@ -105,11 +105,14 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   let shardInfo = RelayShard.parse(shard).valueOr:
     return Opt.none(RemotePeerInfo)
 
+  # The mix pool keeps the protocols and shards of its nodes after a peer store
+  # delete.
+  let mixPool = self.node.wakuMix.pool
   var exits: seq[PeerId]
   for peerId in pool.peerIds():
-    if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
+    if not mixPool.hasProtocol(peerId, WakuLightPushCodec):
       continue
-    if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
+    if not mixPool.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
       continue
     if pool.get(peerId).isSome():
       exits.add(peerId)
