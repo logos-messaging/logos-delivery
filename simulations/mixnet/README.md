@@ -16,6 +16,8 @@ make logosdeliverynode
 make chat2mix
 ```
 
+The simulation uses cluster 66, which has no network preset. Do not change it to 2. Cluster 2 applies the logos.dev preset. With this preset, the nodes connect to the public logos.dev fleet. The nodes then advertise their loopback addresses to the fleet.
+
 Simulation includes scripts for:
 
 1. a 4 waku-node mixnet where `node1` is bootstrap node for the other 3 nodes.
@@ -46,7 +48,7 @@ Once all the 4 nodes are up without any issues, run the script to start the chat
 Enter a nickname to be used.
 
 ```bash
-pubsub topic is: /waku/2/rs/2/0
+pubsub topic is: /waku/2/rs/66/0
 Choose a nickname >>
 ```
 

@@ -7,7 +7,9 @@ lightpush = true
 max-connections = 150
 peer-exchange = false
 metrics-logging = false
-cluster-id = 2
+# Do not use cluster 2. Cluster 2 applies the logos.dev preset.
+# With this preset, the node connects to the public logos.dev fleet.
+cluster-id = 66
 discv5-discovery = false
 discv5-udp-port = 9001
 discv5-enr-auto-update = true
