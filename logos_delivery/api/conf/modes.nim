@@ -80,7 +80,9 @@ type AnonymityLevel* {.pure.} = enum
   None ## Never use Mix. Send over the plain path, relay then lightpush.
   Preferred
     ## Try Mix first. Take the plain path at once when Mix cannot attempt the
-    ## send, and after the Mix window when Mix gets no answer.
+    ## send, or when the message does not fit in one Mix message. Take it after
+    ## the Mix window when Mix gets no answer.
   Required
     ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
     ## try again on the next `MixUnusableRetries` service passes, then fail.
+    ## A message that does not fit in one Mix message fails at once.

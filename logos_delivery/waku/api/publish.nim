@@ -144,6 +144,13 @@ proc mixSelfHopUsable*(self: Waku): bool =
   ## also checks this; the send path reads it alone to name the reason.
   return not self.node.wakuMix.isNil() and self.node.wakuMix.selfHopUsable()
 
+proc mixLightpushSize*(
+    self: Waku, shard: PubsubTopic, message: WakuMessage
+): tuple[size, limit: int] =
+  ## The bytes of a lightpush request over mix for `message`, and the limit of
+  ## one mix message.
+  return lightpush.mixLightpushSize(shard, message)
+
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage, mixify: bool = false
 ): Future[WakuLightPushResult] {.async.} =

@@ -11,6 +11,7 @@ import
   ./test_wakunode_mix_pool,
   ./test_wakunode_mix_reply_path,
   ./test_wakunode_mix_seen,
+  ./test_wakunode_mix_size,
   ./test_wakunode_peer_exchange,
   ./test_wakunode_store,
   ./test_wakunode_store_sync,
