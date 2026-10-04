@@ -215,16 +215,26 @@ proc subscribe*(
     shard: PubsubTopic,
     contentTopic: ContentTopic,
     handler: WakuRelayHandler = nil,
+    weak = false,
 ): Result[void, string] =
   ## Adds content-topic interest on the shard and joins the relay mesh.
+  ## A send places a `weak` interest. An Edge node removes it when it loses a
+  ## filter service peer of the shard (`dropWeakInterest`).
   var added = false
   self.shards.withValue(shard, entry):
     if contentTopic notin entry.contentTopics:
       entry.contentTopics.incl(contentTopic)
+      if weak:
+        entry.weakTopics.incl(contentTopic)
       added = true
+    elif not weak:
+      # An app subscribe makes a weak interest strong.
+      entry.weakTopics.excl(contentTopic)
   do:
     var entry = ShardSubscription(contentTopics: initHashSet[ContentTopic]())
     entry.contentTopics.incl(contentTopic)
+    if weak:
+      entry.weakTopics.incl(contentTopic)
     self.shards[shard] = entry
     added = true
   if added:
@@ -244,6 +254,7 @@ proc unsubscribe*(
   self.shards.withValue(shard, entry):
     if contentTopic in entry.contentTopics:
       entry.contentTopics.excl(contentTopic)
+      entry.weakTopics.excl(contentTopic)
       removed = true
       shardEmpty = not entry[].wanted()
   if removed:
@@ -255,10 +266,24 @@ proc unsubscribe*(
     ContentTopicUnsubscribedEvent.emit(self.node.brokerCtx, contentTopic)
   return ok()
 
-proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
+proc dropWeakInterest(self: SubscriptionManager, shard: PubsubTopic) =
+  ## Unsubscribes each weak interest of the shard, so that no new filter
+  ## service peer gets it.
+  var topics: seq[ContentTopic]
+  self.shards.withValue(shard, sub):
+    topics = toSeq(sub.weakTopics)
+  if topics.len > 0:
+    debug "Lost a filter service peer, dropping the weak interest of the shard",
+      shard = shard, contentTopics = topics
+  for contentTopic in topics:
+    discard self.unsubscribe(shard, contentTopic)
+
+proc subscribe*(
+    self: SubscriptionManager, topic: ContentTopic, weak = false
+): Result[void, string] =
   ## Subscribes to a content topic, resolving its shard via autosharding.
   let shard = ?self.getShardForContentTopic(topic)
-  return self.subscribe(shard, topic)
+  return self.subscribe(shard, topic, weak = weak)
 
 proc unsubscribe*(
     self: SubscriptionManager, topic: ContentTopic
@@ -349,6 +374,10 @@ proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
             discard await self.node.wakuFilterClient.unsubscribe(peer, shard, ct)
 
           asyncSpawn doUnsubscribe()
+
+    # This call comes last, so that the unsubscribe above also covers the weak
+    # topics.
+    self.dropWeakInterest(shard)
 
 type SendChunkedFilterRpcKind = enum
   FilterSubscribe
@@ -475,6 +504,7 @@ proc edgeFilterConnectionLoop(self: SubscriptionManager) {.async.} =
         self.updateShardHealth(shard, state)
         trace "Edge Filter health degraded by Ping failure",
           shard = shard, new = state.currentHealth
+        self.dropWeakInterest(shard)
 
     if changed:
       self.edgeFilterWakeup.fire()
@@ -523,6 +553,16 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
       trace "edgeFilterSubLoop: wakuFilterClient is nil, skipping"
       continue
 
+    # Remove the lost peers before the read of the interest set, so that a
+    # replacement does not get a weak interest.
+    for shard, state in self.edgeFilterSubStates.mpairs:
+      let oldLen = state.peers.len
+      state.peers.keepItIf(
+        self.node.peerManager.switch.peerStore.isConnected(it.peerId)
+      )
+      if state.peers.len < oldLen:
+        self.dropWeakInterest(shard)
+
     var newSynced = initTable[PubsubTopic, HashSet[ContentTopic]]()
     var allShards: HashSet[PubsubTopic]
     for shard, sub in self.shards.pairs:
@@ -565,9 +605,6 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
       )
 
       self.edgeFilterSubStates.withValue(shard, state):
-        state.peers.keepItIf(
-          self.node.peerManager.switch.peerStore.isConnected(it.peerId)
-        )
         state.pending.keepItIf(not it.finished)
 
         if addedTopics.len > 0 or removedTopics.len > 0:
@@ -640,6 +677,7 @@ proc startEdgeFilterLoops(self: SubscriptionManager): Result[void, string] =
           state.peers.keepItIf(it.peerId != evt.peerId)
           if state.peers.len < oldLen:
             self.updateShardHealth(shard, state)
+            self.dropWeakInterest(shard)
         self.edgeFilterWakeup.fire()
       elif evt.kind in
           {WakuPeerEventKind.EventMetadataUpdated, WakuPeerEventKind.EventIdentified}:

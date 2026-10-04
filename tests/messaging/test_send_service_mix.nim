@@ -1,6 +1,6 @@
 {.used.}
 
-import std/sets
+import std/[sets, tables]
 import chronos, chronicles, testutils/unittests, results, stew/byteutils
 
 import
@@ -12,6 +12,7 @@ import
   logos_delivery/waku/waku_mix,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/api/publish,
+  logos_delivery/waku/api/subscriptions,
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/node/peer_manager/waku_peer_store,
   logos_delivery/waku/node/waku_node/lightpush,
@@ -53,15 +54,23 @@ method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.asy
   task.errorDesc = self.reason
   task.state = DeliveryState.NextRoundRetry
 
+proc isWeak(waku: Waku, topic: ContentTopic): bool =
+  for sub in waku.node.subscriptionManager.shards.values:
+    if topic in sub.weakTopics:
+      return true
+  return false
+
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc buildTask(id: string, admittedAgo: Duration): DeliveryTask =
+proc buildTask(
+    id: string, admittedAgo: Duration, contentTopic = "/test/1/anonymity/proto"
+): DeliveryTask =
   ## An admitted task, so `admitAndProve` skips admission and, with no RLN, does
   ## not suspend.
   let msg = WakuMessage(
-    contentTopic: "/test/1/anonymity/proto",
+    contentTopic: contentTopic,
     payload: "hi".toBytes(),
     timestamp: 1_700_000_000_000_000_000,
   )
@@ -150,6 +159,21 @@ suite "SendService - anonymity level":
       plainService.maxDeliveryTime == MaxTimeInCache
       mixOnlyService.maxDeliveryTime == MaxTimeInCache
       bestEffortService.maxDeliveryTime == MaxTimeInCache + MaxTimeInCache
+
+  asyncTest "a send subscribes the node to its content topic only at the None level":
+    ## Above `None`, a subscription gives the content topic to filter peers and to
+    ## Store peers. At `None`, the interest is weak.
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    for level in AnonymityLevel:
+      let service = SendService
+        .new(false, waku, manager, PlainSendProcessor(), level)
+        .expect("SendService.new")
+      let topic = "/test/1/subscribe-" & $ord(level) & "/proto"
+      await service.send(buildTask("subscribe-" & $level, chronos.seconds(1), topic))
+      check:
+        waku.isSubscribed(topic).valueOr(false) == (level == AnonymityLevel.None)
+        waku.isWeak(topic) == (level == AnonymityLevel.None)
 
   asyncTest "a terminal outcome is not emitted before send() yields to its caller":
     ## The messaging API returns the request id when `send` yields, and a

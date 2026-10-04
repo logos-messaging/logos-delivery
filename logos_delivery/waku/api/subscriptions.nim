@@ -11,9 +11,12 @@ import results
 import logos_delivery/waku/waku
 import logos_delivery/waku/[waku_core, node/waku_node, node/subscription_manager]
 
-proc subscribe*(self: Waku, contentTopic: ContentTopic): Result[void, string] =
+proc subscribe*(
+    self: Waku, contentTopic: ContentTopic, weak = false
+): Result[void, string] =
   ## Subscribes to `contentTopic`, resolving its shard via autosharding.
-  return self.node.subscriptionManager.subscribe(contentTopic)
+  ## A send places a `weak` interest (see `SubscriptionManager.subscribe`).
+  return self.node.subscriptionManager.subscribe(contentTopic, weak = weak)
 
 proc unsubscribe*(self: Waku, contentTopic: ContentTopic): Result[void, string] =
   ## Unsubscribes from `contentTopic`, resolving its shard via autosharding.
