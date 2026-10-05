@@ -74,7 +74,7 @@ requires "nim == 2.2.6",
 requires "https://github.com/logos-messaging/nim-ffi#4c1218626bbbf89e19836845b690937cd255c3f0"
 
 # No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
-requires "https://github.com/logos-messaging/nim-sds.git#8ccee6e84f12506c66b27dc36c06e8a6ddcf20a0"
+requires "https://github.com/logos-messaging/nim-sds.git#4b08d508dbfa69c0e2e3883db67adf1fe5a0c994"
 
 # v3.4.0: https://github.com/NagyZoltanPeter/nim-brokers/releases/tag/v3.4.0
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#fd97eb355eee5d14594e0b4599964eff00648ec7"
