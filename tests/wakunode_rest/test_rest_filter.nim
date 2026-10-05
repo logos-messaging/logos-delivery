@@ -311,6 +311,10 @@ suite "Waku v2 Rest API - Filter V2":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
+    let relayPeer =
+      await restFilterTest.serviceNode.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await relayPeer.stop()
 
     # When
     var requestBody = FilterSubscribeRequest(
@@ -364,6 +368,10 @@ suite "Waku v2 Rest API - Filter V2":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
+    let relayPeer =
+      await restFilterTest.serviceNode.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await relayPeer.stop()
 
     let requestBody = FilterSubscribeRequest(
       requestId: "1001",
@@ -422,10 +430,12 @@ suite "Waku v2 Rest API - Filter V2":
     # check message received client side or not
     let messages2 = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
 
+    # gossipsub drops the already-seen message and relay reports it as no peers
     check:
-      postMsgResponse2.status == 200
+      postMsgResponse2.status == 400
       $postMsgResponse2.contentType == $MIMETYPE_TEXT
-      postMsgResponse2.data == "OK"
+      postMsgResponse2.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
       len(messages2.data) == 0
 
     await restFilterTest.shutdown()
@@ -443,6 +453,10 @@ suite "Waku v2 Rest API - Filter V2":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
+    let relayPeer =
+      await restFilterTest.serviceNode.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await relayPeer.stop()
 
     let requestBody = FilterSubscribeRequest(
       requestId: "1001",
@@ -504,10 +518,12 @@ suite "Waku v2 Rest API - Filter V2":
     # check message received client side or not
     let messages2 = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
 
+    # gossipsub drops the already-seen message and relay reports it as no peers
     check:
-      postMsgResponse2.status == 200
+      postMsgResponse2.status == 400
       $postMsgResponse2.contentType == $MIMETYPE_TEXT
-      postMsgResponse2.data == "OK"
+      postMsgResponse2.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
       len(messages2.data) == 1
     await restFilterTest.shutdown()
 
@@ -526,6 +542,10 @@ suite "Waku v2 Rest API - Filter V2":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
+    let relayPeer =
+      await restFilterTest.serviceNode.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await relayPeer.stop()
 
     restFilterTest.messageCache.pubsubSubscribe(DefaultPubsubTopic)
 

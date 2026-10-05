@@ -7,13 +7,15 @@ import
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/crypto/crypto as libp2p_keys,
-  eth/keys as eth_keys
+  eth/keys as eth_keys,
+  brokers/broker_context
 import
   logos_delivery/waku/[
     waku_node,
     waku_relay,
     net/net_config,
     waku_core/topics,
+    waku_core/message,
     node/waku_switch,
     node/peer_manager,
     waku_enr,
@@ -25,7 +27,8 @@ import
     common/logging,
     persistency/persistency,
   ],
-  ./common
+  ./common,
+  ./wakucore
 
 # Waku node
 
@@ -198,3 +201,19 @@ proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool
 
 proc hasGossipsubPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
   node.wakuRelay.hasGossipsubPeer(topic, peer)
+
+proc connectRelayPeer*(node: WakuNode, topic: PubsubTopic): Future[WakuNode] {.async.} =
+  ## Relay publish fails without peers on the topic, so publish tests need one.
+  var peer: WakuNode
+  lockNewGlobalBrokerContext:
+    peer = newTestWakuNode(generateSecp256k1Key())
+    (await peer.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay on peer: " & error
+    await peer.start()
+    proc handler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+      discard
+
+    peer.subscribe((kind: PubsubSub, topic: topic), handler).isOkOr:
+      raiseAssert "Failed to subscribe peer: " & error
+  await node.connectToNodes(@[peer.peerInfo.toRemotePeerInfo()])
+  return peer

@@ -319,6 +319,9 @@ suite "Waku v2 Rest API - Relay":
 
     let rln = await node.mountOnchainRln(wakuRlnConfig)
     await node.start()
+    let meshNode = await node.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await meshNode.stop()
     # Registration is mandatory before sending messages with rln-relay
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
@@ -422,6 +425,49 @@ suite "Waku v2 Rest API - Relay":
       $response.contentType == $MIMETYPE_TEXT
       response.data ==
         "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
+
+  asyncTest "Post a message to a pubsub topic without peers - POST /relay/v1/messages/{topic}":
+    # Given a node subscribed to the topic but with no relay peers on it
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+    restPort = restServer.httpServer.address.port
+    let cache = MessageCache.init()
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+      await node.stop()
+
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    proc handler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+      discard
+
+    node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), handler).isOkOr:
+      assert false, "Failed to subscribe to pubsub topic"
+
+    # When
+    let response = await client.relayPostMessagesV1(
+      DefaultPubsubTopic,
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
+      ),
+    )
+
+    # Then the message was not relayed, so the call fails
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data == "Failed to publish: publish failed in relay: NoPeersToPublish"
 
   # Autosharding API
 
@@ -1002,6 +1048,9 @@ suite "Waku v2 Rest API - Relay":
     )
     let rln = await node.mountOnchainRln(wakuRlnConfig)
     await node.start()
+    let meshNode = await node.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await meshNode.stop()
 
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
@@ -1187,6 +1236,9 @@ suite "Waku v2 Rest API - Relay":
       assert false, "Failed to mount relay"
     let rlnCalls = node.mountStubRln(validProof = clientProof)
     await node.start()
+    let meshNode = await node.connectRelayPeer(DefaultPubsubTopic)
+    defer:
+      await meshNode.stop()
 
     var restPort = Port(0)
     let restAddress = parseIpAddress("0.0.0.0")
