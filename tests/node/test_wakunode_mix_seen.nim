@@ -16,6 +16,7 @@ import
   logos_delivery/waku/node/waku_node/lightpush,
   logos_delivery/waku/waku_lightpush/common,
   logos_delivery/waku/api/publish,
+  logos_delivery/waku/api/subscriptions,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/api/types,
   logos_delivery/api/events/kernel_events,
@@ -101,6 +102,7 @@ suite "Waku Mix - a send whose reply is lost":
       Moment.now() - started < MixReplyTimeout
       task.state == DeliveryState.SuccessfullyPropagated
       task.propagatedAnonymously
+      not waku.isSubscribed(msg.contentTopic).valueOr(true) # the send placed no interest
     if hook.publishResult.isSome() and hook.publishResult.get().isErr():
       check hook.publishResult.get().error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
 

@@ -102,6 +102,9 @@ type SendService* = ref object of RootObj
     ## `isFull` counts them, so concurrent sends cannot exceed the limit.
     ## `markSeen` reads them to find a task in its first attempt.
   seenMsgListener: MessageSeenEventListener
+  subscribeOnSend: bool
+    ## True only for the `None` anonymity level. A subscription sends filter and
+    ## Store requests that name the content topic from the address of this node.
   inFlight: seq[tuple[task: DeliveryTask, fut: Future[void]]]
     ## Sends started by the current pass and not yet waited for, kept so
     ## `stopSendService` can cancel them: `allFutures` does not cancel its
@@ -178,6 +181,7 @@ proc new*(
     archiveTime: ArchiveTime,
     maxTaskCacheSize: maxTaskCacheSize,
     serviceLoopInterval: serviceLoopInterval,
+    subscribeOnSend: anonymityLevel == AnonymityLevel.None,
   )
 
   return ok(sendService)
@@ -187,6 +191,9 @@ proc addTask(self: SendService, task: DeliveryTask) =
 
 proc isFull*(self: SendService): bool =
   return self.taskCache.len + self.entering.len >= self.maxTaskCacheSize
+
+proc subscribesOnSend*(self: SendService): bool =
+  return self.subscribeOnSend
 
 proc isStorePeerAvailable*(sendService: SendService): bool =
   return sendService.waku.hasStorePeer()
@@ -646,9 +653,10 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     # before the yield, so the API's `isFull()` sees every send of a burst.
     await sleepAsync(ZeroDuration)
 
-    self.waku.subscribe(task.msg.contentTopic).isOkOr:
-      debug "SendService.send: failed to subscribe to content topic",
-        contentTopic = task.msg.contentTopic, error = error
+    if self.subscribeOnSend:
+      self.waku.subscribe(task.msg.contentTopic, weak = true).isOkOr:
+        debug "SendService.send: failed to subscribe to content topic",
+          contentTopic = task.msg.contentTopic, error = error
 
     if not (await self.admitAndProve(task)):
       if task.state == DeliveryState.FailedToDeliver:

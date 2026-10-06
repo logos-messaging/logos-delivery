@@ -1,6 +1,6 @@
 {.used.}
 
-import std/sequtils
+import std/[sequtils, sets, tables]
 import chronos, results, testutils/unittests
 import brokers/broker_context
 import logos_delivery/waku/[waku_core, waku_node, node/subscription_manager]
@@ -62,3 +62,47 @@ suite "Shard subscription events":
     await sleepAsync(chronos.milliseconds(10))
 
     check subscribed == @[TestShard]
+
+suite "Weak content topic interest":
+  const WeakTopic = ContentTopic("/weak-interest/1/weak/proto")
+  const StrongTopic = ContentTopic("/weak-interest/1/strong/proto")
+  var node {.threadvar.}: WakuNode
+
+  asyncSetup:
+    node = newTestWakuNode(generateSecp256k1Key())
+    (await node.mountRelay()).isOkOr:
+      raiseAssert error
+
+  asyncTeardown:
+    await node.stop()
+
+  asyncTest "an app subscribe makes a weak interest strong, and a weak subscribe keeps a strong one":
+    let manager = node.subscriptionManager
+    manager.subscribe(TestShard, WeakTopic, weak = true).isOkOr:
+      raiseAssert error
+    check WeakTopic in manager.shards[TestShard].weakTopics
+
+    manager.subscribe(TestShard, WeakTopic).isOkOr:
+      raiseAssert error
+    manager.subscribe(TestShard, StrongTopic).isOkOr:
+      raiseAssert error
+    manager.subscribe(TestShard, StrongTopic, weak = true).isOkOr:
+      raiseAssert error
+
+    check:
+      manager.shards[TestShard].weakTopics.len == 0
+      manager.isContentSubscribed(TestShard, WeakTopic)
+      manager.isContentSubscribed(TestShard, StrongTopic)
+
+  asyncTest "an unsubscribe removes the weak mark":
+    let manager = node.subscriptionManager
+    manager.subscribe(TestShard, StrongTopic).isOkOr: # keeps the shard entry
+      raiseAssert error
+    manager.subscribe(TestShard, WeakTopic, weak = true).isOkOr:
+      raiseAssert error
+    manager.unsubscribe(TestShard, WeakTopic).isOkOr:
+      raiseAssert error
+    manager.subscribe(TestShard, WeakTopic).isOkOr:
+      raiseAssert error
+
+    check WeakTopic notin manager.shards[TestShard].weakTopics
