@@ -63,11 +63,15 @@ proc startNodeWithoutMix*(): Future[WakuNode] {.async.} =
   await node.start()
   return node
 
-proc startMixNode*(quicEnabled = false): Future[WakuNode] {.async.} =
+proc startMixNode*(
+    quicEnabled = false, poolLoopInterval = chronos.hours(1)
+): Future[WakuNode] {.async.} =
   ## A started node with mix. It uses `defaultAddressPolicy`, which accepts
-  ## loopback addresses.
+  ## loopback addresses. With the default `poolLoopInterval`, the pool loop runs
+  ## only once, at the start.
   let node = loopbackNode(quicEnabled)
   await node.mountMixWith(defaultAddressPolicy)
+  node.wakuMix.pool.poolLoopInterval = poolLoopInterval
   await node.start()
   return node
 
@@ -90,6 +94,9 @@ proc bootnode*(address: string): MixNodePubInfo =
   let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
   let keys = generateKeyPair().expect("mix key pair")
   MixNodePubInfo(multiAddr: address & "/p2p/" & $peerId, pubKey: keys.publicKey)
+
+proc peerId*(entry: MixNodePubInfo): PeerId =
+  parsePeerInfo(entry.multiAddr).tryGet().peerId
 
 proc discoverAt*(node: WakuNode, addresses: varargs[string]): seq[PeerId] =
   ## One discovered mix peer at each address.

@@ -307,9 +307,8 @@ proc hasMixExit(hm: NodeHealthMonitor): bool =
   let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
   if not slotted.isNil() and pool.get(slotted.peerId).isSome():
     return true
-  let peerStore = hm.node.switch.peerStore
   return pool.peerIds().anyIt(
-      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
+      hm.node.wakuMix.pool.hasProtocol(it, WakuLightPushCodec) and pool.get(it).isSome()
     )
 
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
@@ -837,10 +836,11 @@ proc new*(
       hm.onMixPoolChange()
   )
   # ENR discovery and identify learn a pool peer's lightpush (its exit role)
-  # through ProtoBook alone, without writing its mix key.
+  # through ProtoBook alone, without writing its mix key. After a peer store
+  # delete, only the mix pool still has the peer.
   node.switch.peerStore[ProtoBook].addHandler(
     proc(peerId: PeerId) {.gcsafe, raises: [].} =
-      if peerId in node.switch.peerStore[MixPubKeyBook]:
+      if not node.wakuMix.isNil() and node.wakuMix.nodePool.get(peerId).isSome():
         hm.onMixPoolChange()
   )
   # `Waku.new` mounts mix before it makes the monitor.
