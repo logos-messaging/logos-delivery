@@ -67,7 +67,7 @@ method upgrade*(
 ): Future[Muxer] {.async: (raises: [CancelledError, LPError], raw: true).} =
   self.quic.upgrade(conn, peerId)
 
-const DialAborted = "dial aborted: the switch is stopping"
+const DialCancelled = "dial cancelled: the switch is stopping"
 
 type DeliveryDialer* = ref object of Dialer
   ## Logos Delivery dial policy layer. Replaces the switch dialer, so connect
@@ -136,12 +136,12 @@ method connect*(
     dir = Direction.Out,
 ) {.async: (raises: [DialFailedError, CancelledError]).} =
   if self.aborted:
-    raise newException(DialFailedError, DialAborted)
+    raise newException(DialFailedError, DialCancelled)
   let dial = procCall Dialer(self).connect(
     peerId, sortQuicFirst(addrs), forceDial, reuseConnection, dir
   )
   if not await self.finishesBeforeAbort(dial):
-    raise newException(DialFailedError, DialAborted)
+    raise newException(DialFailedError, DialCancelled)
   await dial
 
 method dial*(
@@ -152,8 +152,8 @@ method dial*(
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
   if self.aborted:
-    raise newException(DialFailedError, DialAborted)
+    raise newException(DialFailedError, DialCancelled)
   let dial = procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
   if not await self.finishesBeforeAbort(dial):
-    raise newException(DialFailedError, DialAborted)
+    raise newException(DialFailedError, DialCancelled)
   return await dial
