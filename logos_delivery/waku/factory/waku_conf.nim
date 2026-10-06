@@ -93,6 +93,9 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  allowAllAddresses*: bool
+    ## Turns off the hop address filter of mix, so mix paths can use hops at all
+    ## addresses. For a local simulation, a test or a private network.
 
 type StoreServiceConf* = object
   dbMigration*: bool

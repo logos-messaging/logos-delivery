@@ -143,7 +143,11 @@ proc setupMixNet(
     # drops a peer that does not speak it for the same cluster, after identify.
     mixnet.nodes[i].mountMetadata(uint32(DefaultClusterId), @[0'u16]).isOkOr:
       raiseAssert "mountMetadata " & $i & ": " & $error
-    (await mixnet.nodes[i].mountMix(DefaultClusterId, mixPrivs[i], others)).isOkOr:
+    (
+      await mixnet.nodes[i].mountMix(
+        DefaultClusterId, mixPrivs[i], others, addressPolicy = defaultAddressPolicy
+      )
+    ).isOkOr:
       raiseAssert "mountMix " & $i & ": " & $error
 
   for n in mixnet.nodes:
@@ -359,7 +363,10 @@ suite "Waku Mix - end to end transport":
     let kp = generateKeyPair().expect("mix key pair")
     (
       await waku.node.mountMix(
-        DefaultClusterId, kp.privateKey, mixnet.pubInfos[0 ..< NumCore]
+        DefaultClusterId,
+        kp.privateKey,
+        mixnet.pubInfos[0 ..< NumCore],
+        addressPolicy = defaultAddressPolicy,
       )
     ).isOkOr:
       raiseAssert "mountMix sender: " & $error

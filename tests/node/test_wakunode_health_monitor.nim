@@ -26,7 +26,7 @@ import
     waku_mix,
   ]
 
-import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
+import ../testlib/[testasync, wakunode, wakucore], ../waku_archive/archive_utils
 import logos_delivery/waku/node/subscription_manager
 import logos_delivery/waku/waku
 import logos_delivery/waku/factory/waku_state_info
@@ -638,7 +638,11 @@ proc addMixPeer(node: WakuNode, port: int, lightpush = false) =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let (mixPrivKey, _) = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixPrivKey, @[])).expect("failed to mount mix")
+  (
+    await node.mountMix(
+      DefaultClusterId, mixPrivKey, @[], addressPolicy = defaultAddressPolicy
+    )
+  ).expect("failed to mount mix")
 
 suite "Health Monitor - mix readiness":
   asyncTest "Mix health follows the pool size":
@@ -790,9 +794,11 @@ suite "Health Monitor - mix readiness":
         Moment.now() < relayDeadline:
       await sleepAsync(100.milliseconds)
 
-    # Let the relay mesh go quiet, so that only a pool change can trigger the
-    # next health recomputation.
-    await sleepAsync(1.seconds)
+    # Once each node has the other in its mesh, only a pool change can trigger
+    # the next health recomputation.
+    checkUntilTimeout:
+      nodeA.hasMeshPeer(DefaultPubsubTopic, nodeB.switch.peerInfo.peerId)
+      nodeB.hasMeshPeer(DefaultPubsubTopic, nodeA.switch.peerInfo.peerId)
     check:
       monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
       lastStatus == ConnectionStatus.Disconnected
@@ -802,8 +808,10 @@ suite "Health Monitor - mix readiness":
       nodeA.addMixPeer(62000 + i, lightpush = true)
     check await waitForStatus(ConnectionStatus.PartiallyConnected)
 
-    # Pruning a single mix peer takes the pool below the minimum again.
-    nodeA.peerManager.switch.peerStore.delete(nodeA.wakuMix.nodePool.peerIds()[0])
+    # Delete only the address of a member. The mix key stays, so only the pool
+    # change handler can start the next health check.
+    let member = nodeA.wakuMix.nodePool.peerIds()[0]
+    discard nodeA.peerManager.switch.peerStore[AddressBook].del(member)
     check await waitForStatus(ConnectionStatus.Disconnected)
 
     await monitorA.stopHealthMonitor()

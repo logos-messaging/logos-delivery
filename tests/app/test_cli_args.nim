@@ -616,6 +616,7 @@ suite "Waku external config - ignored dependent flags":
     conf.quicPort = Opt.some(Port(9002))
     conf.websocketSecureKeyPath = "/key.pem"
     conf.rlnRelayCredIndex = Opt.some(1'u)
+    conf.mixAllowAllAddresses = true
 
     ## When / Then
     check warningsOf(conf) ==
@@ -625,6 +626,7 @@ suite "Waku external config - ignored dependent flags":
         "--metrics-server-port is ignored: --metrics-server is not enabled",
         "--websocket-secure-key-path is ignored: --websocket-secure-support is not enabled",
         "--quic-port is ignored: --quic-support is not enabled",
+        "--mix-allow-all-addresses is ignored: --mix is not enabled",
         "--rln-relay-membership-index is ignored: --rln-relay is not enabled",
       ]
 

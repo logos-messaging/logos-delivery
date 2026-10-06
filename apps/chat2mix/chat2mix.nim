@@ -40,6 +40,7 @@ import
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_enr,
+    waku_mix,
     discovery/waku_dnsdisc,
     discovery/waku_kademlia,
     waku_node,
@@ -462,7 +463,14 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     error "failed to generate mix key pair", error = error
     return
 
-  (await node.mountMix(conf.clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
+  (
+    await node.mountMix(
+      conf.clusterId,
+      mixPrivKey,
+      conf.mixnodes,
+      mixAddressPolicy(conf.mixAllowAllAddresses),
+    )
+  ).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error
     quit(QuitFailure)
 

@@ -137,7 +137,7 @@ Many flags only configure a feature that another flag enables. If such a flag is
 | `--websocket-support` | `--websocket-port`, `--websocket-secure-support` |
 | `--websocket-secure-support` | `--websocket-secure-key-path`, `--websocket-secure-cert-path` |
 | `--quic-support` | `--quic-port` |
-| `--mix` | `--mixkey`, `--mixnode` |
+| `--mix` | `--mixkey`, `--mixnode`, `--mix-allow-all-addresses` |
 | `--enable-kad-discovery` or `--plugin-kad-discovery` | `--kad-bootstrap-node`, `--kad-random-lookup-interval`, `--kad-service-lookup-interval` |
 | `--rln-relay` | `--rln-relay-cred-path`, `--rln-relay-cred-password`, `--rln-relay-eth-client-address`, `--rln-relay-eth-contract-address`, `--rln-relay-chain-id`, `--rln-relay-user-message-limit`, `--rln-relay-epoch-sec`, `--rln-relay-membership-index` |
 
