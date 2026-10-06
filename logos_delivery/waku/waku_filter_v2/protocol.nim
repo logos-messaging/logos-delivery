@@ -175,13 +175,28 @@ proc pushToPeer(
 ): Future[Result[void, string]] {.async.} =
   debug "Pushing message to subscribed peer", peerId = shortLog(peerId)
 
-  let stream = (
-    await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
-  ).valueOr:
-    debug "Push to peer failed", error
-    return err("pushToPeer failed: " & $error)
+  let goWaku = wf.peerManager.isGoWaku(peerId)
+  let stream =
+    if goWaku:
+      ## go-waku closes the stream after one push, and over QUIC that remote close
+      ## is not observable, so reusing the stream would silently drop later pushes.
+      (await wf.peerManager.dialPeer(peerId, WakuFilterPushCodec)).valueOr:
+        error "Push to peer failed: could not open stream", peerId = shortLog(peerId)
+        return err("pushToPeer failed: no stream to peer: " & $peerId)
+    else:
+      (
+        await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
+      ).valueOr:
+        error "Push to peer failed", peerId = shortLog(peerId), error
+        return err("pushToPeer failed: " & $error)
 
-  await stream.writeLp(buffer)
+  let writeRes = catch:
+    await stream.writeLp(buffer)
+  if goWaku:
+    await stream.close()
+  writeRes.isOkOr:
+    error "Push to peer failed", peerId = shortLog(peerId), error = error.msg
+    return err("pushToPeer failed: " & error.msg)
 
   debug "Published successful", peerId = shortLog(peerId), stream
   logos_delivery_service_network_bytes.inc(

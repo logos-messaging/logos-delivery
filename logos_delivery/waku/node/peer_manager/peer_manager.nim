@@ -614,6 +614,12 @@ proc disconnectAllPeers*(pm: PeerManager) {.async.} =
   let futs = connectedPeers.mapIt(pm.disconnectNode(it))
   await allFutures(futs)
 
+proc isGoWaku*(pm: PeerManager, peerId: PeerId): bool =
+  ## go-waku light clients close push streams after each message.
+  if not pm.switch.peerStore[AgentBook].contains(peerId):
+    return false
+  return pm.switch.peerStore[AgentBook][peerId].toLowerAscii().contains("go-waku")
+
 proc getStreamByPeerIdAndProtocol*(
     pm: PeerManager, peerId: PeerId, protocol: string
 ): Future[Result[Connection, string]] {.async.} =
