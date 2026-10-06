@@ -184,9 +184,7 @@ proc pushToPeer(
         error "Push to peer failed: could not open stream", peerId = shortLog(peerId)
         return err("pushToPeer failed: no stream to peer: " & $peerId)
     else:
-      (
-        await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
-      ).valueOr:
+      (await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)).valueOr:
         error "Push to peer failed", peerId = shortLog(peerId), error
         return err("pushToPeer failed: " & $error)
 
