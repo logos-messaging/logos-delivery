@@ -7,3 +7,6 @@ declarePublicCounter logos_delivery_mix_bootnode_resolve_failures,
 
 declarePublicCounter logos_delivery_mix_reply_hop_failures,
   "mixed sends that stopped before they left, because no mix peer had a connection to carry the reply and the dials of the send made none"
+
+declarePublicCounter logos_delivery_mix_dial_failures,
+  "failed dials to mix peers that the mix pool counted against the peer"

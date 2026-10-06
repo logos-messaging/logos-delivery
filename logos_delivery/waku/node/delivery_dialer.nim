@@ -3,6 +3,7 @@
 import std/[sequtils, strutils]
 import chronos, results
 import
+  libp2p/connmanager,
   libp2p/dial,
   libp2p/dialer,
   libp2p/switch,
@@ -67,10 +68,40 @@ method upgrade*(
 ): Future[Muxer] {.async: (raises: [CancelledError, LPError], raw: true).} =
   self.quic.upgrade(conn, peerId)
 
+type
+  DialEventKind* {.pure.} = enum
+    Failed ## libp2p raised `DialFailedError`.
+    Cancelled ## The caller cancelled the dial before libp2p had a result.
+
+  DialEventHandler* = proc(
+    kind: DialEventKind,
+    peerId: PeerId,
+    addrs: seq[MultiAddress],
+    protos: seq[string],
+    error: string,
+  ) {.gcsafe, raises: [].}
+    ## The dialer calls it for each stream dial that failed or that its caller
+    ## cancelled. `error` is empty for a cancelled dial. The dialer does not report
+    ## a dial that the connection limit of this node refused.
+
+func connectionLimitReached*(error: ref DialFailedError): bool =
+  ## True when libp2p refused the dial because this node has no free connection
+  ## slot. Then libp2p dialed no address of the peer. A stream dial wraps the
+  ## error of the connection, so the search covers each parent.
+  var cause = error.parent
+  while not cause.isNil():
+    if cause of TooManyConnectionsError:
+      return true
+    cause = cause.parent
+  return false
+
 type DeliveryDialer* = ref object of Dialer
   ## Logos Delivery dial policy layer. Replaces the switch dialer, so connect
   ## and dial go through here. Dials quic addresses before tcp, and bounds the
   ## quic handshake so tcp is still tried when quic does not answer.
+  dialEventHandlers*: seq[DialEventHandler]
+    ## The handlers of the dial events. Another node can select the addresses of
+    ## a dial, so a handler must compare them with an address that it knows.
 
 proc install*(
     T: typedesc[DeliveryDialer], switch: Switch, quicDialTimeout = QuicDialTimeout
@@ -105,4 +136,16 @@ method dial*(
     protos: seq[string],
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
-  await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
+  try:
+    return
+      await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
+  except DialFailedError as exc:
+    # A full connection limit of this node tells nothing about the peer.
+    if not exc.connectionLimitReached():
+      for handler in self.dialEventHandlers:
+        handler(DialEventKind.Failed, peerId, addrs, protos, exc.msg)
+    raise exc
+  except CancelledError as exc:
+    for handler in self.dialEventHandlers:
+      handler(DialEventKind.Cancelled, peerId, addrs, protos, "")
+    raise exc

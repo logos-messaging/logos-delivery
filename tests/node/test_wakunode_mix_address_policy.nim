@@ -173,6 +173,12 @@ suite "Waku Mix - hop address policy":
     store.delete(publicPeers[0])
     check mixHealth() == HealthStatus.READY
 
+    # A failed dial to the one public exit takes readiness away again.
+    node.wakuMix.pool.countFailure(publicPeers[0])
+    check:
+      node.getMixNodePoolSize() == MinMixPoolSize - 1
+      mixHealth() == HealthStatus.NOT_READY
+
   asyncTest "the self hop of a sender behind NAT still ends its reply paths":
     ## The address policy applies only to the hops of other nodes.
     let node = await mixNode()
