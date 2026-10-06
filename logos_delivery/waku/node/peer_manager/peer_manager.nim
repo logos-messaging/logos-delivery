@@ -281,14 +281,14 @@ proc selectPeer*(
   if proto != WakuRelayCodec:
     pm.serviceSlots.withValue(proto, serviceSlot):
       trace "Got peer from service slots",
-        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
+        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs, protocol = proto
       return Opt.some(serviceSlot[])
 
   # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
   let peers = pm.selectPeers(proto, shard)
   if peers.len > 0:
     trace "Got peer from peerstore",
-      peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
+      peerId = peers[0].peerId, multi = peers[0].addrs, protocol = proto
     return Opt.some(peers[0])
   trace "No peer found for protocol", protocol = proto
   return Opt.none(RemotePeerInfo)
@@ -307,8 +307,8 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
     return
 
   debug "Adding peer to service slots",
-    peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs[0], service = proto
-  logos_delivery_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs[0]])
+    peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs, service = proto
+  logos_delivery_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs])
 
     # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
@@ -482,7 +482,7 @@ proc dialPeer*(
   # TODO: nim libp2p peerstore already adds them
   if not pm.switch.peerStore.hasPeer(remotePeerInfo.peerId, proto):
     trace "Adding newly dialed peer to manager",
-      peerId = $remotePeerInfo.peerId, address = $remotePeerInfo.addrs[0], proto = proto
+      peerId = $remotePeerInfo.peerId, address = $remotePeerInfo.addrs, proto = proto
     pm.addPeer(remotePeerInfo)
 
   return await pm.dialPeer(

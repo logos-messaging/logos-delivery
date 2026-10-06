@@ -1239,6 +1239,20 @@ procSuite "Peer Manager":
       nodes[1].peerManager.getNumStreams(WakuRelayCodec) == (1, 1)
       nodes[1].peerManager.getNumStreams(WakuFilterSubscribeCodec) == (4, 0)
 
+  test "addServicePeer() and selectPeer() tolerate a peer without addresses":
+    let pm = PeerManager.new(
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
+      storage = nil,
+    )
+    let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let addrless = RemotePeerInfo.init(peerId, @[])
+
+    pm.addServicePeer(addrless, WakuStoreCodec)
+
+    check:
+      pm.selectPeer(WakuStoreCodec).isSome()
+
   test "selectPeer() returns the correct peer":
     # Valid peer id missing the last digit
     let basePeerId = "16Uiu2HAm7QGEZKujdSbbo1aaQyfDPQ6Bw3ybQnj6fruH5Dxwd7D"
