@@ -106,6 +106,7 @@ which gcc g++ make cmake cargo rustc python nasm
 - Open Git Bash as administrator  
 - clone the repository and cd into it
 - Execute: `./scripts/build_windows.sh`
+- Pass a target to build only one, for example `./scripts/build_windows.sh liblogosdelivery`. CI runs this same script.
 
 #### 4. Troubleshooting
 If `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  

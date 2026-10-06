@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
+# Usage: scripts/build_windows.sh [logosdeliverynode|liblogosdelivery]
+# Without an argument both are built. NPROC, LOG_LEVEL, V and NIMFLAGS can be
+# set in the environment.
 
 echo "- - - - - - - - - - Windows Setup Script - - - - - - - - - -"
+
+target="${1:-all}"
+case "$target" in
+    all|logosdeliverynode|liblogosdelivery) ;;
+    *)
+        echo "Usage: $0 [logosdeliverynode|liblogosdelivery]" >&2
+        exit 2
+        ;;
+esac
+
+NPROC="${NPROC:-$(nproc)}"
+LOG_LEVEL="${LOG_LEVEL:-DEBUG}"
+V="${V:-1}"
 
 success_count=0
 failure_count=0
@@ -18,7 +34,10 @@ execute_command() {
 }
 
 echo "1. -.-.-.-- Set PATH -.-.-.-"
-export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:/c/msys64/mingw64/lib:/c/msys64/usr/lib:$PATH"
+# Git Bash has no pacman; an MSYS2 shell already has these directories on PATH.
+if [ ! -x /usr/bin/pacman ]; then
+    export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"
+fi
 
 echo "2. -.-.-.- Verify dependencies -.-.-.-"
 execute_command "which gcc g++ make cmake cargo rustc python nasm"
@@ -29,11 +48,13 @@ execute_command "which gcc g++ make cmake cargo rustc python nasm"
 # Nat.mk builds miniupnpc and libnatpmp from the package nimble installed, and
 # libbacktrace is disabled by default. The vendor tree those steps used is gone.
 
-echo "3. -.-.-.- Building logosdeliverynode -.-.-.- "
-execute_command "make logosdeliverynode POSTGRES=1 LOG_LEVEL=DEBUG V=1 -j8"
-
-echo "4. -.-.-.- Building liblogosdelivery -.-.-.- "
-execute_command "make liblogosdelivery STATIC=0 LOG_LEVEL=DEBUG V=1 -j8"
+echo "3. -.-.-.- Build -.-.-.- "
+if [ "$target" = all ] || [ "$target" = logosdeliverynode ]; then
+    execute_command "make logosdeliverynode POSTGRES=1 LOG_LEVEL=$LOG_LEVEL V=$V -j$NPROC"
+fi
+if [ "$target" = all ] || [ "$target" = liblogosdelivery ]; then
+    execute_command "make liblogosdelivery STATIC=0 LOG_LEVEL=$LOG_LEVEL V=$V -j$NPROC"
+fi
 
 echo "✓ Successful commands: $success_count"
 echo "✗ Failed commands: $failure_count"
