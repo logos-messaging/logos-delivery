@@ -73,6 +73,11 @@ suite "Size serialization test":
     assert sizeInBytesRes.isOk(), sizeInBytesRes.error
     check sizeInBytesRes.get() == uint64(1024 * 1024)
 
+  # TODO: remove; fails on purpose to check the CI test report.
+  test "intentional failure":
+    let size = parseMsgSize("15 KiB").get()
+    check size == 15361
+
   test "parse wrong sizes":
     var sizeInBytesRes = parseMsgSize("150K")
     assert sizeInBytesRes.isErr(), "The size should be considered incorrect"
