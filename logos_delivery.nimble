@@ -141,8 +141,13 @@ const cBindingsFlags =
   " -d:ffiSrcPath=../liblogosdelivery.nim "
 
 ## The Makefile does not export NIM_PARAMS, so its defines never reach here.
+##
+## `chronicles_runtime_filtering` makes the `logLevel` the host passes in the
+## create config take effect. Without it the library logs everything the
+## compile-time level (TRACE by default) allows, whatever the host asked for.
 const libFeatureFlags =
-  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support "
+  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support " &
+  " -d:chronicles_runtime_filtering=on "
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
