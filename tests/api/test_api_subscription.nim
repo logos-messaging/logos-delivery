@@ -16,6 +16,7 @@ import
     waku_relay/protocol,
     node/waku_node/filter,
     node/subscription_manager,
+    waku_filter_v2/subscriptions,
   ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
@@ -851,3 +852,50 @@ suite "Messaging API, SubscriptionManager":
     await sparePeer.stop()
     await meshBuddy.stop()
     await publisher.stop()
+
+  asyncTest "Subscription API, edge node drops its service peer when an unsubscribe is answered not found":
+    # TODO: filter-unsubscribe-other-peer
+    let net = await setupNetwork(1, messaging_conf.LogosDeliveryMode.Edge)
+    defer:
+      await net.teardown()
+
+    let keptTopic = ContentTopic("/waku/2/kept-topic/proto")
+    let staleTopic = ContentTopic("/waku/2/stale-topic/proto")
+    let removedTopic = ContentTopic("/waku/2/removed-topic/proto")
+    for topic in [keptTopic, staleTopic, removedTopic]:
+      (await net.subscriber.messagingClient.subscribe(topic)).expect(
+        "failed to subscribe"
+      )
+
+    let shard = net.subscriber.waku.node.getRelayShard(keptTopic)
+    let edgePeerId = net.subscriber.waku.node.peerInfo.peerId
+    let subscriptions = net.publisher.wakuFilter.subscriptions
+
+    checkUntilTimeout:
+      edgePeerId in subscriptions.findSubscribedPeers(shard, keptTopic)
+      edgePeerId in subscriptions.findSubscribedPeers(shard, staleTopic)
+      edgePeerId in subscriptions.findSubscribedPeers(shard, removedTopic)
+
+    (
+      await net.subscriber.waku.node.filterUnsubscribe(
+        Opt.some(shard), removedTopic, net.publisherPeerInfo
+      )
+    ).expect("failed to filter-unsubscribe")
+
+    # The shipped debounce keeps the edge without its service peer long enough to observe.
+    net.subscriber.waku.node.subscriptionManager.edgeFilterSubLoopDebounce = 1.seconds
+
+    # The service checks removedTopic before staleTopic, so its 404 removes nothing.
+    net.subscriber.messagingClient.unsubscribe(staleTopic).expect(
+      "failed to unsub stale"
+    )
+    net.subscriber.messagingClient.unsubscribe(removedTopic).expect(
+      "failed to unsub removed"
+    )
+
+    check await edgePeersDroppedBelow(net.subscriber, shard, 1)
+    check await edgePeersReached(net.subscriber, shard, 1)
+    check:
+      edgePeerId in subscriptions.findSubscribedPeers(shard, keptTopic)
+      edgePeerId in subscriptions.findSubscribedPeers(shard, staleTopic)
+      edgePeerId notin subscriptions.findSubscribedPeers(shard, removedTopic)

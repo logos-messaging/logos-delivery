@@ -6,6 +6,7 @@ import
   chronos/timer,
   stew/byteutils,
   testutils/unittests,
+  metrics,
   presto,
   presto/client as presto_client,
   libp2p/crypto/crypto
@@ -16,6 +17,7 @@ import
     waku_core,
     waku_core/topics/sharding,
     waku_node,
+    node/node_telemetry,
     node/peer_manager,
     rest_api/endpoint/server,
     rest_api/endpoint/client,
@@ -126,6 +128,14 @@ proc waitForFilterMessages(
     messages.add(response.data)
     await sleepAsync(50.milliseconds)
   return messages
+
+proc nodeErrorCount(errorType: string): float64 =
+  try:
+    return logos_delivery_node_errors.valueByName(
+      "logos_delivery_node_errors_total", [errorType]
+    )
+  except ValueError:
+    return 0.0
 
 suite "Waku v2 Rest API - Filter V2":
   asyncTest "Subscribe a node to an array of topics - POST /filter/v2/subscriptions":
@@ -609,11 +619,16 @@ suite "Waku v2 Rest API - Filter V2":
       unsubscribeResponse.data.statusDesc == "OK"
       subscriptions.findSubscribedPeers($derivedShard, DefaultContentTopic).len() == 0
 
-  asyncTest "Subscribe and unsubscribe without a pubsub topic under static sharding - POST and DELETE /filter/v2/subscriptions":
+  asyncTest "Subscribe and unsubscribe without a pubsub topic under static sharding - POST, PUT and DELETE /filter/v2/subscriptions":
     # Given a subscriber whose node cannot derive a shard
     let restFilterTest = await RestFilterTest.init()
     defer:
       await restFilterTest.shutdown()
+
+    # TODO: filter-no-pubsub-topic
+    let
+      subscribeFailuresBefore = nodeErrorCount("subscribe_filter_failure")
+      unsubscribeFailuresBefore = nodeErrorCount("unsubscribe_filter_failure")
 
     # When it subscribes without a pubsubTopic
     let subscribeResponse = await restFilterTest.client.filterPostSubscriptions(
@@ -639,6 +654,40 @@ suite "Waku v2 Rest API - Filter V2":
       messages.status == 200
       messages.data.len() == 0
 
+    # TODO: filter-no-pubsub-topic
+    # When it updates without a pubsubTopic, and subscribes and updates with an empty one
+    let putResponse = await restFilterTest.client.filterPutSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "2345",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.none(string),
+      )
+    )
+    let emptyTopicPostResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "3456",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(""),
+      )
+    )
+    let emptyTopicPutResponse = await restFilterTest.client.filterPutSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "4567",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(""),
+      )
+    )
+
+    # Then each is answered UNKNOWN and the service holds no subscriber
+    check:
+      putResponse.status == 200
+      putResponse.data.statusDesc == "UNKNOWN"
+      emptyTopicPostResponse.status == 200
+      emptyTopicPostResponse.data.statusDesc == "UNKNOWN"
+      emptyTopicPutResponse.status == 200
+      emptyTopicPutResponse.data.statusDesc == "UNKNOWN"
+      restFilterTest.serviceNode.wakuFilter.subscriptions.subscribedPeerCount() == 0
+
     # When it unsubscribes without a pubsubTopic
     let unsubscribeResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
@@ -651,6 +700,53 @@ suite "Waku v2 Rest API - Filter V2":
     check:
       unsubscribeResponse.status == 200
       unsubscribeResponse.data.statusDesc == "UNKNOWN"
+
+    # TODO: filter-no-pubsub-topic
+    # When it unsubscribes with an empty pubsubTopic
+    let emptyTopicDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "5678",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(""),
+      )
+    )
+
+    # Then it is answered UNKNOWN, and every request was counted as a failure
+    check:
+      emptyTopicDeleteResponse.status == 200
+      emptyTopicDeleteResponse.data.statusDesc == "UNKNOWN"
+      nodeErrorCount("subscribe_filter_failure") == subscribeFailuresBefore + 4
+      nodeErrorCount("unsubscribe_filter_failure") == unsubscribeFailuresBefore + 2
+
+    # TODO: filter-no-pubsub-topic
+    # When it subscribes with a pubsubTopic and unsubscribes without one
+    let subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
+
+    let subscribeWithTopicResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "6789",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    let unsubscribeWithoutTopicResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "7890",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.none(string),
+      )
+    )
+
+    # Then the unsubscribe is answered UNKNOWN and the service keeps the subscription
+    check:
+      subscribeWithTopicResponse.status == 200
+      subscribeWithTopicResponse.data.statusDesc == "OK"
+      unsubscribeWithoutTopicResponse.status == 200
+      unsubscribeWithoutTopicResponse.data.statusDesc == "UNKNOWN"
+      subPeerId in
+        restFilterTest.serviceNode.wakuFilter.subscriptions.findSubscribedPeers(
+          DefaultPubsubTopic, DefaultContentTopic
+        )
 
   asyncTest "Subscribe, update and unsubscribe with an invalid body - POST, PUT and DELETE /filter/v2/subscriptions":
     # Given a subscriber with a service peer, so only the body decides the response
@@ -843,33 +939,6 @@ suite "Waku v2 Rest API - Filter V2":
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "2")
 
-    # When a request names more content topics than the maximum
-    let tooManyTopics = toSeq(0 .. MaxContentTopicsPerRequest).mapIt(ContentTopic($it))
-
-    let tooManyPostResponse = await restFilterTest.client.filterPostSubscriptions(
-      FilterSubscribeRequest(
-        requestId: "5678",
-        contentFilters: tooManyTopics,
-        pubsubTopic: Opt.some(DefaultPubsubTopic),
-      )
-    )
-    let tooManyDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
-      FilterUnsubscribeRequest(
-        requestId: "6789",
-        contentFilters: tooManyTopics,
-        pubsubTopic: Opt.some(DefaultPubsubTopic),
-      )
-    )
-
-    # Then both carry the service's own reason
-    check:
-      tooManyPostResponse.status == 400
-      tooManyPostResponse.data.statusDesc ==
-        "BAD_REQUEST: exceeds maximum content topics: 100"
-      tooManyDeleteResponse.status == 400
-      tooManyDeleteResponse.data.statusDesc ==
-        "BAD_REQUEST: exceeds maximum content topics: 100"
-
     # When one subscribed content topic is deleted
     let deleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
@@ -901,3 +970,158 @@ suite "Waku v2 Rest API - Filter V2":
       deleteAllResponse.status == 200
       messagesAfterDeleteAll.status == 400
       messagesAfterDeleteAll.data == "Not subscribed to topic: 2"
+
+    # TODO: filter-no-pubsub-topic
+    # Given a subscription to one content topic again
+    let resubscribeResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "9012",
+        contentFilters: @[ContentTopic("1")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    check resubscribeResponse.status == 200
+
+    # When a request names more content topics than the maximum
+    let tooManyTopics = toSeq(0 .. MaxContentTopicsPerRequest).mapIt(ContentTopic($it))
+
+    let tooManyPostResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "5678",
+        contentFilters: tooManyTopics,
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+
+    # TODO: filter-no-pubsub-topic
+    # Then a read of a content topic the rejected subscribe named answers with an empty list
+    let messagesAfterTooManyPost = await restFilterTest.client.filterGetMessagesV1("0")
+
+    check:
+      subscriptions.findSubscribedPeers(DefaultPubsubTopic, "0").len() == 0
+      messagesAfterTooManyPost.status == 200
+      messagesAfterTooManyPost.data.len() == 0
+
+    let tooManyDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "6789",
+        contentFilters: tooManyTopics,
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+
+    # Then both carry the service's own reason
+    check:
+      tooManyPostResponse.status == 400
+      tooManyPostResponse.data.statusDesc ==
+        "BAD_REQUEST: exceeds maximum content topics: 100"
+      tooManyDeleteResponse.status == 400
+      tooManyDeleteResponse.data.statusDesc ==
+        "BAD_REQUEST: exceeds maximum content topics: 100"
+
+    # TODO: filter-no-pubsub-topic
+    # And a read of a content topic the service still holds after the rejected unsubscribe is refused
+    let messagesAfterTooManyDelete =
+      await issueRequest(restFilterTest.restServer.getAddress("/filter/v2/messages/1"))
+
+    check:
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      messagesAfterTooManyDelete.status == 400
+      messagesAfterTooManyDelete.data == "Not subscribed to topic: 1"
+
+  asyncTest "Remove subscription criteria together with one no peer holds - DELETE /filter/v2/subscriptions":
+    # TODO: filter-unsubscribe-other-peer
+    let restFilterTest = await RestFilterTest.init()
+    defer:
+      await restFilterTest.shutdown()
+
+    let
+      subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
+      subscriptions = restFilterTest.serviceNode.wakuFilter.subscriptions
+
+    # Given a subscription to one content topic
+    let onlyPostResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "1234",
+        contentFilters: @[ContentTopic("5")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    check onlyPostResponse.status == 200
+
+    # When a DELETE names it and a criterion no peer holds
+    let onlyResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "2345",
+        contentFilters: @[ContentTopic("5"), ContentTopic("missing")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    let onlyPingResponse = await restFilterTest.client.filterSubscriberPing("3456")
+
+    # Then it is answered "peer has no subscriptions" and the whole subscription is gone
+    check:
+      onlyResponse.status == 404
+      onlyResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      subscriptions.findSubscribedPeers(DefaultPubsubTopic, "5").len() == 0
+      onlyPingResponse.status == 404
+      onlyPingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+
+    # Given a subscription to two content topics
+    let postResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "4567",
+        contentFilters: @[ContentTopic("1"), ContentTopic("4")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    check postResponse.status == 200
+
+    # When a DELETE names only a criterion no peer holds
+    let missingResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "5678",
+        contentFilters: @[ContentTopic("missing")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    let pingResponse = await restFilterTest.client.filterSubscriberPing("6789")
+
+    # Then it is answered "peer has no subscriptions" while a ping is answered OK
+    check:
+      missingResponse.status == 404
+      missingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      pingResponse.status == 200
+      pingResponse.data.statusDesc == "OK"
+
+    # When a DELETE names "1" and a criterion no peer holds
+    let keptResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "7890",
+        contentFilters: @[ContentTopic("1"), ContentTopic("missing")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+
+    # Then it is answered "peer has no subscriptions" and nothing is removed
+    check:
+      keptResponse.status == 404
+      keptResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
+
+    # When a DELETE names "4" and a criterion no peer holds
+    let removedResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "8901",
+        contentFilters: @[ContentTopic("4"), ContentTopic("missing")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+
+    # Then it is answered "peer has no subscriptions" and "4" is removed
+    check:
+      removedResponse.status == 404
+      removedResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      subPeerId notin subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
