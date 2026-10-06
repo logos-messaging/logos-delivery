@@ -112,8 +112,9 @@ proc resumeDials*(switch: Switch) =
 proc finishesBeforeAbort(
     self: DeliveryDialer, dial: FutureBase
 ): Future[bool] {.async: (raises: [CancelledError]).} =
-  ## False once `abortDials` ran first; the dial is then cancelled and left to
-  ## wind down on its own.
+  ## False once `abortDials` ran first, including before the call: the event
+  ## then stays set, so the dial is cancelled at once and left to wind down on
+  ## its own.
   let aborted = self.abortEvent.wait()
   try:
     discard await race(dial, aborted)
@@ -135,8 +136,6 @@ method connect*(
     reuseConnection = true,
     dir = Direction.Out,
 ) {.async: (raises: [DialFailedError, CancelledError]).} =
-  if self.aborted:
-    raise newException(DialFailedError, DialCancelled)
   let dial = procCall Dialer(self).connect(
     peerId, sortQuicFirst(addrs), forceDial, reuseConnection, dir
   )
@@ -151,8 +150,6 @@ method dial*(
     protos: seq[string],
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
-  if self.aborted:
-    raise newException(DialFailedError, DialCancelled)
   let dial = procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
   if not await self.finishesBeforeAbort(dial):
     raise newException(DialFailedError, DialCancelled)
