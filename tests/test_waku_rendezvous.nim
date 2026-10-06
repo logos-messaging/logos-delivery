@@ -8,6 +8,7 @@ import
   libp2p/builders,
   libp2p/crypto/curve25519,
   libp2p/protocols/rendezvous
+from libp2p_mix/curve25519 import generateKeyPair
 
 import
   logos_delivery/waku/waku_core/peers,
@@ -19,6 +20,7 @@ import
   logos_delivery/waku/waku_rendezvous/common,
   logos_delivery/waku/waku_rendezvous/waku_peer_record,
   logos_delivery/waku/waku_rendezvous/client,
+  logos_delivery/waku/waku_mix,
   ./testlib/[wakucore, wakunode]
 
 suite "mixPubKeyFromHex":
@@ -143,3 +145,50 @@ procSuite "Waku Rendezvous":
       lightClient.wakuRendezvous != nil
 
     await lightClient.stop()
+
+  asyncTest "The record carries the mix key only while the node advertises itself as a mix node":
+    let
+      clusterId = 10.uint16
+      node1 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      node2 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      node3 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (await node1.mountMix(clusterId, mixKeys.privateKey, @[], defaultAddressPolicy)).expect(
+      "mount mix"
+    )
+
+    await allFutures(
+      [
+        node1.mountRendezvous(clusterId),
+        node2.mountRendezvous(clusterId),
+        node3.mountRendezvous(clusterId),
+      ]
+    )
+    await allFutures([node1.start(), node2.start(), node3.start()])
+    defer:
+      await allFutures([node1.stop(), node2.stop(), node3.stop()])
+
+    let peerInfo1 = node1.switch.peerInfo.toRemotePeerInfo()
+    let peerInfo2 = node2.switch.peerInfo.toRemotePeerInfo()
+    node1.peerManager.addPeer(peerInfo2)
+    node3.peerManager.addPeer(peerInfo2)
+
+    proc recordOfNode1(): Future[WakuPeerRecord] {.async.} =
+      (await node1.wakuRendezvous.advertiseAll()).expect("advertise")
+      let conn = await node3.peerManager.dialPeer(peerInfo2.peerId, WakuRendezVousCodec)
+      doAssert conn.isSome()
+      let records = await rendezvous.request[WakuPeerRecord](
+        node3.wakuRendezvous,
+        Opt.some(computeMixNamespace(clusterId)),
+        Opt.some(1),
+        Opt.some(@[peerInfo2.peerId]),
+      )
+      doAssert records.len == 1 and records[0].peerId == peerInfo1.peerId
+      return records[0]
+
+    check:
+      not node1.wakuMix.advertised
+      (await recordOfNode1()).mixKey == ""
+
+    node1.wakuMix.advertised = true
+    check (await recordOfNode1()).mixKey == node1.wakuMix.pubKey.to0xHex()

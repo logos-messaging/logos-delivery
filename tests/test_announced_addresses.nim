@@ -17,11 +17,13 @@ import eth/p2p/discoveryv5/protocol as discv5_protocol
 import ../logos_delivery/waku/discovery/waku_discv5
 import eth/keys, eth/p2p/discoveryv5/enr
 import stew/byteutils
+import libp2p_mix, libp2p_mix/curve25519
 import
   ../logos_delivery/waku/net/net_config,
   ../logos_delivery/waku/node/waku_node,
   ../logos_delivery/waku/waku,
   ../logos_delivery/waku/waku_enr
+import ../logos_delivery/waku/[waku_core, waku_mix]
 import ./testlib/[common, wakucore, wakunode]
 
 const LoopbackIp = parseIpAddress("127.0.0.1")
@@ -260,6 +262,30 @@ procSuite "Announced addresses":
       recorders.allIt(it.mappedInternal.len >= 1)
       recorders.allIt(it.mappedInternal.allIt(it == bound))
       node.announcedAddresses.anyIt("203.0.113.77" in $it and "62010" in $it)
+    await node.stop()
+
+  asyncTest "a port mapping of the gateway gives a local self hop":
+    let grantIp = parseIpAddress("203.0.113.77")
+    let factory = proc(mode: PortMappingMode): Opt[PortMapper] {.gcsafe, raises: [].} =
+      Opt.some(PortMapper(RecordingMapper(grantIp: grantIp, grantPort: Port(62040))))
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false
+    )
+    node.switch.addressManager.networkInterfaceProvider = privateInterfaceProvider
+    node.switch.services.add(
+      Service(NATService.new(upnpConfig(), rng(), portMapperFactory = factory))
+    )
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], addressPolicy = defaultAddressPolicy
+      )
+    ).expect("mount mix")
+
+    await node.start()
+    check:
+      $node.wakuMix.localMixPubInfo().multiAddr == "/ip4/203.0.113.77/tcp/62040"
+      node.selfHopSource() == SelfHopSource.Local
     await node.stop()
 
   asyncTest "a fixed port is mapped in both mapper runs and announced once":
