@@ -14,12 +14,6 @@ class TestLogosDeliveryLifecycle:
         stop_result = node.stop_and_destroy()
         assert stop_result.is_ok(), f"Failed to stop and destroy node: {stop_result.err()}"
 
-    # TODO: remove; fails on purpose to check the CI test report.
-    def test_intentional_failure(self, node_config):
-        node = self._create_start_node(node_config)
-        stop_result = node.stop_and_destroy()
-        assert stop_result.is_err(), f"Expected an error, got: {stop_result}"
-
     def test_stop_node_without_destroy(self, node_config):
         with self._create_start_node(node_config) as node:
             stop_result = node.stop_node()
