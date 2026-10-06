@@ -296,6 +296,44 @@ procSuite "Peer Manager":
     await blackhole.closeWait()
     await allFutures(dialer.stop(), server.stop())
 
+  asyncTest "aborting the dials fails the stalled ones and the next ones":
+    ## A mounted protocol (e.g. service discovery) waits, under `noCancel`, for
+    ## the dials it left behind, so a stalled dial would hold the node stop.
+    let dialer = newTestWakuNode(generateSecp256k1Key())
+    DeliveryDialer.install(dialer.switch)
+    await dialer.start()
+
+    proc holdConnection(
+        server: StreamServer, transp: StreamTransport
+    ) {.async: (raises: []).} =
+      await noCancel transp.join()
+
+    let stalled = createStreamServer(
+      initTAddress("127.0.0.1:0"), holdConnection, flags = {ServerFlags.ReuseAddr}
+    )
+    stalled.start()
+    let stalledId =
+      newTestWakuNode(generateSecp256k1Key(), quicEnabled = false).peerInfo.peerId
+    let stalledAddr =
+      MultiAddress.init("/ip4/127.0.0.1/tcp/" & $stalled.localAddress().port).get()
+
+    let stalledDial = dialer.switch.dial(stalledId, @[stalledAddr], @["/ipfs/id/1.0.0"])
+    await sleepAsync(chronos.milliseconds(500))
+    require not stalledDial.finished()
+
+    dialer.switch.abortDials()
+    let nextDial = dialer.switch.dial(stalledId, @[stalledAddr], @["/ipfs/id/1.0.0"])
+    let stalledEnded = await stalledDial.withTimeout(chronos.seconds(1))
+    let nextEnded = await nextDial.withTimeout(chronos.seconds(1))
+    check:
+      stalledEnded
+      stalledDial.failed()
+      nextEnded
+      nextDial.failed()
+
+    stalled.stop()
+    await allFutures(stalled.closeWait(), dialer.stop())
+
   asyncTest "Peer manager tracks active store request state":
     let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))
 
