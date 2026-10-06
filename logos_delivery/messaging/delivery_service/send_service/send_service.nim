@@ -10,7 +10,7 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, subscriptions, publish],
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
-import logos_delivery/api/events/messaging_client_events
+import logos_delivery/api/events/[kernel_events, messaging_client_events]
 import logos_delivery/api/conf/modes
 import logos_delivery/messaging/messaging_metrics
 
@@ -97,9 +97,11 @@ type SendService* = ref object of RootObj
     ## Also the pause of the Store validation loop while no Store peer is available.
   maxTaskCacheSize*: int
   serviceLoopInterval: timer.Duration
-  inFlightSends: int
-    ## Sends accepted but not yet in `taskCache`; counted against the cap so
-    ## concurrent sends cannot overshoot it.
+  entering: seq[DeliveryTask]
+    ## The tasks that `send` accepted and that are not yet in `taskCache`.
+    ## `isFull` counts them, so concurrent sends cannot exceed the limit.
+    ## `markSeen` reads them to find a task in its first attempt.
+  seenMsgListener: MessageSeenEventListener
   inFlight: seq[tuple[task: DeliveryTask, fut: Future[void]]]
     ## Sends started by the current pass and not yet waited for, kept so
     ## `stopSendService` can cancel them: `allFutures` does not cancel its
@@ -184,7 +186,7 @@ proc addTask(self: SendService, task: DeliveryTask) =
   self.taskCache.addUnique(task)
 
 proc isFull*(self: SendService): bool =
-  return self.taskCache.len + self.inFlightSends >= self.maxTaskCacheSize
+  return self.taskCache.len + self.entering.len >= self.maxTaskCacheSize
 
 proc isStorePeerAvailable*(sendService: SendService): bool =
   return sendService.waku.hasStorePeer()
@@ -296,7 +298,23 @@ proc loggedHash(task: DeliveryTask): string =
   else:
     task.msgHash.to0xHex()
 
+proc completeIfSeen(task: DeliveryTask): bool =
+  ## Completes a task whose message this node received from the network after an
+  ## mix send attempt started, as a mix send whose reply arrived. Returns true
+  ## when it completes the task.
+  if not task.seenOnNetwork or task.firstPropagatedTime.isSome():
+    return false
+  debug "Message seen on the network, the mix send is complete",
+    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+  task.state = DeliveryState.SuccessfullyPropagated
+  task.propagatedAnonymously = true
+  task.deliveryTime = Moment.now()
+  task.firstPropagatedTime = Opt.some(Moment.now())
+  return true
+
 proc reportTaskResult(self: SendService, task: DeliveryTask) =
+  # A seen task is complete, also when its attempt failed or its window ended.
+  discard task.completeIfSeen()
   case task.state
   of DeliveryState.SuccessfullyPropagated:
     # TODO: in case of unable to strore check messages shall we report success instead?
@@ -493,6 +511,8 @@ proc trySendMessages*(self: SendService) {.async.} =
     if self.stopping:
       # Break to the tail, which waits for the sends that this pass started.
       break
+    if task.completeIfSeen():
+      continue
     # Admit in order, so the epoch budget and the RLN nonce are charged in
     # order. Only the network round trips overlap, `MaxSendsInFlight` at most.
     let admitted =
@@ -534,8 +554,42 @@ proc serviceLoop(self: SendService) {.async.} =
     ## Use OnlineStateChange observers to pause/resume the loop
     await sleepAsync(self.serviceLoopInterval)
 
+proc markSeen(
+    task: DeliveryTask,
+    pubsubTopic: PubsubTopic,
+    msg: WakuMessage,
+    msgHash: var Opt[WakuMessageHash],
+) =
+  ## Marks `task` when `msg` is its message and `task` had a mix send attempt.
+  ## A fallback processor sends a task in the `FallbackRetry` state, and relay
+  ## gives this node its own publish, so the message does not count in that
+  ## state. `msgHash` keeps the hash for the next task.
+  if not task.anonymized or task.state == DeliveryState.FallbackRetry or
+      task.pubsubTopic != pubsubTopic or task.msg.timestamp != msg.timestamp:
+    return
+  if msgHash.isNone():
+    msgHash = Opt.some(computeMessageHash(pubsubTopic, msg))
+  if task.msgHash == msgHash.get():
+    task.seenOnNetwork = true
+
+proc markSeen(self: SendService, pubsubTopic: PubsubTopic, msg: WakuMessage) =
+  ## Marks the tasks of a message that this node received from the network.
+  var msgHash: Opt[WakuMessageHash]
+  for task in self.taskCache:
+    task.markSeen(pubsubTopic, msg, msgHash)
+  for task in self.entering:
+    task.markSeen(pubsubTopic, msg, msgHash)
+
 proc startSendService*(self: SendService) =
   self.stopping = false
+  self.seenMsgListener = MessageSeenEvent.listen(
+    self.brokerCtx,
+    proc(event: MessageSeenEvent) {.async: (raises: []).} =
+      self.markSeen(event.topic, event.message),
+  ).valueOr:
+    # Without the listener, only the reply of the exit completes a mix send.
+    error "Failed to set the MessageSeenEvent listener", error = error
+    MessageSeenEventListener()
   self.serviceLoopHandle = self.serviceLoop()
   if self.checkStoreForMessages:
     self.storeValidationHandle = self.storeValidationLoop()
@@ -562,6 +616,8 @@ proc stopSendService*(self: SendService) {.async.} =
     if send.task.state == DeliveryState.FallbackRetry or
         send.task.state == DeliveryState.Entry:
       send.task.state = DeliveryState.NextRoundRetry
+  await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
+  self.seenMsgListener = MessageSeenEventListener()
 
 proc send*(self: SendService, task: DeliveryTask) {.async.} =
   assert(not task.isNil(), "task for send must not be nil")
@@ -577,9 +633,11 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     )
     return
 
-  inc self.inFlightSends
+  self.entering.add(task)
   defer:
-    dec self.inFlightSends
+    let i = self.entering.find(task)
+    if i >= 0:
+      self.entering.delete(i)
 
   try:
     # Yield once, so no event reaches the caller before its request id: the

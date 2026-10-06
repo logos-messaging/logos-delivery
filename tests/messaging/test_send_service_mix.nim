@@ -198,6 +198,7 @@ suite "SendService - anonymity level":
     let fut = service.send(buildTask("first-of-burst", chronos.seconds(1)))
     check service.isFull() # counted, and still suspended at the yield
     await fut
+    check not service.isFull() # the failed task left the count
 
 suite "SendService - anonymity level with a mounted mix":
   ## Mix is mounted before start, as the node factory does. The tests fill the
