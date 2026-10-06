@@ -339,6 +339,7 @@ jobs:
           report-title: nim
           path: test-reports/*/all_tests_*.xml
           reporter: jest-junit
+          list-suites: failed
           list-tests: failed
           fail-on-error: false
 
@@ -350,6 +351,7 @@ jobs:
           report-title: e2e
           path: test-reports/*/junit.xml
           reporter: python-xunit
+          list-suites: failed
           list-tests: failed
           fail-on-error: false
 
