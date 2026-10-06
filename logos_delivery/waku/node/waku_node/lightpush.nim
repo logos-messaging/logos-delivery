@@ -27,6 +27,7 @@ import
   ../../waku_lightpush_legacy as legacy_lightpush_protocol,
   ../../waku_lightpush/client as lightpush_client,
   ../../waku_lightpush as lightpush_protocol,
+  ../../waku_mix,
   ../peer_manager,
   ../../common/rate_limit/setting,
   ../../rln,
@@ -265,17 +266,16 @@ proc lightpushPublishHandler(
     if mixify:
       when defined(libp2p_mix_experimental_exit_is_dest):
         #TODO: How to handle multiple addresses?
-        let conn = node.wakuMix.toConnection(
-          MixDestination.exitNode(peer.peerId),
-          WakuLightPushCodec,
-          MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
-            # indicating we only want a single path to be used for reply hence numSurbs = 1
-        ).valueOr:
-          debug "Could not create mix connection"
-          return lighpushErrorResult(
-            LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-            "Waku lightpush with mix not available",
+        let conn = (
+          await node.wakuMix.exitConnection(
+            peer.peerId,
+            WakuLightPushCodec,
+            MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
+              # One SURB, so the reply uses one path.
           )
+        ).valueOr:
+          debug "Could not create mix connection", error = error
+          return lighpushErrorResult(LightPushErrorCode.SERVICE_NOT_AVAILABLE, error)
 
         return await node.publishOverMix(conn, pubsubTopic, message)
       else:
