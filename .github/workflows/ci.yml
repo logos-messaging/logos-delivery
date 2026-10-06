@@ -315,6 +315,44 @@ jobs:
       node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
     secrets: inherit
 
+  # One job summary for the test reports uploaded by the jobs it needs.
+  test-report:
+    needs: [tests, tests-e2e-c-abi, tests-e2e-rest]
+    if: ${{ !cancelled() && (contains(needs.*.result, 'success') || contains(needs.*.result, 'failure')) }}
+    runs-on: ubuntu-22.04
+    steps:
+      # dorny/test-reporter lists the tracked files with git.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download test reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-report-*
+          path: test-reports
+
+      - name: Report Nim tests
+        if: ${{ !cancelled() && needs.tests.result != 'skipped' }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: nim
+          report-title: nim
+          path: test-reports/*/all_tests_*.xml
+          reporter: jest-junit
+          list-tests: failed
+          fail-on-error: false
+
+      - name: Report e2e tests
+        if: ${{ !cancelled() && (needs.tests-e2e-c-abi.result != 'skipped' || needs.tests-e2e-rest.result != 'skipped') }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: e2e
+          report-title: e2e
+          path: test-reports/*/junit.xml
+          reporter: python-xunit
+          list-tests: failed
+          fail-on-error: false
+
   nix:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.nix == 'true' }}
