@@ -18,8 +18,8 @@ suite "Waku v2 Rest API - Relay - serialization":
         decodeFromJsonBytes(RelayWakuMessage, jsonBytes, requireAllFields = true)
 
       # Then
-      require(res.isOk())
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(RelayWakuMessage())
       check:
         value.payload == payload
         value.contentTopic.isSome()
@@ -43,7 +43,7 @@ suite "Waku v2 Rest API - Relay - serialization":
       let res = encodeIntoJsonBytes(data)
 
       # Then
-      require(res.isOk())
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(newSeq[byte]())
       check:
         value == toBytes("{\"payload\":\"" & $payload & "\"}")

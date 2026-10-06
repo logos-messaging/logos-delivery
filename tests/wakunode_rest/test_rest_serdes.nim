@@ -17,8 +17,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = decodeFromJsonString(DebugWakuInfo, jsonString, requireAllFields = true)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(DebugWakuInfo())
       check:
         value.listenAddresses == @["123"]
         value.enrUri.isNone
@@ -31,8 +31,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = decodeFromJsonBytes(DebugWakuInfo, jsonBytes, requireAllFields = true)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(DebugWakuInfo())
       check:
         value.listenAddresses == @["123"]
         value.enrUri.isNone
@@ -46,8 +46,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = encodeIntoJsonString(data)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get("")
       check:
         value == """{"listenAddresses":["GO"]}"""
 
@@ -59,7 +59,7 @@ suite "Waku v2 Rest API - Serdes":
       let res = encodeIntoJsonBytes(data)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(newSeq[byte]())
       check:
         value == toBytes("""{"listenAddresses":["ABC"]}""")
