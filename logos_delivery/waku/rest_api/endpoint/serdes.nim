@@ -20,12 +20,11 @@ createJsonFlavor RestJson
 
 Json.setWriter JsonWriter, PreferredOutput = string
 
-template unrecognizedFieldWarning*(field: typed) =
-  # TODO: There should be a different notification mechanism for informing the
-  #       caller of a deserialization routine for unexpected fields.
-  #       The chonicles import in this module should be removed.
-  warn "JSON field not recognized by the current version of nwaku. Consider upgrading",
+template skipUnrecognizedField*(reader: var JsonReader, field: typed) =
+  ## Consumes the value of an unknown field, so decoding can go on to the next one.
+  debug "skipping unrecognized JSON field",
     fieldName, typeName = typetraits.name(typeof field)
+  reader.skipSingleJsValue()
 
 type SerdesResult*[T] = Result[T, cstring]
 

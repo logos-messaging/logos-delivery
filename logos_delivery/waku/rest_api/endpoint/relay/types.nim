@@ -127,7 +127,7 @@ proc readValue*(
     of "proof":
       proof = Opt.some(reader.readValue(Base64String))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if payload.isNone() or isEmptyOrWhitespace(string(payload.get())):
     reader.raiseUnexpectedValue("Field `payload` is missing or empty")

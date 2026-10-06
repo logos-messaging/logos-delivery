@@ -188,7 +188,7 @@ proc readValue*(
     of "ephemeral":
       ephemeral = Opt.some(reader.readValue(bool))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if payload.isNone():
     reader.raiseUnexpectedValue("Field `payload` is missing")
@@ -226,7 +226,7 @@ proc readValue*(
     of "contentFilters":
       contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if contentFilters.isNone():
     reader.raiseUnexpectedValue("Field `contentFilters` is missing")
@@ -263,7 +263,7 @@ proc readValue*(
     of "requestId":
       requestId = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")
@@ -297,7 +297,7 @@ proc readValue*(
     of "contentFilters":
       contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")
@@ -345,7 +345,7 @@ proc readValue*(
     of "contentFilters":
       contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")
@@ -386,7 +386,7 @@ proc readValue*(
     of "requestId":
       requestId = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")
@@ -417,7 +417,7 @@ proc readValue*(
     of "statusDesc":
       statusDesc = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")

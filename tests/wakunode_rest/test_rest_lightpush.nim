@@ -432,9 +432,6 @@ suite "Waku v2 Rest API - lightpush":
       $ %*{"pubsubTopic": DefaultPubsubTopic},
       "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
         ", \"message\": " & validMessage & "}",
-      # An unknown field is rejected although the decoder sets allowUnknownFields.
-      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
-        ", \"extraField\": \"extraValue\"}",
     ]
 
     # Then each is rejected as an invalid push request

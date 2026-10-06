@@ -9,6 +9,22 @@ import
 #  private custom types for this test suite module
 suite "Waku v2 Rest API - Serdes":
   suite "decode":
+    test "decodeFromJsonString - unknown fields are ignored":
+      # Given
+      let jsonString = JsonString(
+        """{ "unknown":{"a":[1,{"b":2}]}, "listenAddresses":["123"], "other":"x" }"""
+      )
+
+      # When
+      let res = decodeFromJsonString(DebugWakuInfo, jsonString, requireAllFields = true)
+
+      # Then
+      require(res.isOk)
+      let value = res.get()
+      check:
+        value.listenAddresses == @["123"]
+        value.enrUri.isNone
+
     test "decodeFromJsonString - use the corresponding readValue template":
       # Given
       let jsonString = JsonString("""{ "listenAddresses":["123"] }""")

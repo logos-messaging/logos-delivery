@@ -88,7 +88,7 @@ proc readValue*(
         )
       size = Opt.some(reader.readValue(uint64))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if sender.isNone():
     reader.raiseUnexpectedValue("Field `sender` is missing")

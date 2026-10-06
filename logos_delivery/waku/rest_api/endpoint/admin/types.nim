@@ -136,7 +136,7 @@ proc readValue*(
         reader.raiseUnexpectedField("Multiple `score` fields found", "WakuPeer")
       score = Opt.some(reader.readValue(float64))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if multiaddr.isNone():
     reader.raiseUnexpectedValue("Field `multiaddr` is missing")
@@ -184,7 +184,7 @@ proc readValue*(
         reader.raiseUnexpectedField("Multiple `peers` fields found", "PeersOfShard")
       peers = Opt.some(reader.readValue(WakuPeers))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if shard.isNone():
     reader.raiseUnexpectedValue("Field `shard` is missing")
@@ -216,7 +216,7 @@ proc readValue*(
         )
       contentTopic = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if pubsubTopic.isNone():
     reader.raiseUnexpectedValue("Field `pubsubTopic` is missing")
@@ -248,7 +248,7 @@ proc readValue*(
         )
       filterCriteria = Opt.some(reader.readValue(seq[FilterTopic]))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if peerId.isNone():
     reader.raiseUnexpectedValue("Field `peerId` is missing")

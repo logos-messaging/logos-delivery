@@ -57,7 +57,7 @@ proc readValue*(
     of "message":
       message = Opt.some(reader.readValue(RelayWakuMessage))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if message.isNone():
     reader.raiseUnexpectedValue("Field `message` is missing")
@@ -105,7 +105,7 @@ proc readValue*(
     of "relayPeerCount":
       relayPeerCount = Opt.some(reader.readValue(uint32))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if relayPeerCount.isNone() and statusDesc.isNone():
     reader.raiseUnexpectedValue(

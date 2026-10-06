@@ -92,7 +92,7 @@ proc readValue*(
     of "meta":
       meta = Opt.some(reader.readValue(Base64String))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if payload.isNone() or isEmptyOrWhitespace(string(payload.get())):
     reader.raiseUnexpectedValue("Field `payload` is missing or empty")
@@ -133,7 +133,7 @@ proc readValue*(
     of "requestId":
       requestId = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if requestId.isNone():
     reader.raiseUnexpectedValue("Field `requestId` is missing")
@@ -252,7 +252,7 @@ proc readValue*(
     of "timestamp":
       timestamp = reader.readValue(int64)
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if kind.isNone():
     reader.raiseUnexpectedValue("Field `kind` is missing")
@@ -275,7 +275,7 @@ proc readValue*(
     of "events":
       events = reader.readValue(seq[SendEventRecord])
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   value = SendStatus(requestId: requestId, events: events)
 
@@ -299,7 +299,7 @@ proc readValue*(
     of "source":
       source = Opt.some(reader.readValue(MessageSource))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if source.isNone():
     reader.raiseUnexpectedValue("Field `source` is missing")

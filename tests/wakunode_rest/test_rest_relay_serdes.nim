@@ -27,6 +27,33 @@ suite "Waku v2 Rest API - Relay - serialization":
         value.version.isNone()
         value.timestamp.isNone()
 
+    test "unknown fields are ignored":
+      # Given
+      let payload = base64.encode("MESSAGE")
+      let known = "\"payload\":\"" & $payload & "\",\"contentTopic\":\"some/topic\""
+      let expected = decodeFromJsonBytes(
+        RelayWakuMessage, toBytes("{" & known & "}"), requireAllFields = true
+      )
+      require(expected.isOk())
+
+      let unknownValues =
+        @["\"some string\"", "{\"a\":{\"b\":[1,2]}}", "[1,{\"c\":\"d\"},[]]", "42"]
+
+      for unknownValue in unknownValues:
+        let unknownField = "\"unknownField\":" & unknownValue
+        for jsonStr in [
+          "{" & unknownField & "," & known & "}", "{" & known & "," & unknownField & "}"
+        ]:
+          # When
+          let res = decodeFromJsonBytes(
+            RelayWakuMessage, toBytes(jsonStr), requireAllFields = true
+          )
+
+          # Then
+          check:
+            res.isOk()
+            res.get() == expected.get()
+
   suite "RelayWakuMessage - encode":
     test "optional fields are none":
       # Given
