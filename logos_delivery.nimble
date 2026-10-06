@@ -89,7 +89,7 @@ requires "https://github.com/status-im/nim-leopard#2e8de41205ea44b6f33b5cad676ba
 # the newest one.
 requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
 
-requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
+requires "https://github.com/vacp2p/nim-boringssl >= 0.0.13"
 
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
