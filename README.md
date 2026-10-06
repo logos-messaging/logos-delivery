@@ -82,7 +82,8 @@ Open MSYS2 mingw64 terminal and run the following one-by-one :
 ```bash
 pacman -Syu --noconfirm  
 pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain  
-pacman -S --noconfirm --needed base-devel make cmake upx  
+pacman -S --noconfirm --needed base-devel make cmake  
+pacman -S --noconfirm --needed mingw-w64-x86_64-cmake  
 pacman -S --noconfirm --needed mingw-w64-x86_64-rust  
 pacman -S --noconfirm --needed mingw-w64-x86_64-postgresql  
 pacman -S --noconfirm --needed mingw-w64-x86_64-gcc  
@@ -94,12 +95,11 @@ pacman -S --noconfirm --needed mingw-w64-x86_64-python
 pacman -S --noconfirm --needed mingw-w64-x86_64-nasm
 ```
 
-On Windows, `make` also lets Nimble install Nim during dependency setup, so only Nimble's own build needs a Nim on PATH.
+On Windows, `make` installs the pinned Nimble from its prebuilt release and lets Nimble install Nim during dependency setup, so no Nim needs to be on PATH.
 
 Verify before building:
 ```bash
-which upx gcc g++ make cmake cargo rustc python nasm nim
-nim --version
+which gcc g++ make cmake cargo rustc python nasm
 ```
 
 #### 3. Build logosdeliverynode
@@ -110,7 +110,7 @@ nim --version
 #### 4. Troubleshooting
 If `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  
 - **Missing Dependencies**: Verify with:  
-  `which make cmake gcc g++ rustc cargo python upx nasm nim`  
+  `which make cmake gcc g++ rustc cargo python nasm`  
   If missing, revisit Step 2 or ensure MSYS2 is at `C:\`  
 - **Installation Conflicts**: Remove existing MinGW/MSYS2/Git Bash installations and perform fresh install
 
