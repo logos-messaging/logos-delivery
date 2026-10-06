@@ -741,6 +741,23 @@ suite "Waku v2 Rest API - Filter V2":
         data["requestId"].getStr() == "unknown"
         data["statusDesc"].getStr().startsWith("BAD_REQUEST: Failed to decode request")
 
+    # TODO: lightpush-decode-desc
+    # When the subscribe body carries only a requestId
+    let requestIdOnlyResponse = await issueRequest(
+      restFilterTest.restServer.getAddress(ROUTE_FILTER_SUBSCRIPTIONS),
+      MethodPost,
+      jsonHeader,
+      $ %*{"requestId": "1"},
+    )
+    let requestIdOnlyData = parseJson(requestIdOnlyResponse.data)
+
+    # Then the answer prints the response object that wraps an empty decode reason
+    check:
+      requestIdOnlyResponse.status == 400
+      requestIdOnlyData["requestId"].getStr() == "unknown"
+      requestIdOnlyData["statusDesc"].getStr() ==
+        "BAD_REQUEST: Failed to decode request: (status: 400 Bad Request, headers: , kind: Error, errobj: (status: 400 Bad Request, message: \"Invalid content body, could not decode. Unable to deserialize data: \", contentType: \"text/plain\"))"
+
   asyncTest "Add, remove and exceed subscription criteria - PUT and DELETE /filter/v2/subscriptions":
     # Given a subscription to one content topic
     let restFilterTest = await RestFilterTest.init()

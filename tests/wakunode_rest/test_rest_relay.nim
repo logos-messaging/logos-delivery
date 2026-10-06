@@ -1493,6 +1493,38 @@ suite "Waku v2 Rest API - Relay":
         response.status == 400
         response.data == "Incorrect base64 string"
 
+  asyncTest "Post a message with an invalid body - POST /relay/v1/auto/messages":
+    # TODO: lightpush-decode-desc
+    # Given a node with relay mounted
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    # When the body has no payload
+    let response = await issueRequest(
+      restServer.getAddress("/relay/v1/auto/messages"),
+      MethodPost,
+      @[("Content-Type", "application/json")],
+      $ %*{"contentTopic": "/app/1/chat/proto"},
+    )
+
+    # Then the answer ends in an empty decode reason
+    check:
+      response.status == 400
+      response.data ==
+        "Invalid content body, could not decode: Unable to deserialize data: "
+
   asyncTest "Subscribe and unsubscribe with an empty list, a repeated topic, an invalid topic and a shard of another cluster - POST and DELETE /relay/v1/subscriptions":
     # Given
     let node = testWakuNode()
