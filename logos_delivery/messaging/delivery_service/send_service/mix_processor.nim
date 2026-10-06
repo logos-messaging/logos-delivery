@@ -18,6 +18,9 @@ const MixSelfHopReason* = "own address cannot carry mix replies"
 const MixNoExitReason* = "no mix exit serves the shard"
   ## No pool member serves lightpush on the message's shard.
 
+const MixTooLargeReason* = "message too large for mix"
+  ## One mix message carries much less than the plain path.
+
 const MixUnusableRetries* = 2
   ## Service passes a `Required` task waits for a mounted mix before it fails.
 
@@ -115,7 +118,32 @@ proc decideWithoutMix(
   task.errorDesc = "" # the plain path reports its own outcome
   task.state = DeliveryState.FallbackRetry
 
+proc decideTooLarge(self: MixSendProcessor, task: DeliveryTask, size, limit: int) =
+  ## Fails a `Required` task at once, because no later pass can make the message
+  ## fit. Hands a `Preferred` task to the plain path at once.
+  if not self.fallbackAllowed:
+    debug "Message too large for mix, failing the task",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), size, limit
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc =
+      MixTooLargeReason & ": the request has " & $size & " bytes, the limit is " & $limit &
+      " bytes"
+    task.deliveryTime = Moment.now()
+    return
+  debug "Message too large for mix, handing it to the plain send path",
+    requestId = task.requestId, msgHash = task.msgHash.to0xHex(), size, limit
+  task.errorDesc = "" # the plain path reports its own outcome
+  task.state = DeliveryState.FallbackRetry
+
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
+  # No wait can make the message fit, so check the size before the reasons that
+  # a wait can clear. A task that is too large has no mix attempt, so it must not
+  # get the `anonymized` mark.
+  let (size, limit) = self.waku.mixLightpushSize(task.pubsubTopic, task.msg)
+  if size > limit:
+    self.decideTooLarge(task, size, limit)
+    return
+
   # Check the reasons before the window, so that the hand-over of a task that
   # mix cannot attempt logs its reason at INFO.
   let unusable = self.mixUnusable(task)

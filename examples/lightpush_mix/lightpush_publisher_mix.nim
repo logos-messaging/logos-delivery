@@ -157,8 +157,9 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
           dPeerId, # destination lightpush peer
           WakuLightPushCodec,
             # protocol codec which will be used over the mix connection
-          MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
-            # mix parameters indicating we expect a single reply
+          MixParameters(
+            expectReply: Opt.some(true), numSurbs: Opt.some(MixLightpushSurbs)
+          ), # mix parameters indicating we expect a single reply
         )
       ).valueOr:
         error "failed to create mix connection", error = error
