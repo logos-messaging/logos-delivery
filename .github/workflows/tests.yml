@@ -53,13 +53,6 @@ jobs:
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
 
-      # The jest-junit reader shows only the first line of a failure.
-      - name: Fix xml newlines
-        if: ${{ !cancelled() }}
-        run: |
-          NIM=$(make print-nim-path)
-          "${NIM}" c -r --hints:off -o:build/fix_xml_newlines tools/fix_xml_newlines.nim
-
       # Collected by ci.yml's test-report job.
       - name: Upload test report
         if: ${{ !cancelled() }}

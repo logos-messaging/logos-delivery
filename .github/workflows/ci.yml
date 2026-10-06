@@ -338,7 +338,7 @@ jobs:
           name: nim
           report-title: nim
           path: test-reports/*/all_tests_*.xml
-          reporter: jest-junit
+          reporter: java-junit
           list-suites: failed
           list-tests: failed
           fail-on-error: false
