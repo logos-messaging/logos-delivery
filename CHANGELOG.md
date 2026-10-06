@@ -1,3 +1,22 @@
+## v0.39.1 (2026-10-06)
+
+### Changes
+
+- Filter: push on a fresh stream to go-waku peers ([#4425](https://github.com/logos-messaging/logos-delivery/pull/4425))
+- Bump nim-libp2p to 2.4.1 ([#4426](https://github.com/logos-messaging/logos-delivery/pull/4426)) and 2.4.0 ([#4250](https://github.com/logos-messaging/logos-delivery/pull/4250))
+- Peer manager: simplify selection and ENR iteration ([#4399](https://github.com/logos-messaging/logos-delivery/pull/4399)); count unique peers only on first sighting ([#4372](https://github.com/logos-messaging/logos-delivery/pull/4372)); don't index empty addrs in logs and metrics ([#4421](https://github.com/logos-messaging/logos-delivery/pull/4421))
+- RLN: report READY only once a proof can be generated ([#4381](https://github.com/logos-messaging/logos-delivery/pull/4381)); persistent message id store ([#4385](https://github.com/logos-messaging/logos-delivery/pull/4385)); fix message ids repeating within the same epoch ([#4366](https://github.com/logos-messaging/logos-delivery/pull/4366)); ignore instead of reject messages with unknown root ([#4377](https://github.com/logos-messaging/logos-delivery/pull/4377))
+- Config: default `max-pure-libp2p-peers` to 20 without a preset ([#4400](https://github.com/logos-messaging/logos-delivery/pull/4400)); flag deprecated and ignored node options ([#4402](https://github.com/logos-messaging/logos-delivery/pull/4402)); limit subscribed shards to 60 ([#4388](https://github.com/logos-messaging/logos-delivery/pull/4388)); add content-topic autoshards to subscribeShards ([#4373](https://github.com/logos-messaging/logos-delivery/pull/4373)); configure the Messaging API from the node CLI ([#4389](https://github.com/logos-messaging/logos-delivery/pull/4389)); give logosdeliverynode its own node config ([#4386](https://github.com/logos-messaging/logos-delivery/pull/4386))
+- REST: list the messaging subscriptions ([#4393](https://github.com/logos-messaging/logos-delivery/pull/4393)); answer 429 when the send queue is full ([#4392](https://github.com/logos-messaging/logos-delivery/pull/4392))
+- Store: align query handling with 13/WAKU2-STORE ([#4355](https://github.com/logos-messaging/logos-delivery/pull/4355)); reject queries with time range over 24h ([#4349](https://github.com/logos-messaging/logos-delivery/pull/4349)); fail node setup on unknown message DB engine ([#4361](https://github.com/logos-messaging/logos-delivery/pull/4361))
+- Lightpush: cap the request read size ([#4378](https://github.com/logos-messaging/logos-delivery/pull/4378)); push through the node's own service when it runs one ([#4370](https://github.com/logos-messaging/logos-delivery/pull/4370))
+- Peer exchange: stop serving ENRs not rediscovered within 15 min ([#4391](https://github.com/logos-messaging/logos-delivery/pull/4391))
+- Messaging: confirm every propagated send against Store ([#4351](https://github.com/logos-messaging/logos-delivery/pull/4351))
+- Node: async-signal-safe shutdown handlers ([#4354](https://github.com/logos-messaging/logos-delivery/pull/4354)); surface TLS key/cert errors ([#4360](https://github.com/logos-messaging/logos-delivery/pull/4360), [#4390](https://github.com/logos-messaging/logos-delivery/pull/4390))
+- wakucanary: check store-sync and fix the mix check ([#4396](https://github.com/logos-messaging/logos-delivery/pull/4396))
+- Build: adopt nimble 0.26.0 ([#4384](https://github.com/logos-messaging/logos-delivery/pull/4384)); require boringssl by version ([#4424](https://github.com/logos-messaging/logos-delivery/pull/4424)); bump nim-sds ([#4407](https://github.com/logos-messaging/logos-delivery/pull/4407))
+- Docs: how to run and use Messaging API nodes ([#4387](https://github.com/logos-messaging/logos-delivery/pull/4387))
+
 ## v0.39.0 (2026-09-30)
 
 ### Notes
