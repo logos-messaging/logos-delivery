@@ -308,7 +308,12 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs, service = proto
-  logos_delivery_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs])
+  let firstAddr =
+    if remotePeerInfo.addrs.len > 0:
+      $remotePeerInfo.addrs[0]
+    else:
+      ""
+  logos_delivery_service_peers.set(1, labelValues = [$proto, firstAddr])
 
     # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
