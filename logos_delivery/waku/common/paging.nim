@@ -25,5 +25,10 @@ proc into*(d: Opt[PagingDirection]): bool =
   d.get().into()
 
 proc into*(s: string): PagingDirection =
-  ## Only a case-insensitive "false" pages backward; anything else defaults to forward.
-  (s.toLowerAscii() != "false").into()
+  ## Invalid values default to forward, as the store API spec says.
+  let parsed =
+    try:
+      parseBool(s)
+    except ValueError:
+      true
+  parsed.into()
