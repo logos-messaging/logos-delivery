@@ -62,8 +62,9 @@ proc parseTime(input: Opt[string]): Result[Opt[Timestamp], string] =
   if input.isSome() and input.get() != "":
     try:
       let time = parseInt(input.get())
-      if time > 0:
-        return ok(Opt.some(Timestamp(time)))
+      if time <= 0:
+        return err("time parsing error: time must be positive: " & input.get())
+      return ok(Opt.some(Timestamp(time)))
     except ValueError:
       return err("time parsing error: " & getCurrentExceptionMsg())
 
@@ -128,7 +129,7 @@ proc createStoreQuery(
   var parsedPagedSize = Opt.none(uint64)
   if pageSize.isSome() and pageSize.get() != "":
     try:
-      parsedPagedSize = Opt.some(uint64(parseInt(pageSize.get())))
+      parsedPagedSize = Opt.some(uint64(parseBiggestUInt(pageSize.get())))
     except CatchableError:
       return err("page size parsing error: " & getCurrentExceptionMsg())
 
