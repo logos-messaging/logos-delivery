@@ -214,6 +214,53 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "a send whose body does not decode answers 400 with the decode reason":
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(restNodeConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start node: " & error
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    let resp = await issueRequest(
+      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body = "{}",
+    )
+    check:
+      resp.status == 400
+      resp.data.startsWith(
+        "Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      resp.data.contains("Field `payload` is missing or empty")
+
+  asyncTest "a send whose meta exceeds the limit is accepted with a requestId":
+    # TODO: logos-delivery#4433
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(restNodeConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start node: " & error
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    let resp = await issueRequest(
+      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body =
+        "{\"payload\":\"" & $base64.encode("hello rest") & "\",\"contentTopic\":\"" &
+        "/test/1/messaging-rest-meta/proto\",\"meta\":\"" &
+        $base64.encode(newSeq[byte](MaxMetaAttrLength + 1)) & "\"}",
+    )
+    check:
+      resp.status == 200
+      resp.data.startsWith("{\"requestId\":\"")
+
   test "an evicted send status counts in logos_delivery_rest_send_dropped":
     let cache = MessagingEventCache.new(maxSendRequests = 2)
     let before = logos_delivery_rest_send_dropped.value()

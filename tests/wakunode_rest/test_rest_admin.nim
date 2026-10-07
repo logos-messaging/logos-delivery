@@ -190,12 +190,14 @@ suite "Waku v2 Rest API - Admin":
       "{}",
     )
 
+    # The answer carries the decoder's reason and not a printed response object.
     check:
       postRes.status == 400
       postRes.data.startsWith(
         "Failed to decode request: Invalid content body, could not decode: Unable to deserialize data: body("
       )
       "errobj" notin postRes.data
+      postRes.data.contains("'[' expected")
 
   asyncTest "Get filter data":
     await allFutures(
