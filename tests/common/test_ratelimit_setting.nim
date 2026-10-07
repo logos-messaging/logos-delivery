@@ -51,17 +51,13 @@ suite "RateLimitSetting":
       res1.isOk()
       res1.get() == {GLOBAL: exp1}.toTable()
       res2.isOk()
-      res2.get() ==
-        {GLOBAL: expU, STOREV3: exp2}.toTable()
+      res2.get() == {GLOBAL: expU, STOREV3: exp2}.toTable()
       res2b.isOk()
-      res2b.get() ==
-        {GLOBAL: expU, STOREV3: exp2b}.toTable()
+      res2b.get() == {GLOBAL: expU, STOREV3: exp2b}.toTable()
       res3.isOk()
-      res3.get() ==
-        {GLOBAL: expU, LIGHTPUSH: exp3}.toTable()
+      res3.get() == {GLOBAL: expU, LIGHTPUSH: exp3}.toTable()
       res4.isOk()
-      res4.get() ==
-        {GLOBAL: expU, PEEREXCHG: exp4}.toTable()
+      res4.get() == {GLOBAL: expU, PEEREXCHG: exp4}.toTable()
       res5.isOk()
       res5.get() == {GLOBAL: expU, FILTER: exp5}.toTable()
 
@@ -93,9 +89,7 @@ suite "RateLimitSetting":
 
     let test1 = @["lightpush:2/2ms", "10/2m", " store: 3/3s"]
     let exp1 = {
-      GLOBAL: (10, 2.minutes),
-      LIGHTPUSH: (2, 2.milliseconds),
-      STOREV3: (3, 3.seconds),
+      GLOBAL: (10, 2.minutes), LIGHTPUSH: (2, 2.milliseconds), STOREV3: (3, 3.seconds)
     }.toTable()
 
     let res1 = ProtocolRateLimitSettings.parse(test1)
@@ -123,9 +117,7 @@ suite "RateLimitSetting":
       res2.get() == exp2
 
     let test3 = @["store:3/3s", "storev3:4/42ms", "storev3:5/5s", "storev3:6/6s"]
-    let exp3 = {
-      GLOBAL: expU, STOREV3: (6, 6.seconds)
-    }.toTable()
+    let exp3 = {GLOBAL: expU, STOREV3: (6, 6.seconds)}.toTable()
 
     let res3 = ProtocolRateLimitSettings.parse(test3)
 

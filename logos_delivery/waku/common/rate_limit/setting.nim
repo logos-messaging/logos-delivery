@@ -125,7 +125,11 @@ proc parse*(
 func protocolOf(entry: string): string =
   let lowered = entry.toLowerAscii()
   let colon = lowered.find(':')
-  return if colon < 0: "" else: lowered[0 ..< colon].strip()
+  return
+    if colon < 0:
+      ""
+    else:
+      lowered[0 ..< colon].strip()
 
 func withDefaultRateLimits*(entries: openArray[string]): seq[string] =
   ## Entries to hand to `parse`: the default service limits first and the given
