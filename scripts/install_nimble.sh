@@ -32,9 +32,9 @@ case "$(uname -m)" in
   *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-EXTENSION=nimble
-[ "${OS}" = "windows" ] && EXTENSION=nimble.exe
-NIMBLE_BIN="${NIMBLE_DIR}/${EXTENSION}"
+EXE=nimble
+[ "${OS}" = "windows" ] && EXE=nimble.exe
+NIMBLE_BIN="${NIMBLE_DIR}/${EXE}"
 
 if [ -x "${NIMBLE_BIN}" ]; then
   have=$("${NIMBLE_BIN}" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -54,7 +54,7 @@ echo "Downloading Nimble ${VERSION} from ${URL}..."
 curl -fsSL "${URL}" -o "${WORK_DIR}/nimble.tar.gz"
 tar -xzf "${WORK_DIR}/nimble.tar.gz" -C "${WORK_DIR}"
 
-cp "${WORK_DIR}/${EXTENSION}" "${NIMBLE_BIN}.new.$$"
+cp "${WORK_DIR}/${EXE}" "${NIMBLE_BIN}.new.$$"
 chmod +x "${NIMBLE_BIN}.new.$$"
 mv -f "${NIMBLE_BIN}.new.$$" "${NIMBLE_BIN}"
 

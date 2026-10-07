@@ -16,7 +16,7 @@ esac
 
 NPROC="${NPROC:-$(nproc)}"
 LOG_LEVEL="${LOG_LEVEL:-DEBUG}"
-V="${V:-1}"
+V="${V:-3}"
 
 success_count=0
 failure_count=0
