@@ -35,6 +35,34 @@ jobs:
           nix shell --inputs-from . nixpkgs#nix-prefetch-git --command ./tools/gen-nix-deps.sh nimble.lock /tmp/deps.nix.fresh
           diff /tmp/deps.nix.fresh nix/deps.nix
 
+  # Runs Nimble setup in a new project that requires the checked-out commit of
+  # logos-delivery, with no lockfile. The setup also fails when a dependency
+  # does not install or build.
+  consumer-deps:
+    name: "Consumer dependency resolution"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nimble
+        run: make install-nimble
+
+      - name: Run Nimble setup in a new project that requires logos-delivery
+        working-directory: ${{ runner.temp }}
+        run: |
+          cat > consumer.nimble <<EOF
+          version = "0.1.0"
+          author = "Logos"
+          description = "Consumer dependency check"
+          license = "MIT"
+          requires "https://github.com/${GITHUB_REPOSITORY}#${GITHUB_SHA}"
+          EOF
+          nimble="$(make -s -C "${GITHUB_WORKSPACE}" print-nimble-path)/nimble"
+          # Try a second time from an empty Nimble directory, so that a network
+          # error alone does not fail the job.
+          "${nimble}" setup -y || { rm -rf ~/.nimble; "${nimble}" setup -y; }
+
   build:
     strategy:
       fail-fast: false
