@@ -5,6 +5,15 @@
 # at your option. This file may not be copied, modified, or distributed except
 # according to those terms.
 
+# Determine the OS. Nat.mk reads detected_OS, so this comes before the
+# includes. The MINGW and MSYS shells both report a Windows kernel name here.
+# The OS environment variable is not consulted: the MSYS2 runtime drops it,
+# along with most of the environment, when a program is started from Git Bash.
+detected_OS := $(shell uname -s)
+ifneq (,$(filter MINGW% MSYS%,$(detected_OS)))
+  detected_OS := Windows
+endif
+
 include Nat.mk
 include BearSSL.mk
 include Leopard.mk
@@ -13,12 +22,6 @@ include TinyCbor.mk
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
 BUILD_MSG := "Building:"
-
-# Determine the OS
-detected_OS := $(shell uname -s)
-ifneq (,$(findstring MINGW,$(detected_OS)))
-  detected_OS := Windows
-endif
 
 REQUIRED_NIMBLE_PIN := $(shell grep -E '^const RequiredNimblePin\s*=' logos_delivery.nimble | grep -oE '"[^"]+"' | tr -d '"')
 
@@ -94,7 +97,10 @@ ifeq ($(detected_OS),Windows)
   # librln target, so repeat its Windows dependencies after that archive.
   RLN_TRAILING_LIBS = $(LIBS)
   NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"
-  export PATH := /c/msys64/usr/bin:/c/msys64/mingw64/bin:/c/msys64/usr/lib:/c/msys64/mingw64/lib:$(PATH)
+  # mingw64/bin before usr/bin, as in the MSYS2 MINGW64 shell: nim-leopard needs
+  # the mingw64 cmake for its "MSYS Makefiles" generator, which the msys cmake
+  # in usr/bin lacks.
+  export PATH := /c/msys64/mingw64/bin:/c/msys64/usr/bin:/c/msys64/mingw64/lib:/c/msys64/usr/lib:$(PATH)
 endif
 
 ##########
@@ -515,13 +521,6 @@ docker-liteprotocoltester-push:
 ## C Bindings ##
 ################
 .PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
-
-detected_OS ?= Linux
-ifeq ($(OS),Windows_NT)
-detected_OS := Windows
-else
-detected_OS := $(shell uname -s)
-endif
 
 BUILD_COMMAND ?= Dynamic
 STATIC ?= 0

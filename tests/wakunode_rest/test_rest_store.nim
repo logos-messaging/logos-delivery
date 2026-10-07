@@ -1286,6 +1286,36 @@ procSuite "Waku Rest API - Store v3":
       response.data.statusDesc.contains("cursor not found")
       response.data.messages.len == 0
 
+  asyncTest "an all-zero cursor is answered 400 by both the self-store node and a store peer":
+    let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
+    defer:
+      await t.shutdown()
+    t.node.mountStoreClient()
+
+    let peerSwitch = newStandardSwitch(Opt.some(generateEcdsaKey()))
+    await peerSwitch.start()
+    defer:
+      await peerSwitch.stop()
+    peerSwitch.mount(t.node.wakuStore)
+
+    let remotePeerInfo = peerSwitch.peerInfo.toRemotePeerInfo()
+    let fullAddr = $remotePeerInfo.addrs[0] & "/p2p/" & $remotePeerInfo.peerId
+    let zeroCursor = "0x" & "00".repeat(32)
+
+    var response = await t.client.getStoreMessagesV3(cursor = zeroCursor)
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 400
+      response.data.messages.len == 0
+
+    response = await t.client.getStoreMessagesV3(
+      peerAddr = encodeUrl(fullAddr), cursor = zeroCursor
+    )
+    check:
+      response.status == 400
+      response.data.messages.len == 0
+
   asyncTest "a failed dial to the store peer is answered 504":
     let node = testWakuNode()
     await node.start()

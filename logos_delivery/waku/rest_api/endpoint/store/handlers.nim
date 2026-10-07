@@ -28,6 +28,8 @@ const NoPeerNoDiscError* =
   RestApiResponse.preconditionFailed("No suitable service peer & no discovery method")
 
 proc isCursorNotFound(statusDesc: string): bool =
+  ## Matches the archive's error text because the archive has no typed error for this;
+  ## a miss falls back to 502 (never to 200).
   ## The archive drivers only report a missing pagination anchor as free text.
   return
     statusDesc.contains("cursor not found") or statusDesc.contains("invalid_cursor")
