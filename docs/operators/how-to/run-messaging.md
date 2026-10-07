@@ -27,7 +27,7 @@ Before the first send, wait until the `connectionStatus` field of `GET /health` 
 
 ## Service limits
 
-All Edge clients of a service node share its lightpush limit, `lightpush:5/1s` by default. For many Edge nodes, raise it with `--rate-limit`, for example `--rate-limit=lightpush:100/1s` (100 messages per second).
+All Edge clients of a service node share its lightpush limit, `lightpush:5/1s` by default. For many Edge nodes, raise it with `--rate-limit`, for example `--rate-limit=lightpush:100/1s` (100 messages per second). `--rate-limit` entries are merged over the defaults (`filter:100/1s`, `lightpush:5/1s`, `px:5/1s`), so protocols you do not name keep their default.
 
 ## Received messages
 

@@ -89,6 +89,72 @@ suite "Node Factory":
       lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
       peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
 
+  asynctest "A command line lightpush rate limit keeps the filter and peer exchange defaults":
+    # Given the configuration of a binary started with --rate-limit=lightpush:100/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["lightpush:100/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then the entries are merged over the default limits
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 100, period: 1.seconds))
+      lightPushLimit == Opt.some((volume: 100, period: 1.seconds))
+      peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
+
+  asynctest "A command line global rate limit keeps the protocol defaults":
+    # Given the configuration of a binary started with --rate-limit=100/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["100/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then the entries are merged over the default limits
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 100, period: 1.seconds))
+      lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
+      peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
+
+  asynctest "A command line store rate limit keeps the service defaults":
+    # Given the configuration of a binary started with --rate-limit=store:10/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["store:10/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then the entries are merged over the default limits
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 100, period: 1.seconds))
+      lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
+      peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
+
   asynctest "The storenode command line option fills the store service slot":
     # Given the configuration of a binary started with --storenode
     let

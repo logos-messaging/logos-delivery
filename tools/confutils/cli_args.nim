@@ -764,10 +764,11 @@ hence would have reachability issues.""",
     name: "quic-port"
   .}: Opt[Port]
 
-  ## Rate limitation config, if not set, rate limit checks will not be performed
+  ## Entries are merged over the default service limits (filter 100/1s, lightpush 5/1s, px 5/1s)
   rateLimits* {.
     desc:
-      "Rate limit settings for different protocols." &
+      "Rate limit settings for different protocols, merged over the defaults filter:100/1s, lightpush:5/1s and px:5/1s." &
+      " A protocol you do not set keeps its default; a global setting (no protocol) only applies to protocols without a default, e.g. store." &
       " Format: protocol:volume/period<unit>." &
       " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter>; if not defined it means a global setting." &
       " 'volume' and 'period' must be integer values." &
@@ -1422,14 +1423,13 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.quicPort.isSome():
     b.quicConf.withQuicPort(n.quicPort.get())
 
+  # The default protocol posture serves filter/lightpush, so default service
+  # rate limits must apply; operator entries come last so they win per protocol.
+  const DefaultRateLimits = @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
   if n.rateLimits.len > 0:
-    b.rateLimitConf.withRateLimits(n.rateLimits)
+    b.rateLimitConf.withRateLimits(DefaultRateLimits & n.rateLimits)
   else:
-    # The default protocol posture serves filter/lightpush, so default service
-    # rate limits must apply unless the operator sets their own.
-    b.rateLimitConf.withRateLimitsIfNotAssigned(
-      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
-    )
+    b.rateLimitConf.withRateLimitsIfNotAssigned(DefaultRateLimits)
 
   b.withLocalStoragePath(n.localStoragePath)
 
