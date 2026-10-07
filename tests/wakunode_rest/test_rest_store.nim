@@ -1158,7 +1158,7 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 1]
 
-  asyncTest "an unparseable ascending returns the tail page, as ascending=false does":
+  asyncTest "ascending is case-insensitive and invalid values default to forward":
     let t = await RestStoreTest.init(
       @[
         fakeWakuMessage(@[byte 1], ts = 1),
@@ -1171,16 +1171,28 @@ procSuite "Waku Rest API - Store v3":
     defer:
       await t.shutdown()
 
-    # Unlike includeData, an unparseable ascending is not rejected but read as false.
-    let response =
-      await t.client.getStoreMessagesV3(ascending = "banana", pageSize = "2")
-    check:
-      response.status == 200
-      response.data.messages.mapIt(it.messageHash) ==
-        @[
-          t.hashes[3].toRestStringWakuMessageHash(),
-          t.hashes[4].toRestStringWakuMessageHash(),
-        ]
+    let head = @[
+      t.hashes[0].toRestStringWakuMessageHash(),
+      t.hashes[1].toRestStringWakuMessageHash(),
+    ]
+    let tail = @[
+      t.hashes[3].toRestStringWakuMessageHash(),
+      t.hashes[4].toRestStringWakuMessageHash(),
+    ]
+
+    for value in ["True", "TRUE", "banana", "1", "0", "yes", " true"]:
+      let response =
+        await t.client.getStoreMessagesV3(ascending = value, pageSize = "2")
+      check:
+        response.status == 200
+        response.data.messages.mapIt(it.messageHash) == head
+
+    for value in ["false", "False", "FALSE"]:
+      let response =
+        await t.client.getStoreMessagesV3(ascending = value, pageSize = "2")
+      check:
+        response.status == 200
+        response.data.messages.mapIt(it.messageHash) == tail
 
   asyncTest "an undeclared paginationCursor parameter is ignored":
     let t = await RestStoreTest.init()

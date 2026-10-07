@@ -1,4 +1,4 @@
-import results
+import std/strutils, results
 
 type PagingDirection* {.pure.} = enum
   ## PagingDirection determines the direction of pagination
@@ -25,4 +25,5 @@ proc into*(d: Opt[PagingDirection]): bool =
   d.get().into()
 
 proc into*(s: string): PagingDirection =
-  (s == "true").into()
+  ## Only a case-insensitive "false" pages backward; anything else defaults to forward.
+  (s.toLowerAscii() != "false").into()
