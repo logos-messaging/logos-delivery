@@ -1,6 +1,6 @@
 {.used.}
 
-import results, std/[strutils, sets]
+import results, std/[os, strutils, sets, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
@@ -14,6 +14,8 @@ import
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/protocol_metrics,
+    waku_archive,
+    waku_archive/archive_metrics,
   ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
@@ -253,6 +255,48 @@ suite "Waku API - Send":
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  asyncTest "A send retried while the node has no relay peer is stored once, counted once as written and again as insert failures":
+    # TODO: archive-duplicate-metrics
+    let root = createTempDir("send-api-archive-", "")
+    defer:
+      removeDir(root)
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      var conf = defaultTestNodeConf()
+      conf.kernel.store = Opt.some(true)
+      conf.kernel.storeMessageDbUrl = "sqlite://" & (root / "store.sqlite3")
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    let
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+
+    let sendResult = await node.messagingClient.send(
+      MessageEnvelope.init(contentTopic, "test payload")
+    )
+    check sendResult.isOk()
+
+    checkUntilTimeout:
+      errorCount(insertFailure) >= failuresBefore + 2
+
+    let stored = (
+      await node.waku.node.wakuArchive.findMessages(
+        ArchiveQuery(contentTopics: @[contentTopic])
+      )
+    ).valueOr:
+      ArchiveResponse()
+    check:
+      stored.hashes.len == 1
+      insertCount(relayIngress) == insertsBefore + 1
 
   asyncTest "Send fully validated":
     var node: LogosDelivery

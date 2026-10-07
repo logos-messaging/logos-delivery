@@ -26,12 +26,15 @@ import
     rln,
     rln/rln_plugin,
     rln/types as rln_types,
+    waku_archive,
+    waku_archive/archive_metrics,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../testlib/testasync,
   ../testlib/rest_requests,
   ../resources/payloads,
+  ../waku_archive/archive_utils,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 
 proc testWakuNode(): WakuNode =
@@ -422,6 +425,52 @@ suite "Waku v2 Rest API - Relay":
       $response.contentType == $MIMETYPE_TEXT
       response.data ==
         "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
+
+  asyncTest "A message posted twice is stored once, counted once as written and once as an insert failure - POST /relay/v1/messages/{topic}":
+    # TODO: archive-duplicate-metrics
+    # Given a relay node with a sqlite archive, subscribed to a pubsub topic
+    let node = testWakuNode()
+    let driver = newSqliteArchiveDriver()
+    check:
+      (await node.mountRelay()).isOk()
+      node.mountArchive(driver).isOk()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restServer = WakuRestServerRef.init(parseIpAddress("0.0.0.0"), Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    let subscribeResponse = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+    check subscribeResponse.status == 200
+
+    let
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+      shardBefore = messagesPerShard("0")
+      message = RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
+      )
+
+    # When the same message is posted twice
+    let firstResponse = await client.relayPostMessagesV1(DefaultPubsubTopic, message)
+    let secondResponse = await client.relayPostMessagesV1(DefaultPubsubTopic, message)
+
+    # Then
+    check:
+      firstResponse.status == 200
+      secondResponse.status == 200
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      insertCount(relayIngress) == insertsBefore + 1
+      messagesPerShard("0") == shardBefore + 1
+      errorCount(insertFailure) == failuresBefore + 1
 
   # Autosharding API
 
