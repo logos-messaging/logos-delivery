@@ -18,7 +18,7 @@ import ./protocol, ./common
 
 proc handleSelfStoreRequest*(
     self: WakuStore, req: StoreQueryRequest
-): Future[WakuStoreResult[StoreQueryResponse]] {.async.} =
+): Future[StoreQueryResult] {.async.} =
   ## Handles the store requests made by the node to itself.
   ## Normally used in REST-store requests
 
@@ -26,9 +26,11 @@ proc handleSelfStoreRequest*(
     await self.requestHandler(req)
 
   let resResult = handlerResult.valueOr:
-    return err("exception in handleSelfStoreRequest: " & error.msg)
+    return err(
+      StoreError(
+        kind: ErrorCode.BAD_RESPONSE,
+        cause: "exception in handleSelfStoreRequest: " & error.msg,
+      )
+    )
 
-  let res = resResult.valueOr:
-    return err("error in handleSelfStoreRequest: " & $error)
-
-  return ok(res)
+  return resResult
