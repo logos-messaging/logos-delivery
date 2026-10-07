@@ -1,11 +1,22 @@
 {.used.}
 
-import results, std/[strutils, sets]
-import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
+import results, std/[os, strutils, sets, tempfiles]
+import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import ../waku_archive/archive_utils
-import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
+import
+  logos_delivery,
+  logos_delivery/waku/[
+    waku_node,
+    waku_core,
+    waku_relay/protocol,
+    waku_lightpush/common,
+    waku_lightpush/rpc,
+    waku_lightpush/protocol_metrics,
+    waku_archive,
+    waku_archive/archive_metrics,
+  ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
@@ -28,6 +39,7 @@ type SendEventListenerManager = ref object
   propagatedCount: int
   sentRequestIds: seq[RequestId]
   errorRequestIds: seq[RequestId]
+  errorDescs: seq[string]
   propagatedRequestIds: seq[RequestId]
 
 proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerManager =
@@ -54,6 +66,7 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
     proc(event: MessageErrorEvent) {.async: (raises: []).} =
       inc manager.errorCount
       manager.errorRequestIds.add(event.requestId)
+      manager.errorDescs.add(event.error)
       echo "ERROR EVENT TRIGGERED (#", manager.errorCount, "): ", event.error
       if not manager.errorFuture.finished():
         manager.errorFuture.fail(
@@ -242,6 +255,48 @@ suite "Waku API - Send":
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  asyncTest "A send retried while the node has no relay peer is stored once, counted once as written and again as insert failures":
+    # TODO: logos-delivery#4438
+    let root = createTempDir("send-api-archive-", "")
+    defer:
+      removeDir(root)
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      var conf = defaultTestNodeConf()
+      conf.kernel.store = Opt.some(true)
+      conf.kernel.storeMessageDbUrl = "sqlite://" & (root / "store.sqlite3")
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    let
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+
+    let sendResult = await node.messagingClient.send(
+      MessageEnvelope.init(contentTopic, "test payload")
+    )
+    check sendResult.isOk()
+
+    checkUntilTimeout:
+      errorCount(insertFailure) >= failuresBefore + 2
+
+    let stored = (
+      await node.waku.node.wakuArchive.findMessages(
+        ArchiveQuery(contentTopics: @[contentTopic])
+      )
+    ).valueOr:
+      ArchiveResponse()
+    check:
+      stored.hashes.len == 1
+      insertCount(relayIngress) == insertsBefore + 1
 
   asyncTest "Send fully validated":
     var node: LogosDelivery
@@ -564,6 +619,60 @@ suite "Waku API - Send":
     eventManager.validate({SendEventOutcome.Error}, requestId)
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  asyncTest "Edge send whose meta exceeds the limit fails at once with the service's reason":
+    ## The lightpush service rejects the request as BAD_REQUEST, which is not
+    ## retried, so the send fails after the first attempt.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+      await node.waku.node.connectToNodes(@[lightpushNodePeerInfo])
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let rejectedBefore =
+      try:
+        logos_delivery_lightpush_v3_errors.value([$LightPushErrorCode.BAD_REQUEST])
+      except KeyError:
+        0.0
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"),
+      "test payload",
+      meta = newSeq[byte](MaxMetaAttrLength + 1),
+    )
+
+    let requestId = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert error
+
+    check await eventManager.errorFuture.withTimeout(30.seconds)
+
+    let rejected =
+      try:
+        logos_delivery_lightpush_v3_errors.value([$LightPushErrorCode.BAD_REQUEST]) -
+          rejectedBefore
+      except KeyError:
+        0.0
+
+    eventManager.validate({SendEventOutcome.Error}, requestId)
+    check:
+      eventManager.errorDescs ==
+        @["decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")"]
+      rejected == 1.0
 
   asyncTest "Store validation times out with an error event":
     ## The message propagates, but the only reachable store node is outside the
