@@ -64,7 +64,8 @@ suite "RLN message id store":
     let job = p.openJob(RlnJobId).get()
     let k = messageIdKey(@[1'u8])
 
-    # Zero values are stored, not dropped: a released id 0 saves nextId 0.
+    # Proto3 does not write a `nextId` of 0, and the decode reads the missing
+    # field as 0. A `release` of id 0 saves `nextId` 0.
     let saved1 = await job.saveMessageIds(k, 7, 0)
     check saved1.isOk()
     let first = (await job.loadMessageIds(k)).get().get()
@@ -78,6 +79,28 @@ suite "RLN message id store":
     check:
       second.epochIndex == 8
       second.nextId == 3
+
+  asyncTest "a row that the minprotobuf codec stored loads with the same values":
+    let p = Persistency.new(InMemoryStoragePath).get()
+    defer:
+      p.close()
+    let job = p.openJob(RlnJobId).get()
+    let k = messageIdKey(@[1'u8])
+
+    # The bytes that the `minprotobuf` codec wrote. Field 1 (epoch index) is 8.
+    # Field 2 (next id) is 3, or an explicit 0.
+    check (await job.putAcked("rln", k, @[0x08'u8, 0x08, 0x10, 0x03])).isOk()
+    let first = (await job.loadMessageIds(k)).get(Opt.none(StoredMessageIds))
+    check (await job.putAcked("rln", k, @[0x08'u8, 0x08, 0x10, 0x00])).isOk()
+    let second = (await job.loadMessageIds(k)).get(Opt.none(StoredMessageIds))
+    check:
+      first == Opt.some(StoredMessageIds(epochIndex: 8, nextId: 3))
+      second == Opt.some(StoredMessageIds(epochIndex: 8, nextId: 0))
+
+    # The new codec writes the same bytes for values that are not zero.
+    check:
+      (await job.saveMessageIds(k, 8, 3)).isOk()
+      (await job.get("rln", k)).get() == Opt.some(@[0x08'u8, 0x08, 0x10, 0x03])
 
   asyncTest "two identities on one job keep separate rows":
     let p = Persistency.new(InMemoryStoragePath).get()
@@ -111,6 +134,19 @@ suite "RLN message id store":
     # Written under the store's category ("rln") with bytes that are not a
     # message id row.
     let written = await job.putAcked("rln", k, @[0xff'u8, 0xff])
+    check written.isOk()
+    let loaded = await job.loadMessageIds(k)
+    check loaded.isErr()
+
+  asyncTest "a row without an epoch index is an error, not epoch 0":
+    let p = Persistency.new(InMemoryStoragePath).get()
+    defer:
+      p.close()
+    let job = p.openJob(RlnJobId).get()
+    let k = messageIdKey(@[1'u8])
+
+    # Proto3 decodes an absent field as zero. This row has only `nextId` 5.
+    let written = await job.putAcked("rln", k, @[0x10'u8, 0x05])
     check written.isOk()
     let loaded = await job.loadMessageIds(k)
     check loaded.isErr()

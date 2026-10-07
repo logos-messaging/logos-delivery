@@ -102,6 +102,9 @@ proc initTransferHandler(
         req.paginationCursor = response.paginationCursor
 
         for kv in response.messages:
+          if kv.message.isNone() or kv.pubsubTopic.isNone():
+            continue
+
           let handleRes = catch:
             await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
 

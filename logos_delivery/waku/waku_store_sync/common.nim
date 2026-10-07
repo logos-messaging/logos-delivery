@@ -2,7 +2,7 @@
 
 import chronos, stew/[byteutils]
 
-import ../waku_core
+import ../common/protobuf, ../waku_core
 
 const
   DefaultSyncInterval*: Duration = 5.minutes
@@ -33,9 +33,9 @@ type
     fingerprints*: seq[Fingerprint] # Range type fingerprint stored here in order
     itemSets*: seq[ItemSet] # Range type itemset stored here in order
 
-  WakuMessageAndTopic* = object
-    pubsub*: PubSubTopic
-    message*: WakuMessage
+  WakuMessageAndTopic* {.proto3.} = object
+    pubsub* {.fieldNumber: 1.}: PubSubTopic
+    message* {.fieldNumber: 2.}: WakuMessage
 
 const EmptyFingerprint*: Fingerprint = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

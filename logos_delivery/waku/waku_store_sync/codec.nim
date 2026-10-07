@@ -9,13 +9,12 @@ const
   VarIntLen = 9
   AvgCapacity = 1000
 
-proc encode*(value: WakuMessageAndTopic): ProtoBuffer =
-  var pb = initProtoBuffer()
+proc validateDecoded(value: WakuMessageAndTopic): ProtobufResult[void] =
+  if value.pubsub.len == 0:
+    return err(ProtobufError.missingRequiredField("pubsub"))
+  validateWakuMessageFields(value.message)
 
-  pb.write3(1, value.pubsub)
-  pb.write3(2, value.message.encode())
-
-  return pb
+protobufCodec(WakuMessageAndTopic, validateDecoded)
 
 proc deltaEncode*(itemSet: ItemSet): seq[byte] =
   # 1 byte for resolved bool and 32 bytes hash plus 9 bytes varint per elements 
@@ -235,6 +234,8 @@ proc getTopics(idx: var int, buffer: seq[byte]): Result[seq[string], string] =
 
   let slice = buffer[idx ..< idx + VarIntLen]
   let (val, len) = uint64.fromBytes(slice, Leb128)
+  if len <= 0:
+    return err("Cannot decode topic count")
   idx += len
   let topicCount = int(val)
 
@@ -245,11 +246,12 @@ proc getTopics(idx: var int, buffer: seq[byte]): Result[seq[string], string] =
 
     let slice = buffer[idx ..< idx + VarIntLen]
     let (val, len) = uint64.fromBytes(slice, Leb128)
+    if len <= 0:
+      return err("Cannot decode length. Topic index: " & $i)
     idx += len
-    let topicLen = int(val)
-
-    if idx + topicLen > buffer.len:
+    if val > uint64(buffer.len - idx):
       return err("Cannot decode bytes. Topic index: " & $i)
+    let topicLen = int(val)
 
     let topic = string.fromBytes(buffer[idx ..< idx + topicLen])
     idx += topicLen
@@ -267,6 +269,8 @@ proc deltaDecode*(
 
   while itemSet.elements.len < setLength:
     let timeDiff = ?getTimestamp(idx, buffer)
+    if timeDiff > Timestamp.high - lastTime:
+      return err("Cannot decode timestamp")
     let time = lastTime + timeDiff
     lastTime = time
 
@@ -311,6 +315,8 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
     let lowerRangeBound = SyncID(time: lastTime, hash: EmptyWakuMessageHash)
 
     let timeDiff = getTimeDiff(idx, buffer)
+    if timeDiff > Timestamp.high - lastTime:
+      return err("Cannot decode time difference")
 
     var hash = EmptyWakuMessageHash
     if timeDiff == 0:
@@ -334,18 +340,3 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
       payload.itemSets.add(itemSet)
 
   return ok(payload)
-
-proc decode*(T: type WakuMessageAndTopic, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-
-  var pubsub: string
-  if not ?pb.getField(1, pubsub):
-    return err(ProtobufError.missingRequiredField("pubsub"))
-
-  var proto: ProtoBuffer
-  if not ?pb.getField(2, proto):
-    return err(ProtobufError.missingRequiredField("msg"))
-
-  let message = ?WakuMessage.decode(proto.buffer)
-
-  return ok(WakuMessageAndTopic(pubsub: pubsub, message: message))

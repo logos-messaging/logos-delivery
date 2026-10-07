@@ -43,7 +43,7 @@ proc respond(
   let rpc = PeerExchangeRpc.makeResponse(enrs.mapIt(PeerExchangePeerInfo(enr: it.raw)))
 
   try:
-    await conn.writeLP(rpc.encode().buffer)
+    await conn.writeLP(rpc.encode())
   except LPStreamError as exc:
     # Remote closed the stream before we responded - expected during peer churn.
     debug "peer exchange response not delivered: stream closed",
@@ -67,7 +67,7 @@ proc respondError(
   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
 
   try:
-    await conn.writeLP(rpc.encode().buffer)
+    await conn.writeLP(rpc.encode())
   except LPStreamError as exc:
     # Remote closed the stream before we responded - expected during peer churn.
     debug "peer exchange error response not delivered: stream closed",
@@ -108,7 +108,7 @@ proc getEnrsFromStore(
 ): seq[enr.Record] {.gcsafe.} =
   # Reservoir sampling (Algorithm R)
   var i = 0
-  let k = min(MaxPeersCacheSize, numPeers.int)
+  let k = int(min(uint64(MaxPeersCacheSize), numPeers))
   let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
   var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
   let peerStore = wpx.peerManager.switch.peerStore
@@ -159,7 +159,19 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
           debug "Failed to respond with BAD_REQUEST", error = $error
         return
 
-      let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
+      let request = decBuf.request.valueOr:
+        logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
+        (
+          await wpx.respondError(
+            PeerExchangeResponseStatusCode.BAD_REQUEST,
+            Opt.some("missing request"),
+            conn,
+          )
+        ).isOkOr:
+          debug "Failed to respond with BAD_REQUEST", error = $error
+        return
+
+      let enrs = wpx.getEnrsFromStore(request.numPeers)
 
       debug "Peer exchange request received"
       trace "px enrs to respond", enrs = $enrs

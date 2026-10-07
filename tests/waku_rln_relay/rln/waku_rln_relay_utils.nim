@@ -39,7 +39,7 @@ proc unsafeAppendRLNProof*(
     return err("could not generate rln-v2 proof: " & $error)
 
   var withProof = msg
-  withProof.proof = proof.encode().buffer
+  withProof.proof = proof.encode()
   return ok(withProof)
 
 proc getWakuRlnConfig*(

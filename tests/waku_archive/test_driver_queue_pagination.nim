@@ -1,7 +1,6 @@
 {.used.}
 
-import
-  results, std/[sequtils, algorithm], testutils/unittests, libp2p/protobuf/minprotobuf
+import results, std/[sequtils, algorithm], testutils/unittests
 import
   logos_delivery/waku/[
     waku_archive,

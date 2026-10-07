@@ -31,3 +31,4 @@ const
   EmptyRpcQueryFailure* = "empty_rpc_query_failure"
   EmptyRpcResponseFailure* = "empty_rpc_response_failure"
   NoSuccessStatusCode* = "status_code_no_success"
+  DroppedKeyValue* = "dropped_key_value"

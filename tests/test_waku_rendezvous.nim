@@ -19,7 +19,8 @@ import
   logos_delivery/waku/waku_rendezvous/common,
   logos_delivery/waku/waku_rendezvous/waku_peer_record,
   logos_delivery/waku/waku_rendezvous/client,
-  ./testlib/[wakucore, wakunode]
+  logos_delivery/waku/common/protobuf,
+  ./testlib/[protobuf_errors, wakucore, wakunode]
 
 suite "mixPubKeyFromHex":
   test "wrong decoded length returns none":
@@ -38,6 +39,32 @@ suite "mixPubKeyFromHex":
     check:
       mixPubKeyFromHex(hex).get().getBytes() == bytes
       mixPubKeyFromHex("0x" & hex).get().getBytes() == bytes
+
+suite "WakuPeerRecord codec":
+  test "a record without addresses is refused":
+    let peerId = PeerId.init(generateSecp256k1Key()).get()
+    let record = WakuPeerRecord.init(peerId, seqNo = 1, addresses = @[], mixKey = "")
+    let res = WakuPeerRecord.decode(record.encode())
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("addresses")
+
+  test "a record without a peer id is refused":
+    # Field 2 (seqNo 1) and field 3 (one address), and no field 1.
+    let res = WakuPeerRecord.decode(hexToSeqByte("10011a08047f00000106ea60"))
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("peer_id")
+
+  test "a record without a mix key decodes with an empty mix key":
+    let peerId = PeerId.init(generateSecp256k1Key()).get()
+    let address = MultiAddress.init("/ip4/127.0.0.1/tcp/60000").get()
+    let record =
+      WakuPeerRecord.init(peerId, seqNo = 1, addresses = @[address], mixKey = "")
+    let res = WakuPeerRecord.decode(record.encode())
+    check:
+      res.isOk()
+      res.get().mixKey == ""
 
 procSuite "Waku Rendezvous":
   asyncTest "Simple remote test":

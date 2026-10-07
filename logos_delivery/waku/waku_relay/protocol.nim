@@ -183,6 +183,7 @@ type PublishOutcome* {.pure.} = enum
   DuplicateMessage
   NoPeersToPublish
   CannotGenerateMessageId
+  InvalidMessage ## The `WakuMessage` decoder refuses the message.
 
 proc initProtocolHandler(w: WakuRelay) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
@@ -574,8 +575,12 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
 proc validateMessage*(
     w: WakuRelay, pubsubTopic: string, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
-  let messageSizeBytes = msg.encode().buffer.len
+  let messageSizeBytes = msg.encode().len
   let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
+
+  validateWakuMessageFields(msg).isOkOr:
+    debug "Waku message that the decoder refuses", msg_hash = msgHash, error = $error
+    return err($error)
 
   if messageSizeBytes > w.maxMessageSize:
     let message = fmt"Message size exceeded maximum of {w.maxMessageSize} bytes"
@@ -684,11 +689,16 @@ proc publish*(
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
+  validateWakuMessageFields(wakuMessage).isOkOr:
+    debug "Not publishing a message that the decoder refuses",
+      pubsubTopic = pubsubTopic, error = $error
+    return err(InvalidMessage)
+
   var message = wakuMessage
   if message.timestamp == 0:
     message.timestamp = getNowInNanosecondTime()
 
-  let data = message.encode().buffer
+  let data = message.encode()
 
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
   trace "Start publish Waku message",

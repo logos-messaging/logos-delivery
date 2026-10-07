@@ -266,7 +266,7 @@ suite "Store Client - peers that hold their streams":
           let resp = StoreQueryResponse(
             requestId: req.requestId, statusCode: uint32(StatusCode.SUCCESS)
           )
-          await conn.writeLp(resp.encode().buffer)
+          await conn.writeLp(resp.encode())
       except LPStreamError:
         return
       requestSeen.fire()

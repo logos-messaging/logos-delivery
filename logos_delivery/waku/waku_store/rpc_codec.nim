@@ -1,214 +1,74 @@
 {.push raises: [].}
 
-import results, stew/arrayops
-import ../common/[protobuf, paging], ../waku_core, ./common
+import results, chronicles, metrics
+import ../common/protobuf, ../waku_core, ./common, ./protocol_metrics
+
+logScope:
+  topics = "waku store"
 
 const DefaultMaxRpcSize* = -1
 
-### Request ###
-
-proc encode*(req: StoreQueryRequest): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, req.requestId)
-  pb.write3(2, uint32(req.includeData))
-
-  pb.write3(10, req.pubsubTopic)
-
-  for contentTopic in req.contentTopics:
-    pb.write3(11, contentTopic)
-
-  pb.write3(
-    12,
-    req.startTime.map(
-      proc(time: int64): zint64 =
-        zint64(time)
-    ),
-  )
-  pb.write3(
-    13,
-    req.endTime.map(
-      proc(time: int64): zint64 =
-        zint64(time)
-    ),
-  )
-
-  for hash in req.messagehashes:
-    pb.write3(20, hash)
-
-  pb.write3(51, req.paginationCursor)
-  pb.write3(52, uint32(req.paginationForward))
-  pb.write3(53, req.paginationLimit)
-
-  pb.finish3()
-
-  return pb
-
-proc decode*(
-    T: type StoreQueryRequest, buffer: seq[byte]
-): ProtobufResult[StoreQueryRequest] =
-  var req = StoreQueryRequest()
-  let pb = initProtoBuffer(buffer)
-
-  if not ?pb.getField(1, req.requestId):
-    return err(ProtobufError.missingRequiredField("request_id"))
-
-  var inclData: uint32
-  if not ?pb.getField(2, inclData):
-    req.includeData = false
-  else:
-    req.includeData = inclData > 0
-
-  var pubsubTopic: string
-  if not ?pb.getField(10, pubsubTopic):
-    req.pubsubTopic = Opt.none(string)
-  else:
-    req.pubsubTopic = Opt.some(pubsubTopic)
-
-  var topics: seq[string]
-  if not ?pb.getRepeatedField(11, topics):
-    req.contentTopics = @[]
-  else:
-    req.contentTopics = topics
-
-  var start: zint64
-  if not ?pb.getField(12, start):
-    req.startTime = Opt.none(Timestamp)
-  else:
-    req.startTime = Opt.some(Timestamp(int64(start)))
-
-  var endTime: zint64
-  if not ?pb.getField(13, endTime):
-    req.endTime = Opt.none(Timestamp)
-  else:
-    req.endTime = Opt.some(Timestamp(int64(endTime)))
-
-  var buffer: seq[seq[byte]]
-  if not ?pb.getRepeatedField(20, buffer):
-    req.messageHashes = @[]
-  else:
-    req.messageHashes = newSeqOfCap[WakuMessageHash](buffer.len)
-    for buf in buffer:
-      var hash: WakuMessageHash
-      discard copyFrom[byte](hash, buf)
-      req.messageHashes.add(hash)
-
-  var cursor: seq[byte]
-  if not ?pb.getField(51, cursor):
-    req.paginationCursor = Opt.none(WakuMessageHash)
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, cursor)
-    req.paginationCursor = Opt.some(hash)
-
-  var paging: uint32
-  if not ?pb.getField(52, paging):
-    # Spec 13/WAKU2-STORE: an unset pagination_forward means backward.
-    req.paginationForward = PagingDirection.BACKWARD
-  else:
-    req.paginationForward = PagingDirection(paging)
-
-  var limit: uint64
-  if not ?pb.getField(53, limit):
-    req.paginationLimit = Opt.none(uint64)
-  else:
-    req.paginationLimit = Opt.some(limit)
-
-  return ok(req)
-
-### Response ###
-
-proc encode*(keyValue: WakuMessageKeyValue): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, keyValue.messageHash)
-
-  if keyValue.message.isSome() and keyValue.pubsubTopic.isSome():
-    pb.write3(2, keyValue.message.get().encode())
-    pb.write3(3, keyValue.pubsubTopic.get())
-
-  pb.finish3()
-
-  return pb
-
-proc encode*(res: StoreQueryResponse): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, res.requestId)
-
-  pb.write3(10, res.statusCode)
-  pb.write3(11, res.statusDesc)
-
-  for msg in res.messages:
-    pb.write3(20, msg.encode())
-
-  pb.write3(51, res.paginationCursor)
-
-  pb.finish3()
-
-  return pb
-
-proc decode*(
-    T: type WakuMessageKeyValue, buffer: seq[byte]
-): ProtobufResult[WakuMessageKeyValue] =
-  var keyValue = WakuMessageKeyValue()
-  let pb = initProtoBuffer(buffer)
-
-  var buf: seq[byte]
-  if not ?pb.getField(1, buf):
+proc validateDecoded(keyValue: var WakuMessageKeyValue): ProtobufResult[void] =
+  if keyValue.messageHash == default(WakuMessageHash):
     return err(ProtobufError.missingRequiredField("message_hash"))
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, buf)
-    keyValue.messagehash = hash
-
-  var proto: ProtoBuffer
-  var topic: string
-  if ?pb.getField(2, proto) and ?pb.getField(3, topic):
-    keyValue.message = Opt.some(?WakuMessage.decode(proto.buffer))
-    keyValue.pubsubTopic = Opt.some(topic)
-  else:
+  # The message and the topic are a pair. If one of them is missing, the
+  # decode keeps neither.
+  if keyValue.message.isSome() != keyValue.pubsubTopic.isSome():
     keyValue.message = Opt.none(WakuMessage)
-    keyValue.pubsubTopic = Opt.none(string)
+    keyValue.pubsubTopic = Opt.none(PubsubTopic)
+  if keyValue.message.isSome():
+    return validateWakuMessageFields(keyValue.message.get())
+  ok()
 
-  return ok(keyValue)
+protobufCodec(WakuMessageKeyValue, validateDecoded)
 
-proc decode*(
-    T: type StoreQueryResponse, buffer: seq[byte]
-): ProtobufResult[StoreQueryResponse] =
-  var res = StoreQueryResponse()
-  let pb = initProtoBuffer(buffer)
+# A store node can have a message that this client refuses. So the decode
+# reads each key-value of field 20 independently, and it removes a key-value
+# that does not decode or that the validator refuses. It keeps the other
+# key-values and the cursor of the page.
 
-  if not ?pb.getField(1, res.requestId):
-    return err(ProtobufError.missingRequiredField("request_id"))
+func supportsPacked(
+    _: type seq[WakuMessageKeyValue], ProtoType: type ProtobufExt
+): bool =
+  false
 
-  var code: uint32
-  if not ?pb.getField(10, code):
-    return err(ProtobufError.missingRequiredField("status_code"))
-  else:
-    res.statusCode = code
+func computeFieldSize(
+    field: int,
+    value: seq[WakuMessageKeyValue],
+    ProtoType: type ProtobufExt,
+    skipDefault: static bool,
+): int =
+  var size = 0
+  for keyValue in value:
+    size += computeFieldSize(field, keyValue, pbytes, false)
+  size
 
-  var desc: string
-  if not ?pb.getField(11, desc):
-    return err(ProtobufError.missingRequiredField("status_desc"))
-  else:
-    res.statusDesc = desc
+proc writeField(
+    stream: OutputStream,
+    field: int,
+    value: seq[WakuMessageKeyValue],
+    ProtoType: type ProtobufExt,
+    skipDefault: static bool = false,
+) {.raises: [IOError].} =
+  for keyValue in value:
+    writeField(stream, field, keyValue, pbytes, false)
 
-  var buffer: seq[seq[byte]]
-  if not ?pb.getRepeatedField(20, buffer):
-    res.messages = @[]
-  else:
-    res.messages = newSeqOfCap[WakuMessageKeyValue](buffer.len)
-    for buf in buffer:
-      let msg = ?WakuMessageKeyValue.decode(buf)
-      res.messages.add(msg)
+proc readFieldInto(
+    stream: InputStream,
+    value: var seq[WakuMessageKeyValue],
+    header: FieldHeader,
+    ProtoType: type ProtobufExt,
+): bool {.raises: [SerializationError, IOError].} =
+  var data: seq[byte]
+  if not readFieldInto(stream, data, header, pbytes):
+    return false
+  let keyValue = WakuMessageKeyValue.decode(data).valueOr:
+    debug "Dropping a store key-value that does not decode or that the validator refuses",
+      error = $error
+    logos_delivery_store_errors.inc(labelValues = [DroppedKeyValue])
+    return true
+  value.add(keyValue)
+  true
 
-  var cursor: seq[byte]
-  if not ?pb.getField(51, cursor):
-    res.paginationCursor = Opt.none(WakuMessageHash)
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, cursor)
-    res.paginationCursor = Opt.some(hash)
-
-  return ok(res)
+protobufCodec(StoreQueryRequest)
+protobufCodec(StoreQueryResponse)

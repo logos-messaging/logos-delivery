@@ -6,17 +6,17 @@ import
     signed_envelope,
     multicodec,
     multiaddress,
-    protobuf/minprotobuf,
     peerid,
     utils/shortlog,
   ]
+import ../common/protobuf
 
-type WakuPeerRecord* = object
+type WakuPeerRecord* {.proto3.} = object
   # Considering only mix as of now, but we can keep extending this to include all capabilities part of Waku ENR
-  peerId*: PeerId
-  seqNo*: uint64
-  addresses*: seq[MultiAddress]
-  mixKey*: string
+  peerId* {.fieldNumber: 1, ext.}: PeerId
+  seqNo* {.fieldNumber: 2, pint.}: uint64
+  addresses* {.fieldNumber: 3, ext.}: seq[MultiAddress]
+  mixKey* {.fieldNumber: 4.}: string
 
 proc payloadDomain*(T: typedesc[WakuPeerRecord]): string =
   $multiCodec("libp2p-custom-peer-record")
@@ -33,36 +33,14 @@ proc init*(
 ): T =
   WakuPeerRecord(peerId: peerId, seqNo: seqNo, addresses: addresses, mixKey: mixKey)
 
-proc decode*(
-    T: typedesc[WakuPeerRecord], buffer: seq[byte]
-): Result[WakuPeerRecord, ProtoError] =
-  let pb = initProtoBuffer(buffer)
-  var record = WakuPeerRecord()
-
-  ?pb.getRequiredField(1, record.peerId)
-  ?pb.getRequiredField(2, record.seqNo)
-  discard ?pb.getRepeatedField(3, record.addresses)
-
+proc validateDecoded(record: WakuPeerRecord): ProtobufResult[void] =
+  if record.peerId.data.len == 0:
+    return err(ProtobufError.missingRequiredField("peer_id"))
   if record.addresses.len == 0:
-    return err(ProtoError.RequiredFieldMissing)
+    return err(ProtobufError.missingRequiredField("addresses"))
+  ok()
 
-  ?pb.getRequiredField(4, record.mixKey)
-
-  return ok(record)
-
-proc encode*(record: WakuPeerRecord): seq[byte] =
-  var pb = initProtoBuffer()
-
-  pb.write(1, record.peerId)
-  pb.write(2, record.seqNo)
-
-  for address in record.addresses:
-    pb.write(3, address)
-
-  pb.write(4, record.mixKey)
-
-  pb.finish()
-  return pb.buffer
+protobufCodec(WakuPeerRecord, validateDecoded)
 
 proc checkWakuPeerRecord*(
     _: WakuPeerRecord, spr: seq[byte], peerId: PeerId

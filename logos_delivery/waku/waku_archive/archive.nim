@@ -66,7 +66,7 @@ proc validate*(msg: WakuMessage): Result[void, string] =
       msgTimestamp = msg.timestamp,
       lowerBound = lowerBound,
       now = now,
-      drift = (now - msg.timestamp) div 1_000_000_000
+      drift = now div 1_000_000_000 - msg.timestamp div 1_000_000_000
     return err(invalidMessageOld)
 
   if upperBound < msg.timestamp:
@@ -74,7 +74,7 @@ proc validate*(msg: WakuMessage): Result[void, string] =
       msgTimestamp = msg.timestamp,
       upperBound = upperBound,
       now = now,
-      drift = (msg.timestamp - now) div 1_000_000_000
+      drift = msg.timestamp div 1_000_000_000 - now div 1_000_000_000
     return err(invalidMessageFuture)
 
   return ok()

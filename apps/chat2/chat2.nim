@@ -27,11 +27,11 @@ import
     peerinfo,
       # manage the information of a peer, such as peer ID and public / private key
     peerid, # Implement how peers interact
-    protobuf/minprotobuf, # message serialisation/deserialisation from and to protobufs
     nameresolving/dnsresolver,
   ] # define DNS resolution
 import
   logos_delivery/waku/[
+    common/protobuf,
     waku_core,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/rpc,
@@ -84,32 +84,15 @@ type
 type
   SelectResult*[T] = Result[T, string]
 
-  Chat2Message* = object
-    timestamp*: int64
-    nick*: string
-    payload*: seq[byte]
+  Chat2Message* {.proto3.} = object
+    timestamp* {.fieldNumber: 1, pint.}: int64
+    nick* {.fieldNumber: 2.}: string
+    payload* {.fieldNumber: 3.}: seq[byte]
 
-proc init*(T: type Chat2Message, buffer: seq[byte]): ProtoResult[T] =
-  var msg = Chat2Message()
-  let pb = initProtoBuffer(buffer)
+protobufCodec(Chat2Message)
 
-  var timestamp: uint64
-  discard ?pb.getField(1, timestamp)
-  msg.timestamp = int64(timestamp)
-
-  discard ?pb.getField(2, msg.nick)
-  discard ?pb.getField(3, msg.payload)
-
-  ok(msg)
-
-proc encode*(message: Chat2Message): ProtoBuffer =
-  var serialised = initProtoBuffer()
-
-  serialised.write(1, uint64(message.timestamp))
-  serialised.write(2, message.nick)
-  serialised.write(3, message.payload)
-
-  return serialised
+proc init*(T: type Chat2Message, buffer: seq[byte]): ProtobufResult[T] =
+  Chat2Message.decode(buffer)
 
 proc toString*(message: Chat2Message): string =
   # Get message date and timestamp in local time
@@ -185,7 +168,7 @@ proc publish(c: Chat, line: string) {.async.} =
     trace "lightpush response received", response = response
 
   var message = WakuMessage(
-    payload: chat2pb.buffer,
+    payload: chat2pb,
     contentTopic: c.contentTopic,
     version: 0,
     timestamp: getNanosecondTime(time),

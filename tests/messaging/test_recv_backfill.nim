@@ -102,6 +102,18 @@ suite "Receive backfill":
         persistency.close()
       let job = persistency.openJob(MessagingJobId).get()
       check (await job.readRecoveryHint()).get() == Opt.some(Base)
+      # The bytes that the `minprotobuf` codec wrote for the time 42. The new
+      # codec reads them, and it writes the same bytes.
+      let minprotobufRecord = @[0x08'u8, 0x2a]
+      await job.persistPut(BackfillCategory, LastOnlineKey, minprotobufRecord)
+      await job.waitStored(BackfillCategory, LastOnlineKey, minprotobufRecord)
+      check (await job.readRecoveryHint()).get() == Opt.some(Timestamp(42))
+      await job.writeRecoveryHint(Base)
+      await job.waitHint(Opt.some(Base))
+      await job.writeRecoveryHint(Timestamp(42))
+      await job.waitHint(Opt.some(Timestamp(42)))
+      check (await job.get(BackfillCategory, LastOnlineKey)).get() ==
+        Opt.some(minprotobufRecord)
       for badRecord in [
         @[0x08'u8, 0x00],
         @[0xff'u8, 0x01, 0x02],

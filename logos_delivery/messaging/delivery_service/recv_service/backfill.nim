@@ -2,10 +2,10 @@
 {.push raises: [].}
 
 import std/[algorithm, sets, tables]
-import chronos, chronicles, results, libp2p/protobuf/minprotobuf
+import chronos, chronicles, results
 import
   logos_delivery/waku/[waku_core, waku_store/common],
-  logos_delivery/waku/common/paging,
+  logos_delivery/waku/common/[paging, protobuf],
   logos_delivery/waku/persistency/persistency
 from logos_delivery/waku/waku_archive/archive import MaxMessageTimestampVariance
 
@@ -23,6 +23,9 @@ const
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
+
+  RecoveryHint {.proto3.} = object ## The stored record of the recovery hint.
+    at {.fieldNumber: 1, pint.}: Timestamp
 
   BackfillQuery* = proc(
     request: StoreQueryRequest
@@ -42,20 +45,17 @@ proc backfillTopics*(
   topics.sort()
   return topics
 
+protobufCodec(RecoveryHint)
+
 proc encodeTimestamp(at: Timestamp): seq[byte] =
-  var pb = initProtoBuffer()
-  pb.write(1, uint64(at))
-  pb.finish()
-  return pb.buffer
+  RecoveryHint(at: at).encode()
 
 proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
-  let pb = initProtoBuffer(bytes)
-  var raw: uint64
-  let present = pb.getField(1, raw).valueOr:
+  let hint = RecoveryHint.decode(bytes).valueOr:
     return err("timestamp: " & $error)
-  if not present or raw == 0 or raw > uint64(int64.high):
+  if hint.at <= 0:
     return err("timestamp is missing or out of range")
-  return ok(Timestamp(raw))
+  return ok(hint.at)
 
 proc readRecoveryHint*(
     job: persistency.Job

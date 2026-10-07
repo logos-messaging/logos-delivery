@@ -11,7 +11,8 @@
 ## identities stay apart, and the file cannot be linked to an on-chain
 ## membership without the secret.
 
-import chronos, results, nimcrypto, libp2p/protobuf/minprotobuf
+import chronos, results, nimcrypto
+import ../../common/protobuf
 import brokers/broker_context
 import logos_delivery/waku/persistency/persistency
 import ./nonce_manager, ./protocol_types
@@ -23,9 +24,9 @@ const
     ## Hashed into every row key. Changing it strands every stored row, and a
     ## node upgraded in the middle of an epoch would draw from zero again.
 
-type StoredMessageIds* = object
-  epochIndex*: uint64 ## Last epoch ids were drawn in.
-  nextId*: Nonce ## Next unused id in `epochIndex`.
+type StoredMessageIds* {.proto3.} = object
+  epochIndex* {.fieldNumber: 1, pint.}: uint64 ## Last epoch ids were drawn in.
+  nextId* {.fieldNumber: 2, pint.}: Nonce ## Next unused id in `epochIndex`.
 
 proc messageIdKey*(idSecretHash: IdentitySecretHash): Key =
   ## Row key of one identity: `sha256(MessageIdKeyTag ‖ idSecretHash)`.
@@ -35,25 +36,22 @@ proc messageIdKey*(idSecretHash: IdentitySecretHash): Key =
   input.add(idSecretHash)
   return key("message-id", sha256.digest(input).data)
 
+proc validateDecoded(ids: StoredMessageIds): ProtobufResult[void] =
+  # Epoch index 0 is in 1970, so a zero value means a missing field.
+  if ids.epochIndex == 0:
+    return err(ProtobufError.missingRequiredField("epoch_index"))
+  ok()
+
+protobufCodec(StoredMessageIds, validateDecoded)
+
 proc encodeIds(epochIndex: uint64, nextId: Nonce): seq[byte] =
-  var pb = initProtoBuffer()
-  pb.write(1, epochIndex)
-  pb.write(2, nextId)
-  pb.finish()
-  return pb.buffer
+  StoredMessageIds(epochIndex: epochIndex, nextId: nextId).encode()
 
 proc decodeIds(bytes: seq[byte]): Result[StoredMessageIds, string] =
-  let pb = initProtoBuffer(bytes)
-  var epochIndex, nextId: uint64
-  let hasEpochIndex = pb.getField(1, epochIndex).valueOr:
-    return err("epoch index: " & $error)
-  let hasNextId = pb.getField(2, nextId).valueOr:
-    return err("next id: " & $error)
-  if not hasEpochIndex:
-    return err("missing epoch index field")
-  if not hasNextId:
-    return err("missing next id field")
-  return ok(StoredMessageIds(epochIndex: epochIndex, nextId: nextId))
+  StoredMessageIds.decode(bytes).mapErr(
+    proc(e: ProtobufError): string =
+      $e
+  )
 
 proc openMessageIdStore*(brokerCtx: BrokerContext): Result[persistency.Job, string] =
   ## Opens the `rln` job of the persistency provided under `brokerCtx`. Fails

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[tables, deques], stew/arrayops, stint, chronos, web3, eth/keys
+import stint, chronos, web3, eth/keys
 import ../../waku_core, ../../waku_keystore, ../../common/protobuf
 
 export waku_keystore, waku_core
@@ -27,27 +27,29 @@ proc toRateCommitment*(rateCommitmentUint: UInt256): RawRateCommitment =
   return RawRateCommitment(@(rateCommitmentUint.toBytesLE()))
 
 # Custom data types defined for waku rln relay -------------------------
-type RateLimitProof* = object
+type RateLimitProof* {.proto3.} = object
   ## RateLimitProof holds the public inputs to rln circuit as
   ## defined in https://hackmd.io/tMTLMYmTR5eynw2lwK9n1w?view#Public-Inputs
   ## the `proof` field carries the actual zkSNARK proof
-  proof*: ZKSNARK
+  ## The wire fields are in field number order, because the library writes
+  ## them in declaration order.
+  proof* {.fieldNumber: 1, ext.}: ZKSNARK
   ## the root of Merkle tree used for the generation of the `proof`
-  merkleRoot*: MerkleNode
+  merkleRoot* {.fieldNumber: 2, ext.}: MerkleNode
+  ## the epoch used for the generation of the `proof`
+  epoch* {.fieldNumber: 3, ext.}: Epoch
   ## shareX and shareY are shares of user's identity key
   ## these shares are created using Shamir secret sharing scheme
   ## see details in https://hackmd.io/tMTLMYmTR5eynw2lwK9n1w?view#Linear-Equation-amp-SSS
-  shareX*: MerkleNode
-  shareY*: MerkleNode
+  shareX* {.fieldNumber: 4, ext.}: MerkleNode
+  shareY* {.fieldNumber: 5, ext.}: MerkleNode
   ## nullifier enables linking two messages published during the same epoch
   ## see details in https://hackmd.io/tMTLMYmTR5eynw2lwK9n1w?view#Nullifiers
-  nullifier*: Nullifier
-  ## the epoch used for the generation of the `proof`
-  epoch*: Epoch
+  nullifier* {.fieldNumber: 6, ext.}: Nullifier
   ## Application specific RLN Identifier
-  rlnIdentifier*: RlnIdentifier
+  rlnIdentifier* {.fieldNumber: 7, ext.}: RlnIdentifier
   ## the external nullifier used for the generation of the `proof` (derived from poseidon([epoch, rln_identifier]))
-  externalNullifier*: ExternalNullifier
+  externalNullifier* {.dontSerialize.}: ExternalNullifier
 
 type UInt40* = StUint[40]
 type UInt32* = StUint[32]
@@ -78,54 +80,10 @@ type MessageValidationResult* {.pure.} = enum
     ## view of the chain, so the proof cannot be judged invalid.
 
 # Protobufs enc and init
-proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtoResult[T] =
-  var nsp: RateLimitProof
+protobufCodec(RateLimitProof)
 
-  let pb = initProtoBuffer(buffer)
-
-  var proof: seq[byte]
-  discard ?pb.getField(1, proof)
-  discard nsp.proof.copyFrom(proof)
-
-  var merkleRoot: seq[byte]
-  discard ?pb.getField(2, merkleRoot)
-  discard nsp.merkleRoot.copyFrom(merkleRoot)
-
-  var epoch: seq[byte]
-  discard ?pb.getField(3, epoch)
-  discard nsp.epoch.copyFrom(epoch)
-
-  var shareX: seq[byte]
-  discard ?pb.getField(4, shareX)
-  discard nsp.shareX.copyFrom(shareX)
-
-  var shareY: seq[byte]
-  discard ?pb.getField(5, shareY)
-  discard nsp.shareY.copyFrom(shareY)
-
-  var nullifier: seq[byte]
-  discard ?pb.getField(6, nullifier)
-  discard nsp.nullifier.copyFrom(nullifier)
-
-  var rlnIdentifier: seq[byte]
-  discard ?pb.getField(7, rlnIdentifier)
-  discard nsp.rlnIdentifier.copyFrom(rlnIdentifier)
-
-  return ok(nsp)
-
-proc encode*(nsp: RateLimitProof): ProtoBuffer =
-  var output = initProtoBuffer()
-
-  output.write3(1, nsp.proof)
-  output.write3(2, nsp.merkleRoot)
-  output.write3(3, nsp.epoch)
-  output.write3(4, nsp.shareX)
-  output.write3(5, nsp.shareY)
-  output.write3(6, nsp.nullifier)
-  output.write3(7, nsp.rlnIdentifier)
-
-  output.finish3()
-  return output
+proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtobufResult[T] =
+  RateLimitProof.decode(buffer)
 
 func encode*(x: UInt32): seq[byte] =
   ## the Ethereum ABI imposes a 32 byte width for every type

@@ -4,70 +4,23 @@
 # - Proto definition: https://github.com/vacp2p/waku/blob/main/waku/message/v1/message.proto
 {.push raises: [].}
 
-import ../../common/protobuf, ../topics, ../time, ./message
+import std/unicode
+import ../../common/protobuf, ./message
 
-proc encode*(message: WakuMessage): ProtoBuffer =
-  var buf = initProtoBuffer()
-
-  buf.write3(1, message.payload)
-  buf.write3(2, message.contentTopic)
-  buf.write3(3, message.version)
-  buf.write3(10, zint64(message.timestamp))
-  buf.write3(11, message.meta)
-  buf.write3(21, message.proof)
-  buf.write3(31, uint32(message.ephemeral))
-  buf.finish3()
-
-  buf
-
-proc decode*(T: type WakuMessage, buffer: seq[byte]): ProtobufResult[T] =
-  var msg = WakuMessage()
-  let pb = initProtoBuffer(buffer)
-
-  var payload: seq[byte]
-  if not ?pb.getField(1, payload):
-    return err(ProtobufError.missingRequiredField("payload"))
-  else:
-    msg.payload = payload
-
-  var topic: ContentTopic
-  if not ?pb.getField(2, topic):
+proc validateWakuMessageFields*(msg: WakuMessage): ProtobufResult[void] =
+  ## Refuses a missing message, a message without a valid content topic, and
+  ## a `meta` above `MaxMetaAttrLength`. Codecs call it for a nested
+  ## `WakuMessage`, and the relay calls it before a send. At decode, the
+  ## library refuses a `string` that is not valid UTF-8 before this proc runs,
+  ## so the UTF-8 check of this proc has an effect only before a send.
+  if msg == default(WakuMessage):
+    return err(ProtobufError.missingRequiredField("message"))
+  if msg.contentTopic.len == 0:
     return err(ProtobufError.missingRequiredField("content_topic"))
-  else:
-    msg.contentTopic = topic
+  if validateUtf8(msg.contentTopic) != -1:
+    return err(ProtobufError.decodeFailure("content_topic is not valid UTF-8"))
+  if msg.meta.len > MaxMetaAttrLength:
+    return err(ProtobufError.invalidLengthField("meta"))
+  ok()
 
-  var version: uint32
-  if not ?pb.getField(3, version):
-    msg.version = 0
-  else:
-    msg.version = version
-
-  var timestamp: zint64
-  if not ?pb.getField(10, timestamp):
-    msg.timestamp = Timestamp(0)
-  else:
-    msg.timestamp = Timestamp(timestamp)
-
-  var meta: seq[byte]
-  if not ?pb.getField(11, meta):
-    msg.meta = @[]
-  else:
-    if meta.len > MaxMetaAttrLength:
-      return err(ProtobufError.invalidLengthField("meta"))
-
-    msg.meta = meta
-
-  # this is part of https://rfc.vac.dev/spec/17/ spec
-  var proof: seq[byte]
-  if not ?pb.getField(21, proof):
-    msg.proof = @[]
-  else:
-    msg.proof = proof
-
-  var ephemeral: uint32
-  if not ?pb.getField(31, ephemeral):
-    msg.ephemeral = false
-  else:
-    msg.ephemeral = bool(ephemeral)
-
-  ok(msg)
+protobufCodec(WakuMessage, validateWakuMessageFields)

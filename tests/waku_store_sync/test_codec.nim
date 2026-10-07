@@ -1,13 +1,16 @@
 {.used.}
 
-import std/random, testutils/unittests, chronos
+import results, stew/byteutils
+import std/[random, strutils], testutils/unittests, chronos
 
 import
+  ../../logos_delivery/waku/common/protobuf,
   ../../logos_delivery/waku/waku_core,
   ../../logos_delivery/waku/waku_core/message/digest,
   ../../logos_delivery/waku/waku_core/time,
   ../../logos_delivery/waku/waku_store_sync/common,
   ../../logos_delivery/waku/waku_store_sync/codec,
+  ../testlib/protobuf_errors,
   ./sync_utils
 
 proc randomItemSet(count: int, startTime: Timestamp, rng: var Rand): ItemSet =
@@ -212,3 +215,35 @@ suite "Waku Store Sync Codec":
       payload.ranges[3][0].b == decodedPayload.ranges[3][0].b
       payload.fingerprints == decodedPayload.fingerprints
       payload.itemSets == decodedPayload.itemSets
+
+suite "Waku Store Sync - message codec refusals":
+  test "a message without a pubsub topic is refused":
+    let res = WakuMessageAndTopic.decode(hexToSeqByte("12070a010112022f74"))
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("pubsub")
+
+  test "a nested message without a content topic is refused":
+    let res = WakuMessageAndTopic.decode(hexToSeqByte("0a022f7312030a0101"))
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("content_topic")
+
+suite "Store sync - codec bounds":
+  test "a topic length beyond the payload is refused":
+    # One pubsub topic with the length int64.high.
+    check RangesData.deltaDecode(hexToSeqByte("01ffffffffffffffff7f")).isErr()
+
+  test "a time that does not fit in a Timestamp is refused":
+    # Two items: the time difference int64.high, then 1.
+    var itemSet = ItemSet()
+    let bytes =
+      hexToSeqByte("ffffffffffffffff7f" & "00".repeat(32) & "01" & "00".repeat(40))
+    check deltaDecode(itemSet, bytes, 2).isErr()
+
+  test "an incomplete topic length is refused":
+    # One pubsub topic, and a length of nine bytes that all continue.
+    let res = RangesData.deltaDecode(hexToSeqByte("01" & "80".repeat(9)))
+    check:
+      res.isErr()
+      res.error == "Cannot decode length. Topic index: 0"

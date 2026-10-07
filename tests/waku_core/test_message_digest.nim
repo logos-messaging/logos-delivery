@@ -144,7 +144,7 @@ suite "Waku Message - Deterministic hashing":
     )
 
     let encodedInvalidMsg = message.encode
-    let decoded = WakuMessage.decode(encodedInvalidMsg.buffer)
+    let decoded = WakuMessage.decode(encodedInvalidMsg)
 
     check:
       decoded.isErr == true

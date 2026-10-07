@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import results, json_serialization
-import ../waku_core
+import ../common/protobuf, ../waku_core
 
 type
   FilterSubscribeType* {.pure.} = enum
@@ -11,20 +11,20 @@ type
     UNSUBSCRIBE = uint32(2)
     UNSUBSCRIBE_ALL = uint32(3)
 
-  FilterSubscribeRequest* = object # Request from client to service node
-    requestId*: string
-    filterSubscribeType*: FilterSubscribeType
-    pubsubTopic*: Opt[PubsubTopic]
-    contentTopics*: seq[ContentTopic]
+  FilterSubscribeRequest* {.proto3.} = object # Request from client to service node
+    requestId* {.fieldNumber: 1.}: string
+    filterSubscribeType* {.fieldNumber: 2, ext.}: FilterSubscribeType
+    pubsubTopic* {.fieldNumber: 10.}: Opt[PubsubTopic]
+    contentTopics* {.fieldNumber: 11.}: seq[ContentTopic]
 
-  FilterSubscribeResponse* = object # Response from service node to client
-    requestId*: string
-    statusCode*: uint32
-    statusDesc*: Opt[string]
+  FilterSubscribeResponse* {.proto3.} = object # Response from service node to client
+    requestId* {.fieldNumber: 1.}: string
+    statusCode* {.fieldNumber: 10, pint.}: uint32
+    statusDesc* {.fieldNumber: 11.}: Opt[string]
 
-  MessagePush* = object # Message pushed from service node to client
-    wakuMessage*: WakuMessage
-    pubsubTopic*: string
+  MessagePush* {.proto3.} = object # Message pushed from service node to client
+    wakuMessage* {.fieldNumber: 1.}: WakuMessage
+    pubsubTopic* {.fieldNumber: 2.}: string
 
 # Convenience functions
 

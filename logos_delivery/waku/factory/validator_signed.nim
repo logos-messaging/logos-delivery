@@ -46,9 +46,8 @@ proc withinTimeWindow*(msg: WakuMessage): bool =
   let now = getNowInNanosecondTime()
   let window = getNanosecondTime(MessageWindowInSec)
 
-  if abs(now - ts) < window:
-    return true
-  return false
+  # The same check as `abs(now - ts) < window`, with no overflow.
+  return ts > now - window and ts < now + window
 
 proc addSignedShardsValidator*(
     w: WakuRelay, protectedShards: seq[ProtectedShard], clusterId: uint16
