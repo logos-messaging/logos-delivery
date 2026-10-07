@@ -10,6 +10,7 @@ import
     waku_core/message/digest,
     waku_archive,
     waku_archive/archive_metrics,
+    waku_archive/driver/queue_driver,
   ],
   ../waku_archive/archive_utils,
   ../testlib/wakucore
@@ -619,3 +620,45 @@ suite "Waku Archive - insert metrics":
     check (waitFor stored.syncMessageIngress(messageHash, DefaultPubSubTopic, message)).isOk()
 
     check insertCount(syncIngress) == baseline + 1
+
+  test "a message handled twice is stored once and counted once as written":
+    let
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+      shardBefore = messagesPerShard("0")
+      driver = newSqliteArchiveDriver()
+      archive = newWakuArchive(driver)
+      message = fakeWakuMessage(ts = now())
+
+    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      insertCount(relayIngress) == insertsBefore + 1
+      messagesPerShard("0") == shardBefore + 1
+      errorCount(insertFailure) == failuresBefore
+
+  test "a message already held is reported as not written by the sqlite driver":
+    let
+      driver = newSqliteArchiveDriver()
+      message = fakeWakuMessage(ts = now())
+      hash = computeMessageHash(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(true)
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(false)
+
+  test "a message already held is reported as not written by the queue driver":
+    let
+      driver = QueueDriver.new()
+      message = fakeWakuMessage(ts = now())
+      hash = computeMessageHash(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(true)
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(false)

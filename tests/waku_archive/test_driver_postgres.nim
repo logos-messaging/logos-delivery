@@ -5,6 +5,7 @@ import
 import
   logos_delivery/waku/[
     waku_archive,
+    waku_archive/archive_metrics,
     waku_archive/driver/postgres_driver,
     waku_core,
     waku_core/message/digest,
@@ -13,7 +14,8 @@ import
   ],
   ../testlib/wakucore,
   ../testlib/testasync,
-  ../testlib/postgres
+  ../testlib/postgres,
+  ./archive_utils
 
 suite "Postgres driver":
   ## Unique driver instance
@@ -172,6 +174,41 @@ suite "Postgres driver":
 
     assert newNumMsgs == (initialNumMsgs + 1.int64),
       "wrong number of messages: " & $newNumMsgs
+
+  asyncTest "A message handled twice by the archive is stored once and counted once as written":
+    let
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+      shardBefore = messagesPerShard("0")
+      archive = newWakuArchive(driver)
+      message = fakeWakuMessage(ts = now())
+
+    await archive.handleMessage(DefaultPubsubTopic, message)
+    await archive.handleMessage(DefaultPubsubTopic, message)
+
+    check:
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      insertCount(relayIngress) == insertsBefore + 1
+      messagesPerShard("0") == shardBefore + 1
+      errorCount(insertFailure) == failuresBefore
+
+  asyncTest "A message handled by two archives sharing one database is counted once as written":
+    let otherDriver = (await newTestPostgresDriver()).expect("second driver")
+    defer:
+      (await otherDriver.close()).expect("close the second driver")
+
+    let
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+      message = fakeWakuMessage(ts = now())
+
+    await newWakuArchive(driver).handleMessage(DefaultPubsubTopic, message)
+    await newWakuArchive(otherDriver).handleMessage(DefaultPubsubTopic, message)
+
+    check:
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      insertCount(relayIngress) == insertsBefore + 1
+      errorCount(insertFailure) == failuresBefore
 
   asyncTest "messages_lookup partitions are created and dropped with messages partitions":
     ## Lookup partitions are created and dropped in lockstep — no row deletes.

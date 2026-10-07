@@ -42,7 +42,8 @@ type PostgresDriver* = ref object of ArchiveDriver
 const InsertRowStmtName = "InsertRow"
 const InsertRowStmtDefinition =
   """INSERT INTO messages (id, messageHash, pubsubTopic, contentTopic, payload,
-  version, timestamp, meta) VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 = '' THEN NULL ELSE $8 END) ON CONFLICT DO NOTHING;"""
+  version, timestamp, meta) VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 = '' THEN NULL ELSE $8 END) ON CONFLICT DO NOTHING
+  RETURNING messageHash;"""
 
 const InsertRowInMessagesLookupStmtName = "InsertRowMessagesLookup"
 const InsertRowInMessagesLookupStmtDefinition =
@@ -295,7 +296,7 @@ method put*(
     messageHash: WakuMessageHash,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[bool]] {.async.} =
   let messageHash = byteutils.toHex(messageHash)
 
   let contentTopic = message.contentTopic
@@ -310,6 +311,10 @@ method put*(
   ## this is not needed for store-v3. Nevertheless, we will keep that temporarily
   ## until we completely remove the store/archive-v2 logic
   let fakeId = "0"
+
+  var written = false
+  proc insertCallback(pqResult: ptr PGresult) =
+    written = written or pqResult.pqNtuples() > 0
 
   (
     ## Add the row to the messages table
@@ -331,22 +336,25 @@ method put*(
         int32(meta.len),
       ],
       @[int32(0), int32(0), int32(0), int32(0), int32(0), int32(0), int32(0), int32(0)],
+      insertCallback,
     )
   ).isOkOr:
     return err("could not put msg in messages table: " & $error)
 
   ## Now add the row to messages_lookup
-  let ret = await s.writeConnPool.runStmt(
-    InsertRowInMessagesLookupStmtName,
-    InsertRowInMessagesLookupStmtDefinition,
-    @[messageHash, timestamp],
-    @[int32(messageHash.len), int32(timestamp.len)],
-    @[int32(0), int32(0)],
-  )
+  (
+    await s.writeConnPool.runStmt(
+      InsertRowInMessagesLookupStmtName,
+      InsertRowInMessagesLookupStmtDefinition,
+      @[messageHash, timestamp],
+      @[int32(messageHash.len), int32(timestamp.len)],
+      @[int32(0), int32(0)],
+    )
+  ).isOkOr:
+    return err(error)
 
-  if ret.isOk():
-    logos_delivery_postgres_payload_size_bytes.set(message.payload.len)
-  return ret
+  logos_delivery_postgres_payload_size_bytes.set(message.payload.len)
+  return ok(written)
 
 method getAllMessages*(
     s: PostgresDriver
