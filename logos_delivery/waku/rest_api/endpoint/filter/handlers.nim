@@ -281,8 +281,9 @@ proc installFilterDeleteSubscriptionsHandler(
       )
 
     let unsubRes = unsubFut.read()
-    if unsubRes.isOk():
-      # Successfully unsubscribed from all requested contentTopics
+    if unsubRes.isOk() or unsubRes.error.kind == FilterSubscribeErrorKind.NOT_FOUND:
+      # NOT_FOUND means the service holds nothing for us, so keeping the topics
+      # cached would leave the client unable to ever clear them.
       for cTopic in req.contentFilters:
         cache.contentUnsubscribe(cTopic)
 

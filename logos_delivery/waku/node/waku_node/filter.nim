@@ -113,7 +113,7 @@ proc filterSubscribe*(
     debug "Couldn't parse the peer info properly", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
-  if pubsubTopic.isSome():
+  if pubsubTopic.isSome() and pubsubTopic.get() != "":
     debug "Registering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,
@@ -200,7 +200,7 @@ proc filterUnsubscribe*(
     debug "Couldn't parse remotePeerInfo", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
-  if pubsubTopic.isSome():
+  if pubsubTopic.isSome() and pubsubTopic.get() != "":
     debug "Deregistering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,

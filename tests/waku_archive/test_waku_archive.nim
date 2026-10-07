@@ -619,3 +619,22 @@ suite "Waku Archive - insert metrics":
     check (waitFor stored.syncMessageIngress(messageHash, DefaultPubSubTopic, message)).isOk()
 
     check insertCount(syncIngress) == baseline + 1
+
+  test "a message handled twice is stored once, counted once as written and once as an insert failure":
+    # TODO: logos-delivery#4438
+    let
+      insertsBefore = insertCount(relayIngress)
+      failuresBefore = errorCount(insertFailure)
+      shardBefore = messagesPerShard("0")
+      driver = newSqliteArchiveDriver()
+      archive = newWakuArchive(driver)
+      message = fakeWakuMessage(ts = now())
+
+    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      insertCount(relayIngress) == insertsBefore + 1
+      messagesPerShard("0") == shardBefore + 1
+      errorCount(insertFailure) == failuresBefore + 1
