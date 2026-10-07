@@ -854,7 +854,6 @@ suite "Messaging API, SubscriptionManager":
     await publisher.stop()
 
   asyncTest "Subscription API, edge node drops its service peer when an unsubscribe is answered not found":
-    # TODO: logos-delivery#4435
     let net = await setupNetwork(1, messaging_conf.LogosDeliveryMode.Edge)
     defer:
       await net.teardown()
@@ -885,7 +884,7 @@ suite "Messaging API, SubscriptionManager":
     # The shipped debounce keeps the edge without its service peer long enough to observe.
     net.subscriber.waku.node.subscriptionManager.edgeFilterSubLoopDebounce = 1.seconds
 
-    # The service checks removedTopic before staleTopic, so its 404 removes nothing.
+    # The service answers 404 for the whole request and removes nothing.
     net.subscriber.messagingClient.unsubscribe(staleTopic).expect(
       "failed to unsub stale"
     )

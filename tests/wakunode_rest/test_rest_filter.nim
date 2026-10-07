@@ -908,10 +908,10 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered OK and nothing is removed
+    # Then it is answered NOT_FOUND and nothing is removed
     check:
-      otherResponse.status == 200
-      otherResponse.data.statusDesc == "OK"
+      otherResponse.status == 404
+      otherResponse.data.statusDesc == "NOT_FOUND: Peer was not subscribed to criterion"
       otherPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "3")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "2")
@@ -925,10 +925,11 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and the peer keeps its criteria
+    # Then it is answered NOT_FOUND and the peer keeps its criteria
     check:
       unknownResponse.status == 404
-      unknownResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      unknownResponse.data.statusDesc ==
+        "NOT_FOUND: Peer was not subscribed to criterion"
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "2")
 
@@ -1023,7 +1024,6 @@ suite "Waku v2 Rest API - Filter V2":
       messagesAfterTooManyDelete.data == "Not subscribed to topic: 1"
 
   asyncTest "Remove subscription criteria together with one no peer holds - DELETE /filter/v2/subscriptions":
-    # TODO: logos-delivery#4435
     let restFilterTest = await RestFilterTest.init()
     defer:
       await restFilterTest.shutdown()
@@ -1052,13 +1052,23 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let onlyPingResponse = await restFilterTest.client.filterSubscriberPing("3456")
 
-    # Then it is answered "peer has no subscriptions" and the whole subscription is gone
+    # Then it is answered NOT_FOUND and the subscription is untouched
     check:
       onlyResponse.status == 404
-      onlyResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
-      subscriptions.findSubscribedPeers(DefaultPubsubTopic, "5").len() == 0
-      onlyPingResponse.status == 404
-      onlyPingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      onlyResponse.data.statusDesc == "NOT_FOUND: Peer was not subscribed to criterion"
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "5")
+      onlyPingResponse.status == 200
+      onlyPingResponse.data.statusDesc == "OK"
+
+    # Given the subscription is replaced by one to two content topics
+    let cleanupResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "3457",
+        contentFilters: @[ContentTopic("5")],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    check cleanupResponse.status == 200
 
     # Given a subscription to two content topics
     let postResponse = await restFilterTest.client.filterPostSubscriptions(
@@ -1080,10 +1090,11 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let pingResponse = await restFilterTest.client.filterSubscriberPing("6789")
 
-    # Then it is answered "peer has no subscriptions" while a ping is answered OK
+    # Then it is answered NOT_FOUND while a ping is answered OK
     check:
       missingResponse.status == 404
-      missingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      missingResponse.data.statusDesc ==
+        "NOT_FOUND: Peer was not subscribed to criterion"
       pingResponse.status == 200
       pingResponse.data.statusDesc == "OK"
 
@@ -1096,10 +1107,10 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and nothing is removed
+    # Then it is answered NOT_FOUND and nothing is removed
     check:
       keptResponse.status == 404
-      keptResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      keptResponse.data.statusDesc == "NOT_FOUND: Peer was not subscribed to criterion"
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
 
@@ -1112,9 +1123,10 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and "4" is removed
+    # Then it is answered NOT_FOUND and "4" is kept
     check:
       removedResponse.status == 404
-      removedResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      removedResponse.data.statusDesc ==
+        "NOT_FOUND: Peer was not subscribed to criterion"
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
-      subPeerId notin subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
