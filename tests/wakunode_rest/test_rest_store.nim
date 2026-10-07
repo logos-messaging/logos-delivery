@@ -988,7 +988,7 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("invalid hash length")
 
-  asyncTest "hashes filter: combined with content filters is rejected with 400":
+  asyncTest "hashes filter: combined with content filters is rejected with 400, but not with a start time of 0":
     let t = await RestStoreTest.init()
     defer:
       await t.shutdown()
@@ -1001,10 +1001,13 @@ procSuite "Waku Rest API - Store v3":
       response.status == 400
       response.data.statusDesc.contains("cannot be combined with content filters")
 
-    for startTime in ["1", "0"]:
-      response = await t.client.getStoreMessagesV3(hashes = hash, startTime = startTime)
-      check:
-        response.status == 400
+    response = await t.client.getStoreMessagesV3(hashes = hash, startTime = "1")
+    check:
+      response.status == 400
+
+    response = await t.client.getStoreMessagesV3(hashes = hash, startTime = "0")
+    check:
+      response.status == 400
 
   asyncTest "ascending=false returns the tail page in chronological order":
     let t = await RestStoreTest.init(
@@ -1108,7 +1111,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.statusDesc.contains("Failed parsing remote peer info")
       response.data.statusDesc.contains("Error encoding `p2p/")
 
-  asyncTest "pageSize: over 100 returns 100, empty returns 20, negative is rejected":
+  asyncTest "pageSize: over 100 returns 100, empty or 0 returns 20, negative returns 400, the largest uint64 returns 100":
     let t = await RestStoreTest.init(
       toSeq(1 .. 101).mapIt(fakeWakuMessage(@[byte(it)], ts = int64(it)))
     )
@@ -1126,11 +1129,17 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 20]
 
+    response = await t.client.getStoreMessagesV3(pageSize = "0")
+    check:
+      response.status == 200
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 20]
+
     response = await t.client.getStoreMessagesV3(pageSize = "-1")
     check:
       response.status == 400
       response.data.statusDesc.contains("page size parsing error")
 
+    # The largest page size the protocol carries is accepted and capped.
     response = await t.client.getStoreMessagesV3(pageSize = "18446744073709551615")
     check:
       response.status == 200
@@ -1139,6 +1148,7 @@ procSuite "Waku Rest API - Store v3":
     response = await t.client.getStoreMessagesV3(pageSize = "18446744073709551616")
     check:
       response.status == 400
+      response.data.statusDesc.contains("page size parsing error")
 
   asyncTest "startTime and endTime of zero or less are rejected with 400":
     let t =
@@ -1150,11 +1160,14 @@ procSuite "Waku Rest API - Store v3":
     for time in ["0", "-1"]:
       let startResponse = await t.client.getStoreMessagesV3(startTime = time)
       let endResponse = await t.client.getStoreMessagesV3(endTime = time)
+      let bothResponse =
+        await t.client.getStoreMessagesV3(startTime = time, endTime = time)
       check:
         startResponse.status == 400
         startResponse.data.statusDesc.contains("time parsing error")
         endResponse.status == 400
         endResponse.data.statusDesc.contains("time parsing error")
+        bothResponse.status == 400
 
     # The end time is exclusive, so only the message before ts 1 matches.
     let response = await t.client.getStoreMessagesV3(endTime = "1")
@@ -1162,7 +1175,19 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 1]
 
-  asyncTest "an unparseable ascending returns the tail page, as ascending=false does":
+    # A start time of 0 no longer lifts the 24h limit on the range.
+    let rangeEnd = $(MaxQueryTimeRange + 2)
+    let overRangeResponse =
+      await t.client.getStoreMessagesV3(startTime = "1", endTime = rangeEnd)
+    let zeroStartResponse =
+      await t.client.getStoreMessagesV3(startTime = "0", endTime = rangeEnd)
+    check:
+      overRangeResponse.status == 400
+      overRangeResponse.data.statusDesc == "time range exceeds 24h"
+      zeroStartResponse.status == 400
+      zeroStartResponse.data.statusDesc.contains("time parsing error")
+
+  asyncTest "an unparseable ascending, or True, TRUE, 1 or yes, returns the tail page, as ascending=false does":
     let t = await RestStoreTest.init(
       @[
         fakeWakuMessage(@[byte 1], ts = 1),
@@ -1185,6 +1210,19 @@ procSuite "Waku Rest API - Store v3":
           t.hashes[3].toRestStringWakuMessageHash(),
           t.hashes[4].toRestStringWakuMessageHash(),
         ]
+
+    # TODO: logos-delivery#4167
+    # Other ways of writing true are read as false too.
+    for ascending in ["True", "TRUE", "1", "yes"]:
+      let trueSpellingResponse =
+        await t.client.getStoreMessagesV3(ascending = ascending, pageSize = "2")
+      check:
+        trueSpellingResponse.status == 200
+        trueSpellingResponse.data.messages.mapIt(it.messageHash) ==
+          @[
+            t.hashes[3].toRestStringWakuMessageHash(),
+            t.hashes[4].toRestStringWakuMessageHash(),
+          ]
 
   asyncTest "an undeclared paginationCursor parameter is ignored":
     let t = await RestStoreTest.init()
@@ -1275,6 +1313,119 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 504
       response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
+      response.data.messages.len == 0
+
+  asyncTest "a store peer whose port is closed is answered 200 with statusCode 504":
+    # TODO: logos-delivery#4168
+    let node = testWakuNode()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installStoreApiHandlers(restServer.router, node)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    node.mountStoreClient()
+
+    let peerSwitch = newStandardSwitch(Opt.some(generateEcdsaKey()))
+    await peerSwitch.start()
+    let closedPeer = peerSwitch.peerInfo.toRemotePeerInfo()
+    await peerSwitch.stop()
+    node.peerManager.addServicePeer(closedPeer, WakuStoreCodec)
+
+    let client =
+      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
+
+    let response =
+      await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 504
+      response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
+      response.data.messages.len == 0
+
+  asyncTest "a store peer that accepts the connection and never answers is answered 500 on timeout":
+    # TODO: logos-delivery#4168
+    let node = testWakuNode()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installStoreApiHandlers(restServer.router, node)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    node.mountStoreClient()
+
+    let accepted = newAsyncEvent()
+    var held: seq[StreamTransport]
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held.add(client)
+      accepted.fire()
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    defer:
+      for client in held:
+        await client.closeWait()
+      listener.stop()
+      await listener.closeWait()
+
+    node.peerManager.addServicePeer(
+      RemotePeerInfo.init(
+        PeerId.init(generateSecp256k1Key()).tryGet(),
+        @[
+          MultiAddress
+            .init("/ip4/127.0.0.1/tcp/" & $listener.localAddress().port)
+            .tryGet()
+        ],
+      ),
+      WakuStoreCodec,
+    )
+
+    let client =
+      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
+
+    let response =
+      await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
+    check:
+      accepted.isSet()
+      response.status == 500
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc == "No history response received (timeout)"
+
+  asyncTest "a store node named by its own address in peerAddr is answered 200 with statusCode 504":
+    # TODO: logos-delivery#4168
+    let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
+    defer:
+      await t.shutdown()
+    t.node.mountStoreClient()
+
+    let ownPeerInfo = t.node.peerInfo.toRemotePeerInfo()
+    let ownAddr = $ownPeerInfo.addrs[0] & "/p2p/" & $ownPeerInfo.peerId
+    let absentCursor = computeMessageHash(
+        DefaultPubsubTopic, fakeWakuMessage(@[byte 42], ts = 42)
+      )
+      .toRestStringWakuMessageHash()
+
+    let response = await t.client.getStoreMessagesV3(
+      peerAddr = encodeUrl(ownAddr), cursor = absentCursor
+    )
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 504
+      response.data.statusDesc == "PEER_DIAL_FAILURE: " & $ownPeerInfo.peerId
       response.data.messages.len == 0
 
   asyncTest "a query string over the request headers size limit is rejected with 431":

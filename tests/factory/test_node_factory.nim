@@ -26,6 +26,8 @@ import
     node/peer_manager,
     node/waku_metrics,
     waku_metadata,
+    waku_filter_v2,
+    common/rate_limit/setting,
   ],
   logos_delivery/waku/factory/[
     node_factory,
@@ -88,6 +90,144 @@ suite "Node Factory":
       filterLimit == Opt.some((volume: 100, period: 1.seconds))
       lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
       peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
+
+  asynctest "A command line lightpush rate limit drops filter to 30 per minute and peer exchange unlimited":
+    # TODO: logos-delivery#4436
+    # Given the configuration of a binary started with --rate-limit=lightpush:100/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["lightpush:100/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then filter falls back to 30 per minute and peer exchange runs unlimited
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 30, period: 1.minutes))
+      lightPushLimit == Opt.some((volume: 100, period: 1.seconds))
+      peerExchangeLimit == Opt.some(UnlimitedRateLimit)
+
+  asynctest "A command line rate limit without a protocol drops filter to 30 per minute":
+    # TODO: logos-delivery#4436
+    # Given the configuration of a binary started with --rate-limit=100/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["100/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then every protocol but filter takes the global limit
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 30, period: 1.minutes))
+      lightPushLimit == Opt.some((volume: 100, period: 1.seconds))
+      peerExchangeLimit == Opt.some((volume: 100, period: 1.seconds))
+
+  asynctest "A command line store rate limit drops filter to 30 per minute and lightpush and peer exchange unlimited":
+    # TODO: logos-delivery#4436
+    # Given the configuration of a binary started with --rate-limit=store:10/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.rateLimits = @["store:10/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then filter falls back to 30 per minute and lightpush and peer exchange run unlimited
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
+
+    check:
+      filterLimit == Opt.some((volume: 30, period: 1.minutes))
+      lightPushLimit == Opt.some(UnlimitedRateLimit)
+      peerExchangeLimit == Opt.some(UnlimitedRateLimit)
+
+  asynctest "The command line default rate limits let the filter service accept 31 subscribes in a row":
+    # TODO: logos-delivery#4436
+    # Given a node set up from the configuration of a binary started without --rate-limit
+    var cliConf = defaultKernelConf().get()
+    cliConf.tcpPort = Port(0)
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # And a filter client
+    let client = newTestWakuNode(generateSecp256k1Key(), clusterId = conf.clusterId)
+    client.mountMetadata(conf.clusterId, @[]).isOkOr:
+      raiseAssert error
+    await allFutures(node.start(), client.start())
+    defer:
+      await allFutures(node.stop(), client.stop())
+    await client.mountFilterClient()
+    let serverRemotePeerInfo = node.switch.peerInfo.toRemotePeerInfo()
+
+    # When the client sends 31 subscribes in a row
+    var subscribeResults: seq[FilterSubscribeResult]
+    for _ in 0 ..< 31:
+      subscribeResults.add(
+        await client.filterSubscribe(
+          Opt.some(DefaultPubsubTopic), DefaultContentTopic, serverRemotePeerInfo
+        )
+      )
+
+    # Then the filter service accepts all of them
+    check subscribeResults.allIt(it.isOk())
+
+  asynctest "A command line lightpush rate limit makes the filter service reject the 31st subscribe in a row":
+    # TODO: logos-delivery#4436
+    # Given a node set up from the configuration of a binary started with --rate-limit=lightpush:100/1s
+    var cliConf = defaultKernelConf().get()
+    cliConf.tcpPort = Port(0)
+    cliConf.rateLimits = @["lightpush:100/1s"]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # And a filter client
+    let client = newTestWakuNode(generateSecp256k1Key(), clusterId = conf.clusterId)
+    client.mountMetadata(conf.clusterId, @[]).isOkOr:
+      raiseAssert error
+    await allFutures(node.start(), client.start())
+    defer:
+      await allFutures(node.stop(), client.stop())
+    await client.mountFilterClient()
+    let serverRemotePeerInfo = node.switch.peerInfo.toRemotePeerInfo()
+
+    # When the client sends 31 subscribes in a row
+    var subscribeResults: seq[FilterSubscribeResult]
+    for _ in 0 ..< 31:
+      subscribeResults.add(
+        await client.filterSubscribe(
+          Opt.some(DefaultPubsubTopic), DefaultContentTopic, serverRemotePeerInfo
+        )
+      )
+
+    # Then the filter service accepts 30 and rejects the 31st
+    let lastResult = subscribeResults[30]
+    check:
+      subscribeResults[0 ..< 30].allIt(it.isOk())
+      lastResult.isErr() and
+        lastResult.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS
 
   asynctest "The storenode command line option fills the store service slot":
     # Given the configuration of a binary started with --storenode
