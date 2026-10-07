@@ -67,10 +67,14 @@ method upgrade*(
 ): Future[Muxer] {.async: (raises: [CancelledError, LPError], raw: true).} =
   self.quic.upgrade(conn, peerId)
 
+const DialCancelled = "dial cancelled: the switch is stopping"
+
 type DeliveryDialer* = ref object of Dialer
   ## Logos Delivery dial policy layer. Replaces the switch dialer, so connect
   ## and dial go through here. Dials quic addresses before tcp, and bounds the
   ## quic handshake so tcp is still tried when quic does not answer.
+  aborted: bool
+  abortEvent: AsyncEvent
 
 proc install*(
     T: typedesc[DeliveryDialer], switch: Switch, quicDialTimeout = QuicDialTimeout
@@ -81,10 +85,48 @@ proc install*(
     else:
       it
   )
-  switch.dialer = DeliveryDialer.new(
-    switch.peerInfo.peerId, switch.connManager, switch.peerStore, transports, switch.ms,
-    switch.nameResolver,
+  let dialer = DeliveryDialer(
+    DeliveryDialer.new(
+      switch.peerInfo.peerId, switch.connManager, switch.peerStore, transports,
+      switch.ms, switch.nameResolver,
+    )
   )
+  dialer.abortEvent = newAsyncEvent()
+  switch.dialer = dialer
+
+proc abortDials*(switch: Switch) =
+  ## Fails the dials in flight and the next ones. A protocol that stops with the
+  ## switch waits, under `noCancel`, for the dials it started, and a dial to a
+  ## peer that stalls outlasts the whole shutdown.
+  if switch.dialer of DeliveryDialer:
+    let dialer = DeliveryDialer(switch.dialer)
+    dialer.aborted = true
+    dialer.abortEvent.fire()
+
+proc resumeDials*(switch: Switch) =
+  if switch.dialer of DeliveryDialer:
+    let dialer = DeliveryDialer(switch.dialer)
+    dialer.aborted = false
+    dialer.abortEvent.clear()
+
+proc finishesBeforeAbort(
+    self: DeliveryDialer, dial: FutureBase
+): Future[bool] {.async: (raises: [CancelledError]).} =
+  ## False once `abortDials` ran first, including before the call: the event
+  ## then stays set, so the dial is cancelled at once and left to wind down on
+  ## its own.
+  let aborted = self.abortEvent.wait()
+  try:
+    discard await race(dial, aborted)
+  except CancelledError as e:
+    dial.cancelSoon()
+    aborted.cancelSoon()
+    raise e
+  aborted.cancelSoon()
+  if not dial.finished():
+    dial.cancelSoon()
+    return false
+  return true
 
 method connect*(
     self: DeliveryDialer,
@@ -94,9 +136,12 @@ method connect*(
     reuseConnection = true,
     dir = Direction.Out,
 ) {.async: (raises: [DialFailedError, CancelledError]).} =
-  await procCall Dialer(self).connect(
+  let dial = procCall Dialer(self).connect(
     peerId, sortQuicFirst(addrs), forceDial, reuseConnection, dir
   )
+  if not await self.finishesBeforeAbort(dial):
+    raise newException(DialFailedError, DialCancelled)
+  await dial
 
 method dial*(
     self: DeliveryDialer,
@@ -105,4 +150,7 @@ method dial*(
     protos: seq[string],
     forceDial = false,
 ): Future[Stream] {.async: (raises: [DialFailedError, CancelledError]).} =
-  await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
+  let dial = procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
+  if not await self.finishesBeforeAbort(dial):
+    raise newException(DialFailedError, DialCancelled)
+  return await dial

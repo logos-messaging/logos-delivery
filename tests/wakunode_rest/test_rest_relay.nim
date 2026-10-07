@@ -1511,11 +1511,6 @@ suite "Waku v2 Rest API - Relay":
       "{" & validFields & ", \"timestamp\": null}",
       "{" & validFields & ", \"timestamp\": 9223372036854775808}",
       $ %*{"payload": payload, "contentTopic": DefaultContentTopic, "version": 2.1},
-      $ %*{
-        "payload": payload,
-        "contentTopic": DefaultContentTopic,
-        "extraField": "extraValue",
-      },
     ]
 
     # Then each is rejected as an invalid content body
@@ -1573,6 +1568,53 @@ suite "Waku v2 Rest API - Relay":
       response.status == 400
       response.data ==
         "Invalid content body, could not decode: Unable to deserialize data: "
+
+  asyncTest "Post a message with unknown fields - POST /relay/v1/messages/{topic}":
+    # Given a node subscribed to the topic
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    require (await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])).status == 200
+
+    let
+      path = "/relay/v1/messages/" & encodeUrl(DefaultPubsubTopic)
+      jsonHeader: seq[HttpHeaderTuple] = @[("Content-Type", "application/json")]
+      payload = string(base64.encode("TEST-PAYLOAD"))
+
+    # When the body carries fields the node does not know
+    let bodies = [
+      $ %*{
+        "extraField": {"nested": [1, {"a": "b"}]},
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+      },
+      $ %*{
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+        "extraField": "extraValue",
+      },
+    ]
+
+    # Then the body still decodes into a message
+    for body in bodies:
+      let response =
+        await issueRequest(restServer.getAddress(path), MethodPost, jsonHeader, body)
+      check:
+        not response.data.startsWith("Invalid content body, could not decode: ")
+        response.status != 400
 
   asyncTest "Subscribe and unsubscribe with an empty list, a repeated topic, an invalid topic and a shard of another cluster - POST and DELETE /relay/v1/subscriptions":
     # Given

@@ -95,7 +95,11 @@ let
     else "so";
 
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
-  libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
+  # Runtime filtering is what lets the host's `logLevel` take effect.
+  libDefineArgs = [
+    "--define:discv5_protocol_id=d5waku"
+    "--define:chronicles_runtime_filtering=on"
+  ];
 
   # The .dll belongs in bin/: nixpkgs' win-dll-link hook only stages a PE's
   # dependency DLLs under $prefix/bin, so one in lib/ cannot load.

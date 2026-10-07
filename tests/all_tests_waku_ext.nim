@@ -10,6 +10,8 @@
 ## Split out of all_tests_waku because refc caps a binary at 3500 GC-traced
 ## globals (nimRegisterGlobalMarker), and the combined suite had reached it.
 
+import ./testlib/junit
+
 import ./test_waku
 
 # Waku node
@@ -43,11 +45,14 @@ import
 import
   ./test_message_cache,
   ./wakunode_rest/test_rest_admin,
+  ./wakunode_rest/test_rest_cors,
   ./wakunode_rest/test_rest_debug,
   ./wakunode_rest/test_rest_filter,
   ./wakunode_rest/test_rest_health,
   ./wakunode_rest/test_rest_lightpush,
   ./wakunode_rest/test_rest_relay,
+  ./wakunode_rest/test_rest_relay_serdes,
+  ./wakunode_rest/test_rest_serdes,
   ./wakunode_rest/test_rest_store
 
 import ./waku_rln_relay/test_all

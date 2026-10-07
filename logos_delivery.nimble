@@ -4,7 +4,7 @@ import os
 mode = ScriptMode.Verbose
 
 ### Package
-version = "0.39.0"
+version = "0.39.1"
 author = "Status Research & Development GmbH"
 description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
@@ -32,7 +32,7 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.4.0",
+  "libp2p == 2.4.1",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -89,8 +89,6 @@ requires "https://github.com/status-im/nim-leopard#2e8de41205ea44b6f33b5cad676ba
 # the newest one.
 requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
 
-requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
-
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
@@ -143,8 +141,13 @@ const cBindingsFlags =
   " -d:ffiSrcPath=../liblogosdelivery.nim "
 
 ## The Makefile does not export NIM_PARAMS, so its defines never reach here.
+##
+## `chronicles_runtime_filtering` makes the `logLevel` the host passes in the
+## create config take effect. Without it the library logs everything the
+## compile-time level (TRACE by default) allows, whatever the host asked for.
 const libFeatureFlags =
-  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support "
+  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support " &
+  " -d:chronicles_runtime_filtering=on "
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":

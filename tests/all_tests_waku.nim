@@ -4,6 +4,8 @@
 ## and the keystore. What the node builds on top of them is in
 ## all_tests_waku_ext: see the note there.
 
+import ./testlib/junit
+
 # Waku core test suite
 import ./waku_core/test_all, ./test_utils_compat
 

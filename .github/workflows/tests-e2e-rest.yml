@@ -149,9 +149,19 @@ jobs:
         working-directory: tests-e2e
         run: pytest tests/fleet -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit-fleet.xml
 
+      # Collected by ci.yml's test-report job.
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-rest
+          path: tests-e2e/log/junit.xml
+          retention-days: 1
+
+      # A run called from ci.yml is reported by its test-report job.
       - name: Report results in the job summary
         uses: dorny/test-reporter@v2
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         with:
           name: rest
           path: tests-e2e/log/junit*.xml

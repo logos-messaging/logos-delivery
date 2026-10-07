@@ -9,6 +9,22 @@ import
 #  private custom types for this test suite module
 suite "Waku v2 Rest API - Serdes":
   suite "decode":
+    test "decodeFromJsonString - unknown fields are ignored":
+      # Given
+      let jsonString = JsonString(
+        """{ "unknown":{"a":[1,{"b":2}]}, "listenAddresses":["123"], "other":"x" }"""
+      )
+
+      # When
+      let res = decodeFromJsonString(DebugWakuInfo, jsonString, requireAllFields = true)
+
+      # Then
+      require(res.isOk)
+      let value = res.get()
+      check:
+        value.listenAddresses == @["123"]
+        value.enrUri.isNone
+
     test "decodeFromJsonString - use the corresponding readValue template":
       # Given
       let jsonString = JsonString("""{ "listenAddresses":["123"] }""")
@@ -17,8 +33,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = decodeFromJsonString(DebugWakuInfo, jsonString, requireAllFields = true)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(DebugWakuInfo())
       check:
         value.listenAddresses == @["123"]
         value.enrUri.isNone
@@ -31,8 +47,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = decodeFromJsonBytes(DebugWakuInfo, jsonBytes, requireAllFields = true)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(DebugWakuInfo())
       check:
         value.listenAddresses == @["123"]
         value.enrUri.isNone
@@ -46,8 +62,8 @@ suite "Waku v2 Rest API - Serdes":
       let res = encodeIntoJsonString(data)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get("")
       check:
         value == """{"listenAddresses":["GO"]}"""
 
@@ -59,7 +75,7 @@ suite "Waku v2 Rest API - Serdes":
       let res = encodeIntoJsonBytes(data)
 
       # Then
-      require(res.isOk)
-      let value = res.get()
+      check res.isOk()
+      let value = res.get(newSeq[byte]())
       check:
         value == toBytes("""{"listenAddresses":["ABC"]}""")

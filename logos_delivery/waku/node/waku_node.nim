@@ -64,6 +64,7 @@ import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
+  ./delivery_dialer,
   ./enr_addresses,
   ./peer_manager,
   ./health_monitor/health_status,
@@ -839,6 +840,8 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
+  node.switch.resumeDials()
+
   ## The AddressManager drops its mappers on stop. Add ours before the services do.
   node.switch.addressManager.removeMapper(node.baseMapper)
   node.switch.addressManager.addMapper(node.baseMapper, AddrSource.Listen)
@@ -896,6 +899,10 @@ proc stop*(node: WakuNode) {.async.} =
   for discovery in node.discoveries:
     (await discovery.stopDiscovery()).isOkOr:
       error "failed to stop discovery backend", error = error
+
+  ## Protocols stop before the connections close, and one that waits for a dial
+  ## to a stalled peer would hold the whole switch stop.
+  node.switch.abortDials()
 
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()

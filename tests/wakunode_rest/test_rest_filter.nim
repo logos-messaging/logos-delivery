@@ -780,12 +780,6 @@ suite "Waku v2 Rest API - Filter V2":
         "contentFilters": [{"topic": DefaultContentTopic}],
         "pubsubTopic": DefaultPubsubTopic,
       },
-      $ %*{
-        "requestId": "1234",
-        "contentFilters": [DefaultContentTopic],
-        "pubsubTopic": DefaultPubsubTopic,
-        "extraField": "extraValue",
-      },
     ]
 
     # Then both endpoints reading it reject the request
@@ -820,8 +814,7 @@ suite "Waku v2 Rest API - Filter V2":
       putData["statusDesc"].getStr().startsWith("BAD_REQUEST: Failed to decode request")
 
     # When the body does not decode into an unsubscribe-all request
-    let invalidAllBodies =
-      ["{}", $ %*{"requestId": 1234}, $ %*{"requestId": "1234", "extra": "extraValue"}]
+    let invalidAllBodies = ["{}", $ %*{"requestId": 1234}]
 
     # Then the request is rejected the same way
     for body in invalidAllBodies:

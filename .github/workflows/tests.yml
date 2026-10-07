@@ -53,6 +53,15 @@ jobs:
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
 
+      # Collected by ci.yml's test-report job.
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ matrix.suite.name }}-${{ matrix.os }}
+          path: build/all_tests_*.xml
+          retention-days: 1
+
       - name: Save nimcache
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/cache/save@v3

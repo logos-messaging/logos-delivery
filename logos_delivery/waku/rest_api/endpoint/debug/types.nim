@@ -59,7 +59,7 @@ proc readValue*(
         )
       value.mixPubKey = Opt.some(reader.readValue(string))
     else:
-      unrecognizedFieldWarning(value)
+      skipUnrecognizedField(reader, value)
 
   if listenAddresses.isNone():
     reader.raiseUnexpectedValue("Field `listenAddresses` is missing")

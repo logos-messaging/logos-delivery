@@ -629,8 +629,8 @@
       }
     },
     "libp2p": {
-      "version": "2.4.0",
-      "vcsRevision": "b2c2473a0974506ddd2c50d20995fc4284f39900",
+      "version": "2.4.1",
+      "vcsRevision": "8768d4dadcd55de1c23a0056a9b3facdd55c9bbb",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
@@ -652,7 +652,7 @@
         "libplum"
       ],
       "checksums": {
-        "sha1": "de526019ee43f3ce6718de42f833f5ac4f88c796"
+        "sha1": "8f732364f2f94c472e3d2753d92ae1266bf14ea1"
       }
     },
     "sds": {
