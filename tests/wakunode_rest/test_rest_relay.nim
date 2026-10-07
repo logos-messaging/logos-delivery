@@ -427,7 +427,7 @@ suite "Waku v2 Rest API - Relay":
         "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
 
   asyncTest "A message posted twice is stored once, counted once as written and once as an insert failure - POST /relay/v1/messages/{topic}":
-    # TODO: archive-duplicate-metrics
+    # TODO: logos-delivery#4438
     # Given a relay node with a sqlite archive, subscribed to a pubsub topic
     let node = testWakuNode()
     let driver = newSqliteArchiveDriver()
@@ -1543,7 +1543,7 @@ suite "Waku v2 Rest API - Relay":
         response.data == "Incorrect base64 string"
 
   asyncTest "Post a message with an invalid body - POST /relay/v1/auto/messages":
-    # TODO: lightpush-decode-desc
+    # TODO: logos-delivery#4432
     # Given a node with relay mounted
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:

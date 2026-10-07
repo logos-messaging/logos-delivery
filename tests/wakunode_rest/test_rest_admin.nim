@@ -183,7 +183,7 @@ suite "Waku v2 Rest API - Admin":
       getRes.data[0].connected == CannotConnect
 
   asyncTest "Set peers with a body that does not decode":
-    # TODO: lightpush-decode-desc
+    # TODO: logos-delivery#4432
     let postRes = await issueRequest(
       restServer.getAddress("/admin/v1/peers"),
       MethodPost,

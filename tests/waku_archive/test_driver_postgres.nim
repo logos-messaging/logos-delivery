@@ -176,7 +176,7 @@ suite "Postgres driver":
       "wrong number of messages: " & $newNumMsgs
 
   asyncTest "A message handled twice by the archive is stored once and counted twice as written":
-    # TODO: archive-duplicate-metrics
+    # TODO: logos-delivery#4438
     let
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
@@ -194,7 +194,7 @@ suite "Postgres driver":
       errorCount(insertFailure) == failuresBefore
 
   asyncTest "A message handled by two archives sharing one database is stored once and counted twice as written":
-    # TODO: archive-duplicate-metrics
+    # TODO: logos-delivery#4438
     let otherDriver = (await newTestPostgresDriver()).expect("second driver")
     defer:
       (await otherDriver.close()).expect("close the second driver")

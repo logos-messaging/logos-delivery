@@ -621,7 +621,7 @@ suite "Waku Archive - insert metrics":
     check insertCount(syncIngress) == baseline + 1
 
   test "a message handled twice is stored once, counted once as written and once as an insert failure":
-    # TODO: archive-duplicate-metrics
+    # TODO: logos-delivery#4438
     let
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)

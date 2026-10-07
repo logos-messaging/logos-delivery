@@ -1005,7 +1005,7 @@ procSuite "Waku Rest API - Store v3":
     check:
       response.status == 400
 
-    # TODO: store-param-validation
+    # TODO: logos-delivery#4437
     response = await t.client.getStoreMessagesV3(hashes = hash, startTime = "0")
     check:
       response.status == 200
@@ -1131,7 +1131,7 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 20]
 
-    # TODO: store-param-validation
+    # TODO: logos-delivery#4437
     response = await t.client.getStoreMessagesV3(pageSize = "0")
     check:
       response.status == 200
@@ -1143,7 +1143,7 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 100]
 
-    # TODO: store-param-validation
+    # TODO: logos-delivery#4437
     # The largest page size the protocol carries is rejected.
     response = await t.client.getStoreMessagesV3(pageSize = "18446744073709551615")
     check:
@@ -1179,7 +1179,7 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 1]
 
-    # TODO: store-param-validation
+    # TODO: logos-delivery#4437
     # A start time of 0 also lifts the 24h limit on the range.
     let rangeEnd = $(MaxQueryTimeRange + 2)
     let overRangeResponse =
@@ -1216,7 +1216,7 @@ procSuite "Waku Rest API - Store v3":
           t.hashes[4].toRestStringWakuMessageHash(),
         ]
 
-    # TODO: store-param-validation
+    # TODO: logos-delivery#4167
     # Other ways of writing true are read as false too.
     for ascending in ["True", "TRUE", "1", "yes"]:
       let trueSpellingResponse =
@@ -1321,7 +1321,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.messages.len == 0
 
   asyncTest "a store peer whose port is closed is answered 200 with statusCode 504":
-    # TODO: store-cursor-error-asymmetry
+    # TODO: logos-delivery#4168
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1356,7 +1356,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.messages.len == 0
 
   asyncTest "a store peer that accepts the connection and never answers is answered 500 on timeout":
-    # TODO: store-cursor-error-asymmetry
+    # TODO: logos-delivery#4168
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1410,7 +1410,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.statusDesc == "No history response received (timeout)"
 
   asyncTest "a store node named by its own address in peerAddr is answered 200 with statusCode 504":
-    # TODO: store-cursor-error-asymmetry
+    # TODO: logos-delivery#4168
     let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
     defer:
       await t.shutdown()

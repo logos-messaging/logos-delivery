@@ -257,7 +257,7 @@ suite "Waku API - Send":
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "A send retried while the node has no relay peer is stored once, counted once as written and again as insert failures":
-    # TODO: archive-duplicate-metrics
+    # TODO: logos-delivery#4438
     let root = createTempDir("send-api-archive-", "")
     defer:
       removeDir(root)
@@ -621,7 +621,7 @@ suite "Waku API - Send":
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "Edge send whose meta exceeds the limit is retried until the delivery window ends":
-    # TODO: lightpush-decode-requestid
+    # TODO: logos-delivery#4433
     ## The lightpush service rejects every attempt, and the send fails only when
     ## its delivery window ends.
     var node: LogosDelivery

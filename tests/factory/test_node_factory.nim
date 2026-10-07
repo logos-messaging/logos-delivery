@@ -92,7 +92,7 @@ suite "Node Factory":
       peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
 
   asynctest "A command line lightpush rate limit drops filter to 30 per minute and peer exchange unlimited":
-    # TODO: filter-rate-limit-defaults
+    # TODO: logos-delivery#4436
     # Given the configuration of a binary started with --rate-limit=lightpush:100/1s
     var cliConf = defaultKernelConf().get()
     cliConf.rateLimits = @["lightpush:100/1s"]
@@ -115,7 +115,7 @@ suite "Node Factory":
       peerExchangeLimit == Opt.some(UnlimitedRateLimit)
 
   asynctest "A command line rate limit without a protocol drops filter to 30 per minute":
-    # TODO: filter-rate-limit-defaults
+    # TODO: logos-delivery#4436
     # Given the configuration of a binary started with --rate-limit=100/1s
     var cliConf = defaultKernelConf().get()
     cliConf.rateLimits = @["100/1s"]
@@ -138,7 +138,7 @@ suite "Node Factory":
       peerExchangeLimit == Opt.some((volume: 100, period: 1.seconds))
 
   asynctest "A command line store rate limit drops filter to 30 per minute and lightpush and peer exchange unlimited":
-    # TODO: filter-rate-limit-defaults
+    # TODO: logos-delivery#4436
     # Given the configuration of a binary started with --rate-limit=store:10/1s
     var cliConf = defaultKernelConf().get()
     cliConf.rateLimits = @["store:10/1s"]
@@ -161,7 +161,7 @@ suite "Node Factory":
       peerExchangeLimit == Opt.some(UnlimitedRateLimit)
 
   asynctest "The command line default rate limits let the filter service accept 31 subscribes in a row":
-    # TODO: filter-rate-limit-defaults
+    # TODO: logos-delivery#4436
     # Given a node set up from the configuration of a binary started without --rate-limit
     var cliConf = defaultKernelConf().get()
     cliConf.tcpPort = Port(0)
@@ -193,7 +193,7 @@ suite "Node Factory":
     check subscribeResults.allIt(it.isOk())
 
   asynctest "A command line lightpush rate limit makes the filter service reject the 31st subscribe in a row":
-    # TODO: filter-rate-limit-defaults
+    # TODO: logos-delivery#4436
     # Given a node set up from the configuration of a binary started with --rate-limit=lightpush:100/1s
     var cliConf = defaultKernelConf().get()
     cliConf.tcpPort = Port(0)

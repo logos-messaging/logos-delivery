@@ -305,7 +305,7 @@ suite "Waku Lightpush Client":
         scanf(publishResponse.statusDesc.get(), decodeRpcFailure)
 
     asyncTest "A message whose meta exceeds the limit is reported as a requestId mismatch":
-      # TODO: lightpush-decode-requestid
+      # TODO: logos-delivery#4433
       # Given a message whose meta is one byte over the limit
       let message = fakeWakuMessage(meta = newSeq[byte](MaxMetaAttrLength + 1))
 

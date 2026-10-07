@@ -625,7 +625,7 @@ suite "Waku v2 Rest API - Filter V2":
     defer:
       await restFilterTest.shutdown()
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     let
       subscribeFailuresBefore = nodeErrorCount("subscribe_filter_failure")
       unsubscribeFailuresBefore = nodeErrorCount("unsubscribe_filter_failure")
@@ -654,7 +654,7 @@ suite "Waku v2 Rest API - Filter V2":
       messages.status == 200
       messages.data.len() == 0
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # When it updates without a pubsubTopic, and subscribes and updates with an empty one
     let putResponse = await restFilterTest.client.filterPutSubscriptions(
       FilterSubscribeRequest(
@@ -701,7 +701,7 @@ suite "Waku v2 Rest API - Filter V2":
       unsubscribeResponse.status == 200
       unsubscribeResponse.data.statusDesc == "UNKNOWN"
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # When it unsubscribes with an empty pubsubTopic
     let emptyTopicDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
@@ -718,7 +718,7 @@ suite "Waku v2 Rest API - Filter V2":
       nodeErrorCount("subscribe_filter_failure") == subscribeFailuresBefore + 4
       nodeErrorCount("unsubscribe_filter_failure") == unsubscribeFailuresBefore + 2
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # When it subscribes with a pubsubTopic and unsubscribes without one
     let subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
 
@@ -837,7 +837,7 @@ suite "Waku v2 Rest API - Filter V2":
         data["requestId"].getStr() == "unknown"
         data["statusDesc"].getStr().startsWith("BAD_REQUEST: Failed to decode request")
 
-    # TODO: lightpush-decode-desc
+    # TODO: logos-delivery#4432
     # When the subscribe body carries only a requestId
     let requestIdOnlyResponse = await issueRequest(
       restFilterTest.restServer.getAddress(ROUTE_FILTER_SUBSCRIPTIONS),
@@ -971,7 +971,7 @@ suite "Waku v2 Rest API - Filter V2":
       messagesAfterDeleteAll.status == 400
       messagesAfterDeleteAll.data == "Not subscribed to topic: 2"
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # Given a subscription to one content topic again
     let resubscribeResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
@@ -993,7 +993,7 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # Then a read of a content topic the rejected subscribe named answers with an empty list
     let messagesAfterTooManyPost = await restFilterTest.client.filterGetMessagesV1("0")
 
@@ -1019,7 +1019,7 @@ suite "Waku v2 Rest API - Filter V2":
       tooManyDeleteResponse.data.statusDesc ==
         "BAD_REQUEST: exceeds maximum content topics: 100"
 
-    # TODO: filter-no-pubsub-topic
+    # TODO: logos-delivery#4434
     # And a read of a content topic the service still holds after the rejected unsubscribe is refused
     let messagesAfterTooManyDelete =
       await issueRequest(restFilterTest.restServer.getAddress("/filter/v2/messages/1"))
@@ -1030,7 +1030,7 @@ suite "Waku v2 Rest API - Filter V2":
       messagesAfterTooManyDelete.data == "Not subscribed to topic: 1"
 
   asyncTest "Remove subscription criteria together with one no peer holds - DELETE /filter/v2/subscriptions":
-    # TODO: filter-unsubscribe-other-peer
+    # TODO: logos-delivery#4435
     let restFilterTest = await RestFilterTest.init()
     defer:
       await restFilterTest.shutdown()

@@ -854,7 +854,7 @@ suite "Messaging API, SubscriptionManager":
     await publisher.stop()
 
   asyncTest "Subscription API, edge node drops its service peer when an unsubscribe is answered not found":
-    # TODO: filter-unsubscribe-other-peer
+    # TODO: logos-delivery#4435
     let net = await setupNetwork(1, messaging_conf.LogosDeliveryMode.Edge)
     defer:
       await net.teardown()
