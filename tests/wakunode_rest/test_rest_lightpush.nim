@@ -113,66 +113,6 @@ proc shutdown(self: RestLightPushTest) {.async.} =
 const maxRpcSize =
   DefaultMaxWakuMessageSize + uint64(DefaultSafetyBufferProtocolOverhead)
 
-proc checkOverSizeLimit(selfHostedLightPush: bool) {.async.} =
-  let restLightPushTest =
-    await RestLightPushTest.init(selfHostedLightPush = selfHostedLightPush)
-  defer:
-    await restLightPushTest.shutdown()
-
-  # Over the relay limit but within the lightpush read cap
-  let message: RelayWakuMessage = fakeWakuMessage(
-      contentTopic = DefaultContentTopic,
-      payload = getByteSequence(DefaultMaxWakuMessageSize + 1),
-    )
-    .toRelayWakuMessage()
-
-  let response = await restLightPushTest.restClient.sendPushRequest(
-    PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
-  )
-
-  check:
-    response.status == 413
-    response.data.statusDesc ==
-      Opt.some(fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes")
-
-proc checkOverReadCap(selfHostedLightPush: bool) {.async.} =
-  let restLightPushTest =
-    await RestLightPushTest.init(selfHostedLightPush = selfHostedLightPush)
-  defer:
-    await restLightPushTest.shutdown()
-
-  let message: RelayWakuMessage = fakeWakuMessage(
-      contentTopic = DefaultContentTopic, payload = getByteSequence(maxRpcSize + 1024)
-    )
-    .toRelayWakuMessage()
-
-  let response = await restLightPushTest.restClient.sendPushRequest(
-    PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
-  )
-
-  check:
-    response.status == 413
-
-proc checkNoPubsubTopic(selfHostedLightPush: bool) {.async.} =
-  let restLightPushTest =
-    await RestLightPushTest.init(selfHostedLightPush = selfHostedLightPush)
-  defer:
-    await restLightPushTest.shutdown()
-
-  let message: RelayWakuMessage = fakeWakuMessage(
-      contentTopic = DefaultContentTopic, payload = toBytes("TEST-1")
-    )
-    .toRelayWakuMessage()
-
-  let response = await restLightPushTest.restClient.sendPushRequest(
-    PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: message)
-  )
-
-  check:
-    response.status == 400
-    response.data.statusDesc ==
-      Opt.some("Pubsub topic must be specified when static sharding is enabled")
-
 suite "Waku v2 Rest API - lightpush":
   asyncTest "Push message with proof":
     let restLightPushTest = await RestLightPushTest.init()
@@ -245,9 +185,8 @@ suite "Waku v2 Rest API - lightpush":
   asyncTest "A node running the lightpush service pushes through itself":
     # Given a service node set up as the node factory does: lightpush service
     # and client both mounted, and no remote lightpush peer known
-    let restLightPushTest = await RestLightPushTest.init()
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
     let serviceNode = restLightPushTest.serviceNode
-    serviceNode.mountLightPushClient()
 
     let simpleHandler = proc(
         topic: PubsubTopic, msg: WakuMessage
@@ -261,13 +200,6 @@ suite "Waku v2 Rest API - lightpush":
     serviceNode.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
 
-    let restAddress = parseIpAddress("127.0.0.1")
-    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
-    installLightPushRequestHandler(restServer.router, serviceNode)
-    restServer.start()
-    let restClient =
-      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
-
     # When pushing through the service node's own REST API
     let message: RelayWakuMessage = fakeWakuMessage(
         contentTopic = DefaultContentTopic, payload = toBytes("TEST-SELF")
@@ -275,15 +207,13 @@ suite "Waku v2 Rest API - lightpush":
       .toRelayWakuMessage()
     let requestBody =
       PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
-    let response = await restClient.sendPushRequest(requestBody)
+    let response = await restLightPushTest.restClient.sendPushRequest(requestBody)
 
     # Then it is relayed by the node itself, without dialling another peer
     check:
       response.status == 200
       response.data.relayPeerCount == Opt.some(1.uint32)
 
-    await restServer.stop()
-    await restServer.closeWait()
     await restLightPushTest.shutdown()
 
   asyncTest "Push message bad-request":
@@ -509,12 +439,12 @@ suite "Waku v2 Rest API - lightpush":
         restLightPushTest.restServer.getAddress(path), MethodPost, jsonHeader, body
       )
       let data = parseJson(response.data)
-      # The answer carries the printed response object that wraps the decode error.
+      # TODO: logos-delivery#4432
+      # The answer prints the response object that wraps an empty decode reason.
       check:
         response.status == 400
-        data["statusDesc"].getStr().startsWith(
-          "Invalid push request! (status: 400 Bad Request, "
-        )
+        data["statusDesc"].getStr() ==
+          "Invalid push request! (status: 400 Bad Request, headers: , kind: Error, errobj: (status: 400 Bad Request, message: \"Invalid content body, could not decode: Unable to deserialize data: \", contentType: \"text/plain\"))"
 
     # When a field that must be base64 is not
     let notBase64Bodies = [
@@ -542,20 +472,264 @@ suite "Waku v2 Rest API - lightpush":
         response.status == 400
         data["statusDesc"].getStr() == "Invalid message! Incorrect base64 string"
 
-  asyncTest "A push over the size limit is answered 413 - POST /lightpush/v3/message":
-    await checkOverSizeLimit(selfHostedLightPush = false)
+  asyncTest "A push whose meta is at the limit is relayed - POST /lightpush/v3/message":
+    # TODO: logos-delivery#4433
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    restLightPushTest.consumerNode.subscribe(
+      (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
+    ).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+    restLightPushTest.serviceNode.subscribe(
+      (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
+    ).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+    checkUntilTimeout:
+      restLightPushTest.serviceNode.hasGossipsubPeer(
+        DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
+      )
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = toBytes("TEST-1"),
+        meta = newSeq[byte](MaxMetaAttrLength),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 200
+      response.data.relayPeerCount == Opt.some(1.uint32)
+      response.data.statusDesc == Opt.none(string)
+
+  asyncTest "A push whose meta exceeds the limit is answered 500 with a requestId mismatch - POST /lightpush/v3/message":
+    # TODO: logos-delivery#4433
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = toBytes("TEST-1"),
+        meta = newSeq[byte](MaxMetaAttrLength + 1),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    # The client rejects the service's answer, whose requestId is N/A.
+    check:
+      response.status == 500
+      response.data.statusDesc == Opt.some("response failure, requestId mismatch")
+      response.data.relayPeerCount == Opt.none(uint32)
+
+  asyncTest "A push whose meta exceeds the limit is answered 400 by a node running the lightpush service - POST /lightpush/v3/message":
+    # TODO: logos-delivery#4433
+    # Given
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = toBytes("TEST-1"),
+        meta = newSeq[byte](MaxMetaAttrLength + 1),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 400
+      response.data.statusDesc ==
+        Opt.some("decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")")
+      response.data.relayPeerCount == Opt.none(uint32)
+
+  asyncTest "Push a message over the size limit - POST /lightpush/v3/message":
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    # Over the relay limit but within the lightpush read cap, so relay rejects it
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = getByteSequence(DefaultMaxWakuMessageSize + 1),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 413
+      response.data.statusDesc ==
+        Opt.some(
+          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+        )
 
   asyncTest "A push over the size limit is answered 413 by a node running the lightpush service - POST /lightpush/v3/message":
-    await checkOverSizeLimit(selfHostedLightPush = true)
+    # Given
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = getByteSequence(DefaultMaxWakuMessageSize + 1),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 413
+      response.data.statusDesc ==
+        Opt.some(
+          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+        )
 
   asyncTest "A push over the lightpush read cap is answered 413 - POST /lightpush/v3/message":
-    await checkOverReadCap(selfHostedLightPush = false)
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = getByteSequence(maxRpcSize + 1024)
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 413
+      response.data.statusDesc == Opt.some(fmt"request exceeds {maxRpcSize} bytes")
 
   asyncTest "A push over the lightpush read cap is answered 413 by a node running the lightpush service - POST /lightpush/v3/message":
-    await checkOverReadCap(selfHostedLightPush = true)
+    # Given
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = getByteSequence(maxRpcSize + 1024)
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    # A node pushing through itself has no read cap, so the relay size check answers.
+    check:
+      response.status == 413
+      response.data.statusDesc ==
+        Opt.some(
+          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+        )
 
   asyncTest "A push without pubsubTopic under static sharding is answered 400 - POST /lightpush/v3/message":
-    await checkNoPubsubTopic(selfHostedLightPush = false)
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = toBytes("TEST-1")
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 400
+      response.data.statusDesc ==
+        Opt.some("Pubsub topic must be specified when static sharding is enabled")
 
   asyncTest "A push without pubsubTopic under static sharding is answered 400 by a node running the lightpush service - POST /lightpush/v3/message":
-    await checkNoPubsubTopic(selfHostedLightPush = true)
+    # Given
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = toBytes("TEST-1")
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 400
+      response.data.statusDesc ==
+        Opt.some("Pubsub topic must be specified when static sharding is enabled")
+
+  asyncTest "A push without pubsubTopic and with an invalid content topic under autosharding is answered 400 by a node running the lightpush service - POST /lightpush/v3/message":
+    # Given
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+    let serviceNode = restLightPushTest.serviceNode
+    check serviceNode.mountAutoSharding(DefaultClusterId, 8).isOk()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = "foo", payload = toBytes("TEST-1")
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: message)
+    )
+
+    # Then
+    check:
+      response.status == 400
+      response.data.statusDesc ==
+        Opt.some(
+          "Invalid content-topic:invalid format: content-topic 'foo' must start with slash"
+        )
