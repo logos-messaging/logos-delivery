@@ -81,7 +81,7 @@ proc handleRequest*(
     let errorCode = LightPushErrorCode.BAD_REQUEST
     logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
     return LightPushResponse(
-      requestId: "N/A", # due to decode failure we don't know requestId
+      requestId: UnknownRequestId, # due to decode failure we don't know requestId
       statusCode: errorCode,
       statusDesc: Opt.some(desc),
     )
@@ -117,7 +117,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
           debug "Lightpush request too large",
             peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
           rpc = LightPushResponse(
-            requestId: "N/A",
+            requestId: UnknownRequestId,
             statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
             statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
           )
@@ -143,7 +143,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
           ## We will not copy and decode RPC buffer from stream only for requestId
           ## in reject case as it is comparably too expensive and opens possible
           ## attack surface
-          requestId: "N/A",
+          requestId: UnknownRequestId,
           statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
           statusDesc: Opt.some(TooManyRequestsMessage),
         )

@@ -30,6 +30,9 @@ type PushMessageHandler* = proc(
 
 const TooManyRequestsMessage* = "Request rejected due to too many requests"
 
+## requestId a service answers with when it rejects a request before reading it
+const UnknownRequestId* = "N/A"
+
 func isSuccess*(response: LightPushResponse): bool =
   return response.statusCode == LightPushSuccessCode.SUCCESS
 

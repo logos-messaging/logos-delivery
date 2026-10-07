@@ -63,10 +63,15 @@ proc sendPushRequest(
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
     return lightpushResultInternalError(decodeRpcFailure)
 
-  # Rate-limited and oversized requests are rejected before the requestId is read.
+  # Rate-limited, oversized and undecodable requests are rejected before the
+  # requestId is read, so the service answers with the placeholder id "N/A".
   if response.requestId != req.requestId and
       response.statusCode notin
-      [LightPushErrorCode.TOO_MANY_REQUESTS, LightPushErrorCode.PAYLOAD_TOO_LARGE]:
+      [LightPushErrorCode.TOO_MANY_REQUESTS, LightPushErrorCode.PAYLOAD_TOO_LARGE] and
+      not (
+        response.statusCode == LightPushErrorCode.BAD_REQUEST and
+        response.requestId == UnknownRequestId
+      ):
     debug "Response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
     return lightpushResultInternalError("response failure, requestId mismatch")

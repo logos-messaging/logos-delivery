@@ -1,7 +1,12 @@
 {.used.}
 
 import
-  results, std/strscans, testutils/unittests, chronos, chronicles, libp2p/crypto/crypto
+  results,
+  std/[strscans, strutils],
+  testutils/unittests,
+  chronos,
+  chronicles,
+  libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -304,7 +309,7 @@ suite "Waku Lightpush Client":
         publishResponse.statusDesc.isSome()
         scanf(publishResponse.statusDesc.get(), decodeRpcFailure)
 
-    asyncTest "A message whose meta exceeds the limit is reported as a requestId mismatch":
+    asyncTest "A message whose meta exceeds the limit is rejected with the service's BAD_REQUEST":
       # Given a message whose meta is one byte over the limit
       let message = fakeWakuMessage(meta = newSeq[byte](MaxMetaAttrLength + 1))
 
@@ -312,11 +317,11 @@ suite "Waku Lightpush Client":
       let publishResponse =
         await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo)
 
-      # Then the service cannot read the requestId of a request it cannot decode
+      # Then the service's decode error reaches the caller
       check:
         publishResponse.isErr()
-        publishResponse.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
-        publishResponse.error.desc == Opt.some("response failure, requestId mismatch")
+        publishResponse.error.code == LightPushErrorCode.BAD_REQUEST
+        publishResponse.error.desc.get("").startsWith(decodeRpcFailure)
 
     asyncTest "Handle Error":
       # Given a lightpush server that fails
