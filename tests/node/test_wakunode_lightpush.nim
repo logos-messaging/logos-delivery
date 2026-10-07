@@ -96,7 +96,7 @@ suite "Waku Lightpush - End To End":
 
       check:
         publishResponse.isErr()
-        publishResponse.error.code == LightPushErrorCode.INVALID_MESSAGE
+        publishResponse.error.code == LightPushErrorCode.PAYLOAD_TOO_LARGE
         publishResponse.error.desc ==
           Opt.some(
             fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"

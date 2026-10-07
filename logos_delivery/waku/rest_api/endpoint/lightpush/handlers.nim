@@ -37,7 +37,10 @@ proc useSelfHostedLightPush(node: WakuNode): bool =
   return not node.wakuLightPush.isNil()
 
 proc convertErrorKindToHttpStatus(statusCode: LightPushStatusCode): HttpCode =
-  ## Lightpush status codes are matching HTTP status codes by design
+  ## Lightpush status codes match HTTP status codes by design, except
+  ## INVALID_MESSAGE (420), which is a rejection of the client's request.
+  if statusCode.int == LightPushErrorCode.INVALID_MESSAGE.int:
+    return Http400
   return toHttpCode(statusCode.int).get(Http500)
 
 proc makeRestResponse(response: WakuLightPushResult): RestApiResponse =
