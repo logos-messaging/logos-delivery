@@ -175,24 +175,21 @@ proc removeSubscription*(
   s.peersSubscribed.withValue(peerId, peerData):
     peerData.lastSeen = Moment.now()
 
-    ## All-or-nothing: an error must not follow a partial removal
-    for filterCriterion in filterCriteria:
-      if peerId notin s.subscriptions.getOrDefault(filterCriterion):
-        return err("Peer was not subscribed to criterion")
-
+    ## Idempotent: criteria the peer does not hold are ignored, so the answer
+    ## depends only on the requester's own state
     for filterCriterion in filterCriteria:
       s.subscriptions.withValue(filterCriterion, peers):
-        peers[].excl(peerId)
-        peerData.criteriaCount -= 1
-        if peers[].len == 0:
-          s.subscriptions.del(filterCriterion)
+        if peers[].missingOrexcl(peerId) == false:
+          peerData.criteriaCount -= 1
+          if peers[].len == 0:
+            s.subscriptions.del(filterCriterion)
 
     if peerData.criteriaCount == 0:
       s.peersSubscribed.del(peerId)
 
     return ok()
   do:
-    return err("peer has no subscriptions")
+    return err("Peer has no subscriptions")
 
 proc setSubscriptionTimeout*(s: FilterSubscriptions, newTimeout: Duration) =
   s.subscriptionTimeout = newTimeout

@@ -2,13 +2,11 @@ name: ci / build-windows
 
 on:
   workflow_call:
-    inputs:
-      branch:
-        required: true
-        type: string
 
 env:
   NPROC: 4
+  # The script defaults to DEBUG. CI compiles every log statement.
+  LOG_LEVEL: TRACE
   CCACHE_VERSION: '4.14'
   CCACHE_SHA256: 2568347a697e103ca1b073981c704ad76fb2507d066c38dba038dd73399d968f
 
@@ -20,10 +18,8 @@ jobs:
       matrix:
         include:
           - target: logosdeliverynode
-            make: make logosdeliverynode POSTGRES=1 V=3 -j$NPROC
             output: build/logosdeliverynode.exe
           - target: liblogosdelivery
-            make: make liblogosdelivery STATIC=0 V=1 -j
             output: build/liblogosdelivery.dll
     name: build-${{ matrix.target }}
     runs-on: windows-latest
@@ -66,19 +62,13 @@ jobs:
           mingw-w64-x86_64-toolchain
           make
           cmake
-          upx
           unzip
           mingw-w64-x86_64-rust
           mingw-w64-x86_64-postgresql
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-gcc-libs
-          mingw-w64-x86_64-libwinpthread-git
           mingw-w64-x86_64-zlib
           mingw-w64-x86_64-openssl
           mingw-w64-x86_64-python
           mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-llvm
-          mingw-w64-x86_64-clang
           mingw-w64-x86_64-nasm
 
     - name: Configure Git in MSYS2 to keep LF line endings
@@ -94,24 +84,10 @@ jobs:
         bash scripts/install_nasm_in_windows.sh
         source $HOME/.bashrc
 
-    - name: Add UPX to PATH
-      run: |
-        echo "/usr/bin:$PATH" >> $GITHUB_PATH
-        echo "/mingw64/bin:$PATH" >> $GITHUB_PATH
-        echo "/usr/lib:$PATH" >> $GITHUB_PATH
-        echo "/mingw64/lib:$PATH" >> $GITHUB_PATH
-
-    - name: Verify dependencies
-      run: |
-        which upx gcc g++ make cmake cargo rustc python nasm
-
     - name: Install nimble deps
       uses: ./.github/actions/nimble-deps
       with:
         make-args: CC=gcc
-
-    - name: Creating tmp directory
-      run: mkdir -p tmp
 
     # Nim quotes the compiler command, so "ccache gcc" cannot stand in for gcc.
     # Copies of ccache named gcc.exe and g++.exe masquerade as the compilers
@@ -149,7 +125,7 @@ jobs:
         export HOME="$(cygpath -u "$USERPROFILE")"
         export PATH="$HOME/.nimble/bin:$PATH"
         "$CCACHE_BIN/ccache.exe" --zero-stats
-        ${{ matrix.make }} NIMFLAGS="--gcc.path:$CCACHE_BIN"
+        NIMFLAGS="--gcc.path:$CCACHE_BIN" bash scripts/build_windows.sh ${{ matrix.target }}
 
     - name: ccache stats
       run: |

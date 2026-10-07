@@ -258,7 +258,7 @@
       }
     },
     "snappy": {
-      "version": "0.1.0",
+      "version": "#a99d113197e81bf764a3b005b0ade3f9f3758069",
       "vcsRevision": "a99d113197e81bf764a3b005b0ade3f9f3758069",
       "url": "https://github.com/status-im/nim-snappy",
       "downloadMethod": "git",

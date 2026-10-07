@@ -64,6 +64,9 @@ requires "nim == 2.2.6",
   "minilru",
   "zlib",
   # Debug & Testing
+  # eth requires snappy by name; its HEAD needs testutils >= 0.8.5, which
+  # contradicts the testutils pin below. This is the locked revision.
+  "https://github.com/status-im/nim-snappy#a99d113197e81bf764a3b005b0ade3f9f3758069",
   "testutils == 0.8.1",
   "unittest2"
 

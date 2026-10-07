@@ -18,6 +18,9 @@
 # `ls -dt` (sort by modification time, newest first) is used to pick the
 # latest installed version and is portable across Linux, macOS, and
 # Windows (MSYS/MinGW).
+#
+# detected_OS comes from the including Makefile, which sets it before this
+# file is included.
 
 NAT_TRAVERSAL_NIMBLEDEPS_DIR := $(shell ls -dt $(CURDIR)/nimbledeps/pkgs2/nat_traversal-* 2>/dev/null | head -1)
 
@@ -39,7 +42,7 @@ ifeq ($(NAT_TRAVERSAL_NIMBLEDEPS_DIR),)
 	$(error No nat_traversal package found under nimbledeps/pkgs2/ — run 'make build-deps' first)
 endif
 	@echo "Rebuilding nat-libs from $(NAT_TRAVERSAL_NIMBLEDEPS_DIR)"
-ifeq ($(OS), Windows_NT)
+ifeq ($(detected_OS),Windows)
 	+ [ -e "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/miniupnp/miniupnpc/libminiupnpc.a" ] || \
 		PATH=".;$${PATH}" "$(MAKE)" -C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/miniupnp/miniupnpc" \
 		-f Makefile.mingw CC=$(CC) CFLAGS="-Os -fPIC" libminiupnpc.a $(HANDLE_OUTPUT)

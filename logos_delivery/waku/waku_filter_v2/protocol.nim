@@ -108,7 +108,7 @@ proc unsubscribe(
 
   wf.subscriptions.removeSubscription(peerId, filterCriteria).isOkOr:
     debug "Failed to remove subscription", error = $error
-    return err(FilterSubscribeError.notFound(error))
+    return err(FilterSubscribeError.notFound())
 
   ## Note: do not remove from peerRequestRateLimiter to prevent trick with subscribe/unsubscribe loop
   ## We remove only if peerManager removes the peer
