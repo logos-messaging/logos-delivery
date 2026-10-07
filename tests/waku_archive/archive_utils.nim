@@ -36,6 +36,22 @@ proc insertCount*(source: string): float64 =
   except ValueError:
     return 0.0
 
+proc errorCount*(errorType: string): float64 =
+  try:
+    return logos_delivery_archive_errors.valueByName(
+      "logos_delivery_archive_errors_total", [errorType]
+    )
+  except ValueError:
+    return 0.0
+
+proc messagesPerShard*(shard: string): float64 =
+  try:
+    return logos_delivery_archive_messages_per_shard.valueByName(
+      "logos_delivery_archive_messages_per_shard", [shard]
+    )
+  except ValueError:
+    return 0.0
+
 type FailingArchiveDriver* = ref object of ArchiveDriver
   ## Refuses every write, which is what a node with a broken database does.
 

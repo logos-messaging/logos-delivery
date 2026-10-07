@@ -765,10 +765,12 @@ hence would have reachability issues.""",
   .}: Opt[Port]
 
   ## Entries are merged over the default service limits (filter 100/1s, lightpush 5/1s, px 5/1s)
+  ## unless a global entry is given, which replaces the defaults of the protocols not named
   rateLimits* {.
     desc:
       "Rate limit settings for different protocols, merged over the defaults filter:100/1s, lightpush:5/1s and px:5/1s." &
-      " A protocol you do not set keeps its default; a global setting (no protocol) only applies to protocols without a default, e.g. store." &
+      " A protocol you do not set keeps its default, unless you give a global setting (no protocol), which then applies to every protocol you do not name." &
+      " A volume of 0 disables the limit, e.g. lightpush:0/1s." &
       " Format: protocol:volume/period<unit>." &
       " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter>; if not defined it means a global setting." &
       " 'volume' and 'period' must be integer values." &
@@ -1424,10 +1426,23 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.quicConf.withQuicPort(n.quicPort.get())
 
   # The default protocol posture serves filter/lightpush, so default service
-  # rate limits must apply; operator entries come last so they win per protocol.
+  # rate limits must apply. A global operator entry replaces the defaults of the
+  # protocols it does not name; otherwise unnamed protocols keep their default.
   const DefaultRateLimits = @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
   if n.rateLimits.len > 0:
-    b.rateLimitConf.withRateLimits(DefaultRateLimits & n.rateLimits)
+    let globals = n.rateLimits.filterIt(not it.contains(':'))
+    let named = n.rateLimits.mapIt(it.split(':')[0].strip().toLowerAscii())
+    # parse() gives filter its own default when unnamed, so a global entry
+    # has to be spelled out for it.
+    let defaults =
+      if globals.len > 0:
+        if "filter" in named:
+          newSeq[string]()
+        else:
+          @["filter:" & globals[^1].strip()]
+      else:
+        DefaultRateLimits.filterIt(it.split(':')[0] notin named)
+    b.rateLimitConf.withRateLimits(defaults & n.rateLimits)
   else:
     b.rateLimitConf.withRateLimitsIfNotAssigned(DefaultRateLimits)
 
