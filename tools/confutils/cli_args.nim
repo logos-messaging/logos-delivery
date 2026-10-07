@@ -1425,26 +1425,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.quicPort.isSome():
     b.quicConf.withQuicPort(n.quicPort.get())
 
-  # The default protocol posture serves filter/lightpush, so default service
-  # rate limits must apply. A global operator entry replaces the defaults of the
-  # protocols it does not name; otherwise unnamed protocols keep their default.
-  const DefaultRateLimits = @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
   if n.rateLimits.len > 0:
-    let globals = n.rateLimits.filterIt(not it.contains(':'))
-    let named = n.rateLimits.mapIt(it.split(':')[0].strip().toLowerAscii())
-    # parse() gives filter its own default when unnamed, so a global entry
-    # has to be spelled out for it.
-    let defaults =
-      if globals.len > 0:
-        if "filter" in named:
-          newSeq[string]()
-        else:
-          @["filter:" & globals[^1].strip()]
-      else:
-        DefaultRateLimits.filterIt(it.split(':')[0] notin named)
-    b.rateLimitConf.withRateLimits(defaults & n.rateLimits)
-  else:
-    b.rateLimitConf.withRateLimitsIfNotAssigned(DefaultRateLimits)
+    b.rateLimitConf.withRateLimits(n.rateLimits)
 
   b.withLocalStoragePath(n.localStoragePath)
 

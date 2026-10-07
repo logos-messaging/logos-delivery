@@ -13,12 +13,6 @@ proc init*(T: type RateLimitConfBuilder): RateLimitConfBuilder =
 proc withRateLimits*(b: var RateLimitConfBuilder, rateLimits: seq[string]) =
   b.strValue = Opt.some(rateLimits)
 
-proc withRateLimitsIfNotAssigned*(
-    b: var RateLimitConfBuilder, rateLimits: seq[string]
-) =
-  if b.strValue.isNone() or b.strValue.get().len == 0:
-    b.strValue = Opt.some(rateLimits)
-
 proc build*(b: RateLimitConfBuilder): Result[ProtocolRateLimitSettings, string] =
   if b.strValue.isSome() and b.objValue.isSome():
     return err("Rate limits conf must only be set once on the builder")
@@ -26,9 +20,7 @@ proc build*(b: RateLimitConfBuilder): Result[ProtocolRateLimitSettings, string] 
   if b.objValue.isSome():
     return ok(b.objValue.get())
 
-  if b.strValue.isSome():
-    let rateLimits = ProtocolRateLimitSettings.parse(b.strValue.get()).valueOr:
-      return err("Invalid rate limits settings:" & $error)
-    return ok(rateLimits)
-
-  return ok(DefaultProtocolRateLimit)
+  let entries = withDefaultRateLimits(b.strValue.get(@[]))
+  let rateLimits = ProtocolRateLimitSettings.parse(entries).valueOr:
+    return err("Invalid rate limits settings:" & $error)
+  return ok(rateLimits)

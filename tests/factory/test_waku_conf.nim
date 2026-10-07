@@ -5,6 +5,7 @@ import
   libp2p/crypto/curve25519,
   libp2p/multiaddress,
   nimcrypto/utils,
+  chronos/timer,
   std/[net, random, sequtils, strutils],
   results,
   stew/byteutils,
@@ -15,6 +16,7 @@ import
   logos_delivery/waku/factory/networks_config,
   logos_delivery/waku/waku_mix,
   logos_delivery/waku/waku_enr/capabilities,
+  logos_delivery/waku/common/rate_limit/setting,
   logos_delivery/waku/common/utils/parse_size_units
 
 suite "Waku Conf - build with cluster conf":
@@ -467,6 +469,53 @@ suite "Waku Conf Builder - rate limits":
 
     ## Then
     assert res.isOk(), $res.error
+
+  test "Unset rate limits fall back to the default service limits":
+    ## Given a builder nobody configured
+    var builder = RateLimitConfBuilder.init()
+
+    ## When
+    let limits = builder.build().expect("build should succeed")
+
+    ## Then
+    check:
+      limits.getSetting(FILTER) == (100, 1.seconds)
+      limits.getSetting(LIGHTPUSH) == (5, 1.seconds)
+      limits.getSetting(PEEREXCHG) == (5, 1.seconds)
+      limits.getSetting(STOREV3) == UnlimitedRateLimit
+
+  test "A protocol entry keeps the defaults of the other protocols":
+    var builder = RateLimitConfBuilder.init()
+    builder.withRateLimits(@["lightpush:100/1s"])
+
+    let limits = builder.build().expect("build should succeed")
+
+    check:
+      limits.getSetting(LIGHTPUSH) == (100, 1.seconds)
+      limits.getSetting(FILTER) == (100, 1.seconds)
+      limits.getSetting(PEEREXCHG) == (5, 1.seconds)
+
+  test "A global entry replaces the defaults of the protocols it does not name":
+    var builder = RateLimitConfBuilder.init()
+    builder.withRateLimits(@["200/1s", "px:7/1s"])
+
+    let limits = builder.build().expect("build should succeed")
+
+    check:
+      limits.getSetting(FILTER) == (200, 1.seconds)
+      limits.getSetting(LIGHTPUSH) == (200, 1.seconds)
+      limits.getSetting(STOREV3) == (200, 1.seconds)
+      limits.getSetting(PEEREXCHG) == (7, 1.seconds)
+
+  test "A zero volume switches a default limit off":
+    var builder = RateLimitConfBuilder.init()
+    builder.withRateLimits(@["lightpush:0/1s"])
+
+    let limits = builder.build().expect("build should succeed")
+
+    check:
+      limits.getSetting(LIGHTPUSH).isUnlimited()
+      limits.getSetting(FILTER) == (100, 1.seconds)
 
 suite "Waku Conf - pure-libp2p peers budget":
   test "off by default":

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronos/timer, std/[tables, strutils], regex, results
+import chronos/timer, std/[tables, strutils, sequtils], regex, results
 
 # Setting for TokenBucket defined as volume over period of time
 type RateLimitSetting* = tuple[volume: int, period: Duration]
@@ -28,6 +28,10 @@ let FilterDefaultPerPeerRateLimit*: RateLimitSetting = (30, 1.minutes)
 var DefaultProtocolRateLimit* {.threadvar.}: ProtocolRateLimitSettings
 DefaultProtocolRateLimit =
   {GLOBAL: UnlimitedRateLimit, FILTER: FilterDefaultPerPeerRateLimit}.toTable()
+
+## Limits every node applies unless the operator sets its own. The default
+## protocol posture serves filter, lightpush and peer exchange to light clients.
+const DefaultServiceRateLimits* = ["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
 
 proc isUnlimited*(t: RateLimitSetting): bool {.inline.} =
   return t.volume <= 0 or t.period <= 0.seconds
@@ -115,9 +119,34 @@ proc parse*(
   # If there were no global setting predefined, we set unlimited
   # due it is taken for protocols not defined in the list - thus those will not apply accidentally wrong settings.
   discard settingsTable.hasKeyOrPut(GLOBAL, UnlimitedRateLimit)
-  discard settingsTable.hasKeyOrPut(FILTER, FilterDefaultPerPeerRateLimit)
 
   return ok(settingsTable)
+
+func protocolOf(entry: string): string =
+  let lowered = entry.toLowerAscii()
+  let colon = lowered.find(':')
+  return if colon < 0: "" else: lowered[0 ..< colon].strip()
+
+func withDefaultRateLimits*(entries: openArray[string]): seq[string] =
+  ## Entries to hand to `parse`: the default service limits first and the given
+  ## entries after them, so an entry wins for the protocol it names. A global
+  ## entry (no protocol) applies to every protocol not named, so it replaces
+  ## the defaults of those protocols.
+  var named: seq[string]
+  var hasGlobal = false
+  for entry in entries:
+    let protocol = protocolOf(entry)
+    if protocol.len == 0:
+      hasGlobal = true
+    else:
+      named.add(protocol)
+
+  let defaults =
+    if hasGlobal:
+      newSeq[string]()
+    else:
+      @DefaultServiceRateLimits.filterIt(protocolOf(it) notin named)
+  return defaults & @entries
 
 proc getSetting*(
     t: ProtocolRateLimitSettings, protocol: RateLimitedProtocol
