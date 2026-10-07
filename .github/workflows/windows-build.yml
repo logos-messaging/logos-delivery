@@ -2,10 +2,6 @@ name: ci / build-windows
 
 on:
   workflow_call:
-    inputs:
-      branch:
-        required: true
-        type: string
 
 env:
   NPROC: 4
@@ -66,19 +62,13 @@ jobs:
           mingw-w64-x86_64-toolchain
           make
           cmake
-          upx
           unzip
           mingw-w64-x86_64-rust
           mingw-w64-x86_64-postgresql
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-gcc-libs
-          mingw-w64-x86_64-libwinpthread-git
           mingw-w64-x86_64-zlib
           mingw-w64-x86_64-openssl
           mingw-w64-x86_64-python
           mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-llvm
-          mingw-w64-x86_64-clang
           mingw-w64-x86_64-nasm
 
     - name: Configure Git in MSYS2 to keep LF line endings
@@ -93,13 +83,6 @@ jobs:
       run: |
         bash scripts/install_nasm_in_windows.sh
         source $HOME/.bashrc
-
-    - name: Add UPX to PATH
-      run: |
-        echo "/usr/bin:$PATH" >> $GITHUB_PATH
-        echo "/mingw64/bin:$PATH" >> $GITHUB_PATH
-        echo "/usr/lib:$PATH" >> $GITHUB_PATH
-        echo "/mingw64/lib:$PATH" >> $GITHUB_PATH
 
     - name: Install nimble deps
       uses: ./.github/actions/nimble-deps

@@ -182,8 +182,6 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' }}
     uses: ./.github/workflows/windows-build.yml
-    with:
-      branch: ${{ github.ref }}
 
   build-android:
     needs: changes

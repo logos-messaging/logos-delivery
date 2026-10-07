@@ -86,9 +86,6 @@ pacman -S --noconfirm --needed base-devel make cmake
 pacman -S --noconfirm --needed mingw-w64-x86_64-cmake  
 pacman -S --noconfirm --needed mingw-w64-x86_64-rust  
 pacman -S --noconfirm --needed mingw-w64-x86_64-postgresql  
-pacman -S --noconfirm --needed mingw-w64-x86_64-gcc  
-pacman -S --noconfirm --needed mingw-w64-x86_64-gcc-libs  
-pacman -S --noconfirm --needed mingw-w64-x86_64-libwinpthread-git  
 pacman -S --noconfirm --needed mingw-w64-x86_64-zlib  
 pacman -S --noconfirm --needed mingw-w64-x86_64-openssl  
 pacman -S --noconfirm --needed mingw-w64-x86_64-python
