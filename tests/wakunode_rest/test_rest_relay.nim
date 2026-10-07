@@ -1470,7 +1470,9 @@ suite "Waku v2 Rest API - Relay":
         await issueRequest(restServer.getAddress(path), MethodPost, jsonHeader, body)
       check:
         response.status == 400
-        response.data.startsWith("Invalid content body, could not decode: ")
+        response.data.startsWith(
+          "Invalid content body, could not decode: Unable to deserialize data: body("
+        )
 
     # When a field that must be base64 is not
     let notBase64Bodies = [

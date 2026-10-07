@@ -73,7 +73,7 @@ proc installLightPushRequestHandler*(
     debug "post received", ROUTE_LIGHTPUSH
     trace "content body", ROUTE_LIGHTPUSH, contentBody
 
-    let req: PushRequest = decodeRequestBody[PushRequest](contentBody).valueOr:
+    let req: PushRequest = decodeJsonBody[PushRequest](contentBody).valueOr:
       return
         makeRestResponse(lightpushResultBadRequest("Invalid push request! " & $error))
 

@@ -38,6 +38,15 @@ proc readValue*(
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   value = Base64String(reader.readValue(string))
 
+proc deserializeError(): string =
+  ## To be called from the except branch. formatMsg is a method, which the
+  ## compile-time VM cannot call.
+  when nimvm:
+    "Unable to deserialize data"
+  else:
+    let exc = (ref SerializationError)(getCurrentException())
+    "Unable to deserialize data: " & exc.formatMsg("body")
+
 proc decodeFromJsonString*[T](
     t: typedesc[T], data: JsonString, requireAllFields: bool = true
 ): SerdesResult[T] =
@@ -58,25 +67,30 @@ proc decodeFromJsonString*[T](
     # TODO: Do better error reporting here
     err("Unable to deserialize data")
 
+proc decodeJsonBytesWithReason*[T](
+    t: typedesc[T], data: openArray[byte], requireAllFields: bool = true
+): Result[T, string] =
+  ## Same as decodeFromJsonBytes, but the error carries the decoder's reason.
+  try:
+    return ok(
+      RestJson.decode(
+        string.fromBytes(data),
+        T,
+        requireAllFields = requireAllFields,
+        allowUnknownFields = true,
+      )
+    )
+  except SerializationError:
+    return err(deserializeError())
+
 # Internal static implementation
 proc decodeFromJsonBytes*[T](
     t: typedesc[T], data: openArray[byte], requireAllFields: bool = true
 ): SerdesResult[T] =
-  try:
-    if requireAllFields:
-      ok(
-        RestJson.decode(
-          string.fromBytes(data), T, requireAllFields = true, allowUnknownFields = true
-        )
-      )
-    else:
-      ok(
-        RestJson.decode(
-          string.fromBytes(data), T, requireAllFields = false, allowUnknownFields = true
-        )
-      )
-  except SerializationError:
-    err("Unable to deserialize data: " & getCurrentExceptionMsg())
+  let decoded = decodeJsonBytesWithReason(T, data, requireAllFields).valueOr:
+    return err("Unable to deserialize data")
+
+  return ok(decoded)
 
 proc encodeIntoJsonString*(value: auto): SerdesResult[string] =
   var encoded: string

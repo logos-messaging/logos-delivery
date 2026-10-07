@@ -440,12 +440,13 @@ suite "Waku v2 Rest API - lightpush":
         restLightPushTest.restServer.getAddress(path), MethodPost, jsonHeader, body
       )
       let data = parseJson(response.data)
-      # The answer carries the printed response object that wraps the decode error.
+      # The answer carries the decoder's reason and not a printed response object.
       check:
         response.status == 400
         data["statusDesc"].getStr().startsWith(
-          "Invalid push request! (status: 400 Bad Request, "
+          "Invalid push request! Invalid content body, could not decode: Unable to deserialize data: body("
         )
+        "errobj" notin data["statusDesc"].getStr()
 
     # When a field that must be base64 is not
     let notBase64Bodies = [

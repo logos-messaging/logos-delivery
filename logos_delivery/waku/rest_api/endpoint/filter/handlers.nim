@@ -38,23 +38,17 @@ const ROUTE_FILTER_SUBSCRIPTIONS* = "/filter/v2/subscriptions"
 
 const ROUTE_FILTER_ALL_SUBSCRIPTIONS* = "/filter/v2/subscriptions/all"
 
-func decodeRequestBody[T](
-    contentBody: Option[ContentBody]
-): Result[T, RestApiResponse] =
+proc decodeRequestBody[T](contentBody: Option[ContentBody]): Result[T, string] =
   if contentBody.isNone():
-    return err(RestApiResponse.badRequest("Missing content body"))
+    return err("Missing content body")
 
   let reqBodyContentType = MediaType.init($contentBody.get().contentType)
   if reqBodyContentType != MIMETYPE_JSON:
-    return
-      err(RestApiResponse.badRequest("Wrong Content-Type, expected application/json"))
+    return err("Wrong Content-Type, expected application/json")
 
-  let reqBodyData = contentBody.get().data
-
-  let requestResult = decodeFromJsonBytes(T, reqBodyData).valueOr:
-    return err(
-      RestApiResponse.badRequest("Invalid content body, could not decode. " & $error)
-    )
+  let requestResult = decodeJsonBytesWithReason(T, contentBody.get().data).valueOr:
+    debug "could not decode the request body", reason = error
+    return err("Invalid content body, could not decode: " & error)
 
   return ok(requestResult)
 

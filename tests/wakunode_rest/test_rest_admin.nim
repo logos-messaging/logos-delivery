@@ -182,6 +182,21 @@ suite "Waku v2 Rest API - Admin":
       getRes.data[0].multiaddr == nonExistentPeer
       getRes.data[0].connected == CannotConnect
 
+  asyncTest "Set peers with a body that does not decode":
+    let postRes = await issueRequest(
+      restServer.getAddress("/admin/v1/peers"),
+      MethodPost,
+      @[("Content-Type", "application/json")],
+      "{}",
+    )
+
+    check:
+      postRes.status == 400
+      postRes.data.startsWith(
+        "Failed to decode request: Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      "errobj" notin postRes.data
+
   asyncTest "Get filter data":
     await allFutures(
       node1.mountFilter(), node2.mountFilterClient(), node3.mountFilterClient()
