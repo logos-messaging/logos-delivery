@@ -45,7 +45,7 @@ requires "nim == 2.2.6",
   "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
-  "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
+  "secp256k1 == 0.8.0.8.0",
   "bearssl",
   # RPC & APIs
   "json_rpc == 0.6.1",

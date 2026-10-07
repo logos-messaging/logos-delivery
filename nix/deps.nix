@@ -299,8 +299,8 @@
 
   secp256k1 = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-secp256k1";
-    rev = "d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15";
-    sha256 = "1qjrmwbngb73f6r1fznvig53nyal7wj41d1cmqfksrmivk2sgrn2";
+    rev = "4e1ccd554777e4f9f790176bcffd8009a75fd2b7";
+    sha256 = "09q9gcnil4y7wcq9sgdnnrs8b25x1am84mrcljqjcwhm0apy8mb2";
     fetchSubmodules = true;
   };
 
