@@ -140,6 +140,11 @@ proc filterSubscribe*(
   elif node.wakuAutoSharding.isNone():
     debug "Failed filter subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+    return err(
+      FilterSubscribeError.badRequest(
+        "pubsubTopic must be specified when static sharding is enabled"
+      )
+    )
   else:
     # No pubsub topic, autosharding is used to deduce it
     # but content topics must be well-formed for this
@@ -220,6 +225,11 @@ proc filterUnsubscribe*(
   elif node.wakuAutoSharding.isNone():
     debug "Failed filter un-subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+    return err(
+      FilterSubscribeError.badRequest(
+        "pubsubTopic must be specified when static sharding is enabled"
+      )
+    )
   else: # pubsubTopic.isNone
     let topicMap = node.wakuAutoSharding
       .get()

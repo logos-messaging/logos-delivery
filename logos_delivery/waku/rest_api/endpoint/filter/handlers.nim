@@ -199,11 +199,13 @@ proc filterPostPutSubscriptionRequestHandler(
       FilterSubscribeError.serviceUnavailable("Subscription request timed out"),
     )
 
-  # Successfully subscribed to all content filters
-  for cTopic in req.contentFilters:
-    cache.contentSubscribe(cTopic)
+  let subRes = subFut.read()
+  if subRes.isOk():
+    # Successfully subscribed to all content filters
+    for cTopic in req.contentFilters:
+      cache.contentSubscribe(cTopic)
 
-  return makeRestResponse(req.requestId, subFut.read())
+  return makeRestResponse(req.requestId, subRes)
 
 proc installFilterPostSubscriptionsHandler(
     router: var RestRouter,
@@ -278,12 +280,13 @@ proc installFilterDeleteSubscriptionsHandler(
         ),
       )
 
-    # Successfully subscribed to all content filters
-    for cTopic in req.contentFilters:
-      cache.contentUnsubscribe(cTopic)
+    let unsubRes = unsubFut.read()
+    if unsubRes.isOk():
+      # Successfully unsubscribed from all requested contentTopics
+      for cTopic in req.contentFilters:
+        cache.contentUnsubscribe(cTopic)
 
-    # Successfully unsubscribed from all requested contentTopics
-    return makeRestResponse(req.requestId, unsubFut.read())
+    return makeRestResponse(req.requestId, unsubRes)
 
 proc installFilterDeleteAllSubscriptionsHandler(
     router: var RestRouter,

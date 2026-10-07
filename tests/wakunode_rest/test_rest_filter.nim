@@ -609,48 +609,87 @@ suite "Waku v2 Rest API - Filter V2":
       unsubscribeResponse.data.statusDesc == "OK"
       subscriptions.findSubscribedPeers($derivedShard, DefaultContentTopic).len() == 0
 
-  asyncTest "Subscribe and unsubscribe without a pubsub topic under static sharding - POST and DELETE /filter/v2/subscriptions":
+  asyncTest "Subscribe and unsubscribe without a pubsub topic under static sharding - POST, PUT and DELETE /filter/v2/subscriptions":
     # Given a subscriber whose node cannot derive a shard
     let restFilterTest = await RestFilterTest.init()
     defer:
       await restFilterTest.shutdown()
 
-    # When it subscribes without a pubsubTopic
-    let subscribeResponse = await restFilterTest.client.filterPostSubscriptions(
+    let
+      subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
+      subscriptions = restFilterTest.serviceNode.wakuFilter.subscriptions
+      expectedDesc = "pubsubTopic must be specified when static sharding is enabled"
+
+    # When it subscribes and updates without a pubsubTopic, or with an empty one
+    var responses: seq[tuple[status: int, statusDesc: string]]
+    for topic in [Opt.none(string), Opt.some("")]:
+      let request = FilterSubscribeRequest(
+        requestId: "1234", contentFilters: @[DefaultContentTopic], pubsubTopic: topic
+      )
+      for response in [
+        await restFilterTest.client.filterPostSubscriptions(request),
+        await restFilterTest.client.filterPutSubscriptions(request),
+      ]:
+        responses.add((response.status, response.data.statusDesc))
+
+    # Then each is rejected and no criterion is registered
+    check:
+      responses.len() == 4
+      responses.allIt(it.status == 400 and it.statusDesc == expectedDesc)
+      subscriptions.subscribedPeerCount() == 0
+
+    # And the content topic is not in the message cache
+    let messages = await issueRequest(
+      restFilterTest.restServer.getAddress(
+        "/filter/v2/messages/%2Fwaku%2F2%2Fdefault-content%2Fproto"
+      )
+    )
+
+    check:
+      messages.status == 400
+      messages.data == "Not subscribed to topic: " & DefaultContentTopic
+
+    # When it unsubscribes without a pubsubTopic, or with an empty one
+    for topic in [Opt.none(string), Opt.some("")]:
+      let response = await restFilterTest.client.filterDeleteSubscriptions(
+        FilterUnsubscribeRequest(
+          requestId: "4321", contentFilters: @[DefaultContentTopic], pubsubTopic: topic
+        )
+      )
+
+      # Then each is rejected
+      check:
+        response.status == 400
+        response.data.statusDesc == expectedDesc
+
+    # When it subscribes with a pubsubTopic and unsubscribes without one
+    let subscribeWithTopicResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
-        requestId: "1234",
+        requestId: "6789",
         contentFilters: @[DefaultContentTopic],
-        pubsubTopic: Opt.none(string),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       )
     )
-
-    # Then the request is answered UNKNOWN and no criterion is registered
-    check:
-      subscribeResponse.status == 200
-      subscribeResponse.data.statusDesc == "UNKNOWN"
-      restFilterTest.serviceNode.wakuFilter.subscriptions
-        .findSubscribedPeers(DefaultPubsubTopic, DefaultContentTopic)
-        .len() == 0
-
-    # And the content topic is in the message cache, so a read answers with an empty list
-    let messages = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
-
-    check:
-      messages.status == 200
-      messages.data.len() == 0
-
-    # When it unsubscribes without a pubsubTopic
-    let unsubscribeResponse = await restFilterTest.client.filterDeleteSubscriptions(
+    let unsubscribeWithoutTopicResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
-        requestId: "4321",
+        requestId: "7890",
         contentFilters: @[DefaultContentTopic],
         pubsubTopic: Opt.none(string),
       )
     )
 
+    # Then the service and the message cache keep the subscription
+    let messagesAfter =
+      await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
+
     check:
-      unsubscribeResponse.status == 200
-      unsubscribeResponse.data.statusDesc == "UNKNOWN"
+      subscribeWithTopicResponse.status == 200
+      subscribeWithTopicResponse.data.statusDesc == "OK"
+      unsubscribeWithoutTopicResponse.status == 400
+      unsubscribeWithoutTopicResponse.data.statusDesc == expectedDesc
+      subPeerId in
+        subscriptions.findSubscribedPeers(DefaultPubsubTopic, DefaultContentTopic)
+      messagesAfter.status == 200
 
   asyncTest "Subscribe, update and unsubscribe with an invalid body - POST, PUT and DELETE /filter/v2/subscriptions":
     # Given a subscriber with a service peer, so only the body decides the response
@@ -845,6 +884,17 @@ suite "Waku v2 Rest API - Filter V2":
       tooManyDeleteResponse.status == 400
       tooManyDeleteResponse.data.statusDesc ==
         "BAD_REQUEST: exceeds maximum content topics: 100"
+
+    # And the message cache follows the rejections: "0" was never added, "1" is kept
+    let
+      messagesOfRejectedPost = await issueRequest(
+        restFilterTest.restServer.getAddress("/filter/v2/messages/0")
+      )
+      messagesOfRejectedDelete = await restFilterTest.client.filterGetMessagesV1("1")
+
+    check:
+      messagesOfRejectedPost.status == 400
+      messagesOfRejectedDelete.status == 200
 
     # When one subscribed content topic is deleted
     let deleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
