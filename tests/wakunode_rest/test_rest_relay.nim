@@ -596,6 +596,277 @@ suite "Waku v2 Rest API - Relay":
     await restServer.closeWait()
     await node.stop()
 
+  asyncTest "Unsubscribing one content topic stops the other content topics on its shard - DELETE /relay/v1/auto/subscriptions":
+    # TODO: shard-unsub
+    # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check publisher.mountAutoSharding(1, 8).isOk
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      check receiver.mountAutoSharding(1, 8).isOk
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverCache = MessageCache.init()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, receiverCache)
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      chatTopic = ContentTopic("/myapp/1/chat/proto")
+      presenceTopic = ContentTopic("/myapp/1/presence/proto")
+      typingTopic = ContentTopic("/myapp/1/typing/proto")
+      # every /myapp/1 content topic resolves to shard 0 of 8
+      shard = $RelayShard(clusterId: 1, shardId: 0)
+      otherAppTopic = ContentTopic("/toychat/2/huilong/proto")
+      # /toychat/2 content topics resolve to shard 3 of 8
+      otherShard = $RelayShard(clusterId: 1, shardId: 3)
+
+    # Given both nodes subscribed over REST to two content topics of one application and one of another, and connected
+    for client in [publisherClient, receiverClient]:
+      let response = await client.relayPostAutoSubscriptionsV1(
+        @[chatTopic, presenceTopic, otherAppTopic]
+      )
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+      publisher.hasGossipsubPeer(otherShard, receiver.peerInfo.peerId)
+
+    # Given a message on one content topic reaches the receiver
+    let delivered = RelayWakuMessage(
+      payload: base64.encode("presence-1"), contentTopic: Opt.some(presenceTopic)
+    )
+    let deliveredPublish = await publisherClient.relayPostAutoMessagesV1(delivered)
+    let received = await receiverClient.waitForRelayAutoMessages(presenceTopic, 1)
+    check:
+      deliveredPublish.status == 200
+      received.mapIt(it.payload) == @[delivered.payload]
+
+    # Given a message on a content topic of the same shard the receiver never subscribed is read back too
+    let typing = RelayWakuMessage(
+      payload: base64.encode("typing-1"), contentTopic: Opt.some(typingTopic)
+    )
+    let typingPublish = await publisherClient.relayPostAutoMessagesV1(typing)
+    checkUntilTimeout:
+      receiverCache.isContentSubscribed(typingTopic)
+    let typingReceived = await receiverClient.waitForRelayAutoMessages(typingTopic, 1)
+    check:
+      typingPublish.status == 200
+      typingReceived.mapIt(it.payload) == @[typing.payload]
+
+    # When the receiver unsubscribes from the other content topic
+    let deleteResponse =
+      await receiverClient.relayDeleteAutoSubscriptionsV1(@[chatTopic])
+
+    # Then it leaves the shard, so a message on the first content topic has no peer to go to
+    checkUntilTimeout:
+      not publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+    let publishResponse = await publisherClient.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("presence-2"), contentTopic: Opt.some(presenceTopic)
+      )
+    )
+    let getResponse = await receiverClient.relayGetAutoMessagesV1(presenceTopic)
+    check:
+      deleteResponse.status == 200
+      not receiver.wakuRelay.isSubscribed(shard)
+      publishResponse.status == 400
+      publishResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+      getResponse.status == 200
+      getResponse.data.len == 0
+
+    # Then a message on the content topic of the other application, on another shard, is still published
+    let otherAppPublish = await publisherClient.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("other-shard"), contentTopic: Opt.some(otherAppTopic)
+      )
+    )
+    check:
+      receiver.wakuRelay.isSubscribed(otherShard)
+      otherAppPublish.status == 200
+
+  asyncTest "Subscribing again to a content topic whose shard was dropped answers 200 without rejoining the shard - POST /relay/v1/auto/subscriptions":
+    # TODO: shard-unsub
+    # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check publisher.mountAutoSharding(1, 8).isOk
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      check receiver.mountAutoSharding(1, 8).isOk
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      chatTopic = ContentTopic("/myapp/1/chat/proto")
+      presenceTopic = ContentTopic("/myapp/1/presence/proto")
+      # both content topics resolve to shard 0 of 8
+      shard = $RelayShard(clusterId: 1, shardId: 0)
+
+    # Given both nodes subscribed over REST to both content topics and connected
+    for client in [publisherClient, receiverClient]:
+      let response =
+        await client.relayPostAutoSubscriptionsV1(@[chatTopic, presenceTopic])
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+
+    # Given the receiver unsubscribed from one content topic and left the shard
+    let deleteResponse =
+      await receiverClient.relayDeleteAutoSubscriptionsV1(@[chatTopic])
+    checkUntilTimeout:
+      not publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+
+    # When it subscribes again to the content topic it kept
+    let repostResponse =
+      await receiverClient.relayPostAutoSubscriptionsV1(@[presenceTopic])
+
+    # Then it stays off the shard, so a message on that content topic has no peer to go to
+    let publishResponse = await publisherClient.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("presence-1"), contentTopic: Opt.some(presenceTopic)
+      )
+    )
+    check:
+      deleteResponse.status == 200
+      repostResponse.status == 200
+      not receiver.wakuRelay.isSubscribed(shard)
+      publishResponse.status == 400
+      publishResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+
+    # When it subscribes again to the content topic it unsubscribed
+    let rejoinResponse = await receiverClient.relayPostAutoSubscriptionsV1(@[chatTopic])
+
+    # Then it rejoins the shard and a message on the other content topic reaches it
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+    let delivered = RelayWakuMessage(
+      payload: base64.encode("presence-2"), contentTopic: Opt.some(presenceTopic)
+    )
+    let deliveredPublish = await publisherClient.relayPostAutoMessagesV1(delivered)
+    let received = await receiverClient.waitForRelayAutoMessages(presenceTopic, 1)
+    check:
+      rejoinResponse.status == 200
+      deliveredPublish.status == 200
+      received.mapIt(it.payload) == @[delivered.payload]
+
+  asyncTest "Unsubscribing a content topic never subscribed drops its shard - DELETE /relay/v1/auto/subscriptions":
+    # TODO: shard-unsub
+    # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check publisher.mountAutoSharding(1, 8).isOk
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      check receiver.mountAutoSharding(1, 8).isOk
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      chatTopic = ContentTopic("/myapp/1/chat/proto")
+      presenceTopic = ContentTopic("/myapp/1/presence/proto")
+      settingsTopic = ContentTopic("/myapp/1/settings/proto")
+      # all three content topics resolve to shard 0 of 8
+      shard = $RelayShard(clusterId: 1, shardId: 0)
+
+    # Given both nodes subscribed over REST to two of the content topics and connected
+    for client in [publisherClient, receiverClient]:
+      let response =
+        await client.relayPostAutoSubscriptionsV1(@[chatTopic, presenceTopic])
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+
+    # When the receiver unsubscribes from the content topic it never subscribed
+    let deleteResponse =
+      await receiverClient.relayDeleteAutoSubscriptionsV1(@[settingsTopic])
+
+    # Then it leaves the shard, so a message on a content topic it subscribed has no peer to go to
+    checkUntilTimeout:
+      not publisher.hasGossipsubPeer(shard, receiver.peerInfo.peerId)
+    let publishResponse = await publisherClient.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("chat-1"), contentTopic: Opt.some(chatTopic)
+      )
+    )
+    check:
+      deleteResponse.status == 200
+      not receiver.wakuRelay.isSubscribed(shard)
+      publishResponse.status == 400
+      publishResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+
   asyncTest "Get the latest messages for a content topic - GET /relay/v1/auto/messages/{topic}":
     # Given
     let node = testWakuNode()
@@ -1671,6 +1942,7 @@ suite "Waku v2 Rest API - Relay":
       node.wakuRelay.isSubscribed(DefaultPubsubTopic)
       cache.isPubsubSubscribed(DefaultPubsubTopic)
 
+    # TODO: relay-other-cluster-shard
     # When subscribing to a shard of another cluster
     let otherClusterShard = $RelayShard(clusterId: 199, shardId: 0)
     let otherClusterPost = await client.relayPostSubscriptionsV1(@[otherClusterShard])
@@ -1680,3 +1952,241 @@ suite "Waku v2 Rest API - Relay":
       otherClusterPost.status == 200
       node.wakuRelay.isSubscribed(otherClusterShard)
       cache.isPubsubSubscribed(otherClusterShard)
+
+    # When publishing on that shard
+    let otherClusterMessage = RelayWakuMessage(
+      payload: base64.encode("TEST-PAYLOAD"),
+      contentTopic: Opt.some(DefaultContentTopic),
+    )
+    let otherClusterPublish =
+      await client.relayPostMessagesV1(otherClusterShard, otherClusterMessage)
+
+    # Then the message is published and read back
+    let otherClusterReceived = await client.waitForRelayMessages(otherClusterShard, 1)
+    check:
+      otherClusterPublish.status == 200
+      otherClusterReceived.mapIt(it.payload) == @[otherClusterMessage.payload]
+
+  asyncTest "A shard beyond the autosharding shard count is subscribed and carries messages - POST /relay/v1/subscriptions, POST /relay/v1/messages/{topic}, GET /relay/v1/messages/{topic}":
+    # TODO: relay-other-cluster-shard
+    # Given a node with autosharding over 8 shards
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check node.mountAutoSharding(DefaultClusterId, 8).isOk
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    let beyondShard = $RelayShard(clusterId: DefaultClusterId, shardId: 8)
+
+    # When subscribing to shard 8 and publishing on it
+    let subscribeResponse = await client.relayPostSubscriptionsV1(@[beyondShard])
+    let message = RelayWakuMessage(
+      payload: base64.encode("TEST-PAYLOAD"),
+      contentTopic: Opt.some(DefaultContentTopic),
+    )
+    let publishResponse = await client.relayPostMessagesV1(beyondShard, message)
+
+    # Then the relay is on shard 8 and the message is read back
+    let received = await client.waitForRelayMessages(beyondShard, 1)
+    check:
+      subscribeResponse.status == 200
+      node.wakuRelay.isSubscribed(beyondShard)
+      publishResponse.status == 200
+      received.mapIt(it.payload) == @[message.payload]
+
+  asyncTest "A message posted again after it is read is returned again by the publisher and not by its relay peer - POST /relay/v1/messages/{topic}":
+    # TODO: relay-republish-runs-handlers
+    # Given two relay nodes, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      message = toRelayWakuMessage(fakeWakuMessage(payload = "posted-again"))
+      netOut = [DefaultPubsubTopic, "net", "out"]
+
+    # Given both nodes subscribed over REST to the pubsub topic and connected
+    for client in [publisherClient, receiverClient]:
+      let response = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(DefaultPubsubTopic, receiver.peerInfo.peerId)
+    let sentBefore = relayNetworkBytes(netOut)
+
+    # Given the message posted once and read on both nodes
+    let firstResponse =
+      await publisherClient.relayPostMessagesV1(DefaultPubsubTopic, message)
+    let firstOnPublisher =
+      await publisherClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let firstOnReceiver =
+      await receiverClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let sentAfterFirst = relayNetworkBytes(netOut)
+
+    # When the same message is posted again
+    let againResponse =
+      await publisherClient.relayPostMessagesV1(DefaultPubsubTopic, message)
+
+    # Then the publisher returns it again, and does not send it to its relay peer
+    let againOnPublisher =
+      await publisherClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let againOnReceiver = await receiverClient.relayGetMessagesV1(DefaultPubsubTopic)
+    check:
+      firstResponse.status == 200
+      firstOnPublisher.mapIt(it.payload) == @[message.payload]
+      firstOnReceiver.mapIt(it.payload) == @[message.payload]
+      sentAfterFirst > sentBefore
+      againResponse.status == 200
+      againOnPublisher.mapIt(it.payload) == @[message.payload]
+      relayNetworkBytes(netOut) == sentAfterFirst
+      againOnReceiver.status == 200
+      againOnReceiver.data.len == 0
+
+  asyncTest "A message posted twice is counted twice as received and as incoming traffic - POST /relay/v1/messages/{topic}":
+    # TODO: relay-republish-runs-handlers
+    # Given a relay node subscribed over REST to the pubsub topic
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restServer = WakuRestServerRef.init(parseIpAddress("0.0.0.0"), Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    let subscribeResponse = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+
+    let
+      message = toRelayWakuMessage(fakeWakuMessage(payload = "posted-twice"))
+      netIn = [DefaultPubsubTopic, "net", "in"]
+      receivedBefore = nodeMessagesCount(["relay"])
+      bytesBefore = relayNetworkBytes(netIn)
+
+    # When the same message is posted twice
+    let firstResponse = await client.relayPostMessagesV1(DefaultPubsubTopic, message)
+    let
+      receivedAfterFirst = nodeMessagesCount(["relay"])
+      bytesAfterFirst = relayNetworkBytes(netIn)
+    let secondResponse = await client.relayPostMessagesV1(DefaultPubsubTopic, message)
+
+    # Then each post is counted as a received message and as the same incoming traffic
+    check:
+      subscribeResponse.status == 200
+      firstResponse.status == 200
+      secondResponse.status == 200
+      receivedAfterFirst == receivedBefore + 1
+      nodeMessagesCount(["relay"]) == receivedBefore + 2
+      bytesAfterFirst > bytesBefore
+      relayNetworkBytes(netIn) - bytesAfterFirst == bytesAfterFirst - bytesBefore
+
+  asyncTest "A message posted again with a relay peer in the mesh is answered 200 on the static route and 400 NoPeersToPublish on the auto route - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
+    # TODO: relay-republish-runs-handlers
+    # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check publisher.mountAutoSharding(DefaultClusterId, 8).isOk
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      check receiver.mountAutoSharding(DefaultClusterId, 8).isOk
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      contentTopic = ContentTopic("/myapp/1/duplicate/proto")
+      # every /myapp/1 content topic resolves to shard 0 of 8
+      shard = $RelayShard(clusterId: DefaultClusterId, shardId: 0)
+      message = toRelayWakuMessage(
+        fakeWakuMessage(payload = "posted-again", contentTopic = contentTopic)
+      )
+
+    # Given both nodes subscribed over REST to the content topic, with the receiver in the publisher's mesh
+    for client in [publisherClient, receiverClient]:
+      let response = await client.relayPostAutoSubscriptionsV1(@[contentTopic])
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasMeshPeer(shard, receiver.peerInfo.peerId)
+
+    # Given the message posted once and read on the receiver
+    let firstResponse = await publisherClient.relayPostMessagesV1(shard, message)
+    let received = await receiverClient.waitForRelayAutoMessages(contentTopic, 1)
+
+    # When the same message is posted again on each route
+    let staticAgain = await publisherClient.relayPostMessagesV1(shard, message)
+    let autoAgain = await publisherClient.relayPostAutoMessagesV1(message)
+
+    # Then the static route answers 200 and the auto route 400 NoPeersToPublish, with the receiver still in the mesh
+    check:
+      firstResponse.status == 200
+      received.mapIt(it.payload) == @[message.payload]
+      staticAgain.status == 200
+      staticAgain.data == "OK"
+      autoAgain.status == 400
+      autoAgain.data == "Failed to publish: publish failed in relay: NoPeersToPublish"
+      publisher.hasMeshPeer(shard, receiver.peerInfo.peerId)
