@@ -7,6 +7,8 @@ import
   ./test_wakunode_mix,
   ./test_wakunode_mix_address_policy,
   ./test_wakunode_mix_e2e,
+  ./test_wakunode_mix_failed_dials,
+  ./test_wakunode_mix_reply_path,
   ./test_wakunode_peer_exchange,
   ./test_wakunode_store,
   ./test_wakunode_store_sync,

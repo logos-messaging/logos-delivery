@@ -151,11 +151,15 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
         return
       conn = connOpt.get()
     else:
-      conn = node.wakuMix.toConnection(
-        MixDestination.exitNode(dPeerId), # destination lightpush peer
-        WakuLightPushCodec, # protocol codec which will be used over the mix connection
-        MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
-          # mix parameters indicating we expect a single reply
+      # `exitConnection` prepares the reply path before the send.
+      conn = (
+        await node.wakuMix.exitConnection(
+          dPeerId, # destination lightpush peer
+          WakuLightPushCodec,
+            # protocol codec which will be used over the mix connection
+          MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
+            # mix parameters indicating we expect a single reply
+        )
       ).valueOr:
         error "failed to create mix connection", error = error
         return
