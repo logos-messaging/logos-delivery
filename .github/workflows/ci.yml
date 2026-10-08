@@ -67,6 +67,8 @@ jobs:
           - 'flake.nix'
           - 'flake.lock'
           - '!**/*.md'
+          consumer:
+          - 'logos_delivery.nimble'
 
     outputs:
       # A push to master runs everything so every master commit keeps a full CI record.
@@ -76,6 +78,7 @@ jobs:
       examples: ${{ steps.filter.outputs.examples }}
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
+      consumer: ${{ steps.filter.outputs.consumer }}
 
   # Also on nix changes: it is the only check that compares nix/deps.nix
   # against nimble.lock, and the Nix build itself never reads the lock.
@@ -83,6 +86,41 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.nix == 'true' }}
     uses: ./.github/workflows/build-health.yml
+
+  # Fails when this PR breaks Nimble setup for a new project that requires
+  # logos-delivery. Don't fail CI for this PR if master was already broken.
+  consumer-break-check:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.consumer == 'true' }}
+    name: "Consumer break check"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if this PR breaks consumers
+        id: pr
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.sha }}
+
+      - name: Check if master breaks consumers
+        id: base
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.event.pull_request.base.sha }}
+
+      - name: Compare PR with master
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        env:
+          BASE_SUCCEEDED: ${{ steps.base.outputs.succeeded }}
+        run: |
+          if [ "${BASE_SUCCEEDED}" = true ]; then
+            echo "::error::This PR breaks Nimble setup for a project that requires logos-delivery. Master passes."
+            exit 1
+          fi
+          echo "Nimble setup also fails on master, so this PR cannot be blamed."
 
   # Also feeds the e2e jobs with liblogosdelivery.so.
   build:
@@ -397,6 +435,7 @@ jobs:
     needs:
       - changes
       - build-health
+      - consumer-break-check
       - build
       - liblogosdelivery-default
       - build-windows
