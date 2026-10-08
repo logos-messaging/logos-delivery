@@ -19,7 +19,7 @@ import
   nimcrypto/utils,
   secp256k1,
   json,
-  mix_rln_spam_protection/module_api
+  mix_rln_spam_protection/[constants, module_api]
 
 import
   logos_delivery/api/conf/modes,
@@ -1395,8 +1395,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       ModuleRlnConfig(
         registryId: n.mixRlnRegistryId,
         rlnIdentifierHex: n.mixRlnIdentifierHex,
-        epochSeconds: 10,
-        maxEpochGap: 3,
+        epochSeconds: uint64(EpochDurationSeconds),
+        maxEpochGap: uint64(MaxEpochGap),
         metadataTopic: n.mixRlnMetadataTopic,
       )
     )

@@ -96,8 +96,8 @@ requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 # Pin the Mix and shared RLN adapter integration revisions.
-requires "https://github.com/richard-ramos/nim-libp2p-mix#d4aeff5f032563fc0f9b042a1c8c049d9fa69fba"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#ac83f368e286c033e72fbd08dc63a4a802cfac0d"
+requires "https://github.com/logos-co/nim-libp2p-mix#3f256aa03d2d36fea0b5206b41a6328da4f5c412"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#86f1c02a6bf5d74008a7d11693e3488b85da636a"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies

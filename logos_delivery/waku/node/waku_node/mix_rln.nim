@@ -16,7 +16,8 @@ proc publishMetadata(
     timestamp: getNowInNanosecondTime(),
     ephemeral: true,
   )
-  # Coordination uses its separate Relay membership, outside send(Required).
+  # Coordination messages use the node's mounted Relay RLN backend. Mix per-hop
+  # proofs use wakuMixRln's separate scope.
   if node.rlnPlugin.isSome():
     try:
       message = (await attachProof(node.rlnPlugin, message)).valueOr:

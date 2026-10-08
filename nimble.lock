@@ -676,9 +676,9 @@
       }
     },
     "libp2p_mix": {
-      "version": "#d4aeff5f032563fc0f9b042a1c8c049d9fa69fba",
-      "vcsRevision": "d4aeff5f032563fc0f9b042a1c8c049d9fa69fba",
-      "url": "https://github.com/richard-ramos/nim-libp2p-mix",
+      "version": "#3f256aa03d2d36fea0b5206b41a6328da4f5c412",
+      "vcsRevision": "3f256aa03d2d36fea0b5206b41a6328da4f5c412",
+      "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
@@ -692,7 +692,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "e18ca93dd0ec0d0b149754520b050f3f19483125"
+        "sha1": "a084ffe241acf33ad918525ad7de568e4f6d488a"
       }
     },
     "eth": {
@@ -769,8 +769,8 @@
       }
     },
     "mix_rln_spam_protection": {
-      "version": "#ac83f368e286c033e72fbd08dc63a4a802cfac0d",
-      "vcsRevision": "ac83f368e286c033e72fbd08dc63a4a802cfac0d",
+      "version": "#86f1c02a6bf5d74008a7d11693e3488b85da636a",
+      "vcsRevision": "86f1c02a6bf5d74008a7d11693e3488b85da636a",
       "url": "https://github.com/logos-co/mix-rln-spam-protection-plugin",
       "downloadMethod": "git",
       "dependencies": [
@@ -787,7 +787,7 @@
         "metrics"
       ],
       "checksums": {
-        "sha1": "63d6cd4a27f90d7ae7375b7f13a0b2f8a88823d5"
+        "sha1": "b6775aac45219b05572f3d6b5a724e395cf92651"
       }
     },
     "nim": {
