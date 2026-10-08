@@ -221,6 +221,18 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require lc.messagingConf.isSome()
     check lc.messagingConf.get().reliabilityEnabled.isSome()
 
+  test "a clusterId override of 2 replaces the logos.test preset with the logos.dev one":
+    # TODO: cluster-id-2-preset
+    let lc = parseLogosDeliveryConf(
+      """{"preset": "logos.test", "messagingOverrides": {"clusterId": 2}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.clusterId == 2
+      wakuConf.staticNodes == NetworkPresetConf.LogosDevConf().entryNodes
+
   test "an anonymity override reaches the messaging record and mounts mix":
     let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"anonymityLevel": "Required"}}"""

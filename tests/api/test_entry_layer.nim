@@ -15,6 +15,8 @@ import
     waku_metadata,
     waku_node,
     waku_relay/protocol,
+    waku_store/common,
+    waku_filter_v2/client,
     node/peer_manager,
     factory/validator_signed,
   ],
@@ -335,6 +337,170 @@ suite "LogosDelivery - configured shards":
     check:
       node.waku.node.wakuRelay.subscribedTopics() == @[configuredShard]
       otherShardPublish.status == 400
+
+  asyncTest "under static sharding without REST the relay is on no shard, while the ENR and metadata report the configured shard":
+    # TODO: static-shard-without-rest
+    var conf = nodeConf(EntryLayer.kernel)
+    conf.kernel.numShardsInNetwork = 0
+    conf.kernel.shards = @[1'u16]
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start failed: " & error
+    defer:
+      (await node.stop()).isOkOr:
+        raiseAssert "stop failed: " & error
+
+    var peer: WakuNode
+    lockNewGlobalBrokerContext:
+      peer = newTestWakuNode(generateSecp256k1Key())
+      peer.mountMetadata(TestClusterId, @[]).isOkOr:
+        raiseAssert error
+      await peer.start()
+    defer:
+      await peer.stop()
+
+    let conn = (
+      await peer.peerManager.dialPeer(
+        node.waku.node.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
+      )
+    ).valueOr:
+      raiseAssert "could not dial metadata"
+    let metadata = (await peer.wakuMetadata.request(conn)).valueOr:
+      raiseAssert error
+
+    check:
+      node.waku.node.wakuRelay.subscribedTopics().len == 0
+      toSeq(0'u16 ..< 8'u16).filterIt(
+        node.waku.node.enr.containsShard(TestClusterId, it)
+      ) == @[1'u16]
+      metadata.shards == @[1'u32]
+
+  asyncTest "under static sharding without REST the node is no relay peer on the configured shard, and a peer's message there is neither archived nor pushed to a filter subscriber":
+    # TODO: static-shard-without-rest
+    let
+      configuredShard = $RelayShard(clusterId: TestClusterId, shardId: 1)
+      contentTopic = ContentTopic("/toychat/2/huilong/proto")
+
+    var conf = nodeConf(EntryLayer.kernel)
+    conf.kernel.numShardsInNetwork = 0
+    conf.kernel.shards = @[1'u16]
+    conf.kernel.store = Opt.some(true)
+    conf.kernel.storeMessageDbUrl = "none"
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start failed: " & error
+    defer:
+      (await node.stop()).isOkOr:
+        raiseAssert "stop failed: " & error
+
+    var publisher: WakuNode
+    lockNewGlobalBrokerContext:
+      publisher = newTestWakuNode(generateSecp256k1Key())
+      publisher.mountMetadata(TestClusterId, @[1'u16]).isOkOr:
+        raiseAssert error
+      (await publisher.mountRelay()).isOkOr:
+        raiseAssert error
+      publisher.mountStoreClient()
+      await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = newTestWakuNode(generateSecp256k1Key())
+      receiver.mountMetadata(TestClusterId, @[1'u16]).isOkOr:
+        raiseAssert error
+      (await receiver.mountRelay()).isOkOr:
+        raiseAssert error
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    var subscriber: WakuNode
+    lockNewGlobalBrokerContext:
+      subscriber = newTestWakuNode(generateSecp256k1Key())
+      subscriber.mountMetadata(TestClusterId, @[]).isOkOr:
+        raiseAssert error
+      await subscriber.mountFilterClient()
+      await subscriber.start()
+    defer:
+      await subscriber.stop()
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+      discard
+
+    var received: seq[WakuMessage]
+    proc receiverHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+      received.add(msg)
+
+    var pushed: seq[WakuMessage]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, closure, gcsafe.} =
+      pushed.add(msg)
+
+    publisher.subscribe((kind: PubsubSub, topic: configuredShard), dummyHandler).isOkOr:
+      raiseAssert error
+    receiver.subscribe((kind: PubsubSub, topic: configuredShard), receiverHandler).isOkOr:
+      raiseAssert error
+    subscriber.wakuFilterClient.registerPushHandler(pushHandler)
+    let filterSubscribe = await subscriber.filterSubscribe(
+      Opt.some(configuredShard),
+      @[contentTopic],
+      node.waku.node.peerInfo.toRemotePeerInfo(),
+    )
+
+    await node.waku.node.connectToNodes(@[publisher.peerInfo.toRemotePeerInfo()])
+    await receiver.connectToNodes(@[publisher.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(configuredShard, receiver.peerId)
+
+    let message =
+      fakeWakuMessage("on the configured shard", contentTopic = contentTopic)
+    (await publisher.publish(Opt.some(configuredShard), message)).isOkOr:
+      raiseAssert error
+    checkUntilTimeout:
+      message.payload in received.mapIt(it.payload)
+
+    let stored = (
+      await publisher.query(
+        StoreQueryRequest(includeData: true, pubsubTopic: Opt.some(configuredShard)),
+        node.waku.node.peerInfo.toRemotePeerInfo(),
+      )
+    ).valueOr:
+      raiseAssert $error
+    check:
+      filterSubscribe.isOk()
+      not publisher.hasGossipsubPeer(configuredShard, node.waku.node.peerId)
+      stored.messages.len == 0
+      pushed.len == 0
+
+  asyncTest "under static sharding without REST the messaging entry layer leaves the relay on no shard":
+    # TODO: static-shard-without-rest
+    var conf = nodeConf(EntryLayer.messaging)
+    conf.kernel.numShardsInNetwork = 0
+    conf.kernel.shards = @[1'u16]
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start failed: " & error
+    defer:
+      (await node.stop()).isOkOr:
+        raiseAssert "stop failed: " & error
+
+    check:
+      node.waku.node.wakuRelay.subscribedTopics().len == 0
 
   asyncTest "an unsigned message on a protected shard outside the configured shards is archived":
     # TODO: shard-flag-autosharding
