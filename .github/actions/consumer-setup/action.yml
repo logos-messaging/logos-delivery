@@ -8,6 +8,9 @@ inputs:
   revision:
     description: 'The logos-delivery commit that the new project requires.'
     required: true
+  target:
+    description: 'What the check is for, in the messages, for example "master".'
+    default: 'this commit'
 
 outputs:
   succeeded:
@@ -39,10 +42,20 @@ runs:
         requires "https://github.com/${GITHUB_REPOSITORY}#${REVISION}"
         EOF
         nimble="$(make -s -C "${GITHUB_WORKSPACE}" print-nimble-path)/nimble"
+        log="$(mktemp "${RUNNER_TEMP}/nimble-XXXXXX.log")"
+        echo "log=${log}" >> "${GITHUB_OUTPUT}"
         # Try a second time from an empty Nimble directory, so that a network
         # error alone does not fail the setup.
-        if "${nimble}" setup -y || { rm -rf ~/.nimble; "${nimble}" setup -y; }; then
+        if "${nimble}" setup -y 2>&1 | tee -a "${log}" ||
+          { rm -rf ~/.nimble; "${nimble}" setup -y 2>&1 | tee -a "${log}"; }; then
           echo "succeeded=true" >> "${GITHUB_OUTPUT}"
         else
           echo "succeeded=false" >> "${GITHUB_OUTPUT}"
         fi
+
+    - name: Show the Nimble error
+      if: ${{ steps.setup.outputs.succeeded != 'true' }}
+      uses: ./.github/actions/nimble-error
+      with:
+        log: ${{ steps.setup.outputs.log }}
+        title: Nimble setup of a project that requires logos-delivery fails on ${{ inputs.target }}

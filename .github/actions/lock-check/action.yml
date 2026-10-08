@@ -8,6 +8,9 @@ inputs:
   path:
     description: 'The checkout of logos-delivery to check.'
     default: '.'
+  target:
+    description: 'What the check is for, in the messages, for example "master".'
+    default: 'this commit'
 
 outputs:
   succeeded:
@@ -28,13 +31,23 @@ runs:
       working-directory: ${{ inputs.path }}
       run: |
         nimble="$(make -s print-nimble-path)/nimble"
+        log="$(mktemp "${RUNNER_TEMP}/nimble-XXXXXX.log")"
+        echo "log=${log}" >> "${GITHUB_OUTPUT}"
         # Delete the committed lock and the Nimble directory before each try,
         # so that Nimble solves from scratch with no cached state. Try a second
         # time, so that a network error alone does not fail the check.
         clean() { rm -rf nimble.lock nimbledeps nimble.paths ~/.nimble; }
         clean
-        if "${nimble}" lock --localdeps -y || { clean; "${nimble}" lock --localdeps -y; }; then
+        if "${nimble}" lock --localdeps -y 2>&1 | tee -a "${log}" ||
+          { clean; "${nimble}" lock --localdeps -y 2>&1 | tee -a "${log}"; }; then
           echo "succeeded=true" >> "${GITHUB_OUTPUT}"
         else
           echo "succeeded=false" >> "${GITHUB_OUTPUT}"
         fi
+
+    - name: Show the Nimble error
+      if: ${{ steps.lock.outputs.succeeded != 'true' }}
+      uses: ./.github/actions/nimble-error
+      with:
+        log: ${{ steps.lock.outputs.log }}
+        title: Nimble lock fails on ${{ inputs.target }}

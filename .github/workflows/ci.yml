@@ -103,6 +103,7 @@ jobs:
         uses: ./.github/actions/consumer-setup
         with:
           revision: ${{ github.sha }}
+          target: this PR
 
       - name: Check if master breaks consumers
         id: base
@@ -110,17 +111,16 @@ jobs:
         uses: ./.github/actions/consumer-setup
         with:
           revision: ${{ github.event.pull_request.base.sha }}
+          target: master
 
       - name: Compare PR with master
         if: ${{ steps.pr.outputs.succeeded != 'true' }}
-        env:
-          BASE_SUCCEEDED: ${{ steps.base.outputs.succeeded }}
-        run: |
-          if [ "${BASE_SUCCEEDED}" = true ]; then
-            echo "::error::This PR breaks Nimble setup for a project that requires logos-delivery. Master passes."
-            exit 1
-          fi
-          echo "Nimble setup also fails on master, so this PR cannot be blamed."
+        uses: ./.github/actions/compare-with-master
+        with:
+          check: Nimble setup of a project that requires logos-delivery
+          pr-revision: ${{ github.sha }}
+          base-revision: ${{ github.event.pull_request.base.sha }}
+          base-succeeded: ${{ steps.base.outputs.succeeded }}
 
   # Fails when `nimble lock` cannot solve the logos_delivery.nimble of this PR
   # from scratch. Don't fail CI for this PR if master was already broken.
@@ -129,13 +129,15 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
     name: "Lock break check"
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
       - name: Check if this PR breaks the lock
         id: pr
         uses: ./.github/actions/lock-check
+        with:
+          target: this PR
 
       - name: Check out master
         if: ${{ steps.pr.outputs.succeeded != 'true' }}
@@ -150,17 +152,16 @@ jobs:
         uses: ./.github/actions/lock-check
         with:
           path: base
+          target: master
 
       - name: Compare PR with master
         if: ${{ steps.pr.outputs.succeeded != 'true' }}
-        env:
-          BASE_SUCCEEDED: ${{ steps.base.outputs.succeeded }}
-        run: |
-          if [ "${BASE_SUCCEEDED}" = true ]; then
-            echo "::error::With this PR, Nimble lock fails. Master passes."
-            exit 1
-          fi
-          echo "Nimble lock also fails on master, so this PR cannot be blamed."
+        uses: ./.github/actions/compare-with-master
+        with:
+          check: Nimble lock
+          pr-revision: ${{ github.sha }}
+          base-revision: ${{ github.event.pull_request.base.sha }}
+          base-succeeded: ${{ steps.base.outputs.succeeded }}
 
   # Also feeds the e2e jobs with liblogosdelivery.so.
   build:

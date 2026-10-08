@@ -46,11 +46,13 @@ jobs:
       - name: Run Nimble lock
         id: lock
         uses: ./.github/actions/lock-check
+        with:
+          target: master
 
       - name: Fail if Nimble lock failed
         if: ${{ steps.lock.outputs.succeeded != 'true' }}
         run: |
-          echo "::error::Nimble cannot lock logos_delivery.nimble from scratch"
+          echo "::error::Nimble lock fails on master (${GITHUB_SHA:0:8}). The notice \"Nimble lock fails on master\" shows the error."
           exit 1
 
   # Runs Nimble setup in a new project that requires the checked-out commit of
@@ -67,11 +69,12 @@ jobs:
         uses: ./.github/actions/consumer-setup
         with:
           revision: ${{ github.sha }}
+          target: master
 
       - name: Fail if the setup failed
         if: ${{ steps.setup.outputs.succeeded != 'true' }}
         run: |
-          echo "::error::A project that requires logos-delivery cannot set up its dependencies"
+          echo "::error::Nimble setup of a project that requires logos-delivery fails on master (${GITHUB_SHA:0:8}). The notice \"Nimble setup of a project that requires logos-delivery fails on master\" shows the error."
           exit 1
 
   build:
