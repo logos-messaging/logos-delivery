@@ -563,6 +563,20 @@ suite "Waku Conf - mix nodes from a network preset":
     check conf.mixConf.get().mixnodes.len ==
       NetworkPresetConf.LogosDevConf().mixnodes.len + 1
 
+suite "Waku Conf - mix address filter":
+  test "the mix conf carries the option to allow all addresses":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.mixConf.withEnabled(true)
+    let strict = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check not strict.mixConf.get().allowAllAddresses
+
+    builder.mixConf.withAllowAllAddresses(true)
+    let local = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check local.mixConf.get().allowAllAddresses
+
 suite "Waku Conf - mix node entries":
   const Key = "c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
   const PeerId = "16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby"

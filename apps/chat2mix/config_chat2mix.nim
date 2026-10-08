@@ -91,6 +91,13 @@ type
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    mixAllowAllAddresses* {.
+      desc:
+        "Turn off the hop address filter of mix, so mix paths can use hops at all addresses, also private, shared and loopback addresses and circuit relay routes. For a local simulation, a test or a private network.",
+      defaultValue: false,
+      name: "mix-allow-all-addresses"
+    .}: bool
+
     keepAlive* {.
       desc: "Enable keep-alive for idle connections: true|false",
       defaultValue: false,

@@ -18,6 +18,7 @@ import
   logos_delivery/waku/rln/rln_plugin,
   logos_delivery/waku/waku_lightpush/common,
   logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_enr,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/waku/factory/waku_conf,
@@ -206,7 +207,11 @@ suite "SendService - anonymity level with a mounted mix":
   asyncSetup:
     waku = (await Waku.new(testConf())).expect("Waku.new")
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await waku.node.mountMix(3'u16, mixKeys.privateKey, @[])).isOkOr:
+    (
+      await waku.node.mountMix(
+        3'u16, mixKeys.privateKey, @[], addressPolicy = defaultAddressPolicy
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
 
   asyncTeardown:
@@ -581,11 +586,20 @@ suite "SendService - anonymity level with a mounted mix":
 suite "Mix send path - exit peer selection":
   ## With `exit_is_dest` the lightpush server is the last node of the sphinx
   ## path. Mix refuses a destination that has no mix public key. The selection
-  ## must skip a plain lightpush peer.
+  ## must skip a plain lightpush peer. The selection reads the pool of the mounted
+  ## mix. The test peers are on loopback, so the suite mounts mix with
+  ## `defaultAddressPolicy`.
   var waku {.threadvar.}: Waku
 
   asyncSetup:
     waku = (await Waku.new(testConf())).expect("Waku.new")
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await waku.node.mountMix(
+        3'u16, mixKeys.privateKey, @[], addressPolicy = defaultAddressPolicy
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
 
   asyncTeardown:
     discard await waku.stop()
@@ -614,6 +628,42 @@ suite "Mix send path - exit peer selection":
     waku.node.peerManager.switch.peerStore.setShardInfo(peerId, @[0'u16])
     return peerId
 
+  proc addExitTo(target: Waku, address: string): PeerId =
+    let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let keyPair = generateKeyPair().expect("mix key pair")
+    target.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId,
+        @[MultiAddress.init(address).tryGet()],
+        protocols = @[WakuLightPushCodec],
+        shards = @[0'u16],
+        mixPubKey = Opt.some(keyPair.publicKey),
+      )
+    )
+    target.node.peerManager.switch.peerStore.setShardInfo(peerId, @[0'u16])
+    return peerId
+
+  asyncTest "by default a lightpush peer on a private address is not a mix exit":
+    let strict = (await Waku.new(testConf())).expect("Waku.new")
+    defer:
+      discard await strict.stop()
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (await strict.node.mountMix(3'u16, mixKeys.privateKey, @[])).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+
+    discard strict.addExitTo("/ip4/192.168.0.7/tcp/60000")
+    check strict.selectMixLightpushPeer(shard).isNone()
+    let publicExit = strict.addExitTo("/ip4/1.1.1.9/tcp/60000")
+    for _ in 0 ..< 20:
+      check strict.selectMixLightpushPeer(shard).get().peerId == publicExit
+
+  asyncTest "no exit is chosen when mix is not mounted":
+    let bare = (await Waku.new(testConf())).expect("Waku.new")
+    defer:
+      discard await bare.stop()
+    discard bare.addExitTo("/ip4/127.0.0.1/tcp/60000")
+    check bare.selectMixLightpushPeer(shard).isNone()
+
   asyncTest "a plain lightpush peer is never offered as a mix exit":
     discard addLightpushPeer(mixCapable = false)
 
@@ -623,8 +673,7 @@ suite "Mix send path - exit peer selection":
 
   asyncTest "a mix key alone does not make a peer a usable exit":
     ## Mix routes IPv4 TCP and QUIC-v1 addresses only. A peer with another
-    ## address is not in the pool, whatever its mix key is. Mix evicts such a
-    ## peer at the first path construction.
+    ## address is not in the pool, whatever its mix key is.
     discard addLightpushPeer(mixCapable = true, address = "/dns4/node.test/tcp/60000")
 
     check:
@@ -837,6 +886,7 @@ suite "Mix send path - the node's own hop":
         3'u16,
         mixKeys.privateKey,
         @[],
+        defaultAddressPolicy,
       )
       .expect("WakuMix.new")
     for i in 0 ..< MinMixPoolSize:

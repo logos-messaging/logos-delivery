@@ -1,6 +1,8 @@
 log-level = "TRACE"
 relay = true
 mix = true
+# The nodes of this simulation all run on 127.0.0.1.
+mix-allow-all-addresses = true
 filter = true
 store = true
 lightpush = true

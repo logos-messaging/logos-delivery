@@ -588,7 +588,11 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    addressPolicy: PeerAddressPolicy = publicDirectAddressPolicy,
 ): Future[Result[void, string]] {.async.} =
+  ## `addressPolicy` decides which addresses the hops of a path can carry. Use
+  ## `mixAddressPolicy(true)` to turn the filter off. It does not apply to the
+  ## self hop.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
@@ -601,7 +605,7 @@ proc mountMix*(
   let (literals, names, dropped) = node.splitMixNodes(mixnodes)
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, addressPolicy
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return

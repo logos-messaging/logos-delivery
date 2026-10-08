@@ -19,6 +19,7 @@ type MixConfBuilder* = object
   enabled: Opt[bool]
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
+  allowAllAddresses: bool
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -34,6 +35,9 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   ## both end up in the pool.
   b.mixNodes = concat(b.mixNodes, mixNodes)
 
+proc withAllowAllAddresses*(b: var MixConfBuilder, allowAllAddresses: bool) =
+  b.allowAllAddresses = allowAllAddresses
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     return ok(Opt.none(MixConf))
@@ -43,7 +47,12 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
       let mixPubKey = public(mixPrivKey)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            allowAllAddresses: b.allowAllAddresses,
+          )
         )
       )
     else:
@@ -51,6 +60,11 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
         return err("Generate key pair error: " & $error)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            allowAllAddresses: b.allowAllAddresses,
+          )
         )
       )
