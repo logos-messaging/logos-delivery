@@ -96,6 +96,8 @@ proc new*(
   ## reported as writing nothing instead of not being reported at all.
   logos_delivery_archive_inserts.inc(0, labelValues = [relayIngress])
   logos_delivery_archive_inserts.inc(0, labelValues = [syncIngress])
+  logos_delivery_archive_duplicates.inc(0, labelValues = [relayIngress])
+  logos_delivery_archive_duplicates.inc(0, labelValues = [syncIngress])
 
   return ok(archive)
 
@@ -134,6 +136,7 @@ proc handleMessage*(
     return
 
   if not written:
+    logos_delivery_archive_duplicates.inc(labelValues = [relayIngress])
     trace "message already archived",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
@@ -186,6 +189,7 @@ proc syncMessageIngress*(
     return err(error)
 
   if not written:
+    logos_delivery_archive_duplicates.inc(labelValues = [syncIngress])
     trace "message already archived in syncMessageIngress", msg_hash = msgHashHex
     return ok()
 

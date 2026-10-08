@@ -278,14 +278,17 @@ suite "Waku API - Send":
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
+      duplicatesBefore = duplicateCount(relayIngress)
 
     let sendResult = await node.messagingClient.send(
       MessageEnvelope.init(contentTopic, "test payload")
     )
     check sendResult.isOk()
 
-    # The send is retried every second while the node has no relay peer.
-    await sleepAsync(3.seconds)
+    # The send is retried while the node has no relay peer, and each retry
+    # reaches the archive as a message it already holds.
+    checkUntilTimeout:
+      duplicateCount(relayIngress) >= duplicatesBefore + 2
 
     let stored = (
       await node.waku.node.wakuArchive.findMessages(

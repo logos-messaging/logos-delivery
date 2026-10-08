@@ -625,6 +625,7 @@ suite "Waku Archive - insert metrics":
     let
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
+      duplicatesBefore = duplicateCount(relayIngress)
       shardBefore = messagesPerShard("0")
       driver = newSqliteArchiveDriver()
       archive = newWakuArchive(driver)
@@ -638,6 +639,7 @@ suite "Waku Archive - insert metrics":
       insertCount(relayIngress) == insertsBefore + 1
       messagesPerShard("0") == shardBefore + 1
       errorCount(insertFailure) == failuresBefore
+      duplicateCount(relayIngress) == duplicatesBefore + 1
 
   test "a message already held is reported as not written by the sqlite driver":
     let
