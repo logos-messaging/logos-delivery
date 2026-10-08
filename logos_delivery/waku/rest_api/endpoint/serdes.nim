@@ -39,13 +39,9 @@ proc readValue*(
   value = Base64String(reader.readValue(string))
 
 proc deserializeError(): string =
-  ## To be called from the except branch. formatMsg is a method, which the
-  ## compile-time VM cannot call.
-  when nimvm:
-    "Unable to deserialize data"
-  else:
-    let exc = (ref SerializationError)(getCurrentException())
-    "Unable to deserialize data: " & exc.formatMsg("body")
+  ## To be called from the except branch.
+  let exc = (ref SerializationError)(getCurrentException())
+  return "Unable to deserialize data: " & exc.formatMsg("body")
 
 proc decodeFromJsonString*[T](
     t: typedesc[T], data: JsonString, requireAllFields: bool = true
