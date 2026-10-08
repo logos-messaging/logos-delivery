@@ -351,7 +351,7 @@ method put*(
       @[int32(0), int32(0)],
     )
   ).isOkOr:
-    return err(error)
+    return err("could not put msg in messages_lookup table: " & $error)
 
   logos_delivery_postgres_payload_size_bytes.set(message.payload.len)
   return ok(written)
