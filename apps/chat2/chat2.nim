@@ -194,7 +194,7 @@ proc publish(c: Chat, line: string) {.async.} =
   if not isNil(c.rln):
     # for future version when we support more than one rln protected content topic,
     # we should check the message content topic as well
-    let proofRes = waitFor c.rln.generateRLNProof(message.toRLNSignal(), float64(time))
+    let proofRes = await c.rln.generateRLNProof(message.toRLNSignal(), float64(time))
     if proofRes.isErr():
       info "could not append rate limit proof to the message"
     else:
@@ -553,7 +553,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      let onchainRln = (waitFor mountOnchain(rlnConf, Opt.some(node.brokerCtx))).valueOr:
+      let onchainRln = (await mountOnchain(rlnConf, Opt.some(node.brokerCtx))).valueOr:
         error "failed to set rln validator", error = error
         quit(QuitFailure)
       node.mountRln(onchainRln.toRlnPlugin(), RlnCommonConf(), Opt.some(spamHandler))
