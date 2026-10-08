@@ -31,7 +31,7 @@ There is also an interactive mode. Type `/connect` then paste address of other n
 
 To just run a node and not interact on the chat it is enough to run `logosdeliverynode`:
 ```
-./build/logosdeliverynode --staticnode:<multiaddr>
+./build/logosdeliverynode --entry-node:<multiaddr>
 ```
 
 You can also run the `wakubridge` process, which runs both a Waku v1 and Waku v2

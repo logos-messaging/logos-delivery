@@ -580,6 +580,39 @@ suite "Waku external config - deprecated flags":
       wakuConf.discv5Conf.isSome() == defaultWakuConf.discv5Conf.isSome()
       wakuConf.rlnEvmConf.isNone()
 
+  test "flags deprecated for v0.42.0 still parse and keep their effect":
+    ## Given
+    let cmdLine = @[
+      "--staticnode=/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ",
+      "--relay-client=true", "--metrics-logging=false", "--discv5-table-ip-limit=5",
+      "--discv5-bucket-ip-limit=3", "--discv5-bits-per-hop=2",
+    ]
+
+    ## When
+    var conf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
+    applyModeFlags(conf, DefaultKernelModeFlags)
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check:
+      wakuConf.staticNodes.len == 1
+      wakuConf.circuitRelayClient
+      wakuConf.discv5Conf.get().tableIpLimit == 5
+      wakuConf.discv5Conf.get().bucketIpLimit == 3
+      wakuConf.discv5Conf.get().bitsPerHop == 2
+
+  test "--circuit-relay-client replaces --relay-client":
+    ## Given / When
+    var conf =
+      WakuNodeConf.load(version = "", cmdLine = @["--circuit-relay-client=true"])
+    applyModeFlags(conf, DefaultKernelModeFlags)
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check wakuConf.circuitRelayClient
+
   test "on-chain RLN no longer needs --rln-relay-dynamic":
     ## Given
     var conf = defaultKernelConf().get()

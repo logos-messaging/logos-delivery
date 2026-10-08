@@ -133,7 +133,7 @@ type WakuNodeConf* = object
   .}: string
 
   rlnRelayEthPrivateKey* {.
-    obsolete: "ignored, set it on the rlnkeystore tool instead",
+    obsolete: "ignored, set it on the rlnkeystore tool instead; removed in v0.42.0",
     desc: "Deprecated and ignored. Only the rlnkeystore tool uses it.",
     defaultValue: "",
     name: "rln-relay-eth-private-key"
@@ -292,10 +292,17 @@ type WakuNodeConf* = object
   .}: string
 
   ## Circuit-relay config
-  isRelayClient* {.
-    desc: """Set the node as a relay-client.
+  circuitRelayClient* {.
+    desc: """Set the node as a circuit-relay client.
 Set it to true for nodes that run behind a NAT or firewall and
 hence would have reachability issues.""",
+    defaultValue: false,
+    name: "circuit-relay-client"
+  .}: bool
+
+  isRelayClient* {.
+    obsolete: "use --circuit-relay-client; removed in v0.42.0",
+    desc: "Deprecated. Use --circuit-relay-client instead.",
     defaultValue: false,
     name: "relay-client"
   .}: bool
@@ -334,7 +341,7 @@ hence would have reachability issues.""",
   .}: Opt[uint]
 
   rlnRelayDynamic* {.
-    obsolete: "not needed, on-chain RLN is the only mode",
+    obsolete: "not needed, on-chain RLN is the only mode; removed in v0.42.0",
     desc: "Deprecated. On-chain dynamic group management is the only RLN mode.",
     defaultValue: Opt.none(bool),
     name: "rln-relay-dynamic"
@@ -355,7 +362,8 @@ hence would have reachability issues.""",
   .}: seq[string]
 
   staticnodes* {.
-    desc: "Peer multiaddr to directly connect with. Argument may be repeated.",
+    obsolete: "use --entry-node; removed in v0.42.0",
+    desc: "Deprecated. Use --entry-node, which accepts multiaddrs too.",
     name: "staticnode"
   .}: seq[string]
 
@@ -564,14 +572,15 @@ hence would have reachability issues.""",
   .}: uint16
 
   metricsLogging* {.
-    desc: "Enable metrics logging: true|false",
+    obsolete: "the metrics server covers it; removed in v0.42.0",
+    desc: "Deprecated. Enable metrics logging: true|false",
     defaultValue: true,
     name: "metrics-logging"
   .}: bool
 
   ## DNS discovery config
   dnsDiscovery* {.
-    obsolete: "ignored, use --dns-discovery-url",
+    obsolete: "ignored, use --dns-discovery-url; removed in v0.42.0",
     desc: "Deprecated and ignored. Set --dns-discovery-url instead.",
     defaultValue: false,
     name: "dns-discovery"
@@ -613,7 +622,7 @@ hence would have reachability issues.""",
   .}: bool
 
   discv5TableIpLimit* {.
-    hidden,
+    obsolete: "tuning knob; removed in v0.42.0",
     desc:
       "Maximum amount of nodes with the same IP in discv5 routing tables (requires --discv5-discovery)",
     defaultValue: 10,
@@ -621,7 +630,7 @@ hence would have reachability issues.""",
   .}: uint
 
   discv5BucketIpLimit* {.
-    hidden,
+    obsolete: "tuning knob; removed in v0.42.0",
     desc:
       "Maximum amount of nodes with the same IP in discv5 routing table buckets (requires --discv5-discovery)",
     defaultValue: 2,
@@ -629,7 +638,7 @@ hence would have reachability issues.""",
   .}: uint
 
   discv5BitsPerHop* {.
-    hidden,
+    obsolete: "tuning knob; removed in v0.42.0",
     desc:
       "Kademlia's b variable, increase for less hops per lookup (requires --discv5-discovery)",
     defaultValue: 1,
@@ -1324,7 +1333,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withPeerPersistence(n.peerPersistence)
   b.withDnsAddrsNameServers(n.dnsAddrsNameServers)
   b.withDns4DomainName(n.dns4DomainName)
-  b.withCircuitRelayClient(n.isRelayClient)
+  b.withCircuitRelayClient(n.circuitRelayClient or n.isRelayClient)
   if n.relay.isSome():
     b.withRelay(n.relay.get())
   b.withRelayPeerExchange(n.relayPeerExchange)

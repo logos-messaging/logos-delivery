@@ -18,8 +18,8 @@ Run two nodes and connect them:
 # Note the "listening on address" in logs.
 ./build/logosdeliverynode --ports-shift:0
 
-# Run another node with staticnode argument
-./build/logosdeliverynode --ports-shift:1 --staticnode:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp --storenode:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp
+# Run another node with entry-node argument
+./build/logosdeliverynode --ports-shift:1 --entry-node:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp --storenode:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp
 ```
 
 When flag `persist-messages` is passed messages are going to be persisted in-memory. 

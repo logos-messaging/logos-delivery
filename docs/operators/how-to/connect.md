@@ -13,13 +13,13 @@ discover and connect to random peers using discovery v5 with a bootstrap node.
 
 ## Option 1: Configure peers statically
 
-Static peers can be provided to a nwaku node on startup using the `--staticnode` CLI parameter.
-The `--staticnode` option can be repeated for each peer you want to connect to on startup.
+Static peers can be provided to a nwaku node on startup using the `--entry-node` CLI parameter with a multiaddr.
+The `--entry-node` option can be repeated for each peer you want to connect to on startup.
 
 ```sh
 ./build/logosdeliverynode \
-  --staticnode:<libp2p-multiaddr-peer1> \
-  --staticnode:<libp2p-multiaddr-peer2>
+  --entry-node:<libp2p-multiaddr-peer1> \
+  --entry-node:<libp2p-multiaddr-peer2>
 ```
 
 As an example, consider a nwaku node that connects to two known peers
@@ -29,8 +29,8 @@ and peer IDs `16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H` and `16Uiu2
 
 ```sh
 ./build/logosdeliverynode \
-  --staticnode:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
-  --staticnode:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ
+  --entry-node:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
+  --entry-node:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ
 ```
 
 ## Option 2: Discover peers using DNS discovery
