@@ -174,18 +174,18 @@ proc removeSubscription*(
 
   s.peersSubscribed.withValue(peerId, peerData):
     peerData.lastSeen = Moment.now()
+
+    ## Idempotent: criteria the peer does not hold are ignored, so the answer
+    ## depends only on the requester's own state
     for filterCriterion in filterCriteria:
       s.subscriptions.withValue(filterCriterion, peers):
         if peers[].missingOrexcl(peerId) == false:
           peerData.criteriaCount -= 1
-
           if peers[].len == 0:
             s.subscriptions.del(filterCriterion)
-          if peerData.criteriaCount == 0:
-            s.peersSubscribed.del(peerId)
-      do:
-        ## Maybe let just run through and log it as a warning
-        return err("Peer was not subscribed to criterion")
+
+    if peerData.criteriaCount == 0:
+      s.peersSubscribed.del(peerId)
 
     return ok()
   do:

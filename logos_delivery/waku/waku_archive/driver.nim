@@ -18,7 +18,8 @@ method put*(
     messageHash: WakuMessageHash,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-): Future[ArchiveDriverResult[void]] {.base, async.} =
+): Future[ArchiveDriverResult[bool]] {.base, async.} =
+  ## Ok(true) if the message was written, Ok(false) if the archive already held it.
   discard
 
 method getAllMessages*(

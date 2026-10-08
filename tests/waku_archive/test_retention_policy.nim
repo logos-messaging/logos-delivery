@@ -24,7 +24,7 @@ suite "Waku Archive - Retention policy":
 
     let retentionPolicy: RetentionPolicy =
       CapacityRetentionPolicy.new(capacity = capacity)
-    var putFutures = newSeq[Future[ArchiveDriverResult[void]]]()
+    var putFutures = newSeq[Future[ArchiveDriverResult[bool]]]()
 
     ## When
     for i in 1 .. capacity + excess:
@@ -61,7 +61,7 @@ suite "Waku Archive - Retention policy":
     let driver = newSqliteArchiveDriver()
 
     let retentionPolicy: RetentionPolicy = SizeRetentionPolicy.new(size = sizeLimit)
-    var putFutures = newSeq[Future[ArchiveDriverResult[void]]]()
+    var putFutures = newSeq[Future[ArchiveDriverResult[bool]]]()
 
     # make sure that the db is empty to before test begins
     let storedMsg = (waitFor driver.getAllMessages()).tryGet()

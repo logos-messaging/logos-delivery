@@ -1799,10 +1799,10 @@ suite "Waku Filter - End to End":
           serverRemotePeerInfo, "non-existent-pubsub-topic", contentTopicSeq
         )
 
-        # Then the unsubscription is not successful
+        # Then the request is idempotent and the subscription is untouched
         check:
-          unsubscribeResponse.isErr() # Not subscribed
-          unsubscribeResponse.error().kind == FilterSubscribeErrorKind.NOT_FOUND
+          unsubscribeResponse.isOk()
+          wakuFilter.subscriptions.isSubscribed(clientPeerId)
 
       asyncTest "With non existent content topic":
         # Given a valid subscription
@@ -1819,10 +1819,10 @@ suite "Waku Filter - End to End":
           serverRemotePeerInfo, pubsubTopic, @["non-existent-content-topic"]
         )
 
-        # Then the unsubscription is not successful
+        # Then the request is idempotent and the subscription is untouched
         check:
-          unsubscribeResponse.isErr() # Not subscribed
-          unsubscribeResponse.error().kind == FilterSubscribeErrorKind.NOT_FOUND
+          unsubscribeResponse.isOk()
+          wakuFilter.subscriptions.isSubscribed(clientPeerId)
 
       asyncTest "Empty content topic":
         # Given a valid subscription

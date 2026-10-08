@@ -256,8 +256,7 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "A send retried while the node has no relay peer is stored once, counted once as written and again as insert failures":
-    # TODO: logos-delivery#4438
+  asyncTest "A send retried while the node has no relay peer is stored once and counted once as written":
     let root = createTempDir("send-api-archive-", "")
     defer:
       removeDir(root)
@@ -279,14 +278,17 @@ suite "Waku API - Send":
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
+      duplicatesBefore = duplicateCount(relayIngress)
 
     let sendResult = await node.messagingClient.send(
       MessageEnvelope.init(contentTopic, "test payload")
     )
     check sendResult.isOk()
 
+    # The send is retried while the node has no relay peer, and each retry
+    # reaches the archive as a message it already holds.
     checkUntilTimeout:
-      errorCount(insertFailure) >= failuresBefore + 2
+      duplicateCount(relayIngress) >= duplicatesBefore + 2
 
     let stored = (
       await node.waku.node.wakuArchive.findMessages(
@@ -297,6 +299,7 @@ suite "Waku API - Send":
     check:
       stored.hashes.len == 1
       insertCount(relayIngress) == insertsBefore + 1
+      errorCount(insertFailure) == failuresBefore
 
   asyncTest "Send fully validated":
     var node: LogosDelivery

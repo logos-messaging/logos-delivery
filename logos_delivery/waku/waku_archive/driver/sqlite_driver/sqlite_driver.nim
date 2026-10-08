@@ -46,9 +46,9 @@ method put*(
     messageHash: WakuMessageHash,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[bool]] {.async.} =
   ## Inserts a message into the store
-  let res = s.insertStmt.exec(
+  s.insertStmt.exec(
     (
       @(messageHash),
       toBytes(pubsubTopic),
@@ -58,9 +58,10 @@ method put*(
       message.timestamp,
       message.meta,
     )
-  )
+  ).isOkOr:
+    return err(error)
 
-  return res
+  return ok(s.db.changes() > 0)
 
 method getAllMessages*(
     s: SqliteDriver

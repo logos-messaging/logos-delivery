@@ -376,7 +376,7 @@ proc archiveAt(
   ## Puts a message with the timestamp `at` directly into the archive driver,
   ## because the archive rejects a timestamp outside its tolerance.
   let msg = WakuMessage(payload: text.toBytes(), contentTopic: topic, timestamp: at)
-  (await net.archiveDriver.put(computeMessageHash(shard, msg), shard, msg)).expect(
+  discard (await net.archiveDriver.put(computeMessageHash(shard, msg), shard, msg)).expect(
     "archive put"
   )
   return msg

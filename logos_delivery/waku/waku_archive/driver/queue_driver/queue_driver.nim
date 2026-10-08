@@ -227,11 +227,17 @@ method put*(
     messageHash: WakuMessageHash,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[bool]] {.async.} =
   let index =
     Index(time: message.timestamp, hash: messageHash, pubsubTopic: pubsubTopic)
 
-  return driver.add(index, message)
+  if driver.contains(index):
+    return ok(false)
+
+  driver.add(index, message).isOkOr:
+    return err(error)
+
+  return ok(true)
 
 method getAllMessages*(
     driver: QueueDriver

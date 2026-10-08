@@ -10,6 +10,7 @@ import
     waku_core/message/digest,
     waku_archive,
     waku_archive/archive_metrics,
+    waku_archive/driver/queue_driver,
   ],
   ../waku_archive/archive_utils,
   ../testlib/wakucore
@@ -620,11 +621,11 @@ suite "Waku Archive - insert metrics":
 
     check insertCount(syncIngress) == baseline + 1
 
-  test "a message handled twice is stored once, counted once as written and once as an insert failure":
-    # TODO: logos-delivery#4438
+  test "a message handled twice is stored once and counted once as written":
     let
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
+      duplicatesBefore = duplicateCount(relayIngress)
       shardBefore = messagesPerShard("0")
       driver = newSqliteArchiveDriver()
       archive = newWakuArchive(driver)
@@ -637,4 +638,29 @@ suite "Waku Archive - insert metrics":
       (waitFor driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
       insertCount(relayIngress) == insertsBefore + 1
       messagesPerShard("0") == shardBefore + 1
-      errorCount(insertFailure) == failuresBefore + 1
+      errorCount(insertFailure) == failuresBefore
+      duplicateCount(relayIngress) == duplicatesBefore + 1
+
+  test "a message already held is reported as not written by the sqlite driver":
+    let
+      driver = newSqliteArchiveDriver()
+      message = fakeWakuMessage(ts = now())
+      hash = computeMessageHash(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(true)
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(false)
+
+  test "a message already held is reported as not written by the queue driver":
+    let
+      driver = QueueDriver.new()
+      message = fakeWakuMessage(ts = now())
+      hash = computeMessageHash(DefaultPubSubTopic, message)
+
+    check:
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(true)
+      (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
+        ArchiveDriverResult[bool].ok(false)

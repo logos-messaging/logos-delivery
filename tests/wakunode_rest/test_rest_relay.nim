@@ -426,8 +426,7 @@ suite "Waku v2 Rest API - Relay":
       response.data ==
         "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
 
-  asyncTest "A message posted twice is stored once, counted once as written and once as an insert failure - POST /relay/v1/messages/{topic}":
-    # TODO: logos-delivery#4438
+  asyncTest "A message posted twice is stored once and counted once as written - POST /relay/v1/messages/{topic}":
     # Given a relay node with a sqlite archive, subscribed to a pubsub topic
     let node = testWakuNode()
     let driver = newSqliteArchiveDriver()
@@ -470,7 +469,7 @@ suite "Waku v2 Rest API - Relay":
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
       insertCount(relayIngress) == insertsBefore + 1
       messagesPerShard("0") == shardBefore + 1
-      errorCount(insertFailure) == failuresBefore + 1
+      errorCount(insertFailure) == failuresBefore
 
   # Autosharding API
 

@@ -39,7 +39,7 @@ logScope:
 
 proc put(
     store: ArchiveDriver, pubsubTopic: PubsubTopic, message: WakuMessage
-): Future[Result[void, string]] =
+): Future[Result[bool, string]] =
   let msgHash = computeMessageHash(pubsubTopic, message)
 
   store.put(msgHash, pubsubTopic, message)
