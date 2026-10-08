@@ -35,6 +35,24 @@ jobs:
           nix shell --inputs-from . nixpkgs#nix-prefetch-git --command ./tools/gen-nix-deps.sh nimble.lock /tmp/deps.nix.fresh
           diff /tmp/deps.nix.fresh nix/deps.nix
 
+  # Fails when `nimble lock` cannot solve logos_delivery.nimble from scratch.
+  lock-resolution:
+    name: "nimble.lock resolution"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Nimble lock
+        id: lock
+        uses: ./.github/actions/lock-check
+
+      - name: Fail if Nimble lock failed
+        if: ${{ steps.lock.outputs.succeeded != 'true' }}
+        run: |
+          echo "::error::Nimble cannot lock logos_delivery.nimble from scratch"
+          exit 1
+
   # Runs Nimble setup in a new project that requires the checked-out commit of
   # logos-delivery, with no lockfile.
   consumer-deps:

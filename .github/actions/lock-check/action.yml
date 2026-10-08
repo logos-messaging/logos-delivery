@@ -1,0 +1,40 @@
+name: 'Lock check'
+description: >
+  Runs `nimble lock` in a checkout of logos-delivery after it deletes the
+  committed nimble.lock, so that Nimble solves logos_delivery.nimble from
+  scratch. The check also fails when a dependency does not download or build.
+
+inputs:
+  path:
+    description: 'The checkout of logos-delivery to check.'
+    default: '.'
+
+outputs:
+  succeeded:
+    description: '"true" when `nimble lock` succeeded, else "false".'
+    value: ${{ steps.lock.outputs.succeeded }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Nimble
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: make install-nimble
+
+    - name: Run Nimble lock
+      id: lock
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        nimble="$(make -s print-nimble-path)/nimble"
+        # Delete the committed lock and the Nimble directory before each try,
+        # so that Nimble solves from scratch with no cached state. Try a second
+        # time, so that a network error alone does not fail the check.
+        clean() { rm -rf nimble.lock nimbledeps nimble.paths ~/.nimble; }
+        clean
+        if "${nimble}" lock --localdeps -y || { clean; "${nimble}" lock --localdeps -y; }; then
+          echo "succeeded=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "succeeded=false" >> "${GITHUB_OUTPUT}"
+        fi
