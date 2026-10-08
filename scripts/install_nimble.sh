@@ -51,7 +51,7 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 
 URL="https://github.com/nim-lang/nimble/releases/download/v${VERSION}/nimble-${OS}_${ARCH}.tar.gz"
 echo "Downloading Nimble ${VERSION} from ${URL}..."
-curl -fsSL "${URL}" -o "${WORK_DIR}/nimble.tar.gz"
+curl -fsSL --retry 3 --retry-all-errors "${URL}" -o "${WORK_DIR}/nimble.tar.gz"
 tar -xzf "${WORK_DIR}/nimble.tar.gz" -C "${WORK_DIR}"
 
 cp "${WORK_DIR}/${EXE}" "${NIMBLE_BIN}.new.$$"
