@@ -20,7 +20,7 @@ proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
     if messageSizeBytes > wakuRelay.maxMessageSize:
       return lighpushErrorResult(
         LightPushErrorCode.PAYLOAD_TOO_LARGE,
-        "Message size exceeded maximum of " & $wakuRelay.maxMessageSize & " bytes",
+        "Message size exceeded maximum of: " & $wakuRelay.maxMessageSize & " bytes",
       )
 
     (await wakuRelay.validateMessage(pubSubTopic, message)).isOkOr:

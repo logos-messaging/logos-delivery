@@ -590,7 +590,7 @@ suite "Waku v2 Rest API - lightpush":
       response.status == 413
       response.data.statusDesc ==
         Opt.some(
-          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+          fmt"Message size exceeded maximum of: {DefaultMaxWakuMessageSize} bytes"
         )
 
   asyncTest "A push over the size limit is answered 413 by a node running the lightpush service - POST /lightpush/v3/message":
@@ -615,7 +615,7 @@ suite "Waku v2 Rest API - lightpush":
       response.status == 413
       response.data.statusDesc ==
         Opt.some(
-          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+          fmt"Message size exceeded maximum of: {DefaultMaxWakuMessageSize} bytes"
         )
 
   asyncTest "A push over the lightpush read cap is answered 413 - POST /lightpush/v3/message":
@@ -661,7 +661,7 @@ suite "Waku v2 Rest API - lightpush":
       response.status == 413
       response.data.statusDesc ==
         Opt.some(
-          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+          fmt"Message size exceeded maximum of: {DefaultMaxWakuMessageSize} bytes"
         )
 
   asyncTest "A push without pubsubTopic under static sharding is answered 400 - POST /lightpush/v3/message":
