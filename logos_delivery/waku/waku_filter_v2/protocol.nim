@@ -54,7 +54,6 @@ proc subscribe(
     pubsubTopic: Opt[PubsubTopic],
     contentTopics: seq[ContentTopic],
 ): Future[FilterSubscribeResult] {.async.} =
-  # TODO: check if this condition is valid???
   if pubsubTopic.isNone() or pubsubTopic.get() == "" or contentTopics.len == 0:
     debug "PubsubTopic and contentTopics must be specified", peerId = peerId
     return err(
