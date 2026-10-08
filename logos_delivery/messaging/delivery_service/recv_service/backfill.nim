@@ -7,7 +7,7 @@
 ## unsubscribe deletes the record.
 {.push raises: [].}
 
-import std/[algorithm, sets, tables]
+import std/[algorithm, sets]
 import chronos, chronicles, results, libp2p/protobuf/minprotobuf
 import
   logos_delivery/waku/[waku_core, waku_store/common],
@@ -35,11 +35,6 @@ const
   OutageWindow* = chronos.minutes(5).nanos
     ## An outage that the node detects now started at most this long before. It
     ## covers the lag of the health signal and the variance of the timestamps.
-
-  BackfillOverlap* = 2 * MaxMessageTimestampVariance
-    ## Start the query 40 seconds before the saved time. Allow 20 seconds for
-    ## messages that reach the archive late and 20 seconds for differences
-    ## between this node's clock and the archive's clock.
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
@@ -231,40 +226,6 @@ proc writeLastReceivedAt*(
   except CatchableError as e:
     warn "Failed to write the last received time of the backfill", error = e.msg
 
-proc readRecoveryHint*(
-    job: persistency.Job
-): Future[Result[Opt[Timestamp], string]] {.async: (raises: [CancelledError]).} =
-  ## The stored recovery hint. An unreadable record logs a warning and reads
-  ## as none.
-  if job.isNil() or not job.running:
-    return err("backfill persistency job is closed")
-  let stored =
-    try:
-      (await job.get(BackfillCategory, LastOnlineKey)).valueOr:
-        return err("read recovery hint: " & $error)
-    except CancelledError as e:
-      raise e
-    except CatchableError as e:
-      return err("read recovery hint: " & e.msg)
-  if stored.isNone():
-    return ok(Opt.none(Timestamp))
-  let at = decodeTimestamp(stored.get()).valueOr:
-    warn "Failed to decode the Store catch-up recovery hint", error
-    return ok(Opt.none(Timestamp))
-  return ok(Opt.some(at))
-
-proc writeRecoveryHint*(
-    job: persistency.Job, at: Timestamp
-) {.async: (raises: [CancelledError]).} =
-  ## Fire-and-forget, as the Persistency write API is. A lost write costs
-  ## extra history at the next start.
-  try:
-    await job.persistPut(BackfillCategory, LastOnlineKey, encodeTimestamp(at))
-  except CancelledError as e:
-    raise e
-  except CatchableError as e:
-    warn "Failed to write the Store catch-up recovery hint", error = e.msg
-
 proc readTopicRecords*(
     job: persistency.Job
 ): Future[Result[seq[(BackfillTopic, TopicRecord)], string]] {.
@@ -391,53 +352,5 @@ proc fetchPage*(
   let response = ?await queryPage(query, request, queryTimeout)
   let next = ?acceptPage(topic, start, windowStop, response, deliver)
   return ok(next.get(windowStop))
-
-proc runCatchUpPass*(
-    subscribedTopics: seq[BackfillTopic],
-    progress: TableRef[BackfillTopic, Timestamp],
-    since: Timestamp,
-    cutoff: Timestamp,
-    queryTimeout: Duration,
-    query: BackfillQuery,
-    deliver: BackfillDeliver,
-): Future[seq[BackfillTopic]] {.async: (raises: [CancelledError]).} =
-  ## One pass. Queries the topics in order over `[since, cutoff)`, in windows
-  ## no longer than the Store's `MaxQueryTimeRange` and page by page, until
-  ## each one has no more rows or fails. A failed topic leaves its
-  ## next page start in `progress` and continues from there in the next pass.
-  ## Returns the topics that have no more rows.
-  var exhausted: seq[BackfillTopic]
-  for topic in subscribedTopics:
-    var start = progress.getOrDefault(topic, since)
-    var completed = true
-    while start < cutoff:
-      let windowStop = min(cutoff, start + MaxQueryTimeRange)
-      let request = StoreQueryRequest(
-        includeData: true,
-        pubsubTopic: Opt.some(topic.pubsubTopic),
-        contentTopics: @[topic.contentTopic],
-        startTime: Opt.some(start),
-        endTime: Opt.some(windowStop), # exclusive on the wire
-        paginationForward: PagingDirection.FORWARD,
-        paginationLimit: Opt.some(MaxPageSize),
-      )
-      let response = await queryPage(query, request, queryTimeout)
-      let accepted =
-        if response.isOk():
-          acceptPage(topic, start, windowStop, response.get(), deliver)
-        else:
-          Result[Opt[Timestamp], string].err(response.error)
-      let next = accepted.valueOr:
-        debug "Store catch-up query failed, the topic retries next pass",
-          pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
-        progress[topic] = start
-        completed = false
-        break
-      start = next.valueOr:
-        windowStop # the window is exhausted, move to the next one
-    if completed:
-      exhausted.add(topic)
-      progress.del(topic)
-  return exhausted
 
 {.pop.}

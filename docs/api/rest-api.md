@@ -92,7 +92,9 @@ The receivers can have the message after an `error` event. The node does not res
 * The node keeps messages only for the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not enough.
 * A send subscribes the node to its content topic, so the sender also receives its own messages.
 
-At startup, the node gets from Store the messages that it missed while it was down. On its first start, it gets the last 24 h.
+A content topic that the client subscribes for the first time gets no earlier messages. From then on, the node fills the gaps of the topic from Store. When live delivery goes down and comes back, the node fetches the messages of the topic from a few minutes before it noticed the outage up to the recovery, and delivers them with the `source` `history`. The fetch can include a message that the node already delivered live; the node drops such a message when it still has it in its duplicate filter, and the `source` tells the client the rest.
+
+With the `backfill-enabled` setting on (the default), the node saves the state of each subscribed topic, and a stop counts as an outage. After a restart, when the client subscribes a topic again, the node fetches what it missed while the process was down, from the last message it had received. A topic that the client does not subscribe again is not fetched. An unsubscribe deletes the saved state of the topic, so a later subscribe is a first subscribe. A start with the setting off deletes the saved state of every topic. The gap fill while the process runs works the same with the setting on or off.
 
 `GET /messaging/v1/events/received` returns the messages that arrived since the last call, and the node then removes them. With more than one client, each message goes to one client only. Between two calls, the node holds at most `--rest-messaging-cache-capacity` messages (default 50), and drops the oldest ones when more arrive. Two signals show dropped messages:
 

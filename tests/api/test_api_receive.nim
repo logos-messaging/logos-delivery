@@ -376,28 +376,6 @@ proc archiveAt(
   )
   return msg
 
-proc waitForHint(job: Job): Future[Timestamp] {.async.} =
-  ## The stored hint, after the first write lands.
-  for _ in 0 ..< 50:
-    let stored = (await job.readRecoveryHint()).expect("read record")
-    if stored.isSome():
-      return stored.get()
-    await sleepAsync(100.milliseconds)
-  raiseAssert "no recovery hint was stored in time"
-
-proc waitForAdvance(
-    job: Job, past: Timestamp, within = 15.seconds
-): Future[Timestamp] {.async.} =
-  ## The stored hint, after it moves past `past`. A catch-up that learns its
-  ## Store peer after the subscription waits one retry period first.
-  let deadline = Moment.now() + within
-  while Moment.now() < deadline:
-    let stored = (await job.readRecoveryHint()).expect("read record")
-    if stored.isSome() and stored.get() > past:
-      return stored.get()
-    await sleepAsync(100.milliseconds)
-  raiseAssert "the recovery hint did not advance in time"
-
 proc knowStorePeer(net: TestNetwork) =
   ## Registers the store node as a service peer. The Store client dials it on demand.
   net.subscriber.waku.node.peerManager.addServicePeer(
