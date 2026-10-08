@@ -39,7 +39,7 @@ logScope:
 
 proc put(
     store: ArchiveDriver, pubsubTopic: PubsubTopic, message: WakuMessage
-): Future[Result[void, string]] =
+): Future[Result[bool, string]] =
   let msgHash = computeMessageHash(pubsubTopic, message)
 
   store.put(msgHash, pubsubTopic, message)
@@ -205,7 +205,7 @@ procSuite "Waku Rest API - Store v3":
     )
 
     check:
-      response.status == 200
+      response.status == 410
       $response.contentType == $MIMETYPE_JSON
       response.data.messages.len == 0
 
@@ -1243,7 +1243,7 @@ procSuite "Waku Rest API - Store v3":
       parseJson(paged.data)["messages"].getElems().mapIt(it["messageHash"].getStr()) ==
         allHashes[1 .. 2]
 
-  asyncTest "an absent cursor is answered 500 by the self-store node and 200 through a store peer":
+  asyncTest "an absent cursor is answered 410 by both the self-store node and a store peer":
     let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
     defer:
       await t.shutdown()
@@ -1264,21 +1264,53 @@ procSuite "Waku Rest API - Store v3":
 
     var response = await t.client.getStoreMessagesV3(cursor = absentCursor)
     check:
-      response.status == 500
-      $response.contentType == $MIMETYPE_TEXT
-      response.data.statusDesc.contains("cursor not found")
-
-    response = await t.client.getStoreMessagesV3(
-      peerAddr = encodeUrl(fullAddr), cursor = absentCursor
-    )
-    check:
-      response.status == 200
+      response.status == 410
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 300
       response.data.statusDesc.contains("cursor not found")
       response.data.messages.len == 0
 
-  asyncTest "a failed dial to the store peer is answered 200 with statusCode 504":
+    response = await t.client.getStoreMessagesV3(
+      peerAddr = encodeUrl(fullAddr), cursor = absentCursor
+    )
+    check:
+      response.status == 410
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 300
+      response.data.statusDesc.contains("cursor not found")
+      response.data.messages.len == 0
+
+  asyncTest "an all-zero cursor is answered 400 by both the self-store node and a store peer":
+    let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
+    defer:
+      await t.shutdown()
+    t.node.mountStoreClient()
+
+    let peerSwitch = newStandardSwitch(Opt.some(generateEcdsaKey()))
+    await peerSwitch.start()
+    defer:
+      await peerSwitch.stop()
+    peerSwitch.mount(t.node.wakuStore)
+
+    let remotePeerInfo = peerSwitch.peerInfo.toRemotePeerInfo()
+    let fullAddr = $remotePeerInfo.addrs[0] & "/p2p/" & $remotePeerInfo.peerId
+    let zeroCursor = "0x" & "00".repeat(32)
+
+    var response = await t.client.getStoreMessagesV3(cursor = zeroCursor)
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 400
+      response.data.messages.len == 0
+
+    response = await t.client.getStoreMessagesV3(
+      peerAddr = encodeUrl(fullAddr), cursor = zeroCursor
+    )
+    check:
+      response.status == 400
+      response.data.messages.len == 0
+
+  asyncTest "a failed dial to the store peer is answered 504":
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1308,14 +1340,13 @@ procSuite "Waku Rest API - Store v3":
     let response =
       await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
     check:
-      response.status == 200
+      response.status == 504
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 504
       response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
       response.data.messages.len == 0
 
-  asyncTest "a store peer whose port is closed is answered 200 with statusCode 504":
-    # TODO: logos-delivery#4168
+  asyncTest "a store peer whose port is closed is answered 504":
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1343,14 +1374,13 @@ procSuite "Waku Rest API - Store v3":
     let response =
       await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
     check:
-      response.status == 200
+      response.status == 504
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 504
       response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
       response.data.messages.len == 0
 
-  asyncTest "a store peer that accepts the connection and never answers is answered 500 on timeout":
-    # TODO: logos-delivery#4168
+  asyncTest "a store peer that accepts the connection and never answers is answered 504 on timeout":
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1399,12 +1429,12 @@ procSuite "Waku Rest API - Store v3":
       await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
     check:
       accepted.isSet()
-      response.status == 500
-      $response.contentType == $MIMETYPE_TEXT
+      response.status == 504
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 504
       response.data.statusDesc == "No history response received (timeout)"
 
-  asyncTest "a store node named by its own address in peerAddr is answered 200 with statusCode 504":
-    # TODO: logos-delivery#4168
+  asyncTest "a store node named by its own address in peerAddr is answered 504":
     let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
     defer:
       await t.shutdown()
@@ -1421,7 +1451,7 @@ procSuite "Waku Rest API - Store v3":
       peerAddr = encodeUrl(ownAddr), cursor = absentCursor
     )
     check:
-      response.status == 200
+      response.status == 504
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 504
       response.data.statusDesc == "PEER_DIAL_FAILURE: " & $ownPeerInfo.peerId

@@ -175,8 +175,7 @@ suite "Postgres driver":
     assert newNumMsgs == (initialNumMsgs + 1.int64),
       "wrong number of messages: " & $newNumMsgs
 
-  asyncTest "A message handled twice by the archive is stored once and counted twice as written":
-    # TODO: logos-delivery#4438
+  asyncTest "A message handled twice by the archive is stored once and counted once as written":
     let
       insertsBefore = insertCount(relayIngress)
       failuresBefore = errorCount(insertFailure)
@@ -189,12 +188,11 @@ suite "Postgres driver":
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
-      insertCount(relayIngress) == insertsBefore + 2
-      messagesPerShard("0") == shardBefore + 2
+      insertCount(relayIngress) == insertsBefore + 1
+      messagesPerShard("0") == shardBefore + 1
       errorCount(insertFailure) == failuresBefore
 
-  asyncTest "A message handled by two archives sharing one database is stored once and counted twice as written":
-    # TODO: logos-delivery#4438
+  asyncTest "A message handled by two archives sharing one database is counted once as written":
     let otherDriver = (await newTestPostgresDriver()).expect("second driver")
     defer:
       (await otherDriver.close()).expect("close the second driver")
@@ -209,7 +207,7 @@ suite "Postgres driver":
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
-      insertCount(relayIngress) == insertsBefore + 2
+      insertCount(relayIngress) == insertsBefore + 1
       errorCount(insertFailure) == failuresBefore
 
   asyncTest "messages_lookup partitions are created and dropped with messages partitions":

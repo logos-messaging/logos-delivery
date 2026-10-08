@@ -54,8 +54,7 @@ proc subscribe(
     pubsubTopic: Opt[PubsubTopic],
     contentTopics: seq[ContentTopic],
 ): Future[FilterSubscribeResult] {.async.} =
-  # TODO: check if this condition is valid???
-  if pubsubTopic.isNone() or contentTopics.len == 0:
+  if pubsubTopic.isNone() or pubsubTopic.get() == "" or contentTopics.len == 0:
     debug "PubsubTopic and contentTopics must be specified", peerId = peerId
     return err(
       FilterSubscribeError.badRequest("pubsubTopic and contentTopics must be specified")
@@ -87,7 +86,7 @@ proc unsubscribe(
     pubsubTopic: Opt[PubsubTopic],
     contentTopics: seq[ContentTopic],
 ): FilterSubscribeResult =
-  if pubsubTopic.isNone() or contentTopics.len == 0:
+  if pubsubTopic.isNone() or pubsubTopic.get() == "" or contentTopics.len == 0:
     debug "PubsubTopic and contentTopics must be specified", peerId = peerId
     return err(
       FilterSubscribeError.badRequest("pubsubTopic and contentTopics must be specified")

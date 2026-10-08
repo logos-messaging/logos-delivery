@@ -113,7 +113,7 @@ proc filterSubscribe*(
     debug "Couldn't parse the peer info properly", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
-  if pubsubTopic.isSome():
+  if pubsubTopic.isSome() and pubsubTopic.get() != "":
     debug "Registering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,
@@ -140,6 +140,11 @@ proc filterSubscribe*(
   elif node.wakuAutoSharding.isNone():
     debug "Failed filter subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+    return err(
+      FilterSubscribeError.badRequest(
+        "pubsubTopic must be specified when static sharding is enabled"
+      )
+    )
   else:
     # No pubsub topic, autosharding is used to deduce it
     # but content topics must be well-formed for this
@@ -195,7 +200,7 @@ proc filterUnsubscribe*(
     debug "Couldn't parse remotePeerInfo", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
-  if pubsubTopic.isSome():
+  if pubsubTopic.isSome() and pubsubTopic.get() != "":
     debug "Deregistering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,
@@ -220,6 +225,11 @@ proc filterUnsubscribe*(
   elif node.wakuAutoSharding.isNone():
     debug "Failed filter un-subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+    return err(
+      FilterSubscribeError.badRequest(
+        "pubsubTopic must be specified when static sharding is enabled"
+      )
+    )
   else: # pubsubTopic.isNone
     let topicMap = node.wakuAutoSharding
       .get()

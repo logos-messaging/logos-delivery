@@ -36,8 +36,7 @@ jobs:
           diff /tmp/deps.nix.fresh nix/deps.nix
 
   # Runs Nimble setup in a new project that requires the checked-out commit of
-  # logos-delivery, with no lockfile. The setup also fails when a dependency
-  # does not install or build.
+  # logos-delivery, with no lockfile.
   consumer-deps:
     name: "Consumer dependency resolution"
     runs-on: ubuntu-22.04
@@ -45,23 +44,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Nimble
-        run: make install-nimble
+      - name: Set up a consumer of this commit
+        id: setup
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.sha }}
 
-      - name: Run Nimble setup in a new project that requires logos-delivery
-        working-directory: ${{ runner.temp }}
+      - name: Fail if the setup failed
+        if: ${{ steps.setup.outputs.succeeded != 'true' }}
         run: |
-          cat > consumer.nimble <<EOF
-          version = "0.1.0"
-          author = "Logos"
-          description = "Consumer dependency check"
-          license = "MIT"
-          requires "https://github.com/${GITHUB_REPOSITORY}#${GITHUB_SHA}"
-          EOF
-          nimble="$(make -s -C "${GITHUB_WORKSPACE}" print-nimble-path)/nimble"
-          # Try a second time from an empty Nimble directory, so that a network
-          # error alone does not fail the job.
-          "${nimble}" setup -y || { rm -rf ~/.nimble; "${nimble}" setup -y; }
+          echo "::error::A project that requires logos-delivery cannot set up its dependencies"
+          exit 1
 
   build:
     strategy:

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, std/[strformat, sugar], results
+import std/options, std/[strformat, strutils, sugar], results
 
 import chronicles, uri, json_serialization, presto/route
 import
@@ -27,6 +27,49 @@ const futTimeout* = 5.seconds # Max time to wait for futures
 const NoPeerNoDiscError* =
   RestApiResponse.preconditionFailed("No suitable service peer & no discovery method")
 
+proc isCursorNotFound(statusDesc: string): bool =
+  ## Matches the archive's error text because the archive has no typed error for this;
+  ## a miss falls back to 502 (never to 200).
+  ## The archive drivers only report a missing pagination anchor as free text.
+  return
+    statusDesc.contains("cursor not found") or statusDesc.contains("invalid_cursor")
+
+proc httpStatus(res: StoreQueryResponse): HttpCode =
+  ## The same store failure maps to the same HTTP status on the self and peer paths.
+  case res.statusCode
+  of uint32(StatusCode.SUCCESS):
+    return Http200
+  of uint32(ErrorCode.BAD_REQUEST):
+    return Http400
+  of uint32(ErrorCode.TOO_MANY_REQUESTS):
+    return Http429
+  of uint32(ErrorCode.SERVICE_UNAVAILABLE):
+    return Http503
+  of uint32(ErrorCode.PEER_DIAL_FAILURE):
+    return Http504
+  of uint32(ErrorCode.BAD_RESPONSE):
+    # 410 so a vanished cursor is not mistaken for the end of history
+    if res.statusDesc.isCursorNotFound():
+      return Http410
+    return Http502
+  else:
+    return Http500
+
+proc storeResponse(res: StoreQueryResponse): RestApiResponse =
+  if res.statusCode == uint32(ErrorCode.TOO_MANY_REQUESTS):
+    return RestApiResponse.tooManyRequests("Request rate limit reached")
+
+  let resp = RestApiResponse.jsonResponse(res.toHex(), status = res.httpStatus()).valueOr:
+    const msg = "Error building the json response"
+    let e = $error
+    error msg, error = e
+    return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
+
+  return resp
+
+proc storeErrorResponse(code: ErrorCode, desc: string): RestApiResponse =
+  return storeResponse(StoreQueryResponse(statusCode: uint32(code), statusDesc: desc))
+
 # Queries the store-node with the query parameters and
 # returns a RestApiResponse that is sent back to the api client.
 proc performStoreQuery(
@@ -37,24 +80,17 @@ proc performStoreQuery(
   if not await queryFut.withTimeout(futTimeout):
     const msg = "No history response received (timeout)"
     error msg
-    return RestApiResponse.internalServerError(msg)
+    return storeErrorResponse(ErrorCode.PEER_DIAL_FAILURE, msg)
 
-  let res = queryFut.read().map(val => val.toHex()).valueOr:
-      const msg = "Error occurred in queryFut.read()"
-      error msg, error = error
-      return RestApiResponse.internalServerError(fmt("{msg} [{error}]"))
+  let res = queryFut.read().valueOr:
+    const msg = "Error occurred in queryFut.read()"
+    error msg, error = error
+    return RestApiResponse.internalServerError(fmt("{msg} [{error}]"))
 
   if res.statusCode == uint32(ErrorCode.TOO_MANY_REQUESTS):
     debug "Request rate limit reached on peer ", storePeer
-    return RestApiResponse.tooManyRequests("Request rate limit reached")
 
-  let resp = RestApiResponse.jsonResponse(res, status = Http200).valueOr:
-    const msg = "Error building the json response"
-    let e = $error
-    error msg, error = e
-    return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
-
-  return resp
+  return storeResponse(res)
 
 # Converts a string time representation into an Opt[Timestamp].
 # Only positive time is considered a valid Timestamp in the request
@@ -170,15 +206,9 @@ proc retrieveMsgsFromSelfNode(
   ##
 
   let storeResp = (await self.wakuStore.handleSelfStoreRequest(storeQuery)).valueOr:
-    return RestApiResponse.internalServerError($error)
+    return storeErrorResponse(error.kind, $error)
 
-  let resp = RestApiResponse.jsonResponse(storeResp.toHex(), status = Http200).valueOr:
-    const msg = "Error building the json response"
-    let e = $error
-    error msg, error = e
-    return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
-
-  return resp
+  return storeResponse(storeResp)
 
 # Subscribes the rest handler to attend "/store/v1/messages" requests
 proc installStoreApiHandlers*(
