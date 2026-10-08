@@ -289,7 +289,9 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
       peerManager.addPeer(peer, PeerOrigin.Discv5)
 
     if discoveredPeers.len > 0:
-      PeersDiscoveredEvent.emit(peers = discoveredPeers)
+      PeersDiscoveredEvent.emit(
+        wd.brokerCtx, PeersDiscoveredEvent(peers: discoveredPeers)
+      )
 
     # Discovery `queryRandom` can have a synchronous fast path for example
     # when no peers are in the routing table. Don't run it in continuous loop.

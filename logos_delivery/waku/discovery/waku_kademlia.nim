@@ -14,7 +14,8 @@ import
   libp2p/protocols/service_discovery/types,
   libp2p/protocols/kademlia/types,
   libp2p/protocols/kademlia/key_value,
-  libp2p_mix/mix_protocol
+  libp2p_mix/mix_protocol,
+  brokers/broker_context
 
 import
   logos_delivery/waku/waku_core,
@@ -34,6 +35,9 @@ const
 
 type WakuKademlia* = ref object
   protocol*: ServiceDiscovery
+  brokerCtx*: BrokerContext
+    ## The node's context (globalBrokerContext() at construction), where
+    ## PeersDiscoveredEvent is emitted.
   peerManager: PeerManager
   randomLookupLoop: Future[void]
   serviceLookupLoop: Future[void]
@@ -164,7 +168,7 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
     let discovered = self.processRecords(records, "random walk")
 
     if discovered.len > 0:
-      PeersDiscoveredEvent.emit(peers = discovered)
+      PeersDiscoveredEvent.emit(self.brokerCtx, PeersDiscoveredEvent(peers: discovered))
 
     debug "Random lookup complete", found = discovered.len
 
@@ -211,7 +215,7 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
         discovered.add(peerInfo)
 
     if discovered.len > 0:
-      PeersDiscoveredEvent.emit(peers = discovered)
+      PeersDiscoveredEvent.emit(self.brokerCtx, PeersDiscoveredEvent(peers: discovered))
 
     if attempt < EagerLookupDelays.len:
       ## One round that found peers ends the eager phase; an empty or failed
@@ -254,6 +258,7 @@ proc new*(
 
   let self = WakuKademlia(
     protocol: protocol,
+    brokerCtx: globalBrokerContext(),
     peerManager: peerManager,
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,

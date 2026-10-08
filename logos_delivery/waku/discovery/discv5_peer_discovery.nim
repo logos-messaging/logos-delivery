@@ -39,6 +39,9 @@ type Discv5PeerDiscovery* = ref object of IPeerDiscovery
     ## own brokerCtx scopes the interface brokers).
   inner*: WakuDiscoveryV5
   running: bool
+  discoveredListener: Opt[PeersDiscoveredEventListener]
+    ## Bridge from the node's PeersDiscoveredEvent; held from startDiscovery
+    ## to stopDiscovery.
 
 proc topicOf(key: string): Result[RelayShard, string] =
   ## "topic:/waku/2/rs/<cluster>/<shard>": the payload is the pubsub topic
@@ -82,24 +85,9 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       listenAddress: IpAddress,
       rng: crypto.Rng,
   ): Discv5PeerDiscovery =
-    let self = Discv5PeerDiscovery(
+    Discv5PeerDiscovery(
       conf: conf, listenAddress: listenAddress, rng: rng, nodeCtx: globalBrokerContext()
     )
-
-    # Bridge the node-level event onto the instance-scoped interface event.
-    # The wrapper lives as long as the node, so the listener is never dropped.
-    discard PeersDiscoveredEvent.listen(
-      proc(ev: PeersDiscoveredEvent): Future[void] {.async: (raises: []), gcsafe.} =
-        let mine = ev.peers.filterIt(it.origin == PeerOrigin.Discv5)
-        if mine.len > 0:
-          let converted = mine.mapIt(it.toDiscoveredPeer())
-          PeersDiscovered.emit(
-            self.brokerCtx,
-            PeersDiscovered(origin: Discv5BackendId, key: "", peers: converted),
-          )
-    )
-
-    self
 
   method backendInfo(
       self: Discv5PeerDiscovery
@@ -135,6 +123,23 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       enrRecord, peerManager, self.conf, dynamicBootstrapNodes, self.rng, nodeKey,
       self.listenAddress,
     )
+
+    # Bridge the node-level event onto the instance-scoped interface event,
+    # on the node's context only; dropped again in stopDiscovery.
+    self.discoveredListener = Opt.some(
+      ?PeersDiscoveredEvent.listen(
+        self.nodeCtx,
+        proc(ev: PeersDiscoveredEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          let mine = ev.peers.filterIt(it.origin == PeerOrigin.Discv5)
+          if mine.len > 0:
+            let converted = mine.mapIt(it.toDiscoveredPeer())
+            PeersDiscovered.emit(
+              self.brokerCtx,
+              PeersDiscovered(origin: Discv5BackendId, key: "", peers: converted),
+            )
+        ,
+      )
+    )
     self.running = true
     ok()
 
@@ -144,6 +149,11 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     if not self.running:
       return ok()
     self.running = false
+    if self.discoveredListener.isSome():
+      await PeersDiscoveredEvent.dropListener(
+        self.nodeCtx, self.discoveredListener.get()
+      )
+      self.discoveredListener = Opt.none(PeersDiscoveredEventListener)
     try:
       await self.inner.stop()
     except CatchableError:

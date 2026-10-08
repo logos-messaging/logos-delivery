@@ -189,6 +189,32 @@ proc setupAppCallbacks(
 
   return ok()
 
+proc provideNodeState(waku: Waku) =
+  ## Node-state getters for loosely-coupled components (discovery backends).
+  ## Provided at `new` and again at every `start` (discovery backends read them
+  ## while starting); `stop` clears them so a stopped node hands out no state.
+  ## reprovideIt: replace-or-insert, idempotent across restarts.
+  discard GetNodeSwitch.reprovideIt(waku.brokerCtx):
+    ok(waku.node.switch)
+  discard GetNodePeerManager.reprovideIt(waku.brokerCtx):
+    ok(waku.node.peerManager)
+  discard GetNodeEnr.reprovideIt(waku.brokerCtx):
+    ok(waku.node.enr)
+  discard GetNodeKey.reprovideIt(waku.brokerCtx):
+    ok(waku.key)
+  discard GetNodePeerInfo.reprovideIt(waku.brokerCtx):
+    ok(waku.node.switch.peerInfo)
+  discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
+    ok(waku.dynamicBootstrapNodes)
+
+proc clearNodeState(waku: Waku) =
+  GetNodeSwitch.clearProvider(waku.brokerCtx)
+  GetNodePeerManager.clearProvider(waku.brokerCtx)
+  GetNodeEnr.clearProvider(waku.brokerCtx)
+  GetNodeKey.clearProvider(waku.brokerCtx)
+  GetNodePeerInfo.clearProvider(waku.brokerCtx)
+  GetDynamicBootstrapNodes.clearProvider(waku.brokerCtx)
+
 proc new*(
     T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[Waku, string]] {.async.} =
@@ -256,20 +282,12 @@ proc new*(
     )
     node.attachDiscovery(waku.externalDiscovery)
 
-  ## Node-state getters for loosely-coupled components (discovery backends).
-  ## reprovideIt so a recreated Waku instance replaces stale providers.
-  discard GetNodeSwitch.reprovideIt(waku.brokerCtx):
-    ok(waku.node.switch)
-  discard GetNodePeerManager.reprovideIt(waku.brokerCtx):
-    ok(waku.node.peerManager)
-  discard GetNodeEnr.reprovideIt(waku.brokerCtx):
-    ok(waku.node.enr)
-  discard GetNodeKey.reprovideIt(waku.brokerCtx):
-    ok(waku.key)
-  discard GetNodePeerInfo.reprovideIt(waku.brokerCtx):
-    ok(waku.node.switch.peerInfo)
-  discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
-    ok(waku.dynamicBootstrapNodes)
+  waku.provideNodeState()
+
+  ## What a host must set up before `start` (a plugin, bootstrap peers). It is
+  ## a pure function of this instance's config and captures nothing else, so
+  ## unlike the node-state getters it stays registered across stop/start for
+  ## the instance's lifetime: a host may query it while the node is stopped.
   discard GetDiscoveryRequirements.reprovideIt(waku.brokerCtx):
     let ext = wakuConf.externalDiscoveryConf
     ok(
@@ -475,6 +493,8 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     debug "start: waku node already started"
     return ok()
 
+  waku.provideNodeState() # cleared by a previous stop()
+
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
 
@@ -594,7 +614,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Setup RequestConnectionStatus provider
 
   RequestConnectionStatus.setProvider(
-    globalBrokerContext(),
+    waku.brokerCtx,
     proc(): Result[RequestConnectionStatus, string] =
       try:
         let healthReport = waku.healthMonitor.getSyncNodeHealthReport()
@@ -608,7 +628,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Setup RequestProtocolHealth provider
 
   RequestProtocolHealth.setProvider(
-    globalBrokerContext(),
+    waku.brokerCtx,
     proc(
         protocol: WakuProtocol
     ): Future[Result[RequestProtocolHealth, string]] {.async.} =
@@ -624,7 +644,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Setup RequestHealthReport provider
 
   RequestHealthReport.setProvider(
-    globalBrokerContext(),
+    waku.brokerCtx,
     proc(): Future[Result[RequestHealthReport, string]] {.async.} =
       try:
         let report = await waku.healthMonitor.getNodeHealthReport()
@@ -698,6 +718,10 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     RequestConnectionStatus.clearProvider(waku.brokerCtx)
     RequestProtocolHealth.clearProvider(waku.brokerCtx)
     RequestHealthReport.clearProvider(waku.brokerCtx)
+    ## Node-state getters: provided again by the next start(). Cleared after
+    ## node.stop() because discovery backends read them while stopping.
+    ## GetDiscoveryRequirements stays (see new): it is config-only.
+    waku.clearNodeState()
 
     if not waku.restServer.isNil():
       await waku.restServer.stop()

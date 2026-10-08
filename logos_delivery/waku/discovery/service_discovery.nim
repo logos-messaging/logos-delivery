@@ -29,6 +29,9 @@ const ServiceBackendId* = "service"
 type ServicePeerDiscovery* = ref object of IPeerDiscovery
   inner*: WakuKademlia
   running: bool
+  discoveredListener: Opt[PeersDiscoveredEventListener]
+    ## Bridge from the node's PeersDiscoveredEvent; held from startDiscovery
+    ## to stopDiscovery.
 
 proc serviceIdOf(key: string): Result[string, string] =
   ## Any non-prefixed key and service:/topic:/cap: keys are literal service
@@ -43,22 +46,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
   proc new(
       T: typedesc[ServicePeerDiscovery], inner: WakuKademlia
   ): ServicePeerDiscovery =
-    let self = ServicePeerDiscovery(inner: inner)
-
-    # Bridge the node-level event onto the instance-scoped interface event.
-    # The wrapper lives as long as the node, so the listener is never dropped.
-    discard PeersDiscoveredEvent.listen(
-      proc(ev: PeersDiscoveredEvent): Future[void] {.async: (raises: []), gcsafe.} =
-        let mine = ev.peers.filterIt(it.origin == PeerOrigin.Kademlia)
-        if mine.len > 0:
-          let converted = mine.mapIt(it.toDiscoveredPeer())
-          PeersDiscovered.emit(
-            self.brokerCtx,
-            PeersDiscovered(origin: ServiceBackendId, key: "", peers: converted),
-          )
-    )
-
-    self
+    ServicePeerDiscovery(inner: inner)
 
   method backendInfo(
       self: ServicePeerDiscovery
@@ -80,6 +68,23 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
     await self.inner.start()
+
+    # Bridge the node-level event onto the instance-scoped interface event,
+    # on the node's context only; dropped again in stopDiscovery.
+    self.discoveredListener = Opt.some(
+      ?PeersDiscoveredEvent.listen(
+        self.inner.brokerCtx,
+        proc(ev: PeersDiscoveredEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          let mine = ev.peers.filterIt(it.origin == PeerOrigin.Kademlia)
+          if mine.len > 0:
+            let converted = mine.mapIt(it.toDiscoveredPeer())
+            PeersDiscovered.emit(
+              self.brokerCtx,
+              PeersDiscovered(origin: ServiceBackendId, key: "", peers: converted),
+            )
+        ,
+      )
+    )
     self.running = true
     ok()
 
@@ -88,6 +93,11 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if not self.running:
       return ok()
+    if self.discoveredListener.isSome():
+      await PeersDiscoveredEvent.dropListener(
+        self.inner.brokerCtx, self.discoveredListener.get()
+      )
+      self.discoveredListener = Opt.none(PeersDiscoveredEventListener)
     await self.inner.stop()
     self.running = false
     ok()

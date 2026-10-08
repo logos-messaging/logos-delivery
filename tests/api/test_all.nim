@@ -10,4 +10,5 @@ import
   ./test_api_health,
   ./test_messaging_rest,
   ./test_entry_layer,
-  ./test_peer_discovery_interface
+  ./test_peer_discovery_interface,
+  ./test_node_broker_lifecycle

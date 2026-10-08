@@ -59,39 +59,42 @@ proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string
       )
   return ok()
 
-proc installEventListeners(brokerCtx: BrokerContext, cache: MessagingEventCache) =
+template listenUntilStop(client: MessagingClient, E: typedesc, handler: untyped) =
+  ## Registers `handler` for the current start; MessagingClient.stop drops it.
+  let ctx = client.brokerCtx
+  let res = E.listen(ctx, handler)
+  if res.isOk():
+    let listener = res.get()
+    client.eventDroppers.add(
+      proc(): Future[void] {.async: (raises: []), gcsafe.} =
+        await E.dropListener(ctx, listener)
+    )
+  else:
+    error "Messaging REST: failed to listen", event = $E, error = res.error
+
+proc installEventListeners(client: MessagingClient, cache: MessagingEventCache) =
   ## Buffers the MessagingClient events into `cache` so the poll-based REST
-  ## endpoints can observe them. Listeners live for the node's lifetime (the
-  ## captured `cache` keeps them and their data alive); no teardown is wired.
-  discard MessageSentEvent.listen(
-    brokerCtx,
+  ## endpoints can observe them. Registered on every start, dropped on stop;
+  ## `cache` (owned by the mounted routes) outlives restarts.
+  client.listenUntilStop(MessageSentEvent):
     proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Sent),
-  )
+      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Sent)
 
-  discard MessageQueuedEvent.listen(
-    brokerCtx,
+  client.listenUntilStop(MessageQueuedEvent):
     proc(evt: MessageQueuedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Queued),
-  )
+      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Queued)
 
-  discard MessagePropagatedEvent.listen(
-    brokerCtx,
+  client.listenUntilStop(MessagePropagatedEvent):
     proc(evt: MessagePropagatedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Propagated),
-  )
+      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Propagated)
 
-  discard MessageErrorEvent.listen(
-    brokerCtx,
+  client.listenUntilStop(MessageErrorEvent):
     proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Error, evt.error),
-  )
+      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Error, evt.error)
 
-  discard MessageReceivedEvent.listen(
-    brokerCtx,
+  client.listenUntilStop(MessageReceivedEvent):
     proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message), evt.source),
-  )
+      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message), evt.source)
 
 proc installMessagingApiHandlers*(
     router: var RestRouter, client: MessagingClient, maxReceived = DefaultMaxReceived
@@ -102,8 +105,11 @@ proc installMessagingApiHandlers*(
   ## `maxReceived` bounds the received messages kept between polls.
 
   # Event observability: buffer send/received events for the poll-based GETs.
+  # The routes and the cache are installed once; the listeners feeding the
+  # cache are (re)registered on every start and dropped on stop.
   let eventCache = MessagingEventCache.new(maxReceived = maxReceived)
-  installEventListeners(client.waku.brokerCtx, eventCache)
+  client.restListenerInstaller = proc() {.gcsafe, raises: [].} =
+    installEventListeners(client, eventCache)
 
   # Without autosharding, content topics resolve to no shard: answer 503.
   let autoshardingConfigured = client.waku.isAutoshardingConfigured()
@@ -254,7 +260,10 @@ proc mountRestApi*(client: MessagingClient) =
   ## after the messaging layer has started. Lives here (not in the core
   ## `messaging_client` module) so the core need not depend on the REST layer
   ## above it — that would form an import cycle.
-  if not client.waku.restServer.isNil():
+  if client.waku.restServer.isNil():
+    return
+  if client.restListenerInstaller.isNil():
+    # First start: mount the routes once (presto rejects a route added twice).
     # The BTree route table is ref-backed, so mutating the copied router persists
     # (same pattern as the waku REST builder).
     let capacity =
@@ -266,3 +275,5 @@ proc mountRestApi*(client: MessagingClient) =
     installMessagingApiHandlers(router, client, maxReceived = capacity)
     rest_server_builder.markRestApiInstalled(rest_server_builder.RestRootMessaging)
     info "Mounted messaging REST API endpoints"
+  # Every start: the event-cache listeners, dropped by MessagingClient.stop.
+  client.restListenerInstaller()

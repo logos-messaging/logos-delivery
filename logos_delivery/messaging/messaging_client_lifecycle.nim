@@ -61,6 +61,9 @@ proc stop*(self: MessagingClient) {.async.} =
   MessagingSend.clearProvider(self.brokerCtx)
   MessagingSubscribe.clearProvider(self.brokerCtx)
   MessagingUnsubscribe.clearProvider(self.brokerCtx)
+  for dropListener in self.eventDroppers:
+    await dropListener()
+  self.eventDroppers.setLen(0)
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
   if not self.persistencyJob.isNil():

@@ -45,8 +45,7 @@ import
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
-  ../common/rate_limit/setting,
-  ../api/events/discovery_events
+  ../common/rate_limit/setting
 
 ## Peer persistence
 
@@ -194,17 +193,8 @@ proc setupProtocols(
       return err("failed to setup service discovery: " & error)
 
     node.attachDiscovery(ServicePeerDiscovery.create(node.wakuKademlia))
-
-    # Register ServicePeersRequest provider
-    ServicePeersRequest.setProvider(
-      node.brokerCtx,
-      proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
-        let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
-          return err("failed call to lookupServicePeers: " & error)
-        return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
-    ).isOkOr:
-      error "Can't set provider for ServicePeersRequest", error = error
-      return err("Can't set provider for ServicePeersRequest: " & error)
+    # The ServicePeersRequest provider is set by WakuNode.start and cleared by
+    # WakuNode.stop (startProvidersAndListeners / stopProvidersAndListeners).
 
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()

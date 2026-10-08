@@ -61,6 +61,7 @@ import
     requests/health_requests,
     api/events/health_events,
     api/events/peer_events,
+    api/events/discovery_events,
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/peer_discovery_interface,
@@ -826,10 +827,21 @@ proc startProvidersAndListeners*(node: WakuNode) =
   ).isOkOr:
     error "Can't set provider for RequestContentTopicsHealth", error = error
 
+  if not node.wakuKademlia.isNil():
+    ServicePeersRequest.setProvider(
+      node.brokerCtx,
+      proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
+        let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
+          return err("failed call to lookupServicePeers: " & error)
+        return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
+    ).isOkOr:
+      error "Can't set provider for ServicePeersRequest", error = error
+
 proc stopProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.clearProvider(node.brokerCtx)
   RequestContentTopicsHealth.clearProvider(node.brokerCtx)
   RequestShardTopicsHealth.clearProvider(node.brokerCtx)
+  ServicePeersRequest.clearProvider(node.brokerCtx)
 
 proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
