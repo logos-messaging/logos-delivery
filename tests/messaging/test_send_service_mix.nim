@@ -671,6 +671,63 @@ suite "Mix send path - exit peer selection":
       waku.lightpushPeerAvailable(shard) # usable for a plain send
       waku.selectMixLightpushPeer(shard).isNone() # but not as a mix exit
 
+  asyncTest "a mix exit stays an exit after a peer store delete":
+    let peerId = addLightpushPeer(mixCapable = true)
+    check waku.selectMixLightpushPeer(shard).isSome()
+
+    waku.node.peerManager.switch.peerStore.delete(peerId)
+    let exit = waku.selectMixLightpushPeer(shard)
+    check:
+      exit.isSome()
+      exit.get().peerId == peerId
+
+  asyncTest "a mix exit with only an ENR stays an exit after a peer store delete":
+    ## A sender that found a fleet node through discv5 has its shards only in the
+    ## ENR.
+    let key = generateSecp256k1Key()
+    let peerId = PeerId.init(key).tryGet()
+    var builder = EnrBuilder.init(key)
+    builder.withWakuRelaySharding(RelayShards(clusterId: 3, shardIds: @[0'u16])).expect(
+      "shards"
+    )
+    let keyPair = generateKeyPair().expect("mix key pair")
+    waku.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId,
+        @[MultiAddress.init("/ip4/127.0.0.1/tcp/60001").tryGet()],
+        enr = Opt.some(builder.build().expect("record")),
+        protocols = @[WakuLightPushCodec],
+        mixPubKey = Opt.some(keyPair.publicKey),
+      )
+    )
+    check:
+      waku.node.peerManager.switch.peerStore[ShardBook][peerId].len == 0
+      waku.selectMixLightpushPeer(shard).isSome()
+
+    waku.node.peerManager.switch.peerStore.delete(peerId)
+    let exit = waku.selectMixLightpushPeer(shard)
+    check:
+      exit.isSome()
+      exit.get().peerId == peerId
+
+  asyncTest "a mix exit stays an exit after a peer store delete and a new mix record":
+    let peerId = addLightpushPeer(mixCapable = true)
+    waku.node.peerManager.switch.peerStore.delete(peerId)
+    # A kademlia record gives only the services of the node.
+    let keyPair = generateKeyPair().expect("mix key pair")
+    waku.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId,
+        @[MultiAddress.init("/ip4/127.0.0.1/tcp/60000").tryGet()],
+        protocols = @[MixProtocolID],
+        mixPubKey = Opt.some(keyPair.publicKey),
+      )
+    )
+    let exit = waku.selectMixLightpushPeer(shard)
+    check:
+      exit.isSome()
+      exit.get().peerId == peerId
+
   asyncTest "a mix key alone does not make a peer a usable exit":
     ## Mix routes IPv4 TCP and QUIC-v1 addresses only. A peer with another
     ## address is not in the pool, whatever its mix key is.
