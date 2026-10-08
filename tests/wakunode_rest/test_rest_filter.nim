@@ -863,11 +863,6 @@ suite "Waku v2 Rest API - Filter V2":
     let
       subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
       subscriptions = restFilterTest.serviceNode.wakuFilter.subscriptions
-      request = FilterUnsubscribeRequest(
-        requestId: "4321",
-        contentFilters: @[DefaultContentTopic],
-        pubsubTopic: Opt.some(DefaultPubsubTopic),
-      )
 
     let postResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
@@ -879,7 +874,13 @@ suite "Waku v2 Rest API - Filter V2":
     await subscriptions.removePeer(subPeerId)
 
     # When it unsubscribes
-    let deleteResponse = await restFilterTest.client.filterDeleteSubscriptions(request)
+    let deleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "4321",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
 
     # Then the service answers 404 and the message cache no longer lists the topic
     let messages = await issueRequest(
