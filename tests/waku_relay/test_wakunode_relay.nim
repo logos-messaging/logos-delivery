@@ -690,7 +690,7 @@ suite "WakuNode - Relay":
     await node.stop()
 
   asyncTest "A peer restarted with the same key stays out of the mesh after the prune backoff until it publishes":
-    # TODO: relay-mesh-after-restart
+    # TODO: iftech/nim-libp2p#3236
     let
       nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(nodeKey1)
@@ -782,7 +782,7 @@ suite "WakuNode - Relay":
     await allFutures(node1.stop(), restartedNode2.stop())
 
   asyncTest "Messages are not relayed through a peer restarted with the same key":
-    # TODO: relay-mesh-after-restart
+    # TODO: iftech/nim-libp2p#3236
     ## node1 - node2 - node3 - node4, each node connected only to its neighbours
     let
       nodeKey1 = generateSecp256k1Key()
