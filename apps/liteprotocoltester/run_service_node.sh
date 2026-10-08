@@ -52,7 +52,7 @@ exec /usr/bin/logosdeliverynode\
       --dns-discovery=true\
       --discv5-discovery=true\
       --discv5-enr-auto-update=True\
-      --discv5-bootstrap-node=${BOOTSTRAP_ENR}\
+      --entry-node=${BOOTSTRAP_ENR}\
       --log-level=INFO\
       --metrics-server=True\
       --metrics-server-port=8003\

@@ -47,13 +47,13 @@ There is also a [more comprehensive tutorial](../../tutorial/dns-disc.md) for ad
 Enable Discovery v5 using the `--discv5-discovery` option.
 
 It is possible to configure bootstrap entries for the Discovery v5 routing table
-using the `--discv5-bootstrap-node` option repeatedly.
+using the `--entry-node` option repeatedly.
 
 ```sh
 ./build/logosdeliverynode \
   --discv5-discovery:true \
-  --discv5-bootstrap-node:<discv5-enr-bootstrap-entry1> \
-  --discv5-bootstrap-node:<discv5-enr-bootstrap-entry2>
+  --entry-node:<discv5-enr-bootstrap-entry1> \
+  --entry-node:<discv5-enr-bootstrap-entry2>
 ```
 
 Note that if Discovery v5 is enabled and used in conjunction with DNS-based discovery,

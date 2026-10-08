@@ -220,6 +220,7 @@ type WakuNodeConf* = object
   .}: string
 
   natDiscoveryTimeoutMs* {.
+    obsolete: "unused; removed in v0.42.0",
     desc: "Time limit in milliseconds for NAT gateway discovery.",
     defaultValue: defaultNatDiscoveryTimeoutMs(),
     name: "nat-discovery-timeout-ms"
@@ -315,6 +316,7 @@ hence would have reachability issues.""",
   .}: Opt[bool]
 
   relayPeerExchange* {.
+    obsolete: "unused; removed in v0.42.0",
     desc: "Enable gossipsub peer exchange in relay protocol: true|false",
     defaultValue: false,
     name: "relay-peer-exchange"
@@ -429,6 +431,7 @@ hence would have reachability issues.""",
   .}: int
 
   storeResume* {.
+    obsolete: "use --store-sync; removed in v0.42.0",
     desc: "Enable store resume functionality (requires --store)",
     defaultValue: false,
     name: "store-resume"
@@ -607,6 +610,7 @@ hence would have reachability issues.""",
   .}: Port
 
   discv5BootstrapNodes* {.
+    obsolete: "use --entry-node; removed in v0.42.0",
     desc:
       "Text-encoded ENR for bootstrap node. Used when connecting to the network. Argument may be repeated. (requires --discv5-discovery)",
     name: "discv5-bootstrap-node"

@@ -586,6 +586,9 @@ suite "Waku external config - deprecated flags":
       "--staticnode=/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ",
       "--relay-client=true", "--metrics-logging=false", "--discv5-table-ip-limit=5",
       "--discv5-bucket-ip-limit=3", "--discv5-bits-per-hop=2",
+      "--discv5-bootstrap-node=enr:-QEKuECA0zhRJej2eaOoOPddNcYr7-5NdRwuoLCe2EE4wfEYkAZhFotg6Kkr8K15pMAGyUyt0smHkZCjLeld0BUzogNtAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc2hhcmRzLnRlc3Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zaGFyZHMudGVzdC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0",
+      "--store-resume=true", "--relay-peer-exchange=true",
+      "--nat-discovery-timeout-ms=5000",
     ]
 
     ## When
@@ -601,6 +604,10 @@ suite "Waku external config - deprecated flags":
       wakuConf.discv5Conf.get().tableIpLimit == 5
       wakuConf.discv5Conf.get().bucketIpLimit == 3
       wakuConf.discv5Conf.get().bitsPerHop == 2
+      conf.discv5BootstrapNodes.len == 1
+      conf.storeResume
+      conf.relayPeerExchange
+      conf.natDiscoveryTimeoutMs == 5000
 
   test "--circuit-relay-client replaces --relay-client":
     ## Given / When
