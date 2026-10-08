@@ -76,7 +76,7 @@ suite "WakuNodeConf - preset integration":
     require wakuConf.validate().isOk()
     check:
       wakuConf.clusterId == 2
-    # TODO: cluster-id-2-preset
+    # TODO: logos-delivery#4454
     check wakuConf.staticNodes == NetworkPresetConf.LogosTestConf().entryNodes
 
   test "Cluster id 2 applies LogosDevConf":
@@ -98,7 +98,7 @@ suite "WakuNodeConf - preset integration":
       wakuConf.staticNodes == NetworkPresetConf.LogosDevConf().entryNodes
 
   test "Cluster id 2 with the logos.test preset applies LogosDevConf":
-    # TODO: cluster-id-2-preset
+    # TODO: logos-delivery#4454
     ## Given
     var conf = defaultKernelConf().valueOr:
       raiseAssert error

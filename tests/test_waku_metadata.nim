@@ -112,7 +112,7 @@ procSuite "Waku Metadata Protocol":
     await allFutures([node1.stop(), node2.stop()])
 
   asyncTest "Metadata reports configured shards once the relay holds a shard of another cluster":
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     let clusterId = 10.uint16
     let
       node1 = newTestWakuNode(
@@ -166,7 +166,7 @@ procSuite "Waku Metadata Protocol":
     await allFutures([node1.stop(), node2.stop(), node3.stop()])
 
   asyncTest "Metadata reports a shard of another cluster as a shard of the node's own cluster":
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     let clusterId = 10.uint16
     let
       node1 = newTestWakuNode(
@@ -203,7 +203,7 @@ procSuite "Waku Metadata Protocol":
     await allFutures([node1.stop(), node2.stop()])
 
   asyncTest "A peer of another cluster is disconnected although the relay holds a shard of that cluster":
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     let
       node1 = newTestWakuNode(
         generateSecp256k1Key(), clusterId = 10, subscribeShards = @[uint16(0)]

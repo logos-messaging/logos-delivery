@@ -222,7 +222,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check lc.messagingConf.get().reliabilityEnabled.isSome()
 
   test "a clusterId override of 2 replaces the logos.test preset with the logos.dev one":
-    # TODO: cluster-id-2-preset
+    # TODO: logos-delivery#4454
     let lc = parseLogosDeliveryConf(
       """{"preset": "logos.test", "messagingOverrides": {"clusterId": 2}}"""
     ).valueOr:

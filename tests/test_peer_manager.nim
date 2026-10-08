@@ -530,7 +530,7 @@ procSuite "Peer Manager":
     check logos_delivery_total_unique_peers.value() == baseline + 2
 
   asyncTest "Shards of two clusters leave the connected peers per shard metric unset":
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     let
       node = newTestWakuNode(generateSecp256k1Key())
       control = newTestWakuNode(generateSecp256k1Key())

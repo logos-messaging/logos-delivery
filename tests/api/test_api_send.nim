@@ -682,7 +682,7 @@ suite "Waku API - Send":
       rejected == 1.0
 
   asyncTest "A send retried while the node has no relay peer is handed to the relay handlers on every attempt and received once":
-    # TODO: relay-republish-runs-handlers
+    # TODO: logos-delivery#4453
     # Given a core node with REST that is connected to no peer
     var node: LogosDelivery
     lockNewGlobalBrokerContext:

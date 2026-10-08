@@ -230,7 +230,7 @@ suite "LogosDelivery - relay REST API":
         @[base64.encode(contentTopicMessage.payload)]
 
   asyncTest "a shard outside the configured shards is archived and takes a publish, while reading its messages answers 404":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     let
       configuredShard = $RelayShard(clusterId: TestClusterId, shardId: 1)
       otherShard = $RelayShard(clusterId: TestClusterId, shardId: 0)
@@ -312,7 +312,7 @@ suite "LogosDelivery - relay REST API":
 
 suite "LogosDelivery - configured shards":
   asyncTest "under static sharding the relay is on the configured shard only, and a publish to another shard answers 400":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     let
       configuredShard = $RelayShard(clusterId: TestClusterId, shardId: 1)
       otherShard = $RelayShard(clusterId: TestClusterId, shardId: 0)
@@ -339,7 +339,7 @@ suite "LogosDelivery - configured shards":
       otherShardPublish.status == 400
 
   asyncTest "under static sharding without REST the relay is on no shard, while the ENR and metadata report the configured shard":
-    # TODO: static-shard-without-rest
+    # TODO: logos-delivery#3446
     var conf = nodeConf(EntryLayer.kernel)
     conf.kernel.numShardsInNetwork = 0
     conf.kernel.shards = @[1'u16]
@@ -380,7 +380,7 @@ suite "LogosDelivery - configured shards":
       metadata.shards == @[1'u32]
 
   asyncTest "under static sharding without REST the node is no relay peer on the configured shard, and a peer's message there is neither archived nor pushed to a filter subscriber":
-    # TODO: static-shard-without-rest
+    # TODO: logos-delivery#3446
     let
       configuredShard = $RelayShard(clusterId: TestClusterId, shardId: 1)
       contentTopic = ContentTopic("/toychat/2/huilong/proto")
@@ -484,7 +484,7 @@ suite "LogosDelivery - configured shards":
       pushed.len == 0
 
   asyncTest "under static sharding without REST the messaging entry layer leaves the relay on no shard":
-    # TODO: static-shard-without-rest
+    # TODO: logos-delivery#3446
     var conf = nodeConf(EntryLayer.messaging)
     conf.kernel.numShardsInNetwork = 0
     conf.kernel.shards = @[1'u16]
@@ -503,7 +503,7 @@ suite "LogosDelivery - configured shards":
       node.waku.node.wakuRelay.subscribedTopics().len == 0
 
   asyncTest "an unsigned message on a protected shard outside the configured shards is archived":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     let protectedShard = $RelayShard(clusterId: TestClusterId, shardId: 0)
 
     var conf = nodeConf(EntryLayer.kernel, rest = true)
@@ -561,7 +561,7 @@ suite "LogosDelivery - configured shards":
       ) == @[unsignedHash]
 
   asyncTest "a protected shard among the configured shards rejects an unsigned message":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     let
       protectedShard = $RelayShard(clusterId: TestClusterId, shardId: 0)
       unprotectedShard = $RelayShard(clusterId: TestClusterId, shardId: 1)
@@ -634,7 +634,7 @@ suite "LogosDelivery - configured shards":
       protectedShardMessages.data.messages.len == 0
 
   asyncTest "without discv5 the ENR lists the configured shard while metadata reports every shard":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     var conf = nodeConf(EntryLayer.kernel)
     conf.kernel.numShardsInNetwork = 8
     conf.kernel.shards = @[1'u16]
@@ -675,7 +675,7 @@ suite "LogosDelivery - configured shards":
       metadata.shards.toHashSet() == toSeq(0'u32 ..< 8'u32).toHashSet()
 
   asyncTest "with discv5 the ENR lists every shard":
-    # TODO: shard-flag-autosharding
+    # TODO: logos-delivery#4455
     var conf = nodeConf(EntryLayer.kernel)
     conf.kernel.numShardsInNetwork = 8
     conf.kernel.shards = @[1'u16]

@@ -597,7 +597,7 @@ suite "Waku v2 Rest API - Relay":
     await node.stop()
 
   asyncTest "Unsubscribing one content topic stops the other content topics on its shard - DELETE /relay/v1/auto/subscriptions":
-    # TODO: shard-unsub
+    # TODO: logos-delivery#4456
     # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
     let publisher = testWakuNode()
     (await publisher.mountRelay()).isOkOr:
@@ -708,7 +708,7 @@ suite "Waku v2 Rest API - Relay":
       otherAppPublish.status == 200
 
   asyncTest "Subscribing again to a content topic whose shard was dropped answers 200 without rejoining the shard - POST /relay/v1/auto/subscriptions":
-    # TODO: shard-unsub
+    # TODO: logos-delivery#4456
     # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
     let publisher = testWakuNode()
     (await publisher.mountRelay()).isOkOr:
@@ -798,7 +798,7 @@ suite "Waku v2 Rest API - Relay":
       received.mapIt(it.payload) == @[delivered.payload]
 
   asyncTest "Unsubscribing a content topic never subscribed drops its shard - DELETE /relay/v1/auto/subscriptions":
-    # TODO: shard-unsub
+    # TODO: logos-delivery#4456
     # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
     let publisher = testWakuNode()
     (await publisher.mountRelay()).isOkOr:
@@ -1942,7 +1942,7 @@ suite "Waku v2 Rest API - Relay":
       node.wakuRelay.isSubscribed(DefaultPubsubTopic)
       cache.isPubsubSubscribed(DefaultPubsubTopic)
 
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     # When subscribing to a shard of another cluster
     let otherClusterShard = $RelayShard(clusterId: 199, shardId: 0)
     let otherClusterPost = await client.relayPostSubscriptionsV1(@[otherClusterShard])
@@ -1968,7 +1968,7 @@ suite "Waku v2 Rest API - Relay":
       otherClusterReceived.mapIt(it.payload) == @[otherClusterMessage.payload]
 
   asyncTest "A shard beyond the autosharding shard count is subscribed and carries messages - POST /relay/v1/subscriptions, POST /relay/v1/messages/{topic}, GET /relay/v1/messages/{topic}":
-    # TODO: relay-other-cluster-shard
+    # TODO: logos-delivery#4457
     # Given a node with autosharding over 8 shards
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
@@ -2006,7 +2006,7 @@ suite "Waku v2 Rest API - Relay":
       received.mapIt(it.payload) == @[message.payload]
 
   asyncTest "A message posted again after it is read is returned again by the publisher and not by its relay peer - POST /relay/v1/messages/{topic}":
-    # TODO: relay-republish-runs-handlers
+    # TODO: logos-delivery#4453
     # Given two relay nodes, each behind its own REST server
     let publisher = testWakuNode()
     (await publisher.mountRelay()).isOkOr:
@@ -2080,7 +2080,7 @@ suite "Waku v2 Rest API - Relay":
       againOnReceiver.data.len == 0
 
   asyncTest "A message posted twice is counted twice as received and as incoming traffic - POST /relay/v1/messages/{topic}":
-    # TODO: relay-republish-runs-handlers
+    # TODO: logos-delivery#4453
     # Given a relay node subscribed over REST to the pubsub topic
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
@@ -2123,7 +2123,7 @@ suite "Waku v2 Rest API - Relay":
       relayNetworkBytes(netIn) - bytesAfterFirst == bytesAfterFirst - bytesBefore
 
   asyncTest "A message posted again with a relay peer in the mesh is answered 200 on the static route and 400 NoPeersToPublish on the auto route - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
-    # TODO: relay-republish-runs-handlers
+    # TODO: logos-delivery#4453
     # Given two relay nodes with autosharding over 8 shards, each behind its own REST server
     let publisher = testWakuNode()
     (await publisher.mountRelay()).isOkOr:

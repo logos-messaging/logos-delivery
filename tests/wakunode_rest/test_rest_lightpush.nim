@@ -410,7 +410,7 @@ suite "Waku v2 Rest API - lightpush":
       received.mapIt(it.proof) == @[sent.proof]
 
   asyncTest "A message pushed twice is answered 505 the second time and handed to the service node's handlers both times - POST /lightpush/v3/message":
-    # TODO: relay-republish-runs-handlers
+    # TODO: logos-delivery#4453
     # Given the service node and its relay peer subscribed over REST
     let restLightPushTest = await RestLightPushTest.init()
     defer:
