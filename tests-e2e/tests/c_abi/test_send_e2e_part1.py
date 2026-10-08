@@ -828,7 +828,8 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         relay_peer.set_relay_subscriptions([self.test_pubsub_topic])
 
         lightpush_peer = WakuNode(NODE_2, f"s31_lightpush_peer_{self.test_id}")
-        lightpush_peer.start(relay="true", lightpush="true", discv5_discovery="false")
+        # No lightpush rate limit, so the bursts and their retries are never rejected as too many requests.
+        lightpush_peer.start(relay="true", lightpush="true", discv5_discovery="false", rate_limit="lightpush:0/1s")
         lightpush_peer.set_relay_subscriptions([self.test_pubsub_topic])
 
         store_peer = WakuNode(NODE_2, f"s31_store_peer_{self.test_id}")
@@ -839,9 +840,8 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
         # Mesh docker peers so a lightpushed message can fan out to the store peer.
         peer_multiaddrs = [p.get_multiaddr_with_id() for p in churn_peers]
-        for peer in churn_peers:
-            others = [a for a in peer_multiaddrs if a != peer.get_multiaddr_with_id()]
-            peer.add_peers(others)
+        for i, peer in enumerate(churn_peers):
+            self.add_node_peer(peer, peer_multiaddrs[:i])
 
         node_config.update(
             {
@@ -882,9 +882,8 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                 peer.add_peers([sender_multiaddr])
 
             peer_multiaddrs = [p.get_multiaddr_with_id() for p in churn_peers]
-            for peer in churn_peers:
-                others = [a for a in peer_multiaddrs if a != peer.get_multiaddr_with_id()]
-                peer.add_peers(others)
+            for i, peer in enumerate(churn_peers):
+                self.add_node_peer(peer, peer_multiaddrs[:i])
             delay(3)
 
             phase3_ids = self._s31_fire_burst(sender_node, phase_label="phase3")

@@ -64,6 +64,7 @@ jobs:
         run: pip install -r tests-e2e/requirements.txt
 
       - name: Run C ABI e2e tests (${{ matrix.subset }} subset)
+        id: tests
         working-directory: tests-e2e
         run: |
           echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
@@ -77,3 +78,10 @@ jobs:
           name: test-report-${{ matrix.subset == 'docker' && 'c-abi-docker' || 'c-abi' }}
           path: tests-e2e/log/junit.xml
           retention-days: 1
+
+      - name: Upload logs
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: c-abi-logs-${{ matrix.subset }}
+          path: tests-e2e/log/
