@@ -410,3 +410,18 @@ suite "Messaging REST API":
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  test "clear drops the buffered send statuses and received messages":
+    let cache = MessagingEventCache.new()
+    cache.recordSend("req-1", "0x1", SendEventKind.Sent)
+    cache.recordReceived(
+      "0x2",
+      toRelayWakuMessage(fakeWakuMessage(contentTopic = "/test/1/recv/proto")),
+      MessageSource.Live,
+    )
+
+    cache.clear()
+
+    check:
+      cache.pollAllSend().len == 0
+      cache.pollReceived().len == 0

@@ -123,6 +123,12 @@ proc pollSend*(self: MessagingEventCache, requestId: string): Opt[SendStatus] =
 
   return Opt.some(status)
 
+proc clear*(self: MessagingEventCache) =
+  ## Drops every buffered send status and received message, polled or not.
+  self.sendByReqId.clear()
+  self.sendOrder.clear()
+  self.received.clear()
+
 proc pollReceived*(self: MessagingEventCache): seq[ReceivedMessageRecord] =
   ## Return buffered received messages (oldest first) and clear (evict-after-poll).
   for record in self.received:

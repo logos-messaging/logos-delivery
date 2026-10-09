@@ -43,6 +43,8 @@ proc stop*(self: MessagingRestEvents, ctx: BrokerContext) {.async: (raises: []).
   if self.received.isSome():
     await MessageReceivedEvent.dropListener(ctx, self.received.get())
     self.received = Opt.none(MessageReceivedEventListener)
+  # Nothing feeds the cache any more, so what it buffered is stale.
+  self.cache.clear()
 
 proc start*(self: MessagingRestEvents, ctx: BrokerContext): Result[void, string] =
   ## Registers the listeners that are not yet registered, so it is idempotent
