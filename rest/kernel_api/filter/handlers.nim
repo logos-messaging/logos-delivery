@@ -23,7 +23,7 @@ import
   rest/serdes,
   rest/responses,
   rest/rest_serdes,
-  ./types
+  rest/kernel_api/filter/types
 
 export types
 

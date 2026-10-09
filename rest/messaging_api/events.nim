@@ -10,8 +10,8 @@ import results, chronos
 import
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/api/types,
-  ./event_cache,
-  ./types
+  rest/messaging_api/event_cache,
+  rest/messaging_api/types
 
 type MessagingRestEvents* = ref object
   cache*: MessagingEventCache

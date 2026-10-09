@@ -1,7 +1,11 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, presto/route
-import logos_delivery/waku/waku_node, rest/responses, rest/serdes, ./types
+import
+  logos_delivery/waku/waku_node,
+  rest/responses,
+  rest/serdes,
+  rest/kernel_api/debug/types
 
 export types
 

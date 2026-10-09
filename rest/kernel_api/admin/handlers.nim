@@ -26,7 +26,7 @@ import
   rest/responses,
   rest/serdes,
   rest/rest_serdes,
-  ./types
+  rest/kernel_api/admin/types
 
 export types
 

@@ -21,7 +21,7 @@ import
   rest/serdes,
   rest/responses,
   rest/rest_serdes,
-  ./types
+  rest/kernel_api/legacy_lightpush/types
 
 export types
 

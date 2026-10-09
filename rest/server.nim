@@ -10,7 +10,7 @@ import
   presto/middleware,
   presto/servercommon
 
-import ./origin_handler
+import rest/origin_handler
 
 type
   RestServerResult*[T] = Result[T, string]

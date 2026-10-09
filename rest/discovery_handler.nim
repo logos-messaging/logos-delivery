@@ -1,7 +1,11 @@
 {.push raises: [].}
 
 import chronos, std/sequtils, results
-import logos_delivery/waku/discovery/waku_discv5, logos_delivery/waku/waku_relay, logos_delivery/waku/waku_core, ./message_cache
+import
+  logos_delivery/waku/discovery/waku_discv5,
+  logos_delivery/waku/waku_relay,
+  logos_delivery/waku/waku_core,
+  rest/message_cache
 
 ### Discovery
 

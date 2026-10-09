@@ -1,6 +1,6 @@
 import results, chronos
 import logos_delivery/logos_delivery
-import ../../rest/rest_service
+import rest/rest_service
 
 export rest_service
 

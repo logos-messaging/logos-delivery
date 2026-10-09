@@ -1,11 +1,7 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, presto/[route, client, common]
-import
-  rest/serdes,
-  rest/rest_serdes,
-  logos_delivery/api/types,
-  ./types
+import rest/serdes, rest/rest_serdes, logos_delivery/api/types, rest/messaging_api/types
 
 export types
 

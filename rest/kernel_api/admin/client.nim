@@ -2,7 +2,7 @@
 
 import chronicles, json_serialization, presto/[route, client], stew/byteutils
 
-import rest/serdes, rest/rest_serdes, ./types
+import rest/serdes, rest/rest_serdes, rest/kernel_api/admin/types
 
 export types
 

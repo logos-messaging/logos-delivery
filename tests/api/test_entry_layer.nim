@@ -11,7 +11,9 @@ import
   logos_delivery/waku/[common/base64, waku_core, waku_node],
   rest/client
 import tools/confutils/cli_args
-import ../testlib/[rest_requests, rest_service, testasync, wakucore, wakunode, wakunodeconf]
+import
+  tests/testlib/
+    [rest_requests, rest_service, testasync, wakucore, wakunode, wakunodeconf]
 
 ## Validates the layer-selection invariant of `LogosDelivery.new(LogosDeliveryNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
@@ -133,16 +135,14 @@ suite "LogosDelivery - entry layer selection":
       subResp.status == 404
       subResp.data.contains("--entry-layer")
 
-    let withQuery =
-      await issueRequest(rest.server.getAddress("/messaging?x=1"))
+    let withQuery = await issueRequest(rest.server.getAddress("/messaging?x=1"))
     check:
       withQuery.status == 404
       withQuery.data.contains("--entry-layer")
 
     # presto rejects a path with more than 64 segments
-    let tooDeep = await issueRequest(
-      rest.server.getAddress("/messaging" & "/x".repeat(70))
-    )
+    let tooDeep =
+      await issueRequest(rest.server.getAddress("/messaging" & "/x".repeat(70)))
     check tooDeep.status == 400
 
     await rest.stop()

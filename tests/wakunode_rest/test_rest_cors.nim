@@ -8,14 +8,9 @@ import
   libp2p/peerinfo,
   libp2p/multiaddress,
   libp2p/crypto/crypto
+import rest/server, rest/kernel_api/debug/handlers as debug_rest_interface
 import
-  rest/server,
-  rest/kernel_api/debug/handlers as debug_rest_interface
-import
-  logos_delivery/waku/[
-    waku_node,
-    node/waku_node as waku_node2,
-  ],
+  logos_delivery/waku/[waku_node, node/waku_node as waku_node2],
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../testlib/rest_requests

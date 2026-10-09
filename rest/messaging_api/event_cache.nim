@@ -15,7 +15,7 @@
 import std/[tables, deques, options]
 import results, metrics
 import logos_delivery/waku/waku_core/time
-import ./types
+import rest/messaging_api/types
 
 declarePublicCounter logos_delivery_rest_received_dropped,
   "received messages evicted from the messaging REST buffer before a poll took them"

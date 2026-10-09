@@ -17,7 +17,7 @@ import
   rest/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
-import ../testlib/[wakucore, testasync, wakunodeconf, rest_requests, rest_service]
+import tests/testlib/[wakucore, testasync, wakunodeconf, rest_requests, rest_service]
 
 ## Integration test for the messaging REST endpoints and their event cache.
 ##

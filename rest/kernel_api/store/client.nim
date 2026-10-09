@@ -11,7 +11,7 @@ import
   logos_delivery/waku/waku_core/message/digest,
   rest/serdes,
   rest/responses,
-  ./types
+  rest/kernel_api/store/types
 
 export types
 

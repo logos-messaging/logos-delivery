@@ -8,10 +8,10 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ../../tools/confutils/cli_args,
+  tools/confutils/cli_args,
   logos_delivery/logos_delivery,
   logos_delivery/waku/common/logging,
-  ../../rest/rest_service
+  rest/rest_service
 
 logScope:
   topics = "logosdeliverynode main"

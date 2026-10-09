@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, presto/[route, client, common]
-import rest/serdes, rest/rest_serdes, ./types
+import rest/serdes, rest/rest_serdes, rest/kernel_api/legacy_lightpush/types
 
 export types
 

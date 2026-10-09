@@ -16,7 +16,7 @@ import
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
   logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery]
-import ../testlib/[testasync, wakunodeconf, rest_service]
+import tests/testlib/[testasync, wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
   var kernel = defaultTestWakuNodeConf(rest = rest)

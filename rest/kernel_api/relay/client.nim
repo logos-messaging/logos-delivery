@@ -1,7 +1,11 @@
 {.push raises: [].}
 
 import stew/byteutils, chronicles, json_serialization, presto/[route, client, common]
-import logos_delivery/waku/waku_core, rest/serdes, rest/rest_serdes, ./types
+import
+  logos_delivery/waku/waku_core,
+  rest/serdes,
+  rest/rest_serdes,
+  rest/kernel_api/relay/types
 
 export types
 

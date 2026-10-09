@@ -13,7 +13,7 @@ import
   json_serialization/std/sets,
   presto/common
 
-import ./serdes, ./responses
+import rest/serdes, rest/responses
 
 logScope:
   topics = "waku node rest"

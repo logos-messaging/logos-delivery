@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/typetraits, results, chronicles, presto/common
-import ./serdes
+import rest/serdes
 
 const MIMETYPE_JSON* = MediaType.init("application/json")
 const MIMETYPE_TEXT* = MediaType.init("text/plain")

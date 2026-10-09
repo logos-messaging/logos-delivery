@@ -15,7 +15,7 @@ import results, chronicles, chronos
 import presto
 import
   logos_delivery/logos_delivery,
-  logos_delivery/waku/factory/rest_server_conf,
+  rest/rest_server_conf,
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_node,
   logos_delivery/waku/node/health_monitor,
@@ -23,19 +23,19 @@ import
   logos_delivery/waku/waku_core/topics,
   logos_delivery/waku/waku_relay/protocol
 import
-  ./message_cache,
-  ./discovery_handler,
-  ./route_hints,
-  ./server,
-  ./kernel_api/debug/handlers as rest_debug_endpoint,
-  ./kernel_api/relay/handlers as rest_relay_endpoint,
-  ./kernel_api/filter/handlers as rest_filter_endpoint,
-  ./kernel_api/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
-  ./kernel_api/lightpush/handlers as rest_lightpush_endpoint,
-  ./kernel_api/store/handlers as rest_store_endpoint,
-  ./kernel_api/health/handlers as rest_health_endpoint,
-  ./kernel_api/admin/handlers as rest_admin_endpoint,
-  ./messaging_api/[event_cache, events, handlers as messaging_handlers]
+  rest/message_cache,
+  rest/discovery_handler,
+  rest/route_hints,
+  rest/server,
+  rest/kernel_api/debug/handlers as rest_debug_endpoint,
+  rest/kernel_api/relay/handlers as rest_relay_endpoint,
+  rest/kernel_api/filter/handlers as rest_filter_endpoint,
+  rest/kernel_api/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
+  rest/kernel_api/lightpush/handlers as rest_lightpush_endpoint,
+  rest/kernel_api/store/handlers as rest_store_endpoint,
+  rest/kernel_api/health/handlers as rest_health_endpoint,
+  rest/kernel_api/admin/handlers as rest_admin_endpoint,
+  rest/messaging_api/[event_cache, events, handlers as messaging_handlers]
 
 export WakuRestServerRef, route_hints
 
@@ -98,19 +98,32 @@ proc startRestServerEssentials(
   ## Health REST API
   installHealthApiHandler(server.router, nodeHealthMonitor)
 
-  markRestApiNotInstalled(RestRootAdmin, "/admin endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootDebug, "/debug endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootRelay, "/relay endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootFilter, "/filter endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootLightpush, "/lightpush endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootStore, "/store endpoints are not available while initializing.")
-  markRestApiNotInstalled(RestRootMessaging, "/messaging endpoints are not available while initializing.")
+  markRestApiNotInstalled(
+    RestRootAdmin, "/admin endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootDebug, "/debug endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootRelay, "/relay endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootFilter, "/filter endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootLightpush, "/lightpush endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootStore, "/store endpoints are not available while initializing."
+  )
+  markRestApiNotInstalled(
+    RestRootMessaging, "/messaging endpoints are not available while initializing."
+  )
 
   server.start()
   info "Starting REST HTTP server", url = "http://" & $address & ":" & $port & "/"
 
   ok(server)
-
 
 proc installKernelRoutes(
     restServer: WakuRestServerRef,
@@ -129,7 +142,10 @@ proc installKernelRoutes(
     installAdminApiHandlers(router, node)
     markRestApiInstalled(RestRootAdmin)
   else:
-    markRestApiNotInstalled(RestRootAdmin, "/admin endpoints are not available. Please check your configuration: --rest-admin=true")
+    markRestApiNotInstalled(
+      RestRootAdmin,
+      "/admin endpoints are not available. Please check your configuration: --rest-admin=true",
+    )
 
   ## Debug REST API
   installDebugApiHandlers(router, node)
@@ -168,7 +184,10 @@ proc installKernelRoutes(
     installRelayApiHandlers(router, node, cache)
     markRestApiInstalled(RestRootRelay)
   else:
-    markRestApiNotInstalled(RestRootRelay, "/relay endpoints are not available. Please check your configuration: --relay")
+    markRestApiNotInstalled(
+      RestRootRelay,
+      "/relay endpoints are not available. Please check your configuration: --relay",
+    )
 
   ## Filter REST API
   if node.wakuFilterClient != nil:
@@ -217,7 +236,9 @@ proc installKernelRoutes(
     )
     markRestApiInstalled(RestRootLightpush)
   else:
-    markRestApiNotInstalled(RestRootLightpush, "/lightpush endpoints are not available.")
+    markRestApiNotInstalled(
+      RestRootLightpush, "/lightpush endpoints are not available."
+    )
 
   info "REST services are installed"
   return ok()

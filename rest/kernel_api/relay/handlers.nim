@@ -21,7 +21,7 @@ import
   rest/serdes,
   rest/responses,
   rest/rest_serdes,
-  ./types
+  rest/kernel_api/relay/types
 from logos_delivery/waku/rln/types import RlnErrorKind
 
 export types

@@ -20,8 +20,8 @@ import
   logos_delivery/messaging/delivery_service/send_service,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
-  ./types,
-  ./event_cache
+  rest/messaging_api/types,
+  rest/messaging_api/event_cache
 
 export types
 
