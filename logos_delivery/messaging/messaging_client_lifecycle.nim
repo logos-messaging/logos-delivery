@@ -6,7 +6,6 @@ import chronicles
 import
   logos_delivery/messaging/messaging_client,
   logos_delivery/messaging/api/send,
-  logos_delivery/messaging/rest_api/event_listeners,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
   logos_delivery/waku/api/subscriptions,
@@ -53,9 +52,6 @@ proc start*(self: MessagingClient): Result[void, string] =
       self.waku.unsubscribe(contentTopic),
   )
 
-  if not self.restEvents.isNil():
-    ?self.restEvents.start(self.brokerCtx)
-
   self.started = true
   ok()
 
@@ -65,8 +61,6 @@ proc stop*(self: MessagingClient) {.async.} =
   MessagingSend.clearProvider(self.brokerCtx)
   MessagingSubscribe.clearProvider(self.brokerCtx)
   MessagingUnsubscribe.clearProvider(self.brokerCtx)
-  if not self.restEvents.isNil():
-    await self.restEvents.stop(self.brokerCtx)
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
   if not self.persistencyJob.isNil():

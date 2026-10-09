@@ -11,7 +11,6 @@ import
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
-  logos_delivery/messaging/rest_api/event_listeners,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 export messaging_client_api, messaging_conf
@@ -23,9 +22,6 @@ type MessagingClient* = ref object
   recvService*: RecvService
   persistencyJob*: persistency.Job
   started*: bool
-  restEvents*: MessagingRestEvents
-    ## Set once when the REST routes are mounted (presto rejects a route added
-    ## twice); its listeners are registered on each start and dropped on stop.
 
 const
   MaxParkedAgeSecLimit = 7'u * 24 * 3600

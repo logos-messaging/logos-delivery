@@ -133,11 +133,11 @@ suite "LogosDelivery - broker lifecycle":
       (await node.start()).isOkOr:
         raiseAssert error
       check:
-        not node.messagingClient.restEvents.isNil()
-        node.messagingClient.restEvents.isListening()
+        not node.restEvents.isNil()
+        node.restEvents.isListening()
       (await node.stop()).isOkOr:
         raiseAssert error
-      check not node.messagingClient.restEvents.isListening()
+      check not node.restEvents.isListening()
 
   asyncTest "plugin install verbs stay registered while stopped":
     lockNewGlobalBrokerContext:

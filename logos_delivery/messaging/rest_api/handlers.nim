@@ -60,16 +60,17 @@ proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string
       )
   return ok()
 
-proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClient) =
+proc installMessagingApiHandlers*(
+    router: var RestRouter, client: MessagingClient, eventCache: MessagingEventCache
+) =
   ## Mounts the MessagingClient subscribe / unsubscribe / send operations as
   ## REST endpoints onto the given (kernel-owned) router. Subscriptions are
   ## keyed by content topic, matching the messaging layer's content-topic API.
-  ## `client.restEvents` must be set: its cache backs the event endpoints.
+  ## `eventCache` backs the event endpoints.
 
   # Event observability: buffer send/received events for the poll-based GETs.
   # The routes and the cache are installed once; the listeners feeding the
-  # cache are registered by MessagingClient.start and dropped by stop.
-  let eventCache = client.restEvents.cache
+  # cache are the caller's `MessagingRestEvents`, started and stopped with it.
 
   # Without autosharding, content topics resolve to no shard: answer 503.
   let autoshardingConfigured = client.waku.isAutoshardingConfigured()
@@ -214,29 +215,27 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
       error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
-proc mountRestApi*(client: MessagingClient) =
+proc mountRestApi*(client: MessagingClient): MessagingRestEvents =
   ## Mounts the messaging REST endpoints onto the kernel-owned REST router, if
-  ## the REST server is enabled. Called by the `LogosDelivery` concentrator
-  ## after the messaging layer has started. Lives here (not in the core
-  ## `messaging_client` module) so the core need not depend on the REST layer
-  ## above it — that would form an import cycle.
+  ## the REST server is enabled, and returns the object that feeds their event
+  ## cache (nil when REST is disabled). The routes are mounted once, since
+  ## presto rejects a route added twice; the caller starts and stops the
+  ## returned listeners with the client. Called by the `LogosDelivery`
+  ## concentrator after the messaging layer has started. Lives here (not in the
+  ## core `messaging_client` module) so the core need not depend on the REST
+  ## layer above it — that would form an import cycle.
   if client.waku.restServer.isNil():
-    return
-  if client.restEvents.isNil():
-    # First start: mount the routes once (presto rejects a route added twice).
-    # The BTree route table is ref-backed, so mutating the copied router persists
-    # (same pattern as the waku REST builder).
-    let capacity =
-      if client.waku.conf.restServerConf.isSome():
-        int(client.waku.conf.restServerConf.get().messagingCacheCapacity)
-      else:
-        DefaultMaxReceived
-    client.restEvents =
-      MessagingRestEvents.new(MessagingEventCache.new(maxReceived = capacity))
-    var router = client.waku.restServer.router
-    installMessagingApiHandlers(router, client)
-    rest_server_builder.markRestApiInstalled(rest_server_builder.RestRootMessaging)
-    info "Mounted messaging REST API endpoints"
-  # The client is already started when the routes are first mounted.
-  client.restEvents.start(client.brokerCtx).isOkOr:
-    error "Messaging REST: could not start the event listeners", error = error
+    return nil
+  # The BTree route table is ref-backed, so mutating the copied router persists
+  # (same pattern as the waku REST builder).
+  let capacity =
+    if client.waku.conf.restServerConf.isSome():
+      int(client.waku.conf.restServerConf.get().messagingCacheCapacity)
+    else:
+      DefaultMaxReceived
+  let events = MessagingRestEvents.new(MessagingEventCache.new(maxReceived = capacity))
+  var router = client.waku.restServer.router
+  installMessagingApiHandlers(router, client, events.cache)
+  rest_server_builder.markRestApiInstalled(rest_server_builder.RestRootMessaging)
+  info "Mounted messaging REST API endpoints"
+  return events
