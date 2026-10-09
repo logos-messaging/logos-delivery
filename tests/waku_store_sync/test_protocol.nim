@@ -992,6 +992,7 @@ suite "Waku Sync: transfer":
       response.messages.len > 0
 
   asyncTest "transfer a 100 KiB message but not a message encoded at the default limit":
+    # TODO: sync-transfer-max-size
     let
       maxSize = int(DefaultMaxWakuMessageSize)
       largeMsg = fakeWakuMessage(payload = newSeq[byte](100 * 1024))

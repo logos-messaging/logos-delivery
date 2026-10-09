@@ -26,13 +26,15 @@ import
     rest_api/endpoint/relay/handlers as relay_rest_interface,
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
+    waku_archive,
     common/rate_limit/setting,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../testlib/testasync,
   ../testlib/rest_requests,
-  ../resources/payloads
+  ../resources/payloads,
+  ../waku_archive/archive_utils
 
 proc testWakuNode(): WakuNode =
   let
@@ -629,6 +631,142 @@ suite "Waku v2 Rest API - lightpush":
         Opt.some(
           fmt"Message size exceeded maximum of: {DefaultMaxWakuMessageSize} bytes"
         )
+
+  asyncTest "Without a relay peer, a push encoded at the maximum size is answered 505 like the largest message gossipsub sends but is not stored - POST /lightpush/v3/message":
+    # TODO: relay-frame-size-limit
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    let serviceNode = restLightPushTest.serviceNode
+    let driver = newSqliteArchiveDriver()
+    check serviceNode.mountArchive(driver).isOk()
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    serviceNode.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+
+    let
+      ts = now()
+      sizeEmptyMsg = uint64(
+        fakeWakuMessage(payload = getByteSequence(0), ts = ts).encode().buffer.len
+      )
+      atLimitLen = DefaultMaxWakuMessageSize - sizeEmptyMsg - 2
+      rpcOverhead = uint64(DefaultPubsubTopic.len + 10)
+      atLimit = fakeWakuMessage(payload = getByteSequence(atLimitLen), ts = ts)
+      largestGossipsubMsg =
+        fakeWakuMessage(payload = getByteSequence(atLimitLen - rpcOverhead), ts = ts)
+
+    let atLimitResponse = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(
+        pubsubTopic: Opt.some(DefaultPubsubTopic), message: toRelayWakuMessage(atLimit)
+      )
+    )
+    let storedAfterAtLimit = await driver.getMessagesCount()
+    let largestGossipsubResponse = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+        message: toRelayWakuMessage(largestGossipsubMsg),
+      )
+    )
+
+    # Then both sizes are answered 505 No peers for topic, and only the largest message gossipsub sends is stored
+    check:
+      not serviceNode.hasGossipsubPeer(
+        DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
+      )
+      atLimit.encode().buffer.len == int(DefaultMaxWakuMessageSize)
+      atLimitResponse.status == 505
+      atLimitResponse.data.statusDesc == Opt.some(
+        "No peers for topic, skipping publish"
+      )
+      storedAfterAtLimit == ArchiveDriverResult[int64].ok(0)
+      largestGossipsubResponse.status == 505
+      largestGossipsubResponse.data.statusDesc ==
+        Opt.some("No peers for topic, skipping publish")
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+
+  asyncTest "With a relay peer in the mesh, a push encoded at the maximum size is answered 505 No peers for topic and is neither relayed nor stored - POST /lightpush/v3/message":
+    # TODO: relay-frame-size-limit
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+
+    let
+      serviceNode = restLightPushTest.serviceNode
+      consumerNode = restLightPushTest.consumerNode
+      serviceDriver = newSqliteArchiveDriver()
+      consumerDriver = newSqliteArchiveDriver()
+    check:
+      serviceNode.mountArchive(serviceDriver).isOk()
+      consumerNode.mountArchive(consumerDriver).isOk()
+
+    let restServerForConsumer =
+      WakuRestServerRef.init(parseIpAddress("127.0.0.1"), Port(0)).tryGet()
+    installRelayApiHandlers(
+      restServerForConsumer.router, consumerNode, MessageCache.init()
+    )
+    restServerForConsumer.start()
+    defer:
+      await restServerForConsumer.stop()
+      await restServerForConsumer.closeWait()
+
+    let consumerClient = newRestHttpClient(restServerForConsumer.localAddress())
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    serviceNode.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to relay: " & $error
+    let subscribeResponse =
+      await consumerClient.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+    check subscribeResponse.status == 200
+    checkUntilTimeout:
+      serviceNode.hasMeshPeer(DefaultPubsubTopic, consumerNode.peerInfo.peerId)
+
+    let
+      ts = now()
+      sizeEmptyMsg = uint64(
+        fakeWakuMessage(payload = getByteSequence(0), ts = ts).encode().buffer.len
+      )
+      atLimitLen = DefaultMaxWakuMessageSize - sizeEmptyMsg - 2
+      rpcOverhead = uint64(DefaultPubsubTopic.len + 10)
+      atLimit = fakeWakuMessage(payload = getByteSequence(atLimitLen), ts = ts)
+      largestGossipsubMsg =
+        fakeWakuMessage(payload = getByteSequence(atLimitLen - rpcOverhead), ts = ts)
+
+    let atLimitResponse = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(
+        pubsubTopic: Opt.some(DefaultPubsubTopic), message: toRelayWakuMessage(atLimit)
+      )
+    )
+    let largestGossipsubResponse = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+        message: toRelayWakuMessage(largestGossipsubMsg),
+      )
+    )
+    let received = await consumerClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+
+    # Then the relay peer gets and stores only the largest message gossipsub sends, which the service node stores too, with the relay peer still in its mesh
+    check:
+      atLimit.encode().buffer.len == int(DefaultMaxWakuMessageSize)
+      atLimitResponse.status == 505
+      atLimitResponse.data.statusDesc == Opt.some(
+        "No peers for topic, skipping publish"
+      )
+      largestGossipsubResponse.status == 200
+      largestGossipsubResponse.data.relayPeerCount == Opt.some(1.uint32)
+      received.mapIt(it.payload) == @[toRelayWakuMessage(largestGossipsubMsg).payload]
+      (await serviceDriver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      (await consumerDriver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
+      serviceNode.hasMeshPeer(DefaultPubsubTopic, consumerNode.peerInfo.peerId)
 
   asyncTest "A push over the lightpush read cap is answered 413 - POST /lightpush/v3/message":
     # Given

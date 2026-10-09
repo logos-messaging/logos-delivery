@@ -1147,6 +1147,7 @@ suite "Waku Relay":
         (pubsubTopic, msg4) == handlerFuture.read()
         (pubsubTopic, msg4) == otherHandlerFuture.read()
 
+      # TODO: relay-frame-size-limit
       # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 25' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
