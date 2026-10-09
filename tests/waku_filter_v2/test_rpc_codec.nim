@@ -33,3 +33,22 @@ suite "Waku Filter - RPC codec":
       res.isOk()
       res.get(FilterSubscribeRequest()).filterSubscribeType ==
         FilterSubscribeType.SUBSCRIBER_PING
+
+  test "a subscribe request without a request id is refused":
+    let res = FilterSubscribeRequest.decode(
+      FilterSubscribeRequest(filterSubscribeType: FilterSubscribeType.SUBSCRIBE).encode()
+    )
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("request_id")
+
+  test "a subscribe response without a request id or a status code is refused":
+    let noId =
+      FilterSubscribeResponse.decode(FilterSubscribeResponse(statusCode: 200).encode())
+    let noCode =
+      FilterSubscribeResponse.decode(FilterSubscribeResponse(requestId: "r").encode())
+    check:
+      noId.isErr()
+      noId.error == ProtobufError.missingRequiredField("request_id")
+      noCode.isErr()
+      noCode.error == ProtobufError.missingRequiredField("status_code")

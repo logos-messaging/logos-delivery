@@ -18,3 +18,21 @@ suite "Waku Lightpush - RPC codec":
     check:
       res.isErr()
       res.error == ProtobufError.missingRequiredField("message")
+
+  test "a request without a request id is refused":
+    # Field 21 holds a message with a payload and the content topic "/t".
+    let res = LightpushRequest.decode(hexToSeqByte("aa01070a010112022f74"))
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("request_id")
+
+  test "a response without a request id or a status code is refused":
+    let noId = LightPushResponse.decode(
+      LightPushResponse(statusCode: LightPushStatusCode(200)).encode()
+    )
+    let noCode = LightPushResponse.decode(LightPushResponse(requestId: "r").encode())
+    check:
+      noId.isErr()
+      noId.error == ProtobufError.missingRequiredField("request_id")
+      noCode.isErr()
+      noCode.error == ProtobufError.missingRequiredField("status_code")

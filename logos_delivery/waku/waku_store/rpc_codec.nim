@@ -70,5 +70,17 @@ proc readFieldInto(
   value.add(keyValue)
   true
 
-protobufCodec(StoreQueryRequest)
-protobufCodec(StoreQueryResponse)
+proc validateDecoded(req: StoreQueryRequest): ProtobufResult[void] =
+  if req.requestId.len == 0:
+    return err(ProtobufError.missingRequiredField("request_id"))
+  ok()
+
+proc validateDecoded(res: StoreQueryResponse): ProtobufResult[void] =
+  if res.requestId.len == 0:
+    return err(ProtobufError.missingRequiredField("request_id"))
+  if res.statusCode == 0:
+    return err(ProtobufError.missingRequiredField("status_code"))
+  ok()
+
+protobufCodec(StoreQueryRequest, validateDecoded)
+protobufCodec(StoreQueryResponse, validateDecoded)
