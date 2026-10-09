@@ -86,7 +86,7 @@ suite "Messaging REST API":
     let unsubResp = await client.messagingDeleteSubscriptionsV1(@[contentTopic])
     check unsubResp.status == 200
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -115,7 +115,7 @@ suite "Messaging REST API":
       afterResp.status == 200
       afterResp.data == @[topicB]
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -175,7 +175,7 @@ suite "Messaging REST API":
       emptyResp.status == 200
       emptyResp.data.len == 0
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -221,7 +221,7 @@ suite "Messaging REST API":
       fullResp.status == 429
       fullResp.headers.getString("Retry-After") == "1"
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -235,7 +235,7 @@ suite "Messaging REST API":
       rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
     defer:
-      await rest.stop()
+      await rest.stop(node)
       (await node.stop()).expect("Failed to stop node")
 
     let resp = await issueRequest(
@@ -260,7 +260,7 @@ suite "Messaging REST API":
       rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
     defer:
-      await rest.stop()
+      await rest.stop(node)
       (await node.stop()).expect("Failed to stop node")
 
     let resp = await issueRequest(
@@ -327,7 +327,7 @@ suite "Messaging REST API":
       emptyResp.status == 200
       emptyResp.data.len == 0
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -367,7 +367,7 @@ suite "Messaging REST API":
       sendResp.status == 503
       sendResp.data.contains("--num-shards-in-network")
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -406,7 +406,7 @@ suite "Messaging REST API":
       resp.data[0].seq == 4'u64
       logos_delivery_rest_received_dropped.value() == droppedBefore + 3
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error

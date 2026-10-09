@@ -9,9 +9,9 @@ proc startWithRest*(
 ): Future[Result[RestService, string]] {.async.} =
   ## What the node app does: the REST service brings the server up before the
   ## node boots and mounts the routes once the node runs.
-  let rest = RestService.new(node)
-  ?rest.start()
+  let rest = RestService.new()
+  ?rest.start(node)
   (await node.start()).isOkOr:
     return err("could not start the node: " & error)
-  ?rest.mount()
+  ?rest.mount(node)
   return ok(rest)

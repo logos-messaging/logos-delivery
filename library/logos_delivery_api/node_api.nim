@@ -187,7 +187,7 @@ var restServices {.threadvar.}: Table[string, RestService]
 proc restOf(self: LogosDelivery): RestService =
   let key = $self.waku.brokerCtx
   if key notin restServices:
-    restServices[key] = RestService.new(self)
+    restServices[key] = RestService.new()
   return restServices[key]
 
 proc logosdelivery_create_node(
@@ -227,24 +227,24 @@ proc logosdelivery_start_node(
   # REST answers health probes while the node boots, and gets its protocol
   # routes once the node runs.
   let rest = self.restOf()
-  rest.start().isOkOr:
+  rest.start(self).isOkOr:
     chronicles.error "START_NODE failed to start REST", err = error
     return err("failed to start REST: " & error)
 
   (await self.start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
-    await rest.stop()
+    await rest.stop(self)
     return err("failed to start: " & errMsg)
 
-  rest.mount().isOkOr:
+  rest.mount(self).isOkOr:
     chronicles.error "START_NODE failed to mount REST", err = error
     return err("failed to mount REST: " & error)
 
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  await self.restOf().stop()
+  await self.restOf().stop(self)
   if not self.isRunning():
     return ok()
 

@@ -244,24 +244,20 @@ proc installKernelRoutes(
   return ok()
 
 type RestService* = ref object
-  node: LogosDelivery
   server*: WakuRestServerRef
   messagingEvents: MessagingRestEvents
     ## Set by `mount` when the node has a messaging layer.
 
-proc new*(T: type RestService, node: LogosDelivery): T =
-  return T(node: node)
+proc new*(T: type RestService): T =
+  return T()
 
-proc isEnabled(self: RestService): bool =
-  return self.node.waku.conf.restServerConf.isSome()
-
-proc start*(self: RestService): Result[void, string] =
+proc start*(self: RestService, node: LogosDelivery): Result[void, string] =
   ## Starts the HTTP server with the health route. No-op when REST is disabled
   ## in the node's configuration.
-  if not self.isEnabled() or not self.server.isNil():
+  if node.waku.conf.restServerConf.isNone() or not self.server.isNil():
     return ok()
 
-  let waku = self.node.waku
+  let waku = node.waku
   let server = startRestServerEssentials(
     waku.healthMonitor, waku.conf.restServerConf.get()
   ).valueOr:
@@ -274,8 +270,8 @@ proc start*(self: RestService): Result[void, string] =
   self.server = server
   return ok()
 
-proc mountMessaging(self: RestService): Result[void, string] =
-  let client = self.node.messagingClient
+proc mountMessaging(self: RestService, node: LogosDelivery): Result[void, string] =
+  let client = node.messagingClient
   if client.isNil():
     # On a kernel-only node, /messaging answers 404 with the entry-layer hint.
     markRestApiNotInstalled(
@@ -284,7 +280,7 @@ proc mountMessaging(self: RestService): Result[void, string] =
     )
     return ok()
 
-  let capacity = int(self.node.waku.conf.restServerConf.get().messagingCacheCapacity)
+  let capacity = int(node.waku.conf.restServerConf.get().messagingCacheCapacity)
   self.messagingEvents =
     MessagingRestEvents.new(MessagingEventCache.new(maxReceived = capacity))
   var router = self.server.router
@@ -296,12 +292,12 @@ proc mountMessaging(self: RestService): Result[void, string] =
     return err("could not start the messaging REST events: " & error)
   return ok()
 
-proc mount*(self: RestService): Result[void, string] =
+proc mount*(self: RestService, node: LogosDelivery): Result[void, string] =
   ## Installs the protocol routes. Call it once the node is running.
   if self.server.isNil():
     return ok()
 
-  let waku = self.node.waku
+  let waku = node.waku
   let conf = waku.conf
   installKernelRoutes(
     self.server,
@@ -316,16 +312,16 @@ proc mount*(self: RestService): Result[void, string] =
   ).isOkOr:
     return err("could not install the kernel REST routes: " & error)
 
-  return self.mountMessaging()
+  return self.mountMessaging(node)
 
 proc isListeningToMessagingEvents*(self: RestService): bool =
   return not self.messagingEvents.isNil() and self.messagingEvents.isListening()
 
-proc stop*(self: RestService) {.async: (raises: []).} =
+proc stop*(self: RestService, node: LogosDelivery) {.async: (raises: []).} =
   if self.server.isNil():
     return
   if not self.messagingEvents.isNil():
-    await self.messagingEvents.stop(self.node.messagingClient.brokerCtx)
+    await self.messagingEvents.stop(node.messagingClient.brokerCtx)
     self.messagingEvents = nil
   await self.server.stop()
   self.server = nil
