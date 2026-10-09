@@ -43,11 +43,11 @@ proc invalidLengthField*(T: type ProtobufError, field: string): T =
 proc `$`*(err: ProtobufError): string =
   case err.kind
   of DecodeFailure:
-    return "DecodeFailure " & err.error
+    return "DecodeFailure: " & err.error
   of MissingRequiredField:
-    return "MissingRequiredField " & err.field
+    return "MissingRequiredField: " & err.field
   of InvalidLengthField:
-    return "InvalidLengthField " & err.field
+    return "InvalidLengthField: " & err.field
 
 ## Codec procs
 
