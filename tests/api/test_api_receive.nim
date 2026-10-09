@@ -5,6 +5,7 @@ import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo]
 import brokers/broker_context
 import ../testlib/[wakucore, wakunode, wakunodeconf, testasync, short_intervals]
+import ../testlib/futures
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
@@ -34,8 +35,10 @@ import
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
 
-const TestTimeout = chronos.seconds(90)
-const IdleTimeout = chronos.seconds(20) ## the longest wait for an idle worker
+const TestTimeout = FUTURE_TIMEOUT_LONG ## the longest wait for an expected event
+const IdleTimeout = FUTURE_TIMEOUT_LONG ## the longest wait for an idle worker
+const ChildTimeout = chronos.seconds(60)
+  ## the longest wait for the restart child, which starts a full node process
 const MissedPayload = "This message was missed"
 const LivePayload = "live before the outage"
 const OutagePayload = "archived in the outage"
@@ -320,7 +323,7 @@ proc runRestartedProcess(
     if child.running():
       child.terminate()
     child.close()
-  let deadline = Moment.now() + TestTimeout + 10.seconds
+  let deadline = Moment.now() + ChildTimeout
   while child.running() and Moment.now() < deadline:
     await sleepAsync(50.milliseconds)
   doAssert not child.running(), "restarted process did not finish in time"
@@ -537,11 +540,11 @@ proc waitForRecord(
     topic: ContentTopic,
     present: bool,
     shard = TestShard,
-    gap = Opt.none(bool),
+    state = Opt.none(TopicRecordState),
     within = 5.seconds,
 ): Future[Opt[TopicRecord]] {.async.} =
   ## Waits until the record of `topic` on `shard` exists (or not), and has
-  ## the gap bit `gap` when given, because the writes are fire-and-forget.
+  ## the state `state` when given, because the writes are fire-and-forget.
   let key: BackfillTopic = (shard, topic)
   let deadline = Moment.now() + within
   while Moment.now() < deadline:
@@ -549,7 +552,7 @@ proc waitForRecord(
     if (key in records) == present:
       if not present:
         return Opt.none(TopicRecord)
-      if gap.isNone() or records[key].timestampToNowIsGap == gap.get():
+      if state.isNone() or records[key].state == state.get():
         return Opt.some(records[key])
     await sleepAsync(100.milliseconds)
   raiseAssert "the record of " & topic & " did not reach the expected state"
@@ -565,7 +568,7 @@ proc waitForStoredLastReceivedAt(root: string): Future[Timestamp] {.async.} =
 
 proc variance(net: TestNetwork): Timestamp =
   ## The timestamp variance of the subscriber, as `shortenIntervals` set it.
-  net.subscriber.messagingClient.recvService.timestampVariance.nanos
+  net.subscriber.messagingClient.recvService.backfill.timestampVariance.nanos
 
 proc caughtUp(node: LogosDelivery): Future[bool] {.async.} =
   ## True when the worker goes idle within `IdleTimeout`. A fill takes a few
@@ -642,7 +645,9 @@ suite "Messaging API, Receive Service (backfill)":
     check logos_delivery_recv_messages.value([history]) == countBefore + 1
     check logos_delivery_recv_message_bytes.value([history]) ==
       bytesBefore + float64(OutagePayload.len)
-    discard await root.waitForRecord(topic, present = true, gap = Opt.some(false))
+    discard await root.waitForRecord(
+      topic, present = true, state = Opt.some(TopicRecordState.Online)
+    )
 
   asyncTest "a restart fills the gap of the downtime, and off resets the state":
     let root = createTempDir("recv-api-restart-", "")
@@ -663,7 +668,10 @@ suite "Messaging API, Receive Service (backfill)":
     # The record is live on disk before the stop, so the next start applies
     # the restart outage to a live record.
     discard await root.waitForRecord(
-      topic, present = true, gap = Opt.some(false), within = TestTimeout
+      topic,
+      present = true,
+      state = Opt.some(TopicRecordState.Online),
+      within = TestTimeout,
     )
     (await net.subscriber.stop()).expect("stop")
     net.subscriber = nil
@@ -727,7 +735,10 @@ suite "Messaging API, Receive Service (backfill)":
     # archived in an outage before the unsubscribe never arrives, and the next
     # subscribe makes a new live record.
     discard await root.waitForRecord(
-      topic, present = true, gap = Opt.some(false), within = IdleTimeout
+      topic,
+      present = true,
+      state = Opt.some(TopicRecordState.Online),
+      within = IdleTimeout,
     )
     await net.subscriber.waku.node.disconnectNode(net.storeNodePeerInfo)
     await net.waitOutage()
@@ -743,7 +754,10 @@ suite "Messaging API, Receive Service (backfill)":
     let resubscribedAt = now()
     (await net.subscriber.messagingClient.subscribe(topic)).expect("subscribe again")
     let again = await root.waitForRecord(
-      topic, present = true, gap = Opt.some(false), within = IdleTimeout
+      topic,
+      present = true,
+      state = Opt.some(TopicRecordState.Online),
+      within = IdleTimeout,
     )
     check again.get().timestamp >= resubscribedAt - net.variance
     check await net.caughtUp()
@@ -758,7 +772,7 @@ suite "Messaging API, Receive Service (backfill)":
       "subscribe in outage"
     )
     let inOutage = await root.waitForRecord(outageTopic, present = true)
-    check inOutage.get().timestampToNowIsGap
+    check inOutage.get().state == TopicRecordState.Offline
     discard await net.archiveAt(outageTopic, now(), "in the outage")
     discard await net.archiveAt(topic, now(), "the old topic in the outage")
     events.targetCount = 2
@@ -786,7 +800,10 @@ suite "Messaging API, Receive Service (backfill)":
     await net.joinMesh()
     await net.waitLive()
     discard await root.waitForRecord(
-      topic, present = true, gap = Opt.some(false), within = IdleTimeout
+      topic,
+      present = true,
+      state = Opt.some(TopicRecordState.Online),
+      within = IdleTimeout,
     )
     await net.subscriber.messagingClient.stop()
     discard await net.archiveAt(topic, now(), "while the client was stopped")
@@ -836,7 +853,9 @@ suite "Messaging API, Receive Service (backfill)":
     defer:
       await net.teardown()
     let subscribedAt = now()
-    discard await root.waitForRecord(topic, present = true, gap = Opt.some(true))
+    discard await root.waitForRecord(
+      topic, present = true, state = Opt.some(TopicRecordState.Offline)
+    )
     await net.joinMesh(net.publisher.peerInfo.toRemotePeerInfo())
     await net.waitLive()
     net.knowStorePeer()
@@ -909,7 +928,7 @@ suite "Messaging API, Receive Service (backfill)":
     # subscribe, and A is a gap too.
     (await net.subscriber.messagingClient.subscribe(topicB)).expect("subscribe B")
     let recordB = await root.waitForRecord(topicB, present = true, SecondShard)
-    check recordB.get().timestampToNowIsGap
+    check recordB.get().state == TopicRecordState.Offline
     check not net.filterSubscriptionHealthy(SecondShard)
     let gapMsg = await net.archiveAt(
       topicB, now(), "archived before a filter service for its shard", SecondShard

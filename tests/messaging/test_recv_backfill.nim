@@ -355,23 +355,31 @@ suite "Receive backfill":
     let fresh = newRecord(now, true, Base)
     let freshInOutage = newRecord(now, false, Base)
     let downSince = newRecord(now, true, now + Minute)
-    check fresh.timestamp == now - variance and not fresh.timestampToNowIsGap
-    check freshInOutage.timestamp == now - variance and freshInOutage.timestampToNowIsGap
-    check downSince.timestamp == now - variance and downSince.timestampToNowIsGap
+    check fresh.timestamp == now - variance and fresh.state == TopicRecordState.Online
+    check freshInOutage.timestamp == now - variance and
+      freshInOutage.state == TopicRecordState.Offline
+    check downSince.timestamp == now - variance and
+      downSince.state == TopicRecordState.Offline
     # An outage detected now started at most `OutageWindow` before. A record
     # with a gap keeps its bound. A bound never goes below the record's own.
-    let live = TopicRecord.live(Base)
+    let live = TopicRecord.init(Base, TopicRecordState.Online)
     let outageLate = live.inOutage(now)
     let outageEarly = live.inOutage(Base + Minute)
-    check outageLate.timestamp == now - OutageWindow and outageLate.timestampToNowIsGap
-    check outageEarly.timestamp == Base and outageEarly.timestampToNowIsGap
-    check TopicRecord.gap(Base).inOutage(now).timestamp == Base
+    check outageLate.timestamp == now - OutageWindow and
+      outageLate.state == TopicRecordState.Offline
+    check outageEarly.timestamp == Base and outageEarly.state == TopicRecordState.Offline
+    check TopicRecord.init(Base, TopicRecordState.Offline).inOutage(now).timestamp ==
+      Base
     # A restart is an outage at the time of the last received message.
     let restarted = live.atStart(Opt.some(now))
-    check restarted.timestamp == now - OutageWindow and restarted.timestampToNowIsGap
+    check restarted.timestamp == now - OutageWindow and
+      restarted.state == TopicRecordState.Offline
     let noLastReceivedAt = live.atStart(Opt.none(Timestamp))
-    check noLastReceivedAt.timestamp == Base and noLastReceivedAt.timestampToNowIsGap
-    check TopicRecord.gap(Base).atStart(Opt.some(now)).timestamp == Base
+    check noLastReceivedAt.timestamp == Base and
+      noLastReceivedAt.state == TopicRecordState.Offline
+    check TopicRecord
+      .init(Base, TopicRecordState.Offline)
+      .atStart(Opt.some(now)).timestamp == Base
     # The gap of a topic ends when live delivery covers it, after the later
     # of the last recovery and the subscribe, plus `DelayExtra`.
     check coveredFrom(Base, now) == now + DelayExtra + variance
@@ -389,11 +397,11 @@ suite "Receive backfill":
     let job = persistency.openJob(MessagingJobId).get()
     var stored = (await job.readTopicRecords()).get()
     check stored.len == 0
-    let liveRecord = TopicRecord.live(Base)
-    let gapRecord = TopicRecord.gap(Base + Hour)
-    let liveOp = topicRecordOp(TestTopic, liveRecord)[0]
-    let gapOp = topicRecordOp(OtherTopic, gapRecord)[0]
-    await job.writeTopicRecords(@[liveOp, gapOp])
+    let liveRecord = TopicRecord.init(Base, TopicRecordState.Online)
+    let gapRecord = TopicRecord.init(Base + Hour, TopicRecordState.Offline)
+    let liveOp = topicRecordPersistenceOp(TestTopic, liveRecord)[0]
+    let gapOp = topicRecordPersistenceOp(OtherTopic, gapRecord)[0]
+    check (await job.writeTopicRecords(@[liveOp, gapOp])).isOk()
     await job.waitStored(BackfillCategory, gapOp.key, gapOp.payload)
     stored = (await job.readTopicRecords()).get()
     let byTopic = stored.toTable()
@@ -402,14 +410,14 @@ suite "Receive backfill":
     check byTopic.getOrDefault(OtherTopic) == gapRecord
     # A record that does not decode is left out, so its topic is new.
     let badTopic: BackfillTopic = ("/waku/2/rs/3/0", "/backfill/1/bad/proto")
-    let badKey = topicRecordOp(badTopic, liveRecord)[0].key
+    let badKey = topicRecordPersistenceOp(badTopic, liveRecord)[0].key
     let badRecord = @[0x08'u8, 0x00]
     await job.persistPut(BackfillCategory, badKey, badRecord)
     await job.waitStored(BackfillCategory, badKey, badRecord)
     stored = (await job.readTopicRecords()).get()
     check stored.len == 2
     # An unsubscribe deletes the record.
-    await job.writeTopicRecords(deleteTopicRecordOp(TestTopic))
+    check (await job.writeTopicRecords(deleteTopicRecordPersistenceOp(TestTopic))).isOk()
     checkUntilTimeoutCustom(2.seconds, 10.milliseconds):
       (await job.readTopicRecords()).get().len == 1
     stored = (await job.readTopicRecords()).get()
@@ -424,8 +432,8 @@ suite "Receive backfill":
     # A topic whose names are too long for a key has no record.
     let longName = 'x'.repeat(StringLenMax + 1)
     let tooLong: BackfillTopic = ("/waku/2/rs/3/0", longName)
-    check topicRecordOp(tooLong, liveRecord).len == 0
-    check deleteTopicRecordOp(tooLong).len == 0
+    check topicRecordPersistenceOp(tooLong, liveRecord).len == 0
+    check deleteTopicRecordPersistenceOp(tooLong).len == 0
 
   test "settings: defaults, range checks, JSON":
     let defaults = BackfillState.init(MessagingClientConf()).get()

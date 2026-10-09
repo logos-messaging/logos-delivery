@@ -2,9 +2,9 @@
 ##
 ## Each subscribed (shard, content topic) has one `TopicRecord`. An outage of
 ## live delivery (relay, or the filter subscriptions on Edge), or a restart,
-## turns its gap bit on. The backfill worker turns it off after Store gives the
-## messages up to the time when live delivery covered the topic again. An
-## unsubscribe deletes the record.
+## makes the record `Offline`. The backfill worker makes it `Online` after Store
+## gives the messages up to the time when live delivery covered the topic again.
+## An unsubscribe deletes the record.
 {.push raises: [].}
 
 import std/[algorithm, sets]
@@ -46,19 +46,22 @@ type
     proc(pubsubTopic: PubsubTopic, message: WakuMessage): bool {.gcsafe, raises: [].}
     ## True accepts the message, duplicates included. False fails the page.
 
+  TopicRecordState* {.pure.} = enum
+    Online ## live delivery covers the topic from the record timestamp
+    Offline ## the app lacks the messages of the topic from the record timestamp
+
   TopicRecord* = object
     ## The backfill state of one (shard, content topic) that the app
-    ## subscribed. With `timestampToNowIsGap` off, live delivery covers the
-    ## topic from `timestamp`. With it on, the app lacks the messages of the
+    ## subscribed. With `state` `Online`, live delivery covers the topic from
+    ## `timestamp`. With `state` `Offline`, the app lacks the messages of the
     ## topic from `timestamp`, and Store has them.
     timestamp*: Timestamp
-    timestampToNowIsGap*: bool
+    state*: TopicRecordState
 
-func live*(T: type TopicRecord, timestamp: Timestamp): TopicRecord =
-  TopicRecord(timestamp: timestamp, timestampToNowIsGap: false)
-
-func gap*(T: type TopicRecord, timestamp: Timestamp): TopicRecord =
-  TopicRecord(timestamp: timestamp, timestampToNowIsGap: true)
+func init*(
+    T: typedesc[TopicRecord], timestamp: Timestamp, state: TopicRecordState
+): TopicRecord =
+  TopicRecord(timestamp: timestamp, state: state)
 
 func backfillTopics*(
     subscriptions: seq[(PubsubTopic, HashSet[ContentTopic])]
@@ -79,29 +82,31 @@ func newRecord*(
 ): TopicRecord =
   ## The record of a topic subscribed at `at`. When live delivery is ready now
   ## and did not change after the subscribe, it covers the topic from the
-  ## subscribe, and the topic gets no history. Otherwise the record is a gap from
-  ## the subscribe. The archive accepts a timestamp `variance` away from its
-  ## clock, so the bound is `variance` below the subscribe.
+  ## subscribe, and the topic gets no history. Otherwise the record is
+  ## `Offline` from the subscribe. The archive accepts a timestamp `variance`
+  ## away from its clock, so the bound is `variance` below the subscribe.
   if live and liveSince <= at:
-    return TopicRecord.live(at - variance)
-  return TopicRecord.gap(at - variance)
+    return TopicRecord.init(at - variance, TopicRecordState.Online)
+  return TopicRecord.init(at - variance, TopicRecordState.Offline)
 
 func inOutage*(record: TopicRecord, detectedAt: Timestamp): TopicRecord =
   ## The record after an outage of live delivery that the node detects at
-  ## `detectedAt`. The outage started at most `OutageWindow` before. A record
-  ## with a gap keeps its bound.
-  if record.timestampToNowIsGap:
+  ## `detectedAt`. The outage started at most `OutageWindow` before. An
+  ## `Offline` record keeps its bound.
+  if record.state == TopicRecordState.Offline:
     return record
-  return TopicRecord.gap(max(record.timestamp, detectedAt - OutageWindow))
+  return TopicRecord.init(
+    max(record.timestamp, detectedAt - OutageWindow), TopicRecordState.Offline
+  )
 
 func atStart*(record: TopicRecord, lastReceivedAt: Opt[Timestamp]): TopicRecord =
   ## The record at a service start. A restart is an outage that the node
   ## detects at the time of the last received message. With no such time, the
-  ## record is a gap from its own timestamp.
-  if record.timestampToNowIsGap:
+  ## record is `Offline` from its own timestamp.
+  if record.state == TopicRecordState.Offline:
     return record
   if lastReceivedAt.isNone():
-    return TopicRecord.gap(record.timestamp)
+    return TopicRecord.init(record.timestamp, TopicRecordState.Offline)
   return record.inOutage(lastReceivedAt.get())
 
 func coveredFrom*(
@@ -146,7 +151,7 @@ func encodeTopicRecord(topic: BackfillTopic, record: TopicRecord): seq[byte] =
   ## no decode of the keys.
   var pb = initProtoBuffer()
   pb.write(1, uint64(record.timestamp))
-  pb.write(2, uint64(ord(record.timestampToNowIsGap)))
+  pb.write(2, uint64(ord(record.state)))
   pb.write(3, topic.pubsubTopic)
   pb.write(4, topic.contentTopic)
   pb.finish()
@@ -154,25 +159,26 @@ func encodeTopicRecord(topic: BackfillTopic, record: TopicRecord): seq[byte] =
 
 func decodeTopicRecord(bytes: seq[byte]): Result[(BackfillTopic, TopicRecord), string] =
   let pb = initProtoBuffer(bytes)
-  var timestamp, isGap: uint64
+  var timestamp, state: uint64
   var pubsubTopic, contentTopic: string
   let hasTimestamp = pb.getField(1, timestamp).valueOr:
-    return err("topic record: " & $error)
-  let hasIsGap = pb.getField(2, isGap).valueOr:
-    return err("topic record: " & $error)
+    return err("topic record timestamp: " & $error)
+  let hasState = pb.getField(2, state).valueOr:
+    return err("topic record state: " & $error)
   let hasShard = pb.getField(3, pubsubTopic).valueOr:
-    return err("topic record: " & $error)
+    return err("topic record shard: " & $error)
   let hasContentTopic = pb.getField(4, contentTopic).valueOr:
-    return err("topic record: " & $error)
-  if not hasTimestamp or not hasIsGap or not hasShard or not hasContentTopic:
+    return err("topic record content topic: " & $error)
+  if not hasTimestamp or not hasState or not hasShard or not hasContentTopic:
     return err("topic record is incomplete")
-  if timestamp == 0 or timestamp > uint64(int64.high) or isGap > 1:
-    return err("topic record is out of range")
-  let record =
-    TopicRecord(timestamp: Timestamp(timestamp), timestampToNowIsGap: isGap == 1)
+  if timestamp == 0 or timestamp > uint64(int64.high):
+    return err("topic record timestamp is out of range")
+  if state > uint64(ord(TopicRecordState.high)):
+    return err("topic record state is out of range")
+  let record = TopicRecord.init(Timestamp(timestamp), TopicRecordState(state))
   return ok(((pubsubTopic, contentTopic), record))
 
-func topicRecordOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
+func topicRecordPersistenceOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
   ## The write of a topic record. Empty for a topic whose names are too long
   ## for a key. Such a topic has no record, so it is new at each start.
   let recordKey = topicKey(topic).valueOr:
@@ -186,7 +192,7 @@ func topicRecordOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
     )
   ]
 
-func deleteTopicRecordOp*(topic: BackfillTopic): seq[TxOp] =
+func deleteTopicRecordPersistenceOp*(topic: BackfillTopic): seq[TxOp] =
   ## The delete of a topic record. Empty for a topic that has no key.
   let recordKey = topicKey(topic).valueOr:
     return @[]
@@ -206,7 +212,7 @@ proc readLastReceivedAt*(
     except CancelledError as e:
       raise e
     except CatchableError as e:
-      return err("read the last received time: " & e.msg)
+      return err("read of the last received time raised: " & e.msg)
   if stored.isNone():
     return ok(Opt.none(Timestamp))
   let at = decodeTimestamp(stored.get()).valueOr:
@@ -242,7 +248,7 @@ proc readTopicRecords*(
     except CancelledError as e:
       raise e
     except CatchableError as e:
-      return err("read topic records: " & e.msg)
+      return err("read of the topic records raised: " & e.msg)
   var records: seq[(BackfillTopic, TopicRecord)]
   for row in rows:
     let decoded = decodeTopicRecord(row.payload).valueOr:
@@ -253,16 +259,17 @@ proc readTopicRecords*(
 
 proc writeTopicRecords*(
     job: persistency.Job, ops: seq[TxOp]
-) {.async: (raises: [CancelledError]).} =
-  ## Fire-and-forget, as one transaction. The writes of a job apply in order.
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
+  ## Writes the changes as one transaction. The writes of a job apply in order.
   if ops.len == 0:
-    return
+    return ok()
   try:
     await job.persist(ops)
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    warn "Failed to write the backfill topic records", error = e.msg
+    return err("write of the topic records raised: " & e.msg)
+  return ok()
 
 proc clearBackfillState*(job: persistency.Job) {.async: (raises: [CancelledError]).} =
   ## Deletes the topic records and the last received time. A start with the

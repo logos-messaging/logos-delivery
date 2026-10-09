@@ -27,15 +27,13 @@ import
   logos_delivery/waku/node/health_monitor/health_status
 from logos_delivery/waku/waku_archive/archive import MaxMessageTimestampVariance
 
-const MaxMessageLife = chronos.minutes(20)
-  ## The service keeps the hash of each received message this long.
-
-static:
-  doAssert OutageWindow + MaxMessageTimestampVariance <= MaxMessageLife.nanos div 2
-  # After an outage, the worker fetches again what the node received live in
-  # the `OutageWindow` (plus the variance) before the outage. The cache must
-  # still hold those hashes when the outage ends. With the overlap at most half
-  # the cache life, the other half is the longest outage with no duplicates.
+const MaxMessageLife = chronos.minutes(7)
+  ## The service keeps the hash of each received message this long. After an
+  ## outage, the worker fetches again what live delivery gave in the
+  ## `OutageWindow` before the outage. When a hash is already gone, the fetch
+  ## delivers that message a second time. The backfill accepts this duplicate.
+  ## It loses no message, and the channels layer drops the duplicate with the
+  ## causal history.
 
 const PruneOldMsgsPeriod = chronos.minutes(1)
 
@@ -80,6 +78,17 @@ type BackfillState* = object
   wake: AsyncEvent ## a change that can give the worker work
   caughtUp: AsyncEvent ## set when the worker has no gap to fill, also in an outage
   lastReceivedAtWrite: Moment ## when the service last wrote the last received time
+  clearJob: persistency.Job
+    ## the job whose backfill state the worker deletes before it starts, when
+    ## `enabled` is off
+  activityWriteInterval*: Duration = ActivityWriteInterval
+    ## see `ActivityWriteInterval`, shorter in tests
+  delayExtra*: Duration = chronos.nanoseconds(DelayExtra)
+    ## see `DelayExtra`, shorter in tests
+  archiveTime*: Duration = chronos.nanoseconds(ArchiveTime)
+    ## see `ArchiveTime`, shorter in tests
+  timestampVariance*: Duration = chronos.nanoseconds(MaxMessageTimestampVariance)
+    ## see `MaxMessageTimestampVariance`, shorter in tests
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
@@ -97,20 +106,11 @@ type RecvService* = ref object of RootObj
 
   msgPrunerHandler: Future[void] ## removes too old messages
 
-  backfill: BackfillState
+  backfill*: BackfillState
   stopping: bool
     ## Lets the worker stop at shutdown. A broker request catches
     ## `CancelledError` and does not raise it again, so a cancel may not reach
     ## the worker. Remove this flag when broker requests raise it again.
-
-  activityWriteInterval*: Duration = ActivityWriteInterval
-    ## see `ActivityWriteInterval`, shorter in tests
-  delayExtra*: Duration = chronos.nanoseconds(DelayExtra)
-    ## see `DelayExtra`, shorter in tests
-  archiveTime*: Duration = chronos.nanoseconds(ArchiveTime)
-    ## see `ArchiveTime`, shorter in tests
-  timestampVariance*: Duration = chronos.nanoseconds(MaxMessageTimestampVariance)
-    ## see `MaxMessageTimestampVariance`, shorter in tests
 
 proc processIncomingMessage(
     self: RecvService, pubsubTopic: string, message: WakuMessage, source: MessageSource
@@ -170,33 +170,67 @@ proc backfillWriteRecords(self: RecvService, ops: seq[TxOp]) {.async: (raises: [
   ## are on disk.
   if self.backfill.job.isNil() or ops.len == 0:
     return
-  try:
-    await self.backfill.job.writeTopicRecords(ops)
-  except CancelledError:
-    discard
+  let written =
+    try:
+      await self.backfill.job.writeTopicRecords(ops)
+    except CancelledError:
+      Result[void, string].err("write of the topic records was cancelled")
+  written.isOkOr:
+    if not self.stopping:
+      warn "Failed to write the backfill topic records", error
 
-proc backfillApplySubscriptionChange(
-    self: RecvService, change: BackfillSubscriptionChange
+proc applySubscriptionChange(
+    backfill: var BackfillState, change: BackfillSubscriptionChange
 ): seq[TxOp] =
   ## Applies one subscribe or unsubscribe to the records, and returns its
   ## writes. A subscribe of a topic with no record makes a new record. A
   ## subscribe of a topic with a record changes nothing, because the worker
   ## fills its gap. An unsubscribe deletes the record.
   if change.subscribed:
-    self.backfill.subscribedSince[change.topic] = change.at
-    if change.topic in self.backfill.records:
+    backfill.subscribedSince[change.topic] = change.at
+    if change.topic in backfill.records:
       return @[]
     let record = newRecord(
-      change.at, self.backfill.live, self.backfill.liveSince,
-      self.timestampVariance.nanos,
+      change.at, backfill.live, backfill.liveSince, backfill.timestampVariance.nanos
     )
-    self.backfill.records[change.topic] = record
-    return topicRecordOp(change.topic, record)
-  self.backfill.subscribedSince.del(change.topic)
-  if change.topic notin self.backfill.records:
+    backfill.records[change.topic] = record
+    return topicRecordPersistenceOp(change.topic, record)
+  backfill.subscribedSince.del(change.topic)
+  if change.topic notin backfill.records:
     return @[]
-  self.backfill.records.del(change.topic)
-  return deleteTopicRecordOp(change.topic)
+  backfill.records.del(change.topic)
+  return deleteTopicRecordPersistenceOp(change.topic)
+
+proc applyLiveChange(backfill: var BackfillState, nowLive: bool): seq[TxOp] =
+  ## Applies a change of live delivery, and returns its writes. An outage makes
+  ## each record `Offline`, from `OutageWindow` before now. A recovery sets the
+  ## time from which live delivery covers the topics again.
+  backfill.live = nowLive
+  backfill.liveSince = getNowInNanosecondTime()
+  if nowLive:
+    return @[]
+  var ops: seq[TxOp]
+  for topic, record in backfill.records.mpairs():
+    let after = record.inOutage(backfill.liveSince)
+    if after == record:
+      continue
+    record = after
+    ops.add(topicRecordPersistenceOp(topic, record))
+  return ops
+
+func isCandidate(backfill: BackfillState, topic: BackfillTopic): bool =
+  ## True when the worker has a gap to fill for `topic`.
+  backfill.live and topic in backfill.subscribedSince and
+    backfill.records.getOrDefault(topic).state == TopicRecordState.Offline
+
+func candidates(backfill: BackfillState): seq[BackfillTopic] =
+  ## The topics with a gap to fill, in a fixed order.
+  var topics: seq[BackfillTopic]
+  for topic in backfill.records.keys:
+    if backfill.isCandidate(topic):
+      topics.add(topic)
+  topics.sort()
+  return topics
 
 proc backfillSubscriptionChanged(
     self: RecvService, change: BackfillSubscriptionChange
@@ -206,29 +240,20 @@ proc backfillSubscriptionChanged(
   if not self.backfill.started:
     self.backfill.pendingSubscriptionChanges.add(change)
     return
-  await self.backfillWriteRecords(self.backfillApplySubscriptionChange(change))
+  await self.backfillWriteRecords(self.backfill.applySubscriptionChange(change))
   self.backfill.wake.fire()
 
 proc backfillLiveChanged(self: RecvService, nowLive: bool) {.async: (raises: []).} =
-  ## An outage turns each record into a gap, from `OutageWindow` before now.
-  ## A recovery sets the time from which live delivery covers the topics
-  ## again, and wakes the worker.
+  ## Applies a change of live delivery to the records, and wakes the worker at
+  ## a recovery.
   if nowLive == self.backfill.live:
     return
-  self.backfill.live = nowLive
-  self.backfill.liveSince = getNowInNanosecondTime()
+  let ops = self.backfill.applyLiveChange(nowLive)
   if nowLive:
-    info "Live delivery is ready"
+    debug "Live delivery is ready"
     self.backfill.wake.fire()
     return
-  info "Live delivery is down"
-  var ops: seq[TxOp]
-  for topic, record in self.backfill.records.mpairs():
-    let after = record.inOutage(self.backfill.liveSince)
-    if after == record:
-      continue
-    record = after
-    ops.add(topicRecordOp(topic, record))
+  debug "Live delivery is down"
   await self.backfillWriteRecords(ops)
 
 proc backfillOnReceipt(self: RecvService) {.async: (raises: []).} =
@@ -237,7 +262,7 @@ proc backfillOnReceipt(self: RecvService) {.async: (raises: []).} =
   if self.backfill.job.isNil() or not self.backfill.started:
     return # the records of the last run must be rewritten first
   let now = Moment.now()
-  if now - self.backfill.lastReceivedAtWrite < self.activityWriteInterval:
+  if now - self.backfill.lastReceivedAtWrite < self.backfill.activityWriteInterval:
     return
   self.backfill.lastReceivedAtWrite = now # before the await, so a burst writes one time
   try:
@@ -267,22 +292,11 @@ proc backfillReadRecordsAtStart(
     let restarted = record.atStart(lastReceivedAt)
     self.backfill.records[topic] = restarted
     if restarted != record:
-      ops.add(topicRecordOp(topic, restarted))
-  await job.writeTopicRecords(ops) # `backfillOnReceipt` waits for `started`
-
-func backfillIsCandidate(self: RecvService, topic: BackfillTopic): bool =
-  ## True when the worker has a gap to fill for `topic`.
-  self.backfill.live and topic in self.backfill.subscribedSince and
-    self.backfill.records.getOrDefault(topic).timestampToNowIsGap
-
-func backfillCandidates(self: RecvService): seq[BackfillTopic] =
-  ## The topics with a gap to fill, in a fixed order.
-  var topics: seq[BackfillTopic]
-  for topic in self.backfill.records.keys:
-    if self.backfillIsCandidate(topic):
-      topics.add(topic)
-  topics.sort()
-  return topics
+      ops.add(topicRecordPersistenceOp(topic, restarted))
+  # `backfillOnReceipt` waits for `started`
+  (await job.writeTopicRecords(ops)).isOkOr:
+    if not self.stopping:
+      warn "Failed to write the backfill topic records at start", error
 
 proc backfillFetchTopic(
     self: RecvService,
@@ -298,13 +312,15 @@ proc backfillFetchTopic(
   let stop = coveredFrom(
     self.backfill.liveSince,
     self.backfill.subscribedSince[topic],
-    self.delayExtra.nanos,
-    self.timestampVariance.nanos,
+    self.backfill.delayExtra.nanos,
+    self.backfill.timestampVariance.nanos,
   )
-  let archived =
-    archivedBefore(now, self.archiveTime.nanos, self.timestampVariance.nanos)
+  let archived = archivedBefore(
+    now, self.backfill.archiveTime.nanos, self.backfill.timestampVariance.nanos
+  )
   # The time when the archive has every message before `stop`.
-  let restArchivedAt = stop + self.timestampVariance.nanos + self.archiveTime.nanos
+  let restArchivedAt =
+    stop + self.backfill.timestampVariance.nanos + self.backfill.archiveTime.nanos
   if stop > archived and record.timestamp >= archived:
     # Only the last part is left, and the archive may not have it yet.
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
@@ -320,27 +336,24 @@ proc backfillFetchTopic(
   let stopNow = coveredFrom(
     self.backfill.liveSince,
     self.backfill.subscribedSince.getOrDefault(topic, now),
-    self.delayExtra.nanos,
-    self.timestampVariance.nanos,
+    self.backfill.delayExtra.nanos,
+    self.backfill.timestampVariance.nanos,
   )
   let after =
     if self.backfill.live and fetchStop == stop and next >= stopNow:
-      TopicRecord.live(stopNow)
+      TopicRecord.init(stopNow, TopicRecordState.Online)
     else:
-      TopicRecord.gap(next)
+      TopicRecord.init(next, TopicRecordState.Offline)
   self.backfill.records[topic] = after
-  await self.backfillWriteRecords(topicRecordOp(topic, after))
+  await self.backfillWriteRecords(topicRecordPersistenceOp(topic, after))
+  let offline = after.state == TopicRecordState.Offline
   # The old part is done, and the last part waits for the archive.
   let readyAt =
-    if after.timestampToNowIsGap and next >= fetchStop and fetchStop < stop:
+    if offline and next >= fetchStop and fetchStop < stop:
       Opt.some(restArchivedAt)
     else:
       Opt.none(Timestamp)
-  return ok(
-    BackfillFetchOutcome(
-      more: after.timestampToNowIsGap and next < fetchStop, readyAt: readyAt
-    )
-  )
+  return ok(BackfillFetchOutcome(more: offline and next < fetchStop, readyAt: readyAt))
 
 proc backfillFetchAllTopics(
     self: RecvService,
@@ -358,7 +371,7 @@ proc backfillFetchAllTopics(
     let topic = candidates[(first + i) mod candidates.len]
     if self.stopping:
       return ZeroDuration
-    if not self.backfillIsCandidate(topic):
+    if not self.backfill.isCandidate(topic):
       continue # changed during this pass
     let res = await self.backfillFetchTopic(topic, query, deliver)
     if res.isErr():
@@ -384,11 +397,14 @@ proc backfillWorker(self: RecvService) {.async.} =
   ## then fills the gaps of the subscribed topics from Store, one query for
   ## one topic at a time, while live delivery is ready and a Store peer is
   ## known. A failed query makes its topic wait for the next pass.
+  if not self.backfill.clearJob.isNil():
+    await self.backfill.clearJob.clearBackfillState() # off resets the state on disk
+    self.backfill.clearJob = nil
   await self.backfillReadRecordsAtStart()
   self.backfill.started = true
   var ops: seq[TxOp]
   for change in self.backfill.pendingSubscriptionChanges:
-    ops.add(self.backfillApplySubscriptionChange(change))
+    ops.add(self.backfill.applySubscriptionChange(change))
   self.backfill.pendingSubscriptionChanges.setLen(0)
   await self.backfillWriteRecords(ops)
   let query: BackfillQuery = proc(
@@ -406,7 +422,7 @@ proc backfillWorker(self: RecvService) {.async.} =
     return true
   var first = 0
   while not self.stopping:
-    let candidates = self.backfillCandidates()
+    let candidates = self.backfill.candidates()
     if candidates.len == 0:
       self.backfill.caughtUp.fire()
       await self.backfill.wake.wait()
@@ -420,7 +436,7 @@ proc backfillWorker(self: RecvService) {.async.} =
       continue
     let wait = await self.backfillFetchAllTopics(candidates, first, query, deliver)
     inc first
-    if wait == ZeroDuration or self.backfillCandidates().len == 0:
+    if wait == ZeroDuration or self.backfill.candidates().len == 0:
       continue # more to fetch now, or idle. The top of the loop handles both.
     discard await self.backfill.wake.wait().withTimeout(wait)
     self.backfill.wake.clear()
@@ -541,10 +557,10 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
   self.backfill.liveSince = startedAt
   if self.backfill.enabled:
     self.backfill.job = job
+    self.backfill.clearJob = nil
   else:
     self.backfill.job = nil
-    if not job.isNil():
-      asyncSpawn job.clearBackfillState() # off resets the state on disk
+    self.backfill.clearJob = job # the worker deletes the state on disk first
 
   # The topics that are subscribed before the service starts.
   for topic in backfillTopics(self.waku.subscribedContentTopics()):
@@ -603,3 +619,4 @@ proc stopRecvService*(self: RecvService) {.async.} =
   self.msgPrunerHandler = nil
   self.backfill.task = nil
   self.backfill.job = nil
+  self.backfill.clearJob = nil
