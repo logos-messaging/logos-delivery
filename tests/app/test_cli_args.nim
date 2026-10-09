@@ -589,6 +589,8 @@ suite "Waku external config - deprecated flags":
       "--discv5-bootstrap-node=enr:-QEKuECA0zhRJej2eaOoOPddNcYr7-5NdRwuoLCe2EE4wfEYkAZhFotg6Kkr8K15pMAGyUyt0smHkZCjLeld0BUzogNtAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc2hhcmRzLnRlc3Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zaGFyZHMudGVzdC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0",
       "--store-resume=true", "--relay-peer-exchange=true",
       "--nat-discovery-timeout-ms=5000", "--ports-shift=2",
+      "--ext-multiaddr=/ip4/1.2.3.4/tcp/60000", "--ext-multiaddr-only=true",
+      "--peer-store-capacity=500",
     ]
 
     ## When
@@ -609,6 +611,8 @@ suite "Waku external config - deprecated flags":
       conf.relayPeerExchange
       conf.natDiscoveryTimeoutMs == 5000
       conf.portsShift == 2
+      conf.extMultiAddrsOnly
+      conf.peerStoreCapacity == Opt.some(500)
 
   test "--circuit-relay-client replaces --relay-client":
     ## Given / When

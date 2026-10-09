@@ -236,7 +236,8 @@ type WakuNodeConf* = object
   .}: seq[string]
 
   extMultiAddrsOnly* {.
-    desc: "Only announce external multiaddresses setup with --ext-multiaddr",
+    obsolete: "unused; removed in v0.42.0",
+    desc: "Deprecated. Only announce external multiaddresses setup with --ext-multiaddr",
     defaultValue: false,
     name: "ext-multiaddr-only"
   .}: bool
@@ -271,7 +272,9 @@ type WakuNodeConf* = object
   .}: Opt[int]
 
   peerStoreCapacity* {.
-    desc: "Maximum stored peers in the peerstore.", name: "peer-store-capacity"
+    obsolete: "unused; removed in v0.42.0",
+    desc: "Deprecated. Maximum stored peers in the peerstore.",
+    name: "peer-store-capacity"
   .}: Opt[int]
 
   peerPersistence* {.
