@@ -101,6 +101,16 @@ proc new*(
 
   return ok(archive)
 
+func getShortestTimeRetention*(self: WakuArchive): Opt[chronos.Duration] =
+  ## The shortest time retention among the archive's policies, if it has one.
+  var shortest = Opt.none(chronos.Duration)
+  for policy in self.retentionPolicies:
+    if policy of TimeRetentionPolicy:
+      let retention = TimeRetentionPolicy(policy).getRetentionTime()
+      if shortest.isNone() or retention < shortest.get():
+        shortest = Opt.some(retention)
+  return shortest
+
 proc handleMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
 ) {.async.} =

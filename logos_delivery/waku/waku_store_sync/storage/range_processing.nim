@@ -1,4 +1,4 @@
-import chronos
+import chronos, results
 
 import ../../waku_core/time, ../common
 
@@ -12,6 +12,24 @@ func calculateTimeRange*(
   let syncStart = syncEnd - syncRange.nanos
 
   return syncStart .. syncEnd
+
+func clampSyncRange*(
+    syncRange, relayJitter: Duration, timeRetention: Opt[Duration]
+): Duration =
+  ## Reduces `syncRange` so that `syncRange + relayJitter` never exceeds the
+  ## archive's time retention. Without this, the sync window would reach past
+  ## what retention keeps, and peers would re-send messages the node deletes.
+  if timeRetention.isNone():
+    return syncRange
+
+  let retention = timeRetention.get()
+  if syncRange + relayJitter <= retention:
+    return syncRange
+
+  if retention <= relayJitter:
+    return ZeroDuration
+
+  return retention - relayJitter
 
 proc equalPartitioning*(slice: Slice[SyncID], count: int): seq[Slice[SyncID]] =
   ## Partition into N time slices.
