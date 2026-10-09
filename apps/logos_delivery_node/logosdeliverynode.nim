@@ -57,16 +57,8 @@ when isMainModule:
   # REST is an adapter above the node (like the FFI library): it owns the HTTP
   # server and every route, and answers health probes while the node boots.
   let rest = RestService.new(node)
-  rest.start().isOkOr:
-    error "Starting the REST service failed", error = error
-    quit(QuitFailure)
-
-  (waitFor node.start()).isOkOr:
+  (waitFor rest.startNode()).isOkOr:
     error "Starting LogosDelivery failed", error = error
-    quit(QuitFailure)
-
-  rest.mount().isOkOr:
-    error "Mounting the REST API failed", error = error
     quit(QuitFailure)
 
   info "Setting up shutdown hooks"
@@ -96,17 +88,14 @@ when isMainModule:
   # Polled from the dispatcher so the stop runs exactly once, outside any
   # signal handler. chronos' waitSignal is not used because signalfd needs the
   # signal blocked in every thread, and worker threads may already exist here.
-  proc waitForShutdown(
-      node: LogosDelivery, rest: RestService
-  ) {.async: (raises: [CancelledError]).} =
+  proc waitForShutdown(rest: RestService) {.async: (raises: [CancelledError]).} =
     while shutdownSignal.load() == 0:
       await sleepAsync(100.milliseconds)
 
     notice "Shutting down after receiving signal", signal = shutdownSignal.load()
-    await rest.stop()
     let stopRes =
       try:
-        await node.stop()
+        await rest.stopNode()
       except CancelledError as e:
         raise e
       except CatchableError as e:
@@ -117,4 +106,4 @@ when isMainModule:
 
   info "Node setup complete"
 
-  waitFor waitForShutdown(node, rest)
+  waitFor waitForShutdown(rest)

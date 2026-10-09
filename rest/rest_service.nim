@@ -329,3 +329,19 @@ proc stop*(self: RestService) {.async: (raises: []).} =
     self.messagingEvents = nil
   await self.server.stop()
   self.server = nil
+
+proc startNode*(self: RestService): Future[Result[void, string]] {.async.} =
+  ## Starts the node with REST around it: the server answers health probes
+  ## while the node boots and gets its protocol routes once the node runs.
+  ## REST is stopped again if the node does not start.
+  ?self.start()
+  (await self.node.start()).isOkOr:
+    await self.stop()
+    return err("could not start the node: " & error)
+  return self.mount()
+
+proc stopNode*(self: RestService): Future[Result[void, string]] {.async.} =
+  ## Stops REST first, so no route is served while the node shuts down, then
+  ## the node.
+  await self.stop()
+  return await self.node.stop()

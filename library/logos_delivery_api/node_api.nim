@@ -224,31 +224,20 @@ proc logosdelivery_create_node(
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  # REST answers health probes while the node boots, and gets its protocol
-  # routes once the node runs.
-  let rest = self.restOf()
-  rest.start().isOkOr:
-    chronicles.error "START_NODE failed to start REST", err = error
-    return err("failed to start REST: " & error)
-
-  (await self.start()).isOkOr:
+  (await self.restOf().startNode()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
-    await rest.stop()
     return err("failed to start: " & errMsg)
-
-  rest.mount().isOkOr:
-    chronicles.error "START_NODE failed to mount REST", err = error
-    return err("failed to mount REST: " & error)
 
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  await self.restOf().stop()
+  let rest = self.restOf()
   if not self.isRunning():
+    await rest.stop()
     return ok()
 
-  await self.stop()
+  return await rest.stopNode()
 
 proc logosdelivery_stop_node(
     self: LogosDelivery
