@@ -191,6 +191,7 @@ type WakuNodeConf* = object
   .}: Opt[uint16]
 
   agentString* {.
+    obsolete: "unused; removed in v0.42.0",
     defaultValue: DefaultAgentString,
     desc: "Node agent string which is used as identifier in network",
     name: "agent-string"
@@ -425,6 +426,7 @@ hence would have reachability issues.""",
   .}: bool
 
   storeMessageDbMigration* {.
+    obsolete: "migrations always run; removed in v0.42.0",
     desc: "Enable database migration at start. (requires --store)",
     defaultValue: true,
     name: "store-message-db-migration"
@@ -484,6 +486,7 @@ hence would have reachability issues.""",
   .}: string
 
   filterSubscriptionTimeout* {.
+    obsolete: "unused, the default is kept; removed in v0.42.0",
     desc:
       "Timeout in seconds for a filter subscription that is not pinged or refreshed. (requires --filter)",
     defaultValue: 300, # 5 minutes
@@ -491,12 +494,14 @@ hence would have reachability issues.""",
   .}: uint16
 
   filterMaxPeersToServe* {.
+    obsolete: "unused, the default is kept; removed in v0.42.0",
     desc: "Maximum number of filter peers to serve at a time. (requires --filter)",
     defaultValue: 1000,
     name: "filter-max-peers-to-serve"
   .}: uint32
 
   filterMaxCriteria* {.
+    obsolete: "unused, the default is kept; removed in v0.42.0",
     desc:
       "Maximum number of pubsub and content topic combinations per peer at a time. (requires --filter)",
     defaultValue: 1000,

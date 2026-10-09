@@ -590,7 +590,9 @@ suite "Waku external config - deprecated flags":
       "--store-resume=true", "--relay-peer-exchange=true",
       "--nat-discovery-timeout-ms=5000", "--ports-shift=2",
       "--ext-multiaddr=/ip4/1.2.3.4/tcp/60000", "--ext-multiaddr-only=true",
-      "--peer-store-capacity=500",
+      "--peer-store-capacity=500", "--store-message-db-migration=false",
+      "--agent-string=test-agent", "--filter-subscription-timeout=60",
+      "--filter-max-peers-to-serve=10", "--filter-max-criteria=50",
     ]
 
     ## When
@@ -613,6 +615,11 @@ suite "Waku external config - deprecated flags":
       conf.portsShift == 2
       conf.extMultiAddrsOnly
       conf.peerStoreCapacity == Opt.some(500)
+      not conf.storeMessageDbMigration
+      conf.agentString == "test-agent"
+      conf.filterSubscriptionTimeout == 60
+      conf.filterMaxPeersToServe == 10
+      conf.filterMaxCriteria == 50
 
   test "--circuit-relay-client replaces --relay-client":
     ## Given / When

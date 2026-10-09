@@ -128,12 +128,11 @@ Many flags only configure a feature that another flag enables. If such a flag is
 
 | Enabling flag | Dependent flags |
 | --- | --- |
-| `--store` | `--store-message-retention-policy`, `--store-message-db-url`, `--store-message-db-vacuum`, `--store-message-db-migration`, `--store-max-num-db-connections`, `--store-sync` |
+| `--store` | `--store-message-retention-policy`, `--store-message-db-url`, `--store-message-db-vacuum`, `--store-max-num-db-connections`, `--store-sync` |
 | `--store-sync` | `--store-sync-interval`, `--store-sync-range`, `--store-sync-relay-jitter` |
-| `--filter` | `--filter-subscription-timeout`, `--filter-max-peers-to-serve`, `--filter-max-criteria` |
 | `--rest` | `--rest-address`, `--rest-port`, `--rest-relay-cache-capacity`, `--rest-messaging-cache-capacity`, `--rest-admin`, `--rest-allow-origin` |
 | `--metrics-server` | `--metrics-server-address`, `--metrics-server-port` |
-| `--discv5-discovery` | `--discv5-udp-port`, `--discv5-enr-auto-update`, `--discv5-table-ip-limit`, `--discv5-bucket-ip-limit`, `--discv5-bits-per-hop` |
+| `--discv5-discovery` | `--discv5-udp-port`, `--discv5-enr-auto-update` |
 | `--websocket-support` | `--websocket-port`, `--websocket-secure-support` |
 | `--websocket-secure-support` | `--websocket-secure-key-path`, `--websocket-secure-cert-path` |
 | `--quic-support` | `--quic-port` |
