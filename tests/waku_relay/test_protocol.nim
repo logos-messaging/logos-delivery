@@ -4,6 +4,7 @@ import
   std/[strformat, sets, tables, sequtils],
   testutils/unittests,
   chronos,
+  metrics,
   libp2p/protocols/pubsub/[pubsub, gossipsub],
   libp2p/[stream/connection, switch],
   ./crypto_utils,
@@ -20,6 +21,14 @@ import
   ../testlib/[wakucore, wakunode, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
+
+proc invalidMessages(path: string): float64 =
+  ## The count of `logos_delivery_relay_invalid_messages` for `path`, 0 before
+  ## its first increment.
+  try:
+    logos_delivery_relay_invalid_messages.value([path])
+  except KeyError:
+    0.0
 
 suite "Waku Relay":
   var messageSeq {.threadvar.}: seq[(PubsubTopic, WakuMessage)]
@@ -1371,6 +1380,8 @@ suite "Waku Relay":
 
   suite "Messages that peers refuse":
     asyncTest "validateMessage refuses a message that peers refuse at decode":
+      let refusedBefore = invalidMessages("validate")
+
       # Given messages that the decoder refuses
       let
         msgWithEmptyContentTopic = fakeWakuMessage(testMessage, contentTopic = "")
@@ -1385,8 +1396,10 @@ suite "Waku Relay":
         (await node.validateMessage(pubsubTopic, msgWithEmptyContentTopic)).isErr()
         (await node.validateMessage(pubsubTopic, msgWithNonUtf8ContentTopic)).isErr()
         (await node.validateMessage(pubsubTopic, msgWithLongMeta)).isErr()
+        invalidMessages("validate") == refusedBefore + 3
 
     asyncTest "publish refuses a message that peers refuse at decode":
+      let refusedBefore = invalidMessages("publish")
       # When publishing a message without a content topic
       let res =
         await node.publish(pubsubTopic, fakeWakuMessage(testMessage, contentTopic = ""))
@@ -1394,3 +1407,4 @@ suite "Waku Relay":
       # Then the publish fails
       check:
         res.isErr() and res.error == PublishOutcome.InvalidMessage
+        invalidMessages("publish") == refusedBefore + 1
