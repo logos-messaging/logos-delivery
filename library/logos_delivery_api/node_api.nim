@@ -1,4 +1,4 @@
-import std/json
+import std/[json, tables]
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
@@ -13,6 +13,7 @@ import
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
   logos_delivery/waku/rln/rln_lez/transport,
+  rest/rest_service,
   ../declare_lib,
   ../json_event
 
@@ -178,6 +179,17 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
 
+# The REST service is an adapter above the node: the library keeps it beside the
+# node it wraps. Each node lives on its own FFI thread, so this table is only
+# touched from that thread and keyed by the node's broker scope.
+var restServices {.threadvar.}: Table[string, RestService]
+
+proc restOf(self: LogosDelivery): RestService =
+  let key = $self.waku.brokerCtx
+  if key notin restServices:
+    restServices[key] = RestService.new(self)
+  return restServices[key]
+
 proc logosdelivery_create_node(
     configJson: string
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
@@ -212,14 +224,27 @@ proc logosdelivery_create_node(
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
+  # REST answers health probes while the node boots, and gets its protocol
+  # routes once the node runs.
+  let rest = self.restOf()
+  rest.start().isOkOr:
+    chronicles.error "START_NODE failed to start REST", err = error
+    return err("failed to start REST: " & error)
+
   (await self.start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
+    await rest.stop()
     return err("failed to start: " & errMsg)
+
+  rest.mount().isOkOr:
+    chronicles.error "START_NODE failed to mount REST", err = error
+    return err("failed to mount REST: " & error)
 
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+  await self.restOf().stop()
   if not self.isRunning():
     return ok()
 
@@ -251,4 +276,5 @@ proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   ## broker scope; `teardownFFIEventScope` is the other end of create.
   (await self.stopNode()).isOkOr:
     chronicles.error "DESTROY failed", err = error
+  restServices.del($self.waku.brokerCtx)
   await self.teardownFFIEventScope()
