@@ -46,78 +46,42 @@ proc stop*(self: MessagingRestEvents, ctx: BrokerContext) {.async: (raises: []).
   # Nothing feeds the cache any more, so what it buffered is stale.
   self.cache.clear()
 
+proc listenFailed(event, reason: string): string =
+  return "could not listen for " & event & ": " & reason
+
 proc start*(self: MessagingRestEvents, ctx: BrokerContext): Result[void, string] =
   ## Registers the listeners that are not yet registered, so it is idempotent
   ## and a retry after a partial failure completes the set.
   let cache = self.cache
 
   if self.sent.isNone():
-    self.sent = Opt.some(
-      ?MessageSentEvent
-        .listen(
-          ctx,
-          proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-            cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Sent),
-        )
-        .mapErr(
-          proc(e: string): string =
-            "could not listen for MessageSentEvent: " & e
-        )
-    )
+    let listener = MessageSentEvent.listenIt(ctx):
+      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Sent)
+    let registered = listener.valueOr:
+      return err(listenFailed("MessageSentEvent", error))
+    self.sent = Opt.some(registered)
   if self.queued.isNone():
-    self.queued = Opt.some(
-      ?MessageQueuedEvent
-        .listen(
-          ctx,
-          proc(evt: MessageQueuedEvent): Future[void] {.async: (raises: []).} =
-            cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Queued),
-        )
-        .mapErr(
-          proc(e: string): string =
-            "could not listen for MessageQueuedEvent: " & e
-        )
-    )
+    let listener = MessageQueuedEvent.listenIt(ctx):
+      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Queued)
+    let registered = listener.valueOr:
+      return err(listenFailed("MessageQueuedEvent", error))
+    self.queued = Opt.some(registered)
   if self.propagated.isNone():
-    self.propagated = Opt.some(
-      ?MessagePropagatedEvent
-        .listen(
-          ctx,
-          proc(evt: MessagePropagatedEvent): Future[void] {.async: (raises: []).} =
-            cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Propagated),
-        )
-        .mapErr(
-          proc(e: string): string =
-            "could not listen for MessagePropagatedEvent: " & e
-        )
-    )
+    let listener = MessagePropagatedEvent.listenIt(ctx):
+      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Propagated)
+    let registered = listener.valueOr:
+      return err(listenFailed("MessagePropagatedEvent", error))
+    self.propagated = Opt.some(registered)
   if self.errored.isNone():
-    self.errored = Opt.some(
-      ?MessageErrorEvent
-        .listen(
-          ctx,
-          proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-            cache.recordSend(
-              $evt.requestId, evt.messageHash, SendEventKind.Error, evt.error
-            ),
-        )
-        .mapErr(
-          proc(e: string): string =
-            "could not listen for MessageErrorEvent: " & e
-        )
-    )
+    let listener = MessageErrorEvent.listenIt(ctx):
+      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Error, it.error)
+    let registered = listener.valueOr:
+      return err(listenFailed("MessageErrorEvent", error))
+    self.errored = Opt.some(registered)
   if self.received.isNone():
-    self.received = Opt.some(
-      ?MessageReceivedEvent
-        .listen(
-          ctx,
-          proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
-            cache.recordReceived(
-              evt.messageHash, toRelayWakuMessage(evt.message), evt.source
-            ),
-        )
-        .mapErr(
-          proc(e: string): string =
-            "could not listen for MessageReceivedEvent: " & e
-        )
-    )
+    let listener = MessageReceivedEvent.listenIt(ctx):
+      cache.recordReceived(it.messageHash, toRelayWakuMessage(it.message), it.source)
+    let registered = listener.valueOr:
+      return err(listenFailed("MessageReceivedEvent", error))
+    self.received = Opt.some(registered)
   return ok()
