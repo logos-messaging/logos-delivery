@@ -246,7 +246,7 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [CancelledError]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import logos_delivery/waku/rest_api/message_cache
+  import rest/message_cache
 
   let
     rng = newRng()

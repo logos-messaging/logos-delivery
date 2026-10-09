@@ -16,7 +16,7 @@ import
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
   logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery]
-import ../testlib/[testasync, wakunodeconf]
+import tests/testlib/[testasync, wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
   var kernel = defaultTestWakuNodeConf(rest = rest)
@@ -129,14 +129,13 @@ suite "LogosDelivery - broker lifecycle":
     lockNewGlobalBrokerContext:
       let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      let rest = (await node.startWithRest()).valueOr:
         raiseAssert error
-      check:
-        not node.messagingClient.restListenerInstaller.isNil()
-        node.messagingClient.eventDroppers.len == 5
+      check rest.isListeningToMessagingEvents()
+      await rest.stop()
       (await node.stop()).isOkOr:
         raiseAssert error
-      check node.messagingClient.eventDroppers.len == 0
+      check not rest.isListeningToMessagingEvents()
 
   asyncTest "plugin install verbs stay registered while stopped":
     lockNewGlobalBrokerContext:

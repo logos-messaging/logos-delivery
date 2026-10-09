@@ -232,7 +232,7 @@ proc subscribe*(
   if not isNil(self.node.wakuRelay):
     discard self.node.doRelaySubscribe(shard, handler)
   if added:
-    ContentTopicSubscribedEvent.emit(self.node.brokerCtx, contentTopic)
+    ContentTopicSubscribedEvent.emit(self.node.brokerCtx, shard, contentTopic)
   return ok()
 
 proc unsubscribe*(
@@ -252,7 +252,7 @@ proc unsubscribe*(
       self.shards.del(shard)
       if not isNil(self.node.wakuRelay):
         discard self.node.doRelayUnsubscribe(shard)
-    ContentTopicUnsubscribedEvent.emit(self.node.brokerCtx, contentTopic)
+    ContentTopicUnsubscribedEvent.emit(self.node.brokerCtx, shard, contentTopic)
   return ok()
 
 proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =

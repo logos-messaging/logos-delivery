@@ -15,23 +15,13 @@ import
 
 export messaging_client_api, messaging_conf
 
-type
-  EventDropper* = proc(): Future[void] {.async: (raises: []), gcsafe.}
-    ## Drops one EventBroker listener registered for the current start.
-
-  MessagingClient* = ref object
-    brokerCtx*: BrokerContext
-    waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
-    sendService*: SendService
-    recvService*: RecvService
-    persistencyJob*: persistency.Job
-    started*: bool
-    eventDroppers*: seq[EventDropper]
-      ## Listeners registered on `brokerCtx` by layers above the core (the REST
-      ## event cache) for the current start; `stop` drops them all.
-    restListenerInstaller*: proc() {.gcsafe, raises: [].}
-      ## Set once by the REST layer when it mounts its routes (presto rejects
-      ## a route added twice); re-registers the REST event listeners per start.
+type MessagingClient* = ref object
+  brokerCtx*: BrokerContext
+  waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
+  sendService*: SendService
+  recvService*: RecvService
+  persistencyJob*: persistency.Job
+  started*: bool
 
 const
   MaxParkedAgeSecLimit = 7'u * 24 * 3600

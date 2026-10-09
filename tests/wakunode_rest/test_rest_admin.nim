@@ -10,17 +10,18 @@ import
   libp2p/crypto/crypto
 
 import
+  rest/server,
+  rest/client,
+  rest/responses,
+  rest/kernel_api/admin/types,
+  rest/kernel_api/admin/handlers as admin_rest_interface,
+  rest/kernel_api/admin/client as admin_rest_client
+import
   logos_delivery/waku/[
     waku_core,
     waku_node,
     waku_filter_v2/client,
     node/peer_manager,
-    rest_api/endpoint/server,
-    rest_api/endpoint/client,
-    rest_api/endpoint/responses,
-    rest_api/endpoint/admin/types,
-    rest_api/endpoint/admin/handlers as admin_rest_interface,
-    rest_api/endpoint/admin/client as admin_rest_client,
     waku_archive,
     waku_archive/driver/queue_driver,
     waku_relay,

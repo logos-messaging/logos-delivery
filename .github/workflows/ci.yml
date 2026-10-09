@@ -464,7 +464,7 @@ jobs:
           shopt -s extglob  # Enable extended globbing
           NPH=$(make print-nph-path)
           echo "using nph at ${NPH}"
-          "${NPH}" examples logos_delivery tests tools apps *.@(nim|nims|nimble)
+          "${NPH}" examples logos_delivery rest tests tools apps *.@(nim|nims|nimble)
           git diff --exit-code
 
   # The single required check for this workflow. A matrix or reusable-workflow

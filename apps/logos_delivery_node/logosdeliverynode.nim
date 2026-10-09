@@ -8,9 +8,10 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ../../tools/confutils/cli_args,
+  tools/confutils/cli_args,
   logos_delivery/logos_delivery,
-  logos_delivery/waku/common/logging
+  logos_delivery/waku/common/logging,
+  rest/rest_service
 
 logScope:
   topics = "logosdeliverynode main"
@@ -41,8 +42,8 @@ when isMainModule:
     error "failure while loading the configuration", error = error
     quit(QuitFailure)
 
-  ## Also called within LogosDelivery.new. The call to startRestServerEssentials
-  ## needs the following line
+  ## Also called within LogosDelivery.new. The REST service needs the following
+  ## line
   logging.setupLog(nodeConf.kernel.logLevel, nodeConf.kernel.logFormat)
 
   # `LogosDelivery` derives the per-layer config from `LogosDeliveryNodeConf` itself
@@ -53,8 +54,19 @@ when isMainModule:
     error "LogosDelivery initialization failed", error = error
     quit(QuitFailure)
 
+  # REST is an adapter above the node (like the FFI library): it owns the HTTP
+  # server and every route, and answers health probes while the node boots.
+  let rest = RestService.new(node)
+  rest.start().isOkOr:
+    error "Starting the REST service failed", error = error
+    quit(QuitFailure)
+
   (waitFor node.start()).isOkOr:
     error "Starting LogosDelivery failed", error = error
+    quit(QuitFailure)
+
+  rest.mount().isOkOr:
+    error "Mounting the REST API failed", error = error
     quit(QuitFailure)
 
   info "Setting up shutdown hooks"
@@ -84,11 +96,14 @@ when isMainModule:
   # Polled from the dispatcher so the stop runs exactly once, outside any
   # signal handler. chronos' waitSignal is not used because signalfd needs the
   # signal blocked in every thread, and worker threads may already exist here.
-  proc waitForShutdown(node: LogosDelivery) {.async: (raises: [CancelledError]).} =
+  proc waitForShutdown(
+      node: LogosDelivery, rest: RestService
+  ) {.async: (raises: [CancelledError]).} =
     while shutdownSignal.load() == 0:
       await sleepAsync(100.milliseconds)
 
     notice "Shutting down after receiving signal", signal = shutdownSignal.load()
+    await rest.stop()
     let stopRes =
       try:
         await node.stop()
@@ -102,4 +117,4 @@ when isMainModule:
 
   info "Node setup complete"
 
-  waitFor waitForShutdown(node)
+  waitFor waitForShutdown(node, rest)

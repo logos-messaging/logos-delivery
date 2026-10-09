@@ -1,5 +1,5 @@
 ## Built on the Waku protocol packages: logos_delivery/waku/{node,net,discovery,
-## factory,rest_api,rln,incentivization,persistency} and the LogosDelivery entry
+## factory,rln,incentivization,persistency} and the LogosDelivery entry
 ## point
 ##
 ## The node that runs the protocols: its assembly and configuration, networking,

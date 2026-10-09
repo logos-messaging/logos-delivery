@@ -1,9 +1,8 @@
 {.used.}
 
 import results, stew/byteutils, unittest2, json_serialization
-import
-  logos_delivery/waku/
-    [common/base64, rest_api/endpoint/serdes, rest_api/endpoint/relay/types, waku_core]
+import logos_delivery/waku/[common/base64, waku_core]
+import rest/serdes, rest/kernel_api/relay/types
 
 suite "Waku v2 Rest API - Relay - serialization":
   suite "RelayWakuMessage - decode":
