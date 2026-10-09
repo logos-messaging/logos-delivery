@@ -36,6 +36,10 @@ logScope:
 
 const DefaultStorageCap = 50_000
 
+const DefaultMaxPayloadSize = 64 * 1024 * 1024
+  ## The largest reconciliation payload that a node reads. An item set entry
+  ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
+
 type SyncReconciliation* = ref object of LPProtocol
   pubsubTopics: HashSet[PubsubTopic] # Empty set means accept all. See spec.
   contentTopics: HashSet[ContentTopic] # Empty set means accept all. See spec.
@@ -171,7 +175,7 @@ proc processRequest(
 
   while true:
     let readRes = catch:
-      await conn.readLp(int.high)
+      await conn.readLp(DefaultMaxPayloadSize)
 
     let buffer: seq[byte] = readRes.valueOr:
       await conn.close()

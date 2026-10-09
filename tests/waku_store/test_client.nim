@@ -258,7 +258,7 @@ suite "Store Client - peers that hold their streams":
     release = newAsyncEvent()
     proc hold(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
       try:
-        let buf = await conn.readLp(DefaultMaxRpcSize.int)
+        let buf = await conn.readLp(DefaultMaxQuerySize)
         inc requests
         if answer:
           let req = StoreQueryRequest.decode(buf).valueOr:

@@ -223,3 +223,37 @@ suite "Waku Store - query handler":
 
     ## Cleanup
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
+
+suite "Waku Store - read limits":
+  asyncTest "a query above the size limit gets no answer, and the next query does":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    let queryHandler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      return ok(StoreQueryResponse(statusCode: 200))
+    let
+      server = await newTestWakuStore(serverSwitch, handler = queryHandler)
+      client = newTestWakuStoreClient(clientSwitch)
+      serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+
+    # A length prefix of 2^40 bytes, and no data. The server closes the stream.
+    let conn = await clientSwitch.dial(
+      serverPeerInfo.peerId, serverPeerInfo.addrs, WakuStoreCodec
+    )
+    await conn.write(@[0x80'u8, 0x80, 0x80, 0x80, 0x80, 0x20])
+    let reply = catch:
+      await conn.readLp(1024)
+    await conn.close()
+
+    let res = await client.query(
+      StoreQueryRequest(contentTopics: @[DefaultContentTopic]), peer = serverPeerInfo
+    )
+    check:
+      reply.isErr()
+      res.isOk()
+
+    await allFutures(serverSwitch.stop(), clientSwitch.stop())

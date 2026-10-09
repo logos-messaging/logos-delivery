@@ -231,3 +231,14 @@ suite "Waku Store - response page decode":
       res.isOk()
       res.get().messages == @[good]
       res.get().paginationCursor == Opt.some(pageCursor())
+
+suite "Waku Store - read limits":
+  test "a full page of the largest messages fits the response limit":
+    let message = WakuMessage(
+      payload: newSeq[byte](int(DefaultMaxWakuMessageSize)),
+      contentTopic: DefaultContentTopic,
+    )
+    var res = StoreQueryResponse(requestId: "r", statusCode: 200)
+    for i in 0 ..< int(MaxPageSize):
+      res.messages.add(keyValueOf(byte(i + 1), message))
+    check res.encode().len <= DefaultMaxQueryResponseSize

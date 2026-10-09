@@ -49,7 +49,7 @@ proc sendStoreRequest(
 
   let buf =
     try:
-      await connection.readLp(DefaultMaxRpcSize.int)
+      await connection.readLp(DefaultMaxQueryResponseSize)
     except LPStreamError as exc:
       return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
 

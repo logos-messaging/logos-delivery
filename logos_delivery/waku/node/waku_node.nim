@@ -611,7 +611,9 @@ proc mountMix*(
   ).valueOr:
     return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
-  node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
+  node.wakuMix.registerDestReadBehavior(
+    WakuLightPushCodec, readLp(lightpush_protocol.DefaultMaxPushResponseSize)
+  )
   let catchRes = catch:
     node.switch.mount(node.wakuMix)
   catchRes.isOkOr:
