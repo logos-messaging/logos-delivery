@@ -390,9 +390,8 @@ proc installAdminV1PostPeersHandler(router: var RestRouter, node: WakuNode) =
   router.api(MethodPost, ROUTE_ADMIN_V1_PEERS) do(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
-    let peers: seq[string] = decodeRequestBody[seq[string]](contentBody).valueOr:
-      let e = $error
-      return RestApiResponse.badRequest(fmt("Failed to decode request: {e}"))
+    let peers: seq[string] = decodeJsonBody[seq[string]](contentBody).valueOr:
+      return RestApiResponse.badRequest(fmt("Failed to decode request: {error}"))
 
     for i, peer in peers:
       let peerInfo = parsePeerInfo(peer).valueOr:

@@ -68,7 +68,7 @@ proc installMessagingApiHandlers*(
 
   # Event observability: buffer send/received events for the poll-based GETs.
   # The routes and the cache are installed once; the listeners feeding the
-  # cache are the `MessagingRestService`, started and stopped with it.
+  # cache are the `MessagingRestEvents`, started and stopped with it.
 
   # Without autosharding, content topics resolve to no shard: answer 503.
   let autoshardingConfigured = client.waku.isAutoshardingConfigured()

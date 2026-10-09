@@ -52,7 +52,6 @@ const
   DefaultLightPush: bool = false
   DefaultPeerExchange: bool = false
     # historical confbuilder default; the node CLI deviates (true)
-  DefaultStoreSyncMount: bool = false
   DefaultRendezvous: bool = false
     # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
@@ -132,7 +131,6 @@ type WakuConfBuilder* = object
   relay: Opt[bool]
   lightPush: Opt[bool]
   peerExchange: Opt[bool]
-  storeSync: Opt[bool]
   relayPeerExchange: Opt[bool]
   mix: Opt[bool]
 
@@ -229,9 +227,6 @@ proc withRelay*(b: var WakuConfBuilder, relay: bool) =
 
 proc withLightPush*(b: var WakuConfBuilder, lightPush: bool) =
   b.lightPush = Opt.some(lightPush)
-
-proc withStoreSync*(b: var WakuConfBuilder, storeSync: bool) =
-  b.storeSync = Opt.some(storeSync)
 
 proc withPeerExchange*(b: var WakuConfBuilder, peerExchange: bool) =
   b.peerExchange = Opt.some(peerExchange)
@@ -649,13 +644,6 @@ proc build*(
     else:
       debug "Whether to mount peerExchange is not specified, defaulting to not mounting"
       DefaultPeerExchange
-
-  let storeSync =
-    if builder.storeSync.isSome():
-      builder.storeSync.get()
-    else:
-      debug "Whether to mount storeSync is not specified, defaulting to not mounting"
-      DefaultStoreSyncMount
 
   let rendezvous =
     if builder.rendezvous.isSome():

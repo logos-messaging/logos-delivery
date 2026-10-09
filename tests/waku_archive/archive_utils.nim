@@ -36,6 +36,14 @@ proc insertCount*(source: string): float64 =
   except ValueError:
     return 0.0
 
+proc duplicateCount*(source: string): float64 =
+  try:
+    return logos_delivery_archive_duplicates.valueByName(
+      "logos_delivery_archive_duplicates_total", [source]
+    )
+  except ValueError:
+    return 0.0
+
 proc errorCount*(errorType: string): float64 =
   try:
     return logos_delivery_archive_errors.valueByName(
@@ -60,7 +68,7 @@ method put*(
     messageHash: WakuMessageHash,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[bool]] {.async.} =
   return err("failing archive driver stub")
 
 proc newFailingArchiveDriver*(): ArchiveDriver =

@@ -66,6 +66,8 @@ proc toArchiveQuery(request: StoreQueryRequest): waku_archive.ArchiveQuery =
 
 proc toStoreResult(res: waku_archive.ArchiveResult): StoreQueryResult =
   let response = res.valueOr:
+    if error.kind == ArchiveErrorKind.INVALID_QUERY:
+      return err(StoreError.new(400, "archive error: " & $error))
     return err(StoreError.new(300, "archive error: " & $error))
 
   var res = StoreQueryResponse()

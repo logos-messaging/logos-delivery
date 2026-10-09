@@ -427,8 +427,7 @@ suite "Waku v2 Rest API - Relay":
       response.data ==
         "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
 
-  asyncTest "A message posted twice is stored once, counted once as written and once as an insert failure - POST /relay/v1/messages/{topic}":
-    # TODO: logos-delivery#4438
+  asyncTest "A message posted twice is stored once and counted once as written - POST /relay/v1/messages/{topic}":
     # Given a relay node with a sqlite archive, subscribed to a pubsub topic
     let node = testWakuNode()
     let driver = newSqliteArchiveDriver()
@@ -471,7 +470,7 @@ suite "Waku v2 Rest API - Relay":
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
       insertCount(relayIngress) == insertsBefore + 1
       messagesPerShard("0") == shardBefore + 1
-      errorCount(insertFailure) == failuresBefore + 1
+      errorCount(insertFailure) == failuresBefore
 
   # Autosharding API
 
@@ -1520,7 +1519,9 @@ suite "Waku v2 Rest API - Relay":
         await issueRequest(restServer.getAddress(path), MethodPost, jsonHeader, body)
       check:
         response.status == 400
-        response.data.startsWith("Invalid content body, could not decode: ")
+        response.data.startsWith(
+          "Invalid content body, could not decode: Unable to deserialize data: body("
+        )
 
     # When a field that must be base64 is not
     let notBase64Bodies = [
@@ -1539,7 +1540,6 @@ suite "Waku v2 Rest API - Relay":
         response.data == "Incorrect base64 string"
 
   asyncTest "Post a message with an invalid body - POST /relay/v1/auto/messages":
-    # TODO: logos-delivery#4432
     # Given a node with relay mounted
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
@@ -1564,11 +1564,13 @@ suite "Waku v2 Rest API - Relay":
       $ %*{"contentTopic": "/app/1/chat/proto"},
     )
 
-    # Then the answer ends in an empty decode reason
+    # Then the answer carries the decoder's reason
     check:
       response.status == 400
-      response.data ==
-        "Invalid content body, could not decode: Unable to deserialize data: "
+      response.data.startsWith(
+        "Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      response.data.contains("Field `payload` is missing or empty")
 
   asyncTest "Post a message with unknown fields - POST /relay/v1/messages/{topic}":
     # Given a node subscribed to the topic

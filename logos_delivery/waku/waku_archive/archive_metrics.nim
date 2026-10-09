@@ -10,6 +10,8 @@ declarePublicCounter logos_delivery_archive_errors,
   "number of store protocol errors", ["type"]
 declarePublicCounter logos_delivery_archive_inserts,
   "number of messages written to the archive", ["source"]
+declarePublicCounter logos_delivery_archive_duplicates,
+  "number of messages the archive already held and did not write again", ["source"]
 declarePublicHistogram logos_delivery_archive_insert_duration_seconds,
   "message insertion duration"
 declarePublicHistogram logos_delivery_archive_query_duration_seconds,

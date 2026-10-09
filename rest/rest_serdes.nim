@@ -29,29 +29,29 @@ proc encodeBytesOf*[T](value: T, contentType: string): RestResult[seq[byte]] =
   let encoded = ?encodeIntoJsonBytes(value)
   return ok(encoded)
 
-func decodeRequestBody*[T](
-    contentBody: Option[ContentBody]
-): Result[T, RestApiResponse] =
+proc decodeJsonBody*[T](contentBody: Option[ContentBody]): Result[T, string] =
+  ## Decodes the request body, the error is the reason the body is rejected.
   if contentBody.isNone():
-    return err(RestApiResponse.badRequest("Missing content body"))
+    return err("Missing content body")
 
   let reqBodyContentType = contentBody.get().contentType.mediaType
 
   if reqBodyContentType != MIMETYPE_JSON and reqBodyContentType != MIMETYPE_TEXT:
-    return err(
-      RestApiResponse.badRequest(
-        "Wrong Content-Type, expected application/json or text/plain"
-      )
-    )
+    return err("Wrong Content-Type, expected application/json or text/plain")
 
-  let reqBodyData = contentBody.get().data
-
-  let requestResult = decodeFromJsonBytes(T, reqBodyData).valueOr:
-    return err(
-      RestApiResponse.badRequest("Invalid content body, could not decode: " & $error)
-    )
+  let requestResult = decodeJsonBytesWithReason(T, contentBody.get().data).valueOr:
+    debug "could not decode the request body", reason = error
+    return err("Invalid content body, could not decode: " & error)
 
   return ok(requestResult)
+
+proc decodeRequestBody*[T](
+    contentBody: Option[ContentBody]
+): Result[T, RestApiResponse] =
+  let decoded = decodeJsonBody[T](contentBody).valueOr:
+    return err(RestApiResponse.badRequest(error))
+
+  return ok(decoded)
 
 proc decodeBytes*(
     t: typedesc[string], value: openarray[byte], contentType: Opt[ContentTypeData]

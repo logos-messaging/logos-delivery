@@ -79,8 +79,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
           if mine.len > 0:
             let converted = mine.mapIt(it.toDiscoveredPeer())
             PeersDiscovered.emit(
-              self.brokerCtx,
-              PeersDiscovered(origin: ServiceBackendId, key: "", peers: converted),
+              self.brokerCtx, origin = ServiceBackendId, key = "", peers = converted
             )
         ,
       )

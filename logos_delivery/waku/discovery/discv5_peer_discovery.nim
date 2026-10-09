@@ -134,8 +134,7 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
           if mine.len > 0:
             let converted = mine.mapIt(it.toDiscoveredPeer())
             PeersDiscovered.emit(
-              self.brokerCtx,
-              PeersDiscovered(origin: Discv5BackendId, key: "", peers: converted),
+              self.brokerCtx, origin = Discv5BackendId, key = "", peers = converted
             )
         ,
       )

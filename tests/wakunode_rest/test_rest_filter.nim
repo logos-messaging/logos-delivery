@@ -626,7 +626,6 @@ suite "Waku v2 Rest API - Filter V2":
     defer:
       await restFilterTest.shutdown()
 
-    # TODO: logos-delivery#4434
     let
       subscribeFailuresBefore = nodeErrorCount("subscribe_filter_failure")
       unsubscribeFailuresBefore = nodeErrorCount("unsubscribe_filter_failure")
@@ -640,22 +639,26 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then the request is answered UNKNOWN and no criterion is registered
+    # Then the request is rejected and no criterion is registered
     check:
-      subscribeResponse.status == 200
-      subscribeResponse.data.statusDesc == "UNKNOWN"
+      subscribeResponse.status == 400
+      subscribeResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
       restFilterTest.serviceNode.wakuFilter.subscriptions
         .findSubscribedPeers(DefaultPubsubTopic, DefaultContentTopic)
         .len() == 0
 
-    # And the content topic is in the message cache, so a read answers with an empty list
-    let messages = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
+    # And the content topic is not in the message cache
+    let messages = await issueRequest(
+      restFilterTest.restServer.getAddress(
+        "/filter/v2/messages/%2Fwaku%2F2%2Fdefault-content%2Fproto"
+      )
+    )
 
     check:
-      messages.status == 200
-      messages.data.len() == 0
+      messages.status == 400
+      messages.data == "Not subscribed to topic: " & DefaultContentTopic
 
-    # TODO: logos-delivery#4434
     # When it updates without a pubsubTopic, and subscribes and updates with an empty one
     let putResponse = await restFilterTest.client.filterPutSubscriptions(
       FilterSubscribeRequest(
@@ -679,14 +682,17 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then each is answered UNKNOWN and the service holds no subscriber
+    # Then each is rejected and the service holds no subscriber
     check:
-      putResponse.status == 200
-      putResponse.data.statusDesc == "UNKNOWN"
-      emptyTopicPostResponse.status == 200
-      emptyTopicPostResponse.data.statusDesc == "UNKNOWN"
-      emptyTopicPutResponse.status == 200
-      emptyTopicPutResponse.data.statusDesc == "UNKNOWN"
+      putResponse.status == 400
+      putResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
+      emptyTopicPostResponse.status == 400
+      emptyTopicPostResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
+      emptyTopicPutResponse.status == 400
+      emptyTopicPutResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
       restFilterTest.serviceNode.wakuFilter.subscriptions.subscribedPeerCount() == 0
 
     # When it unsubscribes without a pubsubTopic
@@ -699,10 +705,10 @@ suite "Waku v2 Rest API - Filter V2":
     )
 
     check:
-      unsubscribeResponse.status == 200
-      unsubscribeResponse.data.statusDesc == "UNKNOWN"
+      unsubscribeResponse.status == 400
+      unsubscribeResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
 
-    # TODO: logos-delivery#4434
     # When it unsubscribes with an empty pubsubTopic
     let emptyTopicDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
@@ -712,14 +718,14 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered UNKNOWN, and every request was counted as a failure
+    # Then it is rejected, and every request was counted as a failure
     check:
-      emptyTopicDeleteResponse.status == 200
-      emptyTopicDeleteResponse.data.statusDesc == "UNKNOWN"
+      emptyTopicDeleteResponse.status == 400
+      emptyTopicDeleteResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
       nodeErrorCount("subscribe_filter_failure") == subscribeFailuresBefore + 4
       nodeErrorCount("unsubscribe_filter_failure") == unsubscribeFailuresBefore + 2
 
-    # TODO: logos-delivery#4434
     # When it subscribes with a pubsubTopic and unsubscribes without one
     let subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
 
@@ -738,12 +744,13 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then the unsubscribe is answered UNKNOWN and the service keeps the subscription
+    # Then the unsubscribe is rejected and the service keeps the subscription
     check:
       subscribeWithTopicResponse.status == 200
       subscribeWithTopicResponse.data.statusDesc == "OK"
-      unsubscribeWithoutTopicResponse.status == 200
-      unsubscribeWithoutTopicResponse.data.statusDesc == "UNKNOWN"
+      unsubscribeWithoutTopicResponse.status == 400
+      unsubscribeWithoutTopicResponse.data.statusDesc ==
+        "pubsubTopic must be specified when static sharding is enabled"
       subPeerId in
         restFilterTest.serviceNode.wakuFilter.subscriptions.findSubscribedPeers(
           DefaultPubsubTopic, DefaultContentTopic
@@ -831,7 +838,6 @@ suite "Waku v2 Rest API - Filter V2":
         data["requestId"].getStr() == "unknown"
         data["statusDesc"].getStr().startsWith("BAD_REQUEST: Failed to decode request")
 
-    # TODO: logos-delivery#4432
     # When the subscribe body carries only a requestId
     let requestIdOnlyResponse = await issueRequest(
       restFilterTest.restServer.getAddress(ROUTE_FILTER_SUBSCRIPTIONS),
@@ -841,12 +847,57 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let requestIdOnlyData = parseJson(requestIdOnlyResponse.data)
 
-    # Then the answer prints the response object that wraps an empty decode reason
+    # Then the answer carries the decoder's reason and not a printed response object
     check:
       requestIdOnlyResponse.status == 400
       requestIdOnlyData["requestId"].getStr() == "unknown"
-      requestIdOnlyData["statusDesc"].getStr() ==
-        "BAD_REQUEST: Failed to decode request: (status: 400 Bad Request, headers: , kind: Error, errobj: (status: 400 Bad Request, message: \"Invalid content body, could not decode. Unable to deserialize data: \", contentType: \"text/plain\"))"
+      requestIdOnlyData["statusDesc"].getStr().startsWith(
+        "BAD_REQUEST: Failed to decode request: Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      "errobj" notin requestIdOnlyData["statusDesc"].getStr()
+      requestIdOnlyData["statusDesc"].getStr().contains(
+        "Field `contentFilters` is missing"
+      )
+
+  asyncTest "Unsubscribe after the service dropped the subscription clears the message cache - DELETE /filter/v2/subscriptions":
+    # Given a subscription the service no longer holds, as after a timeout or restart
+    let restFilterTest = await RestFilterTest.init()
+    defer:
+      await restFilterTest.shutdown()
+
+    let
+      subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
+      subscriptions = restFilterTest.serviceNode.wakuFilter.subscriptions
+
+    let postResponse = await restFilterTest.client.filterPostSubscriptions(
+      FilterSubscribeRequest(
+        requestId: "1234",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+    await subscriptions.removePeer(subPeerId)
+
+    # When it unsubscribes
+    let deleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "4321",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
+      )
+    )
+
+    # Then the service answers 404 and the message cache no longer lists the topic
+    let messages = await issueRequest(
+      restFilterTest.restServer.getAddress(
+        "/filter/v2/messages/%2Fwaku%2F2%2Fdefault-content%2Fproto"
+      )
+    )
+
+    check:
+      postResponse.status == 200
+      deleteResponse.status == 404
+      messages.status == 400
 
   asyncTest "Add, remove and exceed subscription criteria - PUT and DELETE /filter/v2/subscriptions":
     # Given a subscription to one content topic
@@ -926,10 +977,10 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and the peer keeps its criteria
+    # Then it is answered OK and the peer keeps its criteria
     check:
-      unknownResponse.status == 404
-      unknownResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      unknownResponse.status == 200
+      unknownResponse.data.statusDesc == "OK"
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "2")
 
@@ -965,7 +1016,6 @@ suite "Waku v2 Rest API - Filter V2":
       messagesAfterDeleteAll.status == 400
       messagesAfterDeleteAll.data == "Not subscribed to topic: 2"
 
-    # TODO: logos-delivery#4434
     # Given a subscription to one content topic again
     let resubscribeResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
@@ -987,14 +1037,14 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # TODO: logos-delivery#4434
-    # Then a read of a content topic the rejected subscribe named answers with an empty list
-    let messagesAfterTooManyPost = await restFilterTest.client.filterGetMessagesV1("0")
+    # Then a read of a content topic the rejected subscribe named is refused
+    let messagesAfterTooManyPost =
+      await issueRequest(restFilterTest.restServer.getAddress("/filter/v2/messages/0"))
 
     check:
       subscriptions.findSubscribedPeers(DefaultPubsubTopic, "0").len() == 0
-      messagesAfterTooManyPost.status == 200
-      messagesAfterTooManyPost.data.len() == 0
+      messagesAfterTooManyPost.status == 400
+      messagesAfterTooManyPost.data == "Not subscribed to topic: 0"
 
     let tooManyDeleteResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
@@ -1013,18 +1063,15 @@ suite "Waku v2 Rest API - Filter V2":
       tooManyDeleteResponse.data.statusDesc ==
         "BAD_REQUEST: exceeds maximum content topics: 100"
 
-    # TODO: logos-delivery#4434
-    # And a read of a content topic the service still holds after the rejected unsubscribe is refused
+    # And a read of a content topic the service still holds after the rejected unsubscribe is served
     let messagesAfterTooManyDelete =
-      await issueRequest(restFilterTest.restServer.getAddress("/filter/v2/messages/1"))
+      await restFilterTest.client.filterGetMessagesV1("1")
 
     check:
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
-      messagesAfterTooManyDelete.status == 400
-      messagesAfterTooManyDelete.data == "Not subscribed to topic: 1"
+      messagesAfterTooManyDelete.status == 200
 
   asyncTest "Remove subscription criteria together with one no peer holds - DELETE /filter/v2/subscriptions":
-    # TODO: logos-delivery#4435
     let restFilterTest = await RestFilterTest.init()
     defer:
       await restFilterTest.shutdown()
@@ -1053,10 +1100,10 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let onlyPingResponse = await restFilterTest.client.filterSubscriberPing("3456")
 
-    # Then it is answered "peer has no subscriptions" and the whole subscription is gone
+    # Then it is answered OK, the criterion is removed and the subscription is gone
     check:
-      onlyResponse.status == 404
-      onlyResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      onlyResponse.status == 200
+      onlyResponse.data.statusDesc == "OK"
       subscriptions.findSubscribedPeers(DefaultPubsubTopic, "5").len() == 0
       onlyPingResponse.status == 404
       onlyPingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
@@ -1081,10 +1128,12 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let pingResponse = await restFilterTest.client.filterSubscriberPing("6789")
 
-    # Then it is answered "peer has no subscriptions" while a ping is answered OK
+    # Then it is answered OK and the subscription is untouched
     check:
-      missingResponse.status == 404
-      missingResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
+      missingResponse.status == 200
+      missingResponse.data.statusDesc == "OK"
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
       pingResponse.status == 200
       pingResponse.data.statusDesc == "OK"
 
@@ -1097,11 +1146,11 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and nothing is removed
+    # Then it is answered OK and "1" is removed
     check:
-      keptResponse.status == 404
-      keptResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
-      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      keptResponse.status == 200
+      keptResponse.data.statusDesc == "OK"
+      subPeerId notin subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
       subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")
 
     # When a DELETE names "4" and a criterion no peer holds
@@ -1113,9 +1162,8 @@ suite "Waku v2 Rest API - Filter V2":
       )
     )
 
-    # Then it is answered "peer has no subscriptions" and "4" is removed
+    # Then it is answered OK and "4" is removed
     check:
-      removedResponse.status == 404
-      removedResponse.data.statusDesc == "NOT_FOUND: peer has no subscriptions"
-      subPeerId in subscriptions.findSubscribedPeers(DefaultPubsubTopic, "1")
+      removedResponse.status == 200
+      removedResponse.data.statusDesc == "OK"
       subPeerId notin subscriptions.findSubscribedPeers(DefaultPubsubTopic, "4")

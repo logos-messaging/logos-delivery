@@ -1,0 +1,38 @@
+name: 'Compare with master'
+description: >
+  Runs after a dependency check failed for a PR. Fails when the same check
+  passed for master. When master fails too, the PR cannot be blamed, and the
+  step passes.
+
+inputs:
+  check:
+    description: 'The name of the check, for the messages, for example "Nimble lock".'
+    required: true
+  pr-revision:
+    description: 'The merge commit of the PR that the check ran on.'
+    required: true
+  base-revision:
+    description: 'The master commit that the check ran on.'
+    required: true
+  base-succeeded:
+    description: 'The `succeeded` output of the check for master.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Compare PR with master
+      shell: bash
+      env:
+        CHECK: ${{ inputs.check }}
+        PR_REVISION: ${{ inputs.pr-revision }}
+        BASE_REVISION: ${{ inputs.base-revision }}
+        BASE_SUCCEEDED: ${{ inputs.base-succeeded }}
+      run: |
+        pr="this PR (merge commit ${PR_REVISION:0:8})"
+        base="master (${BASE_REVISION:0:8})"
+        if [ "${BASE_SUCCEEDED}" = true ]; then
+          echo "::error::This PR breaks ${CHECK}. It fails on ${pr} and passes on ${base}. The notice \"${CHECK} fails on this PR\" shows the error."
+          exit 1
+        fi
+        echo "::notice::${CHECK} fails on ${pr} and on ${base}, so this check cannot judge this PR. The notices \"${CHECK} fails on this PR\" and \"${CHECK} fails on master\" show both errors."

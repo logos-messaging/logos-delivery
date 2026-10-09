@@ -184,7 +184,6 @@ suite "Waku v2 Rest API - Admin":
       getRes.data[0].connected == CannotConnect
 
   asyncTest "Set peers with a body that does not decode":
-    # TODO: logos-delivery#4432
     let postRes = await issueRequest(
       restServer.getAddress("/admin/v1/peers"),
       MethodPost,
@@ -192,11 +191,14 @@ suite "Waku v2 Rest API - Admin":
       "{}",
     )
 
-    # The answer prints the response object that wraps an empty decode reason.
+    # The answer carries the decoder's reason and not a printed response object.
     check:
       postRes.status == 400
-      postRes.data ==
-        "Failed to decode request: (status: 400 Bad Request, headers: , kind: Error, errobj: (status: 400 Bad Request, message: \"Invalid content body, could not decode: Unable to deserialize data: \", contentType: \"text/plain\"))"
+      postRes.data.startsWith(
+        "Failed to decode request: Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      "errobj" notin postRes.data
+      postRes.data.contains("'[' expected")
 
   asyncTest "Get filter data":
     await allFutures(

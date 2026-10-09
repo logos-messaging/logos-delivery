@@ -1,0 +1,30 @@
+name: 'Nimble error'
+description: >
+  Shows the last Nimble error of a log as a notice annotation, with its "..."
+  lines, so that a failed check says what Nimble reported.
+
+inputs:
+  log:
+    description: 'A file with the output of Nimble.'
+    required: true
+  title:
+    description: 'The title of the annotation, for example "Nimble lock fails on master".'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Show the Nimble error
+      shell: bash
+      env:
+        LOG: ${{ inputs.log }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        error="$(awk '/Error:/ { e = $0; next }
+                      e != "" && /^[[:space:]]*\.\.\./ { e = e "\n" $0; next }
+                      e != "" { last = e; e = "" }
+                      END { print (e != "" ? e : last) }' "${LOG}")"
+        # An annotation is one line, so escape %, CR and LF.
+        error="${error//%/%25}"
+        error="${error//$'\r'/%0D}"
+        echo "::notice title=${TITLE}::${error//$'\n'/%0A}"

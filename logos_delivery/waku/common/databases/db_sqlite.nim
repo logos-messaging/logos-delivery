@@ -154,6 +154,10 @@ template bindParams(s: RawStmtPtr, params: auto) =
   else:
     checkErr bindParam(s, 1, params)
 
+proc changes*(db: SqliteDatabase): int =
+  ## Rows modified by the most recently completed statement.
+  return int(sqlite3_changes(db.env))
+
 proc exec*[P](s: SqliteStmt[P, void], params: P): DatabaseResult[void] =
   let s = RawStmtPtr s
   bindParams(s, params)

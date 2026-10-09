@@ -96,6 +96,8 @@ proc new*(
   ## reported as writing nothing instead of not being reported at all.
   logos_delivery_archive_inserts.inc(0, labelValues = [relayIngress])
   logos_delivery_archive_inserts.inc(0, labelValues = [syncIngress])
+  logos_delivery_archive_duplicates.inc(0, labelValues = [relayIngress])
+  logos_delivery_archive_duplicates.inc(0, labelValues = [syncIngress])
 
   return ok(archive)
 
@@ -123,7 +125,7 @@ proc handleMessage*(
 
   let insertStartTime = getTime().toUnixFloat()
 
-  (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
+  let written = (await self.driver.put(msgHash, pubsubTopic, msg)).valueOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
     debug "failed to insert message",
       msg_hash = msgHashHex,
@@ -131,6 +133,15 @@ proc handleMessage*(
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp,
       error = error
+    return
+
+  if not written:
+    logos_delivery_archive_duplicates.inc(labelValues = [relayIngress])
+    trace "message already archived",
+      msg_hash = msgHashHex,
+      pubsubTopic = pubsubTopic,
+      contentTopic = msg.contentTopic,
+      timestamp = msg.timestamp
     return
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
@@ -167,7 +178,7 @@ proc syncMessageIngress*(
     timestamp = msg.timestamp
 
   let insertStartTime = getTime().toUnixFloat()
-  (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
+  let written = (await self.driver.put(msgHash, pubsubTopic, msg)).valueOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
     debug "failed to insert message in in syncMessageIngress",
       msg_hash = msgHashHex,
@@ -176,6 +187,11 @@ proc syncMessageIngress*(
       timestamp = msg.timestamp,
       error = $error
     return err(error)
+
+  if not written:
+    logos_delivery_archive_duplicates.inc(labelValues = [syncIngress])
+    trace "message already archived in syncMessageIngress", msg_hash = msgHashHex
+    return ok()
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
   logos_delivery_archive_insert_duration_seconds.observe(insertDuration)

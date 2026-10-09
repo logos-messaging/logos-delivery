@@ -38,23 +38,17 @@ const ROUTE_FILTER_SUBSCRIPTIONS* = "/filter/v2/subscriptions"
 
 const ROUTE_FILTER_ALL_SUBSCRIPTIONS* = "/filter/v2/subscriptions/all"
 
-func decodeRequestBody[T](
-    contentBody: Option[ContentBody]
-): Result[T, RestApiResponse] =
+proc decodeRequestBody[T](contentBody: Option[ContentBody]): Result[T, string] =
   if contentBody.isNone():
-    return err(RestApiResponse.badRequest("Missing content body"))
+    return err("Missing content body")
 
   let reqBodyContentType = MediaType.init($contentBody.get().contentType)
   if reqBodyContentType != MIMETYPE_JSON:
-    return
-      err(RestApiResponse.badRequest("Wrong Content-Type, expected application/json"))
+    return err("Wrong Content-Type, expected application/json")
 
-  let reqBodyData = contentBody.get().data
-
-  let requestResult = decodeFromJsonBytes(T, reqBodyData).valueOr:
-    return err(
-      RestApiResponse.badRequest("Invalid content body, could not decode. " & $error)
-    )
+  let requestResult = decodeJsonBytesWithReason(T, contentBody.get().data).valueOr:
+    debug "could not decode the request body", reason = error
+    return err("Invalid content body, could not decode: " & error)
 
   return ok(requestResult)
 
@@ -199,11 +193,13 @@ proc filterPostPutSubscriptionRequestHandler(
       FilterSubscribeError.serviceUnavailable("Subscription request timed out"),
     )
 
-  # Successfully subscribed to all content filters
-  for cTopic in req.contentFilters:
-    cache.contentSubscribe(cTopic)
+  let subRes = subFut.read()
+  if subRes.isOk():
+    # Successfully subscribed to all content filters
+    for cTopic in req.contentFilters:
+      cache.contentSubscribe(cTopic)
 
-  return makeRestResponse(req.requestId, subFut.read())
+  return makeRestResponse(req.requestId, subRes)
 
 proc installFilterPostSubscriptionsHandler(
     router: var RestRouter,
@@ -278,12 +274,14 @@ proc installFilterDeleteSubscriptionsHandler(
         ),
       )
 
-    # Successfully subscribed to all content filters
-    for cTopic in req.contentFilters:
-      cache.contentUnsubscribe(cTopic)
+    let unsubRes = unsubFut.read()
+    if unsubRes.isOk() or unsubRes.error.kind == FilterSubscribeErrorKind.NOT_FOUND:
+      # NOT_FOUND means the service holds nothing for us, so keeping the topics
+      # cached would leave the client unable to ever clear them.
+      for cTopic in req.contentFilters:
+        cache.contentUnsubscribe(cTopic)
 
-    # Successfully unsubscribed from all requested contentTopics
-    return makeRestResponse(req.requestId, unsubFut.read())
+    return makeRestResponse(req.requestId, unsubRes)
 
 proc installFilterDeleteAllSubscriptionsHandler(
     router: var RestRouter,

@@ -67,6 +67,8 @@ jobs:
           - 'flake.nix'
           - 'flake.lock'
           - '!**/*.md'
+          manifest:
+          - 'logos_delivery.nimble'
 
     outputs:
       # A push to master runs everything so every master commit keeps a full CI record.
@@ -76,6 +78,7 @@ jobs:
       examples: ${{ steps.filter.outputs.examples }}
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
+      manifest: ${{ steps.filter.outputs.manifest }}
 
   # Also on nix changes: it is the only check that compares nix/deps.nix
   # against nimble.lock, and the Nix build itself never reads the lock.
@@ -83,6 +86,82 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.nix == 'true' }}
     uses: ./.github/workflows/build-health.yml
+
+  # Fails when this PR breaks Nimble setup for a new project that requires
+  # logos-delivery. Don't fail CI for this PR if master was already broken.
+  consumer-break-check:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
+    name: "Consumer break check"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if this PR breaks consumers
+        id: pr
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.sha }}
+          target: this PR
+
+      - name: Check if master breaks consumers
+        id: base
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.event.pull_request.base.sha }}
+          target: master
+
+      - name: Compare PR with master
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: ./.github/actions/compare-with-master
+        with:
+          check: Nimble setup of a project that requires logos-delivery
+          pr-revision: ${{ github.sha }}
+          base-revision: ${{ github.event.pull_request.base.sha }}
+          base-succeeded: ${{ steps.base.outputs.succeeded }}
+
+  # Fails when `nimble lock` cannot solve the logos_delivery.nimble of this PR
+  # from scratch. Don't fail CI for this PR if master was already broken.
+  lock-break-check:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
+    name: "Lock break check"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if this PR breaks the lock
+        id: pr
+        uses: ./.github/actions/lock-check
+        with:
+          target: this PR
+
+      - name: Check out master
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Check if master breaks the lock
+        id: base
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: ./.github/actions/lock-check
+        with:
+          path: base
+          target: master
+
+      - name: Compare PR with master
+        if: ${{ steps.pr.outputs.succeeded != 'true' }}
+        uses: ./.github/actions/compare-with-master
+        with:
+          check: Nimble lock
+          pr-revision: ${{ github.sha }}
+          base-revision: ${{ github.event.pull_request.base.sha }}
+          base-succeeded: ${{ steps.base.outputs.succeeded }}
 
   # Also feeds the e2e jobs with liblogosdelivery.so.
   build:
@@ -397,6 +476,8 @@ jobs:
     needs:
       - changes
       - build-health
+      - consumer-break-check
+      - lock-break-check
       - build
       - liblogosdelivery-default
       - build-windows

@@ -226,8 +226,7 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "a send whose body does not decode answers 400 with an empty decode reason":
-    # TODO: logos-delivery#4432
+  asyncTest "a send whose body does not decode answers 400 with the decode reason":
     var node: LogosDelivery
     var rest: RestService
     lockNewGlobalBrokerContext:
@@ -247,7 +246,10 @@ suite "Messaging REST API":
     )
     check:
       resp.status == 400
-      resp.data == "Invalid content body, could not decode: Unable to deserialize data: "
+      resp.data.startsWith(
+        "Invalid content body, could not decode: Unable to deserialize data: body("
+      )
+      resp.data.contains("Field `payload` is missing or empty")
 
   asyncTest "a send whose meta exceeds the limit is accepted with a requestId":
     var node: LogosDelivery
