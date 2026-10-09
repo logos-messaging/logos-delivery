@@ -1,4 +1,10 @@
-## Store catch-up of missed messages after a stop.
+## The backfill of the messages that the node missed on its subscribed topics.
+##
+## Each subscribed (shard, content topic) has one `TopicRecord`. An outage of
+## live delivery (relay, or the filter subscriptions on Edge), or a restart,
+## turns its gap bit on. The backfill worker turns it off after Store gives the
+## messages up to the time when live delivery covered the topic again. An
+## unsubscribe deletes the record.
 {.push raises: [].}
 
 import std/[algorithm, sets, tables]
@@ -16,6 +22,20 @@ const
   BackfillCategory* = "recv.backfill.v1"
     ## the receive service's category in the messaging layer's Persistency job
   LastOnlineKey* = key("last-online")
+    ## the time of the last received message, written while the backfill
+    ## state is on disk
+  TopicKeyTag = "topic"
+  TopicKeyPrefix = key(TopicKeyTag)
+  ArchiveTime* = chronos.seconds(20).nanos
+    ## A message is in the archive at most this long after its publication.
+  DelayExtra* = chronos.seconds(5).nanos
+    ## Live delivery can need this long after a subscribe or a reconnection
+    ## before it delivers a topic, for the filter loop on Edge or the mesh on
+    ## Core.
+  OutageWindow* = chronos.minutes(5).nanos
+    ## An outage that the node detects now started at most this long before. It
+    ## covers the lag of the health signal and the variance of the timestamps.
+
   BackfillOverlap* = 2 * MaxMessageTimestampVariance
     ## Start the query 40 seconds before the saved time. Allow 20 seconds for
     ## messages that reach the archive late and 20 seconds for differences
@@ -29,12 +49,26 @@ type
   ): Future[Result[StoreQueryResponse, string]] {.gcsafe, raises: [].}
   BackfillDeliver* =
     proc(pubsubTopic: PubsubTopic, message: WakuMessage): bool {.gcsafe, raises: [].}
-    ## True accepts the message, duplicates included. False ends the topic.
+    ## True accepts the message, duplicates included. False fails the page.
 
-proc backfillTopics*(
+  TopicRecord* = object
+    ## The backfill state of one (shard, content topic) that the app
+    ## subscribed. With `timestampToNowIsGap` off, live delivery covers the
+    ## topic from `timestamp`. With it on, the app lacks the messages of the
+    ## topic from `timestamp`, and Store has them.
+    timestamp*: Timestamp
+    timestampToNowIsGap*: bool
+
+func live*(T: type TopicRecord, timestamp: Timestamp): TopicRecord =
+  TopicRecord(timestamp: timestamp, timestampToNowIsGap: false)
+
+func gap*(T: type TopicRecord, timestamp: Timestamp): TopicRecord =
+  TopicRecord(timestamp: timestamp, timestampToNowIsGap: true)
+
+func backfillTopics*(
     subscriptions: seq[(PubsubTopic, HashSet[ContentTopic])]
 ): seq[BackfillTopic] =
-  ## The subscribed (shard, content topic) pairs, sorted for a stable pass order.
+  ## The subscribed (shard, content topic) pairs, sorted.
   var topics: seq[BackfillTopic]
   for (pubsubTopic, contentTopics) in subscriptions:
     for contentTopic in contentTopics:
@@ -42,13 +76,62 @@ proc backfillTopics*(
   topics.sort()
   return topics
 
-proc encodeTimestamp(at: Timestamp): seq[byte] =
+func newRecord*(
+    at: Timestamp,
+    live: bool,
+    liveSince: Timestamp,
+    variance = MaxMessageTimestampVariance,
+): TopicRecord =
+  ## The record of a topic subscribed at `at`. When live delivery is ready now
+  ## and did not change after the subscribe, it covers the topic from the
+  ## subscribe, and the topic gets no history. Otherwise the record is a gap from
+  ## the subscribe. The archive accepts a timestamp `variance` away from its
+  ## clock, so the bound is `variance` below the subscribe.
+  if live and liveSince <= at:
+    return TopicRecord.live(at - variance)
+  return TopicRecord.gap(at - variance)
+
+func inOutage*(record: TopicRecord, detectedAt: Timestamp): TopicRecord =
+  ## The record after an outage of live delivery that the node detects at
+  ## `detectedAt`. The outage started at most `OutageWindow` before. A record
+  ## with a gap keeps its bound.
+  if record.timestampToNowIsGap:
+    return record
+  return TopicRecord.gap(max(record.timestamp, detectedAt - OutageWindow))
+
+func atStart*(record: TopicRecord, lastReceivedAt: Opt[Timestamp]): TopicRecord =
+  ## The record at a service start. A restart is an outage that the node
+  ## detects at the time of the last received message. With no such time, the
+  ## record is a gap from its own timestamp.
+  if record.timestampToNowIsGap:
+    return record
+  if lastReceivedAt.isNone():
+    return TopicRecord.gap(record.timestamp)
+  return record.inOutage(lastReceivedAt.get())
+
+func coveredFrom*(
+    liveSince, subscribedSince: Timestamp,
+    delayExtra = DelayExtra,
+    variance = MaxMessageTimestampVariance,
+): Timestamp =
+  ## The time from which live delivery covers a topic. It is the later of the
+  ## last recovery and the subscribe, plus `delayExtra` and `variance`. The
+  ## gap of a topic ends here.
+  return max(liveSince, subscribedSince) + delayExtra + variance
+
+func archivedBefore*(
+    now: Timestamp, archiveTime = ArchiveTime, variance = MaxMessageTimestampVariance
+): Timestamp =
+  ## The archive has every message with a timestamp before this time.
+  return now - variance - archiveTime
+
+func encodeTimestamp(at: Timestamp): seq[byte] =
   var pb = initProtoBuffer()
   pb.write(1, uint64(at))
   pb.finish()
   return pb.buffer
 
-proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
+func decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
   let pb = initProtoBuffer(bytes)
   var raw: uint64
   let present = pb.getField(1, raw).valueOr:
@@ -56,6 +139,97 @@ proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
   if not present or raw == 0 or raw > uint64(int64.high):
     return err("timestamp is missing or out of range")
   return ok(Timestamp(raw))
+
+func topicKey(topic: BackfillTopic): Opt[Key] =
+  ## None when a name is too long for a key.
+  if topic.pubsubTopic.len > StringLenMax or topic.contentTopic.len > StringLenMax:
+    return Opt.none(Key)
+  return Opt.some(key(TopicKeyTag, topic.pubsubTopic, topic.contentTopic))
+
+func encodeTopicRecord(topic: BackfillTopic, record: TopicRecord): seq[byte] =
+  ## The row of a topic. It carries the topic, so a read of the rows needs
+  ## no decode of the keys.
+  var pb = initProtoBuffer()
+  pb.write(1, uint64(record.timestamp))
+  pb.write(2, uint64(ord(record.timestampToNowIsGap)))
+  pb.write(3, topic.pubsubTopic)
+  pb.write(4, topic.contentTopic)
+  pb.finish()
+  return pb.buffer
+
+func decodeTopicRecord(bytes: seq[byte]): Result[(BackfillTopic, TopicRecord), string] =
+  let pb = initProtoBuffer(bytes)
+  var timestamp, isGap: uint64
+  var pubsubTopic, contentTopic: string
+  let hasTimestamp = pb.getField(1, timestamp).valueOr:
+    return err("topic record: " & $error)
+  let hasIsGap = pb.getField(2, isGap).valueOr:
+    return err("topic record: " & $error)
+  let hasShard = pb.getField(3, pubsubTopic).valueOr:
+    return err("topic record: " & $error)
+  let hasContentTopic = pb.getField(4, contentTopic).valueOr:
+    return err("topic record: " & $error)
+  if not hasTimestamp or not hasIsGap or not hasShard or not hasContentTopic:
+    return err("topic record is incomplete")
+  if timestamp == 0 or timestamp > uint64(int64.high) or isGap > 1:
+    return err("topic record is out of range")
+  let record =
+    TopicRecord(timestamp: Timestamp(timestamp), timestampToNowIsGap: isGap == 1)
+  return ok(((pubsubTopic, contentTopic), record))
+
+func topicRecordOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
+  ## The write of a topic record. Empty for a topic whose names are too long
+  ## for a key. Such a topic has no record, so it is new at each start.
+  let recordKey = topicKey(topic).valueOr:
+    return @[]
+  return @[
+    TxOp(
+      category: BackfillCategory,
+      key: recordKey,
+      kind: txPut,
+      payload: encodeTopicRecord(topic, record),
+    )
+  ]
+
+func deleteTopicRecordOp*(topic: BackfillTopic): seq[TxOp] =
+  ## The delete of a topic record. Empty for a topic that has no key.
+  let recordKey = topicKey(topic).valueOr:
+    return @[]
+  return @[TxOp(category: BackfillCategory, key: recordKey, kind: txDelete)]
+
+proc readLastReceivedAt*(
+    job: persistency.Job
+): Future[Result[Opt[Timestamp], string]] {.async: (raises: [CancelledError]).} =
+  ## The stored time of the last received message. An unreadable record
+  ## logs a warning and reads as none.
+  if job.isNil() or not job.running:
+    return err("backfill persistency job is closed")
+  let stored =
+    try:
+      (await job.get(BackfillCategory, LastOnlineKey)).valueOr:
+        return err("read the last received time: " & $error)
+    except CancelledError as e:
+      raise e
+    except CatchableError as e:
+      return err("read the last received time: " & e.msg)
+  if stored.isNone():
+    return ok(Opt.none(Timestamp))
+  let at = decodeTimestamp(stored.get()).valueOr:
+    warn "Failed to decode the last received time of the backfill", error
+    return ok(Opt.none(Timestamp))
+  return ok(Opt.some(at))
+
+proc writeLastReceivedAt*(
+    job: persistency.Job, at: Timestamp
+) {.async: (raises: [CancelledError]).} =
+  ## Fire-and-forget, as the Persistency write API is. A lost write costs
+  ## extra history at the next start.
+  try:
+    await job.persistPut(BackfillCategory, LastOnlineKey, encodeTimestamp(at))
+  except CancelledError as e:
+    raise e
+  except CatchableError as e:
+    warn "Failed to write the last received time of the backfill", error = e.msg
 
 proc readRecoveryHint*(
     job: persistency.Job
@@ -90,6 +264,62 @@ proc writeRecoveryHint*(
     raise e
   except CatchableError as e:
     warn "Failed to write the Store catch-up recovery hint", error = e.msg
+
+proc readTopicRecords*(
+    job: persistency.Job
+): Future[Result[seq[(BackfillTopic, TopicRecord)], string]] {.
+    async: (raises: [CancelledError])
+.} =
+  ## The stored topic records. A record that does not decode logs a warning
+  ## and is left out, so its topic is new at its next subscribe.
+  if job.isNil() or not job.running:
+    return err("backfill persistency job is closed")
+  let rows =
+    try:
+      (await job.scanPrefix(BackfillCategory, TopicKeyPrefix)).valueOr:
+        return err("read topic records: " & $error)
+    except CancelledError as e:
+      raise e
+    except CatchableError as e:
+      return err("read topic records: " & e.msg)
+  var records: seq[(BackfillTopic, TopicRecord)]
+  for row in rows:
+    let decoded = decodeTopicRecord(row.payload).valueOr:
+      warn "Failed to decode a backfill topic record", error
+      continue
+    records.add(decoded)
+  return ok(records)
+
+proc writeTopicRecords*(
+    job: persistency.Job, ops: seq[TxOp]
+) {.async: (raises: [CancelledError]).} =
+  ## Fire-and-forget, as one transaction. The writes of a job apply in order.
+  if ops.len == 0:
+    return
+  try:
+    await job.persist(ops)
+  except CancelledError as e:
+    raise e
+  except CatchableError as e:
+    warn "Failed to write the backfill topic records", error = e.msg
+
+proc clearBackfillState*(job: persistency.Job) {.async: (raises: [CancelledError]).} =
+  ## Deletes the topic records and the last received time. A start with the
+  ## restart backfill off resets its state, so a later start with it on
+  ## starts clean.
+  if job.isNil() or not job.running:
+    return
+  try:
+    await job.persist(
+      @[
+        TxOp(category: BackfillCategory, key: TopicKeyPrefix, kind: txDeletePrefix),
+        TxOp(category: BackfillCategory, key: LastOnlineKey, kind: txDelete),
+      ]
+    )
+  except CancelledError as e:
+    raise e
+  except CatchableError as e:
+    warn "Failed to clear the backfill state", error = e.msg
 
 proc queryPage(
     query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration
@@ -128,14 +358,39 @@ proc acceptPage(
     return err("store page is empty but claims more")
   if last == queryStart:
     # Every message in the page shares the query start, so a query from that
-    # instant returns this same page. Step past the instant. The catch-up does
+    # instant returns this same page. Step past the instant. The backfill does
     # not deliver the messages at that instant beyond this page.
-    debug "Store catch-up steps past a timestamp that fills a page",
+    debug "Backfill steps past a timestamp that fills a page",
       pubsubTopic = topic.pubsubTopic,
       contentTopic = topic.contentTopic,
       timestamp = last
     return ok(Opt.some(last + 1))
   return ok(Opt.some(last))
+
+proc fetchPage*(
+    topic: BackfillTopic,
+    start, stop: Timestamp,
+    queryTimeout: Duration,
+    query: BackfillQuery,
+    deliver: BackfillDeliver,
+): Future[Result[Timestamp, string]] {.async: (raises: [CancelledError]).} =
+  ## One Store query for `topic` from `start`, in a window no longer than
+  ## the Store's `MaxQueryTimeRange` and not past `stop`. Delivers the page
+  ## and returns the next start. The next start is the timestamp of the last
+  ## message, or the end of the window when the window has no more rows.
+  let windowStop = min(stop, start + MaxQueryTimeRange)
+  let request = StoreQueryRequest(
+    includeData: true,
+    pubsubTopic: Opt.some(topic.pubsubTopic),
+    contentTopics: @[topic.contentTopic],
+    startTime: Opt.some(start),
+    endTime: Opt.some(windowStop), # exclusive on the wire
+    paginationForward: PagingDirection.FORWARD,
+    paginationLimit: Opt.some(MaxPageSize),
+  )
+  let response = ?await queryPage(query, request, queryTimeout)
+  let next = ?acceptPage(topic, start, windowStop, response, deliver)
+  return ok(next.get(windowStop))
 
 proc runCatchUpPass*(
     subscribedTopics: seq[BackfillTopic],
