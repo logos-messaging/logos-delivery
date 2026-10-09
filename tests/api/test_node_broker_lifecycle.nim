@@ -132,7 +132,7 @@ suite "LogosDelivery - broker lifecycle":
       let rest = (await node.startWithRest()).valueOr:
         raiseAssert error
       check rest.isListeningToMessagingEvents()
-      await rest.stop()
+      await rest.stop(node)
       (await node.stop()).isOkOr:
         raiseAssert error
       check not rest.isListeningToMessagingEvents()

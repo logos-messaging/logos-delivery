@@ -56,8 +56,8 @@ when isMainModule:
 
   # REST is an adapter above the node (like the FFI library): it owns the HTTP
   # server and every route, and answers health probes while the node boots.
-  let rest = RestService.new(node)
-  rest.start().isOkOr:
+  let rest = RestService.new()
+  rest.start(node).isOkOr:
     error "Starting the REST service failed", error = error
     quit(QuitFailure)
 
@@ -65,7 +65,7 @@ when isMainModule:
     error "Starting LogosDelivery failed", error = error
     quit(QuitFailure)
 
-  rest.mount().isOkOr:
+  rest.mount(node).isOkOr:
     error "Mounting the REST API failed", error = error
     quit(QuitFailure)
 
@@ -103,7 +103,7 @@ when isMainModule:
       await sleepAsync(100.milliseconds)
 
     notice "Shutting down after receiving signal", signal = shutdownSignal.load()
-    await rest.stop()
+    await rest.stop(node)
     let stopRes =
       try:
         await node.stop()

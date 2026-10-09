@@ -110,7 +110,7 @@ suite "LogosDelivery - entry layer selection":
     let sendEventsResp = await client.messagingGetSendEventsV1()
     check sendEventsResp.status == 200
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
@@ -145,7 +145,7 @@ suite "LogosDelivery - entry layer selection":
       await issueRequest(rest.server.getAddress("/messaging" & "/x".repeat(70)))
     check tooDeep.status == 400
 
-    await rest.stop()
+    await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
@@ -171,7 +171,7 @@ suite "LogosDelivery - relay REST API":
       rest = (await node.startWithRest()).valueOr:
         raiseAssert "start failed: " & error
     defer:
-      await rest.stop()
+      await rest.stop(node)
       (await node.stop()).isOkOr:
         raiseAssert "stop failed: " & error
 
