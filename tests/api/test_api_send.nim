@@ -1,9 +1,12 @@
 {.used.}
 
-import results, std/[os, strutils, sets, tempfiles]
+import results, std/[os, sequtils, strutils, sets, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
+import
+  ../testlib/[
+    common, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_requests
+  ]
 import ../waku_archive/archive_utils
 import
   logos_delivery,
@@ -16,6 +19,10 @@ import
     waku_lightpush/protocol_metrics,
     waku_archive,
     waku_archive/archive_metrics,
+    common/base64,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/relay/client as relay_rest_client,
   ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
@@ -676,6 +683,66 @@ suite "Waku API - Send":
       eventManager.errorDescs ==
         @["decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")"]
       rejected == 1.0
+
+  asyncTest "A send retried while the node has no relay peer is handed to the relay handlers on every attempt and received once":
+    # TODO: logos-delivery#4453
+    # Given a core node with REST that is connected to no peer
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(defaultTestNodeConf(rest = true))).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    var receivedHashes: seq[string]
+    let receivedListener = MessageReceivedEvent.listen(
+      node.waku.brokerCtx,
+      proc(event: MessageReceivedEvent) {.async: (raises: []).} =
+        receivedHashes.add(event.messageHash),
+    ).valueOr:
+      raiseAssert error
+    defer:
+      await MessageReceivedEvent.dropListener(node.waku.brokerCtx, receivedListener)
+
+    let
+      client = newRestHttpClient(node.waku.restServer.localAddress())
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      payload = "test payload"
+    let subscribeResponse = await client.relayPostAutoSubscriptionsV1(@[contentTopic])
+    let handledBefore = nodeMessagesCount(["relay"])
+
+    # When it sends a message
+    let requestId = (
+      await node.messagingClient.send(MessageEnvelope.init(contentTopic, payload))
+    ).valueOr:
+      raiseAssert error
+
+    # Then the relay cache returns the message again after a later attempt
+    let first = await client.waitForRelayAutoMessages(contentTopic, 1)
+    let handledAtFirstRead = nodeMessagesCount(["relay"])
+    checkUntilTimeout:
+      nodeMessagesCount(["relay"]) > handledAtFirstRead
+    let again = await client.waitForRelayAutoMessages(contentTopic, 1)
+
+    # Then the send ends with an error event, and the message was received once
+    check await eventManager.errorFuture.withTimeout(30.seconds)
+    eventManager.validate({SendEventOutcome.Error}, requestId)
+    check:
+      subscribeResponse.status == 200
+      first.mapIt(it.payload) == @[base64.encode(payload)]
+      again.mapIt(it.payload) == @[base64.encode(payload)]
+      nodeMessagesCount(["relay"]) >= handledBefore + 2
+      receivedHashes.len == 1
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
 
   asyncTest "Store validation times out with an error event":
     ## The message propagates, but the only reachable store node is outside the

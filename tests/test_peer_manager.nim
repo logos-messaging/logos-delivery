@@ -17,7 +17,7 @@ import
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/rpc/message,
   libp2p/peerid
-from metrics import value
+from metrics import value, valueByName
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,
@@ -67,6 +67,17 @@ proc hasRelayPeers(node: WakuNode, peers: openArray[WakuNode]): bool =
     peerStore.isConnected(it.switch.peerInfo.peerId) and
       peerStore.hasPeer(it.switch.peerInfo.peerId, WakuRelayCodec)
   )
+
+proc connectedPeersPerShard(shard: uint16): Opt[float64] =
+  ## The peer count the peer manager last set for `shard`, none if it set none.
+  try:
+    return Opt.some(
+      logos_delivery_connected_peers_per_shard.valueByName(
+        "logos_delivery_connected_peers_per_shard", [$shard]
+      )
+    )
+  except ValueError:
+    return Opt.none(float64)
 
 procSuite "Peer Manager":
   asyncTest "connectPeer() works":
@@ -517,6 +528,47 @@ procSuite "Peer Manager":
     node.peerManager.addPeer(peerB)
 
     check logos_delivery_total_unique_peers.value() == baseline + 2
+
+  asyncTest "Shards of two clusters leave the connected peers per shard metric unset":
+    # TODO: logos-delivery#4457
+    let
+      node = newTestWakuNode(generateSecp256k1Key())
+      control = newTestWakuNode(generateSecp256k1Key())
+
+    node.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
+    control.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    (await control.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await allFutures(node.start(), control.start())
+
+    proc simpleHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.millis)
+
+    # Given a node whose relay is on shard 517 of its cluster and on shard 0 of cluster 199
+    node.wakuRelay.subscribe("/waku/2/rs/0/517", simpleHandler)
+    node.wakuRelay.subscribe("/waku/2/rs/199/0", simpleHandler)
+
+    # When its peer manager runs
+    node.peerManager.start()
+
+    # Then no peer count is set for shard 517
+    check connectedPeersPerShard(517) == Opt.none(float64)
+
+    # Given a node whose relay is on shard 517 of its cluster only
+    control.wakuRelay.subscribe("/waku/2/rs/0/517", simpleHandler)
+
+    # When its peer manager runs
+    control.peerManager.start()
+
+    # Then the peer count of shard 517 is set
+    checkUntilTimeout:
+      connectedPeersPerShard(517) == Opt.some(0.0)
+
+    await allFutures(node.stop(), control.stop())
 
   asyncTest "Peer manager keeps track of connections":
     # Create 2 nodes

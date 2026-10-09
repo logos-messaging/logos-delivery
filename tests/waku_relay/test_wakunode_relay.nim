@@ -8,7 +8,8 @@ import
   chronos,
   libp2p/switch,
   libp2p/protocols/pubsub/pubsub,
-  libp2p/protocols/pubsub/gossipsub
+  libp2p/protocols/pubsub/gossipsub,
+  libp2p/protocols/pubsub/mcache
 import
   logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_relay],
   ../testlib/futures,
@@ -687,3 +688,231 @@ suite "WakuNode - Relay":
 
     ## Cleanup
     await node.stop()
+
+  asyncTest "A peer restarted with the same key stays out of the mesh after the prune backoff until it publishes":
+    # TODO: iftech/nim-libp2p#3236
+    let
+      nodeKey1 = generateSecp256k1Key()
+      node1 = newTestWakuNode(nodeKey1)
+      nodeKey2 = generateSecp256k1Key()
+      node2 = newTestWakuNode(nodeKey2)
+      shard = DefaultRelayShard
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      peerId1 = node1.switch.peerInfo.peerId
+      peerId2 = node2.switch.peerInfo.peerId
+
+    proc simpleHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    await node1.start()
+    (await node1.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    node1.wakuRelay.parameters.pruneBackoff = 15.seconds
+
+    await node2.start()
+    (await node2.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+
+    node1.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node2.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+
+    await node2.connectToNodes(@[node1.switch.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      node1.hasMeshPeer($shard, peerId2)
+      node2.hasMeshPeer($shard, peerId1)
+
+    await node2.stop()
+    checkUntilTimeout:
+      not node1.hasGossipsubPeer($shard, peerId2)
+
+    # A plain disconnect leaves a prune backoff for the peer.
+    check:
+      node1.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId2)
+
+    let restartedNode2 = newTestWakuNode(nodeKey2)
+    await restartedNode2.start()
+    (await restartedNode2.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    restartedNode2.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    await restartedNode2.connectToNodes(@[node1.switch.peerInfo.toRemotePeerInfo()])
+
+    # The restarted node's GRAFT inside the backoff is answered with a PRUNE and a behaviour penalty.
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      restartedNode2.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId1)
+      node1.wakuRelay.peerStats.getOrDefault(peerId2).score < 0.0
+    let firstBackoff =
+      restartedNode2.wakuRelay.backingOff.getOrDefault($shard).getOrDefault(peerId1)
+
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      not node1.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId2)
+
+    check:
+      node1.hasGossipsubPeer($shard, peerId2)
+      not node1.hasMeshPeer($shard, peerId2)
+      node1.wakuRelay.peerStats.getOrDefault(peerId2).score < 0.0
+
+    # The restarted node's next GRAFT is accepted and dropped again at the next heartbeat.
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      restartedNode2.wakuRelay.backingOff.getOrDefault($shard).getOrDefault(peerId1) >
+        firstBackoff
+      node1.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId2)
+
+    check:
+      not node1.hasMeshPeer($shard, peerId2)
+      node1.wakuRelay.peerStats.getOrDefault(peerId2).score < 0.0
+
+    # A message of its own is a first message delivery that brings its score back above 0.
+    check:
+      (
+        await restartedNode2.publish(
+          Opt.some($shard),
+          WakuMessage(payload: "published".toBytes(), contentTopic: contentTopic),
+        )
+      ).isOk()
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      node1.wakuRelay.peerStats.getOrDefault(peerId2).score >= 0.0
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      node1.hasMeshPeer($shard, peerId2)
+
+    await allFutures(node1.stop(), restartedNode2.stop())
+
+  asyncTest "Messages are not relayed through a peer restarted with the same key":
+    # TODO: iftech/nim-libp2p#3236
+    ## node1 - node2 - node3 - node4, each node connected only to its neighbours
+    let
+      nodeKey1 = generateSecp256k1Key()
+      node1 = newTestWakuNode(nodeKey1)
+      nodeKey2 = generateSecp256k1Key()
+      node2 = newTestWakuNode(nodeKey2)
+      nodeKey3 = generateSecp256k1Key()
+      node3 = newTestWakuNode(nodeKey3)
+      nodeKey4 = generateSecp256k1Key()
+      node4 = newTestWakuNode(nodeKey4)
+      shard = DefaultRelayShard
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      payloadBefore = "before the restart".toBytes()
+      payloadAfter = "after the restart".toBytes()
+      payloadFromNode4 = "from node4 after the restart".toBytes()
+      peerId2 = node2.switch.peerInfo.peerId
+      peerId3 = node3.switch.peerInfo.peerId
+      peerId4 = node4.switch.peerInfo.peerId
+
+    var
+      node4ReceivedBefore = newFuture[bool]()
+      node4ReceivedAfter = newFuture[bool]()
+      node2ReceivedFromNode4 = newFuture[bool]()
+      restartedNode3ReceivedAfter = newFuture[bool]()
+      restartedNode3ReceivedFromNode4 = newFuture[bool]()
+
+    proc simpleHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    proc node2Handler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      if msg.payload == payloadFromNode4 and not node2ReceivedFromNode4.finished():
+        node2ReceivedFromNode4.complete(true)
+
+    proc node4Handler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      if msg.payload == payloadBefore and not node4ReceivedBefore.finished():
+        node4ReceivedBefore.complete(true)
+      if msg.payload == payloadAfter and not node4ReceivedAfter.finished():
+        node4ReceivedAfter.complete(true)
+
+    proc restartedNode3Handler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      if msg.payload == payloadAfter and not restartedNode3ReceivedAfter.finished():
+        restartedNode3ReceivedAfter.complete(true)
+      if msg.payload == payloadFromNode4 and
+          not restartedNode3ReceivedFromNode4.finished():
+        restartedNode3ReceivedFromNode4.complete(true)
+
+    for node in [node1, node2, node3, node4]:
+      await node.start()
+      (await node.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+    node1.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node2.subscribe((kind: PubsubSub, topic: $shard), node2Handler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node3.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node4.subscribe((kind: PubsubSub, topic: $shard), node4Handler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+
+    await allFutures(
+      node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()]),
+      node3.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()]),
+      node4.connectToNodes(@[node3.switch.peerInfo.toRemotePeerInfo()]),
+    )
+    checkUntilTimeout:
+      node2.hasMeshPeer($shard, node1.switch.peerInfo.peerId)
+      node2.hasMeshPeer($shard, peerId3)
+      node3.hasMeshPeer($shard, peerId4)
+
+    check:
+      (
+        await node1.publish(
+          Opt.some($shard),
+          WakuMessage(payload: payloadBefore, contentTopic: contentTopic),
+        )
+      ).isOk()
+      (await node4ReceivedBefore.withTimeout(FUTURE_TIMEOUT_MEDIUM)) == true
+
+    await node3.stop()
+    checkUntilTimeout:
+      not node2.hasGossipsubPeer($shard, peerId3)
+      not node4.hasGossipsubPeer($shard, peerId3)
+
+    let restartedNode3 = newTestWakuNode(nodeKey3)
+    await restartedNode3.start()
+    (await restartedNode3.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    restartedNode3.subscribe((kind: PubsubSub, topic: $shard), restartedNode3Handler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    await restartedNode3.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
+    await node4.connectToNodes(@[restartedNode3.switch.peerInfo.toRemotePeerInfo()])
+
+    # Both neighbours answer the restarted node's GRAFT with a PRUNE.
+    checkUntilTimeout:
+      restartedNode3.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId2)
+      restartedNode3.wakuRelay.backingOff.getOrDefault($shard).hasKey(peerId4)
+    check:
+      not restartedNode3.hasMeshPeer($shard, peerId2)
+      not restartedNode3.hasMeshPeer($shard, peerId4)
+
+    check:
+      (
+        await node1.publish(
+          Opt.some($shard),
+          WakuMessage(payload: payloadAfter, contentTopic: contentTopic),
+        )
+      ).isOk()
+      (
+        await node4.publish(
+          Opt.some($shard),
+          WakuMessage(payload: payloadFromNode4, contentTopic: contentTopic),
+        )
+      ).isOk()
+      (await restartedNode3ReceivedAfter.withTimeout(FUTURE_TIMEOUT_MEDIUM)) == true
+      (await restartedNode3ReceivedFromNode4.withTimeout(FUTURE_TIMEOUT_MEDIUM)) == true
+
+    # Both messages leave the restarted node's gossip window without reaching the other side.
+    checkUntilTimeout:
+      restartedNode3.wakuRelay.mcache.window($shard).len == 0
+    check:
+      not node4ReceivedAfter.finished()
+      not node2ReceivedFromNode4.finished()
+
+    await allFutures(node1.stop(), node2.stop(), restartedNode3.stop(), node4.stop())

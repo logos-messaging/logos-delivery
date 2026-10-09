@@ -3,6 +3,7 @@ import
   results,
   chronicles,
   chronos,
+  metrics,
   libp2p/switch,
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
@@ -16,6 +17,7 @@ import
     waku_core/topics,
     node/waku_switch,
     node/peer_manager,
+    node/node_telemetry,
     waku_enr,
     discovery/waku_discv5,
     factory/internal_config,
@@ -198,3 +200,22 @@ proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool
 
 proc hasGossipsubPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
   node.wakuRelay.hasGossipsubPeer(topic, peer)
+
+proc nodeMessagesCount*(labelValues: openArray[string]): float64 =
+  try:
+    return logos_delivery_node_messages.value(labelValues)
+  except KeyError:
+    return 0.0
+
+proc relayNetworkBytes*(labelValues: openArray[string]): float64 =
+  ## The relay does not export this counter, so it is found in the registry by name.
+  {.gcsafe.}:
+    for collector in defaultRegistry.collectors:
+      if collector.name == "logos_delivery_relay_network_bytes":
+        try:
+          return collector.valueByName(
+            "logos_delivery_relay_network_bytes_total", labelValues
+          )
+        except ValueError:
+          return 0.0
+  return 0.0

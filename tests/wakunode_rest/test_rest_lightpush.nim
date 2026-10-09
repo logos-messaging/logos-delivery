@@ -409,6 +409,74 @@ suite "Waku v2 Rest API - lightpush":
       received.mapIt(it.ephemeral) == @[sent.ephemeral]
       received.mapIt(it.proof) == @[sent.proof]
 
+  asyncTest "A message pushed twice is answered 505 the second time and handed to the service node's handlers both times - POST /lightpush/v3/message":
+    # TODO: logos-delivery#4453
+    # Given the service node and its relay peer subscribed over REST
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    let restAddress = parseIpAddress("127.0.0.1")
+    let
+      serviceServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      consumerServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(
+      serviceServer.router, restLightPushTest.serviceNode, MessageCache.init()
+    )
+    installRelayApiHandlers(
+      consumerServer.router, restLightPushTest.consumerNode, MessageCache.init()
+    )
+    serviceServer.start()
+    consumerServer.start()
+    defer:
+      await allFutures(serviceServer.stop(), consumerServer.stop())
+      await allFutures(serviceServer.closeWait(), consumerServer.closeWait())
+
+    let
+      serviceClient = newRestHttpClient(serviceServer.localAddress())
+      consumerClient = newRestHttpClient(consumerServer.localAddress())
+      netOut = [DefaultPubsubTopic, "net", "out"]
+    for client in [serviceClient, consumerClient]:
+      let response = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+      check response.status == 200
+    checkUntilTimeout:
+      restLightPushTest.serviceNode.hasGossipsubPeer(
+        DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
+      )
+
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic, payload = toBytes("TEST-TWICE")
+      )
+      .toRelayWakuMessage()
+    let requestBody =
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    let sentBefore = relayNetworkBytes(netOut)
+
+    # When the same message is pushed twice, with the service node's messages read in between
+    let firstResponse = await restLightPushTest.restClient.sendPushRequest(requestBody)
+    let firstOnService = await serviceClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let onConsumer = await consumerClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let sentAfterFirst = relayNetworkBytes(netOut)
+    let secondResponse = await restLightPushTest.restClient.sendPushRequest(requestBody)
+
+    # Then the second push is answered 505, and the service node returns the message again without sending it to its relay peer
+    let secondOnService =
+      await serviceClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let secondOnConsumer = await consumerClient.relayGetMessagesV1(DefaultPubsubTopic)
+    check:
+      firstResponse.status == 200
+      firstResponse.data.relayPeerCount == Opt.some(1.uint32)
+      firstOnService.mapIt(it.payload) == @[message.payload]
+      onConsumer.mapIt(it.payload) == @[message.payload]
+      sentAfterFirst > sentBefore
+      secondResponse.status == 505
+      secondResponse.data.statusDesc == Opt.some("No peers for topic, skipping publish")
+      secondResponse.data.relayPeerCount == Opt.none(uint32)
+      secondOnService.mapIt(it.payload) == @[message.payload]
+      relayNetworkBytes(netOut) == sentAfterFirst
+      secondOnConsumer.status == 200
+      secondOnConsumer.data.len == 0
+
   asyncTest "Push a message with an invalid body - POST /lightpush/v3/message":
     let restLightPushTest = await RestLightPushTest.init()
     defer:

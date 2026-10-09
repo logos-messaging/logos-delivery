@@ -352,13 +352,17 @@ suite "Waku external config - store sync":
     var conf = defaultKernelConf().get()
     conf.store = Opt.some(false)
     conf.storeSync = true
+    let defaults = defaultKernelConf(ModeProtocolFlags()).get()
 
     ## When
     let wakuConf = conf.toWakuConf().valueOr:
       raiseAssert error
 
-    ## Then the configuration builds, and store sync is silently not configured
-    check wakuConf.storeServiceConf.isNone()
+    ## Then store sync is not configured, and the ignored flag is reported
+    check:
+      wakuConf.storeServiceConf.isNone()
+      ignoredFlagWarnings(conf, defaults, wakuConf) ==
+        @["--store-sync is ignored: --store is not enabled"]
 
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":
