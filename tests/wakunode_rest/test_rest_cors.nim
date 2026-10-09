@@ -9,11 +9,12 @@ import
   libp2p/multiaddress,
   libp2p/crypto/crypto
 import
+  rest/server,
+  rest/kernel_api/debug/handlers as debug_rest_interface
+import
   logos_delivery/waku/[
     waku_node,
     node/waku_node as waku_node2,
-    rest_api/endpoint/server,
-    rest_api/endpoint/debug/handlers as debug_rest_interface,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,

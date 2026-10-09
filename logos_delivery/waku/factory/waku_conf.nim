@@ -18,7 +18,7 @@ import
   ../net/net_config,
   ../rln/rln_evm/rln_evm,
   ../rln/rln_plugin,
-  ../rest_api/endpoint/builder,
+  ./rest_server_conf,
   ../discovery/waku_discv5,
   ../discovery/waku_kademlia,
   ../node/waku_metrics,

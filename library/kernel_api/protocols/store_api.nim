@@ -5,8 +5,8 @@ import
   library/utils,
   logos_delivery/waku/waku_core/message/digest,
   logos_delivery/waku/waku_store/common,
-  logos_delivery/waku/rest_api/endpoint/serdes,
-  logos_delivery/waku/rest_api/endpoint/store/types,
+  rest/serdes,
+  rest/kernel_api/store/types,
   logos_delivery/waku/common/paging,
   library/declare_lib
 

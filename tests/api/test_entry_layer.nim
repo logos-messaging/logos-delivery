@@ -6,12 +6,12 @@ import brokers/broker_context
 import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
-  logos_delivery/rest/messaging_api/client as messaging_rest_client,
+  rest/messaging_api/client as messaging_rest_client,
   logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/waku/[common/base64, waku_core, waku_node],
-  logos_delivery/waku/rest_api/endpoint/client
+  rest/client
 import tools/confutils/cli_args
-import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
+import ../testlib/[rest_requests, rest_service, testasync, wakucore, wakunode, wakunodeconf]
 
 ## Validates the layer-selection invariant of `LogosDelivery.new(LogosDeliveryNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
@@ -24,8 +24,8 @@ import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 proc nodeConf(entryLayer: EntryLayer, rest = false): LogosDeliveryNodeConf =
   defaultTestNodeConf(entryLayer = entryLayer, rest = rest)
 
-proc restClientFor(node: LogosDelivery): RestClientRef =
-  let boundPort = node.waku.restServer.httpServer.address.port
+proc restClientFor(rest: RestService): RestClientRef =
+  let boundPort = rest.server.httpServer.address.port
   newRestHttpClient(initTAddress(parseIpAddress("127.0.0.1"), boundPort))
 
 suite "LogosDelivery - entry layer selection":
@@ -88,15 +88,16 @@ suite "LogosDelivery - entry layer selection":
     ## entry-layer=messaging, mode=Core, rest=true -> `start` mounts the messaging
     ## REST endpoints; they respond over HTTP.
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(nodeConf(EntryLayer.messaging, rest = true))).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "start failed: " & error
 
     check not node.messagingClient.isNil()
 
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
 
     # A command endpoint and an observability endpoint both respond -> the
     # handlers were installed onto the kernel router.
@@ -107,6 +108,8 @@ suite "LogosDelivery - entry layer selection":
     let sendEventsResp = await client.messagingGetSendEventsV1()
     check sendEventsResp.status == 200
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 
@@ -114,15 +117,16 @@ suite "LogosDelivery - entry layer selection":
     ## Gating check: a kernel-only node still starts a REST server, but the
     ## messaging endpoints must be absent (no messaging client to mount them).
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(nodeConf(EntryLayer.kernel, rest = true))).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "start failed: " & error
 
     check node.messagingClient.isNil()
 
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
     let subResp =
       await client.messagingPostSubscriptionsV1(@["/test/1/entry-layer/proto"])
     check:
@@ -130,16 +134,18 @@ suite "LogosDelivery - entry layer selection":
       subResp.data.contains("--entry-layer")
 
     let withQuery =
-      await issueRequest(node.waku.restServer.getAddress("/messaging?x=1"))
+      await issueRequest(rest.server.getAddress("/messaging?x=1"))
     check:
       withQuery.status == 404
       withQuery.data.contains("--entry-layer")
 
     # presto rejects a path with more than 64 segments
     let tooDeep = await issueRequest(
-      node.waku.restServer.getAddress("/messaging" & "/x".repeat(70))
+      rest.server.getAddress("/messaging" & "/x".repeat(70))
     )
     check tooDeep.status == 400
+
+    await rest.stop()
 
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
@@ -157,12 +163,15 @@ suite "LogosDelivery - relay REST API":
     conf.kernel.contentTopics = @[contentTopic]
 
     var node: LogosDelivery
+
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "start failed: " & error
     defer:
+      await rest.stop()
       (await node.stop()).isOkOr:
         raiseAssert "stop failed: " & error
 
@@ -198,7 +207,7 @@ suite "LogosDelivery - relay REST API":
     (await publisher.publish(Opt.some(contentTopicShard), contentTopicMessage)).isOkOr:
       raiseAssert error
 
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
     let shardMessages = await client.waitForRelayMessages(configuredShard, 1)
     let contentTopicMessages = await client.waitForRelayAutoMessages(contentTopic, 1)
     check:

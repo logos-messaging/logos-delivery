@@ -1,11 +1,9 @@
 import chronos, stew/byteutils, presto, presto/client as presto_client
+import logos_delivery/waku/waku_core
 import
-  logos_delivery/waku/[
-    waku_core,
-    rest_api/endpoint/server,
-    rest_api/endpoint/relay/types,
-    rest_api/endpoint/relay/client as relay_rest_client,
-  ],
+  rest/server,
+  rest/kernel_api/relay/types,
+  rest/kernel_api/relay/client as relay_rest_client,
   ./futures
 
 type TestResponseTuple* = tuple[status: int, data: string, headers: HttpTable]

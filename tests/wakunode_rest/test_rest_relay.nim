@@ -11,17 +11,18 @@ import
   libp2p/protocols/pubsub/pubsub
 import brokers/broker_context
 import
+  rest/message_cache,
+  rest/server,
+  rest/client,
+  rest/responses,
+  rest/kernel_api/relay/types,
+  rest/kernel_api/relay/handlers as relay_rest_interface,
+  rest/kernel_api/relay/client as relay_rest_client
+import
   logos_delivery/waku/[
     common/base64,
     waku_core,
     waku_node,
-    rest_api/message_cache,
-    rest_api/endpoint/server,
-    rest_api/endpoint/client,
-    rest_api/endpoint/responses,
-    rest_api/endpoint/relay/types,
-    rest_api/endpoint/relay/handlers as relay_rest_interface,
-    rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
     rln,
     rln/rln_plugin,

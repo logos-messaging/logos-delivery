@@ -12,12 +12,12 @@ import brokers/broker_context
 import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
-  logos_delivery/rest/messaging_api/client as messaging_rest_client,
-  logos_delivery/rest/messaging_api/event_cache,
-  logos_delivery/waku/rest_api/endpoint/client,
+  rest/messaging_api/client as messaging_rest_client,
+  rest/messaging_api/event_cache,
+  rest/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
-import ../testlib/[wakucore, testasync, wakunodeconf, rest_requests]
+import ../testlib/[wakucore, testasync, wakunodeconf, rest_requests, rest_service]
 
 ## Integration test for the messaging REST endpoints and their event cache.
 ##
@@ -31,8 +31,8 @@ import ../testlib/[wakucore, testasync, wakunodeconf, rest_requests]
 proc restNodeConf(): LogosDeliveryNodeConf =
   defaultTestNodeConf(entryLayer = EntryLayer.messaging, rest = true)
 
-proc restClientFor(node: LogosDelivery): RestClientRef =
-  let boundPort = node.waku.restServer.httpServer.address.port
+proc restClientFor(rest: RestService): RestClientRef =
+  let boundPort = rest.server.httpServer.address.port
   newRestHttpClient(initTAddress(parseIpAddress("127.0.0.1"), boundPort))
 
 const settleDelay = 200.milliseconds
@@ -41,12 +41,13 @@ const settleDelay = 200.milliseconds
 suite "Messaging REST API":
   asyncTest "subscribe / unsubscribe / send endpoints respond":
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
 
     let contentTopic = "/test/1/messaging-rest/proto"
 
@@ -85,17 +86,20 @@ suite "Messaging REST API":
     let unsubResp = await client.messagingDeleteSubscriptionsV1(@[contentTopic])
     check unsubResp.status == 200
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "GET subscriptions lists the subscribed content topics, sorted":
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
 
     let topicA = "/test/1/list-a/proto"
     let topicB = "/test/1/list-b/proto"
@@ -111,17 +115,20 @@ suite "Messaging REST API":
       afterResp.status == 200
       afterResp.data == @[topicB]
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "send events are grouped by requestId and evict after poll":
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
     let brokerCtx = node.waku.brokerCtx
 
     let reqA = RequestId("req-A")
@@ -168,6 +175,8 @@ suite "Messaging REST API":
       emptyResp.status == 200
       emptyResp.data.len == 0
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
@@ -179,12 +188,13 @@ suite "Messaging REST API":
     ).valueOr:
       raiseAssert error
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
 
     # The node has no peer, so the first send stays in the send queue.
     let contentTopic = "/test/1/messaging-rest-queue-full/proto"
@@ -200,7 +210,7 @@ suite "Messaging REST API":
 
     # A raw request, because the typed stub does not return the response headers.
     let fullResp = await issueRequest(
-      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      rest.server.getAddress("/messaging/v1/messages"),
       meth = MethodPost,
       headers = @[("Content-Type", "application/json")],
       body =
@@ -211,22 +221,26 @@ suite "Messaging REST API":
       fullResp.status == 429
       fullResp.headers.getString("Retry-After") == "1"
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "a send whose body does not decode answers 400 with an empty decode reason":
     # TODO: logos-delivery#4432
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
     defer:
+      await rest.stop()
       (await node.stop()).expect("Failed to stop node")
 
     let resp = await issueRequest(
-      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      rest.server.getAddress("/messaging/v1/messages"),
       meth = MethodPost,
       headers = @[("Content-Type", "application/json")],
       body = "{}",
@@ -237,16 +251,18 @@ suite "Messaging REST API":
 
   asyncTest "a send whose meta exceeds the limit is accepted with a requestId":
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
     defer:
+      await rest.stop()
       (await node.stop()).expect("Failed to stop node")
 
     let resp = await issueRequest(
-      node.waku.restServer.getAddress("/messaging/v1/messages"),
+      rest.server.getAddress("/messaging/v1/messages"),
       meth = MethodPost,
       headers = @[("Content-Type", "application/json")],
       body =
@@ -269,12 +285,13 @@ suite "Messaging REST API":
 
   asyncTest "received messages are observable, capped, and evict after poll":
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(restNodeConf())).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
     let brokerCtx = node.waku.brokerCtx
 
     # Emit more than the cache capacity (50); oldest must be dropped. Odd
@@ -308,12 +325,15 @@ suite "Messaging REST API":
       emptyResp.status == 200
       emptyResp.data.len == 0
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
   asyncTest "without autosharding, subscribe, unsubscribe and send answer 503":
     ## Without a preset or a shard count, content topics resolve to no shard.
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
@@ -323,9 +343,9 @@ suite "Messaging REST API":
         )
       ).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
 
     let contentTopic = "/test/1/no-autosharding/proto"
     let subResp = await client.messagingPostSubscriptionsV1(@[contentTopic])
@@ -345,6 +365,8 @@ suite "Messaging REST API":
       sendResp.status == 503
       sendResp.data.contains("--num-shards-in-network")
 
+    await rest.stop()
+
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
@@ -352,12 +374,13 @@ suite "Messaging REST API":
     var conf = restNodeConf()
     conf.kernel.restMessagingCacheCapacity = 5
     var node: LogosDelivery
+    var rest: RestService
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
-      (await node.start()).isOkOr:
+      rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start node: " & error
-    let client = restClientFor(node)
+    let client = restClientFor(rest)
     let brokerCtx = node.waku.brokerCtx
 
     const total = 8
@@ -380,6 +403,8 @@ suite "Messaging REST API":
       resp.data[^1].messageHash == "0x" & $(total - 1)
       resp.data[0].seq == 4'u64
       logos_delivery_rest_received_dropped.value() == droppedBefore + 3
+
+    await rest.stop()
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error

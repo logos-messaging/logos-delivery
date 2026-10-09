@@ -11,18 +11,19 @@ import
   presto/client as presto_client,
   libp2p/crypto/crypto
 import
+  rest/server,
+  rest/client,
+  rest/responses,
+  rest/kernel_api/store/handlers as store_rest_interface,
+  rest/kernel_api/store/client as store_rest_client,
+  rest/kernel_api/store/types
+import
   logos_delivery/waku/[
     waku_core/message,
     waku_core/message/digest,
     waku_core/topics,
     waku_node,
     node/peer_manager,
-    rest_api/endpoint/server,
-    rest_api/endpoint/client,
-    rest_api/endpoint/responses,
-    rest_api/endpoint/store/handlers as store_rest_interface,
-    rest_api/endpoint/store/client as store_rest_client,
-    rest_api/endpoint/store/types,
     waku_archive,
     waku_archive/driver/queue_driver,
     waku_archive/driver/sqlite_driver,

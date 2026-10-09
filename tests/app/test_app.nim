@@ -191,9 +191,6 @@ suite "Node app - Waku initialization":
     builder.withP2pTcpPort(Port(0))
     builder.discv5Conf.withEnabled(true)
     builder.discv5Conf.withUdpPort(Port(0))
-    builder.restServerConf.withEnabled(true)
-    builder.restServerConf.withRelayCacheCapacity(50'u32)
-    builder.restServerConf.withPort(Port(0))
     builder.metricsServerConf.withEnabled(true)
     builder.metricsServerConf.withHttpPort(Port(0))
     builder.webSocketConf.withEnabled(true)
@@ -205,7 +202,6 @@ suite "Node app - Waku initialization":
     check:
       conf.endpointConf.p2pTcpPort == Port(0)
       conf.discv5Conf.get().udpPort == Port(0)
-      conf.restServerConf.get().port == Port(0)
       conf.metricsServerConf.get().httpPort == Port(0)
       conf.webSocketConf.get().port == Port(0)
 
@@ -225,7 +221,6 @@ suite "Node app - Waku initialization":
       parsed.kind == JObject
       parsed["tcp"].getInt() != 0
       parsed["webSocket"].getInt() != 0
-      parsed["rest"].getInt() != 0
       parsed["discv5Udp"].getInt() != 0
       parsed["metrics"].getInt() != 0
 

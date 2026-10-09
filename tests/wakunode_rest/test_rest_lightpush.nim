@@ -10,21 +10,22 @@ import
   libp2p/crypto/crypto
 
 import
+  rest/message_cache,
+  rest/server,
+  rest/client,
+  rest/responses,
+  rest/kernel_api/lightpush/types,
+  rest/kernel_api/lightpush/handlers as lightpush_rest_interface,
+  rest/kernel_api/lightpush/client as lightpush_rest_client,
+  rest/kernel_api/relay/handlers as relay_rest_interface,
+  rest/kernel_api/relay/client as relay_rest_client
+import
   logos_delivery/waku/[
     common/base64,
-    rest_api/message_cache,
     waku_core,
     waku_node,
     node/peer_manager,
     waku_lightpush/common,
-    rest_api/endpoint/server,
-    rest_api/endpoint/client,
-    rest_api/endpoint/responses,
-    rest_api/endpoint/lightpush/types,
-    rest_api/endpoint/lightpush/handlers as lightpush_rest_interface,
-    rest_api/endpoint/lightpush/client as lightpush_rest_client,
-    rest_api/endpoint/relay/handlers as relay_rest_interface,
-    rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
     common/rate_limit/setting,
   ],

@@ -423,7 +423,7 @@ Miscellaneous
 7. Export module via `waku/waku_myprotocol.nim`
 
 ### Adding a REST API Endpoint
-1. Define handler in `waku/rest_api/endpoint/myprotocol/`
+1. Define handler in `rest/kernel_api/myprotocol/`
 2. Implement endpoint following pattern:
    ```nim
    proc installMyProtocolApiHandlers*(
@@ -433,7 +433,7 @@ Miscellaneous
        # Implementation
        return RestApiResponse.jsonResponse(data, status = Http200)
    ```
-3. Register in `waku/rest_api/handlers.nim`
+3. Register in `rest/rest_service.nim` (`installKernelRoutes`)
 
 ### Adding Database Migration
 For message_store (SQLite):
