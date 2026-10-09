@@ -238,7 +238,7 @@ proc setupProtocols(
         node.peerManager.addServicePeer(storeNode, WakuReconciliationCodec)
         node.peerManager.addServicePeer(storeNode, WakuTransferCodec)
 
-  mountStoreClient(node)
+  mountStoreClient(node, int(conf.maxMessageSizeBytes))
   if conf.remoteStoreNode.isSome():
     let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
       return err("failed to set node waku store peer: " & error)

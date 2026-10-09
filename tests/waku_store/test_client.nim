@@ -308,3 +308,47 @@ suite "Store Client - peers that hold their streams":
       await query.join().withTimeout(chronos.seconds(3))
       query.cancelled()
       requests == 1
+
+suite "Store Client - response size":
+  asyncTest "the client reads a response up to its own limit":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    proc reply(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+      try:
+        let buf = await conn.readLp(DefaultMaxQuerySize)
+        let req = StoreQueryRequest.decode(buf).valueOr:
+          return
+        let message = fakeWakuMessage(payload = newSeq[byte](2000))
+        let resp = StoreQueryResponse(
+          requestId: req.requestId,
+          statusCode: uint32(StatusCode.SUCCESS),
+          messages: @[
+            WakuMessageKeyValue(
+              messageHash: computeMessageHash(DefaultPubsubTopic, message),
+              message: Opt.some(message),
+              pubsubTopic: Opt.some(DefaultPubsubTopic),
+            )
+          ],
+        )
+        await conn.writeLp(resp.encode())
+      except LPStreamError:
+        return
+
+    serverSwitch.mount(LPProtocol.new(codecs = @[WakuStoreCodec], handler = reply))
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+    let
+      serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+      peerManager = PeerManager.new(clientSwitch)
+      small = WakuStoreClient.new(peerManager, crypto.newRng(), maxResponseSize = 1000)
+      default = WakuStoreClient.new(peerManager, crypto.newRng())
+      request = StoreQueryRequest(contentTopics: @[DefaultContentTopic])
+
+    let tooLarge = await small.query(request, peer = serverPeerInfo)
+    let fits = await default.query(request, peer = serverPeerInfo)
+    check:
+      tooLarge.isErr()
+      tooLarge.error.kind == ErrorCode.BAD_RESPONSE
+      fits.isOk()
+
+    await allFutures(clientSwitch.stop(), serverSwitch.stop())

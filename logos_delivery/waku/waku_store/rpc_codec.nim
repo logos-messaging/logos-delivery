@@ -6,13 +6,18 @@ import ../common/protobuf, ../waku_core, ./common, ./protocol_metrics
 logScope:
   topics = "waku store"
 
-const
-  DefaultMaxQuerySize* = 1024 * 1024 ## The largest store query that a store node reads.
-  DefaultMaxQueryResponseSize* =
-    int(MaxPageSize) *
-    (int(DefaultMaxWakuMessageSize) + DefaultSafetyBufferProtocolOverhead)
-    ## The largest store response that a client reads: a full page of messages
-    ## of the default maximum size.
+const DefaultMaxQuerySize* = 10 * 1024 * 1024
+  ## The largest store query that a store node reads. A message hash takes 34
+  ## bytes, so a hash query can have about 300 000 hashes.
+
+func maxQueryResponseSize*(maxMessageSize: int): int =
+  ## The largest store response that a client reads: a full page of messages
+  ## of `maxMessageSize`.
+  int(MaxPageSize) * (maxMessageSize + DefaultSafetyBufferProtocolOverhead)
+
+const DefaultMaxQueryResponseSize* =
+  maxQueryResponseSize(int(DefaultMaxWakuMessageSize))
+  ## The response limit for the default maximum message size.
 
 proc validateDecoded(keyValue: var WakuMessageKeyValue): ProtobufResult[void] =
   if keyValue.messageHash == default(WakuMessageHash):
