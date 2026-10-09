@@ -16,10 +16,10 @@ Run two nodes and connect them:
 ```
 # Starts listening on 60000 with RPC server on 8545.
 # Note the "listening on address" in logs.
-./build/logosdeliverynode --ports-shift:0
+./build/logosdeliverynode
 
 # Run another node with entry-node argument
-./build/logosdeliverynode --ports-shift:1 --entry-node:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp --storenode:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp
+./build/logosdeliverynode --tcp-port:0 --discv5-udp-port:0 --entry-node:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp --storenode:/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmF4tuht6fmna6uDqoSMgFqhUrdaVR6VQRyGr6sCpfS2jp
 ```
 
 When flag `persist-messages` is passed messages are going to be persisted in-memory. 

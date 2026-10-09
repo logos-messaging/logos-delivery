@@ -208,7 +208,10 @@ type WakuNodeConf* = object
   tcpPort* {.desc: "TCP listening port.", defaultValue: 60000, name: "tcp-port".}: Port
 
   portsShift* {.
-    desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
+    obsolete: "set each port to 0 to auto-assign; removed in v0.42.0",
+    desc: "Deprecated. Add a shift to all port numbers.",
+    defaultValue: 0,
+    name: "ports-shift"
   .}: uint16
 
   nat* {.

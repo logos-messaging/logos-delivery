@@ -588,7 +588,7 @@ suite "Waku external config - deprecated flags":
       "--discv5-bucket-ip-limit=3", "--discv5-bits-per-hop=2",
       "--discv5-bootstrap-node=enr:-QEKuECA0zhRJej2eaOoOPddNcYr7-5NdRwuoLCe2EE4wfEYkAZhFotg6Kkr8K15pMAGyUyt0smHkZCjLeld0BUzogNtAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc2hhcmRzLnRlc3Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zaGFyZHMudGVzdC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0",
       "--store-resume=true", "--relay-peer-exchange=true",
-      "--nat-discovery-timeout-ms=5000",
+      "--nat-discovery-timeout-ms=5000", "--ports-shift=2",
     ]
 
     ## When
@@ -608,6 +608,7 @@ suite "Waku external config - deprecated flags":
       conf.storeResume
       conf.relayPeerExchange
       conf.natDiscoveryTimeoutMs == 5000
+      conf.portsShift == 2
 
   test "--circuit-relay-client replaces --relay-client":
     ## Given / When

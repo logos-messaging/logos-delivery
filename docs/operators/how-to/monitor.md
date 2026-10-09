@@ -51,7 +51,7 @@ scrape_configs:
 
 Replace `<nwaku_port>` with the metrics HTTP server port of your running nwaku instance.
 For default configurations metrics are reported on port `8008` of the `localhost`.
-If you've used `--ports-shift`, or explicitly set the metrics port using `--metrics-server-port`, this port will be different from the default.
+If you've explicitly set the metrics port using `--metrics-server-port`, this port will be different from the default.
 It's possible to extract the metrics server port from the startup logs of the nwaku node.
 Look for a log with the format below and substitute `nwaku_port` with the value reported after `serverPort=`:
 
