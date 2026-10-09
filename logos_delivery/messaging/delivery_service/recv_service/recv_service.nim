@@ -39,6 +39,7 @@ static:
 
 const PruneOldMsgsPeriod = chronos.minutes(1)
 
+const ActivityWriteInterval = chronos.seconds(10)
   ## Least time between two writes of the last received time.
 
 const BackfillRetryPeriod = chronos.seconds(30)
@@ -64,7 +65,7 @@ type BackfillFetchOutcome = object ## The result of one Store query for one topi
 type BackfillState* = object
   ## The settings and the state of the backfill. `backfill.nim` has the
   ## records, the transitions and the Store queries.
-  enabled*: bool ## the records are written to the disk
+  enabled*: bool ## the records survive a restart
   queryTimeout*: Duration
   job: persistency.Job ## nil when the records stay in memory only
   records: Table[BackfillTopic, TopicRecord]
@@ -72,9 +73,13 @@ type BackfillState* = object
     ## the time of the subscribe of each subscribed topic, in this run
   live: bool ## live delivery is ready (see `hasLiveDelivery`)
   liveSince: Timestamp ## the time of the last change of `live`
+  started: bool ## the records are read, and a change applies at once
+  pendingSubscriptionChanges: seq[BackfillSubscriptionChange]
+    ## the changes before `started`
   task: Future[void] ## the backfill worker
   wake: AsyncEvent ## a change that can give the worker work
   caughtUp: AsyncEvent ## set when the worker has no gap to fill, also in an outage
+  lastReceivedAtWrite: Moment ## when the service last wrote the last received time
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
@@ -98,6 +103,8 @@ type RecvService* = ref object of RootObj
     ## `CancelledError` and does not raise it again, so a cancel may not reach
     ## the worker. Remove this flag when broker requests raise it again.
 
+  activityWriteInterval*: Duration = ActivityWriteInterval
+    ## see `ActivityWriteInterval`, shorter in tests
   delayExtra*: Duration = chronos.nanoseconds(DelayExtra)
     ## see `DelayExtra`, shorter in tests
   archiveTime*: Duration = chronos.nanoseconds(ArchiveTime)
@@ -194,7 +201,11 @@ proc backfillApplySubscriptionChange(
 proc backfillSubscriptionChanged(
     self: RecvService, change: BackfillSubscriptionChange
 ) {.async: (raises: []).} =
-  ## Applies the change to the records, writes it, and wakes the worker.
+  ## Applies the change to the records, or keeps it until the records are
+  ## read from the disk at start.
+  if not self.backfill.started:
+    self.backfill.pendingSubscriptionChanges.add(change)
+    return
   await self.backfillWriteRecords(self.backfillApplySubscriptionChange(change))
   self.backfill.wake.fire()
 
@@ -219,6 +230,45 @@ proc backfillLiveChanged(self: RecvService, nowLive: bool) {.async: (raises: [])
     record = after
     ops.add(topicRecordOp(topic, record))
   await self.backfillWriteRecords(ops)
+
+proc backfillOnReceipt(self: RecvService) {.async: (raises: []).} =
+  ## A message from the network moves the last received time to now, at most
+  ## one time per `activityWriteInterval`, while the records are on disk.
+  if self.backfill.job.isNil() or not self.backfill.started:
+    return # the records of the last run must be rewritten first
+  let now = Moment.now()
+  if now - self.backfill.lastReceivedAtWrite < self.activityWriteInterval:
+    return
+  self.backfill.lastReceivedAtWrite = now # before the await, so a burst writes one time
+  try:
+    await self.backfill.job.writeLastReceivedAt(getNowInNanosecondTime())
+  except CancelledError:
+    discard
+
+proc backfillReadRecordsAtStart(
+    self: RecvService
+) {.async: (raises: [CancelledError]).} =
+  ## Reads the records and the last received time from the disk, and applies
+  ## the restart outage to each live record. Nothing when the records stay in
+  ## memory only.
+  let job = self.backfill.job
+  if job.isNil():
+    return
+  let lastReceivedAt = (await job.readLastReceivedAt()).valueOr:
+    if not self.stopping:
+      warn "Failed to read the last received time of the backfill", error
+    Opt.none(Timestamp) # the same as none stored
+  let stored = (await job.readTopicRecords()).valueOr:
+    if not self.stopping:
+      warn "Failed to read the backfill topic records, the topics are new", error
+    return
+  var ops: seq[TxOp]
+  for (topic, record) in stored:
+    let restarted = record.atStart(lastReceivedAt)
+    self.backfill.records[topic] = restarted
+    if restarted != record:
+      ops.add(topicRecordOp(topic, restarted))
+  await job.writeTopicRecords(ops) # `backfillOnReceipt` waits for `started`
 
 func backfillIsCandidate(self: RecvService, topic: BackfillTopic): bool =
   ## True when the worker has a gap to fill for `topic`.
@@ -330,9 +380,17 @@ proc backfillFetchAllTopics(
   return min(BackfillRetryPeriod, chronos.nanoseconds(max(left, 1'i64)))
 
 proc backfillWorker(self: RecvService) {.async.} =
-  ## Fills the gaps of the subscribed topics from Store, one query for one
-  ## topic at a time, while live delivery is ready and a Store peer is known.
-  ## A failed query makes its topic wait for the next pass.
+  ## Reads the records at start, applies the changes that came before, and
+  ## then fills the gaps of the subscribed topics from Store, one query for
+  ## one topic at a time, while live delivery is ready and a Store peer is
+  ## known. A failed query makes its topic wait for the next pass.
+  await self.backfillReadRecordsAtStart()
+  self.backfill.started = true
+  var ops: seq[TxOp]
+  for change in self.backfill.pendingSubscriptionChanges:
+    ops.add(self.backfillApplySubscriptionChange(change))
+  self.backfill.pendingSubscriptionChanges.setLen(0)
+  await self.backfillWriteRecords(ops)
   let query: BackfillQuery = proc(
       request: StoreQueryRequest
   ): Future[Result[StoreQueryResponse, string]] {.async.} =
@@ -464,7 +522,8 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
   self.msgPrunerHandler = self.loopPruneOldMessages()
 
   proc onSeen(event: MessageSeenEvent) {.async: (raises: []).} =
-    discard self.processIncomingMessage(event.topic, event.message, MessageSource.Live)
+    if self.processIncomingMessage(event.topic, event.message, MessageSource.Live):
+      await self.backfillOnReceipt()
 
   self.seenMsgListener = MessageSeenEvent.listen(self.brokerCtx, onSeen).valueOr:
     error "Failed to set MessageSeenEvent listener", error = error
@@ -472,22 +531,26 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
 
   self.backfill.records = initTable[BackfillTopic, TopicRecord]()
   self.backfill.subscribedSince = initTable[BackfillTopic, Timestamp]()
+  self.backfill.started = false
+  self.backfill.pendingSubscriptionChanges = @[]
   self.backfill.wake = newAsyncEvent()
   self.backfill.caughtUp = newAsyncEvent()
+  self.backfill.lastReceivedAtWrite = Moment()
   let startedAt = getNowInNanosecondTime()
   self.backfill.live = self.hasLiveDelivery()
   self.backfill.liveSince = startedAt
-  self.backfill.job = if self.backfill.enabled: job else: nil
+  if self.backfill.enabled:
+    self.backfill.job = job
+  else:
+    self.backfill.job = nil
+    if not job.isNil():
+      asyncSpawn job.clearBackfillState() # off resets the state on disk
 
   # The topics that are subscribed before the service starts.
-  var ops: seq[TxOp]
   for topic in backfillTopics(self.waku.subscribedContentTopics()):
-    ops.add(
-      self.backfillApplySubscriptionChange(
-        BackfillSubscriptionChange(topic: topic, subscribed: true, at: startedAt)
-      )
+    self.backfill.pendingSubscriptionChanges.add(
+      BackfillSubscriptionChange(topic: topic, subscribed: true, at: startedAt)
     )
-  asyncSpawn self.backfillWriteRecords(ops)
 
   # All of these can change live delivery. Subscriptions and peers have no
   # health event.
