@@ -22,7 +22,8 @@ import
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   ./types,
-  ./event_cache
+  ./event_cache,
+  ./event_listeners
 
 export types
 
@@ -59,57 +60,16 @@ proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string
       )
   return ok()
 
-template listenUntilStop(client: MessagingClient, E: typedesc, handler: untyped) =
-  ## Registers `handler` for the current start; MessagingClient.stop drops it.
-  let ctx = client.brokerCtx
-  let res = E.listen(ctx, handler)
-  if res.isOk():
-    let listener = res.get()
-    client.eventDroppers.add(
-      proc(): Future[void] {.async: (raises: []), gcsafe.} =
-        await E.dropListener(ctx, listener)
-    )
-  else:
-    error "Messaging REST: failed to listen", event = $E, error = res.error
-
-proc installEventListeners(client: MessagingClient, cache: MessagingEventCache) =
-  ## Buffers the MessagingClient events into `cache` so the poll-based REST
-  ## endpoints can observe them. Registered on every start, dropped on stop;
-  ## `cache` (owned by the mounted routes) outlives restarts.
-  client.listenUntilStop(MessageSentEvent):
-    proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Sent)
-
-  client.listenUntilStop(MessageQueuedEvent):
-    proc(evt: MessageQueuedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Queued)
-
-  client.listenUntilStop(MessagePropagatedEvent):
-    proc(evt: MessagePropagatedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Propagated)
-
-  client.listenUntilStop(MessageErrorEvent):
-    proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Error, evt.error)
-
-  client.listenUntilStop(MessageReceivedEvent):
-    proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message), evt.source)
-
-proc installMessagingApiHandlers*(
-    router: var RestRouter, client: MessagingClient, maxReceived = DefaultMaxReceived
-) =
+proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClient) =
   ## Mounts the MessagingClient subscribe / unsubscribe / send operations as
   ## REST endpoints onto the given (kernel-owned) router. Subscriptions are
   ## keyed by content topic, matching the messaging layer's content-topic API.
-  ## `maxReceived` bounds the received messages kept between polls.
+  ## `client.restEvents` must be set: its cache backs the event endpoints.
 
   # Event observability: buffer send/received events for the poll-based GETs.
   # The routes and the cache are installed once; the listeners feeding the
-  # cache are (re)registered on every start and dropped on stop.
-  let eventCache = MessagingEventCache.new(maxReceived = maxReceived)
-  client.restListenerInstaller = proc() {.gcsafe, raises: [].} =
-    installEventListeners(client, eventCache)
+  # cache are registered by MessagingClient.start and dropped by stop.
+  let eventCache = client.restEvents.cache
 
   # Without autosharding, content topics resolve to no shard: answer 503.
   let autoshardingConfigured = client.waku.isAutoshardingConfigured()
@@ -262,7 +222,7 @@ proc mountRestApi*(client: MessagingClient) =
   ## above it — that would form an import cycle.
   if client.waku.restServer.isNil():
     return
-  if client.restListenerInstaller.isNil():
+  if client.restEvents.isNil():
     # First start: mount the routes once (presto rejects a route added twice).
     # The BTree route table is ref-backed, so mutating the copied router persists
     # (same pattern as the waku REST builder).
@@ -271,9 +231,12 @@ proc mountRestApi*(client: MessagingClient) =
         int(client.waku.conf.restServerConf.get().messagingCacheCapacity)
       else:
         DefaultMaxReceived
+    client.restEvents =
+      MessagingRestEvents.new(MessagingEventCache.new(maxReceived = capacity))
     var router = client.waku.restServer.router
-    installMessagingApiHandlers(router, client, maxReceived = capacity)
+    installMessagingApiHandlers(router, client)
     rest_server_builder.markRestApiInstalled(rest_server_builder.RestRootMessaging)
     info "Mounted messaging REST API endpoints"
-  # Every start: the event-cache listeners, dropped by MessagingClient.stop.
-  client.restListenerInstaller()
+  # The client is already started when the routes are first mounted.
+  client.restEvents.start(client.brokerCtx).isOkOr:
+    error "Messaging REST: could not start the event listeners", error = error
