@@ -12,8 +12,8 @@ import brokers/broker_context
 import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
-  logos_delivery/messaging/rest_api/client as messaging_rest_client,
-  logos_delivery/messaging/rest_api/event_cache,
+  logos_delivery/rest/messaging_api/client as messaging_rest_client,
+  logos_delivery/rest/messaging_api/event_cache,
   logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args

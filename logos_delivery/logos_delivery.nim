@@ -36,11 +36,11 @@ export health_events
 
 # Messaging layer
 import logos_delivery/messaging/[messaging_client, messaging_client_lifecycle]
-import logos_delivery/messaging/rest_api/event_listeners
+import logos_delivery/rest/messaging_api/service as messaging_rest_service
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
-import logos_delivery/messaging/rest_api/handlers as messaging_rest_api
+import logos_delivery/rest/messaging_api/handlers as messaging_rest_api
 export messaging_rest_api
 import logos_delivery/waku/rest_api/endpoint/builder as rest_server_builder
 import logos_delivery/api/events/messaging_client_events
@@ -74,7 +74,7 @@ type LogosDelivery* = ref object ## Entry point. Holds one instance of each API 
   waku*: Waku
   messagingClient*: MessagingClient
   reliableChannelManager*: ReliableChannelManager
-  restEvents*: MessagingRestEvents
+  restService*: MessagingRestService
     ## Mounted with the messaging REST routes on the first start; its listeners
     ## follow each start and stop of the messaging client.
 
@@ -238,10 +238,10 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
     # Mount the messaging REST endpoints onto the kernel's REST router (no-op if
     # REST is disabled). Done here rather than in MessagingClient.start so the
     # core messaging module need not depend on the REST layer above it.
-    if self.restEvents.isNil():
-      self.restEvents = self.messagingClient.mountRestApi()
-    if not self.restEvents.isNil():
-      self.restEvents.start(self.messagingClient.brokerCtx).isOkOr:
+    if self.restService.isNil():
+      self.restService = MessagingRestService.mount(self.messagingClient)
+    if not self.restService.isNil():
+      self.restService.start(self.messagingClient.brokerCtx).isOkOr:
         return err("failed to start the messaging REST events: " & error)
   else:
     # On a kernel-only node, /messaging answers 404 with the --entry-layer hint.
@@ -261,8 +261,8 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   if not self.reliableChannelManager.isNil():
     await self.reliableChannelManager.stop()
   if not self.messagingClient.isNil():
-    if not self.restEvents.isNil():
-      await self.restEvents.stop(self.messagingClient.brokerCtx)
+    if not self.restService.isNil():
+      await self.restService.stop(self.messagingClient.brokerCtx)
     await self.messagingClient.stop()
   if not self.waku.isNil():
     (await self.waku.stop()).isOkOr:
