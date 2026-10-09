@@ -151,6 +151,35 @@ suite "RLN message id store":
     let loaded = await job.loadMessageIds(k)
     check loaded.isErr()
 
+  asyncTest "a row without a next id is an error, not id 0":
+    let p = Persistency.new(InMemoryStoragePath).get()
+    defer:
+      p.close()
+    let job = p.openJob(RlnJobId).get()
+    let k = messageIdKey(@[1'u8])
+
+    # This row has only `epochIndex` 5. A next id of 0 can reuse an id.
+    let written = await job.putAcked("rln", k, @[0x08'u8, 0x05])
+    check written.isOk()
+    let loaded = await job.loadMessageIds(k)
+    check loaded.isErr()
+
+  asyncTest "a next id of 0 is stored and loads as 0":
+    let p = Persistency.new(InMemoryStoragePath).get()
+    defer:
+      p.close()
+    let job = p.openJob(RlnJobId).get()
+    let k = messageIdKey(@[1'u8])
+
+    # A released id can lower the next id to 0, and the row keeps the field.
+    check (await job.saveMessageIds(k, 7, 0)).isOk()
+    let loaded = await job.loadMessageIds(k)
+    check:
+      loaded.isOk()
+      loaded.get().isSome()
+      loaded.get().get().epochIndex == 7
+      loaded.get().get().nextId == 0
+
   asyncTest "a closed job is an error, not an empty row":
     let p = Persistency.new(InMemoryStoragePath).get()
     let job = p.openJob(RlnJobId).get()
