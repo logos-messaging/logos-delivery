@@ -634,7 +634,7 @@ procSuite "Peer Manager":
     await allFutures(nodes.mapIt(it.stop()))
 
   asyncTest "connectPeer() failing after the peer connected in leaves it CannotConnect while connected, and a retry counts a connection it does not make":
-    # TODO: peer-stale-port-redial
+    # TODO: logos-delivery#4481
     let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))
     await allFutures(nodes.mapIt(it.start()))
     let

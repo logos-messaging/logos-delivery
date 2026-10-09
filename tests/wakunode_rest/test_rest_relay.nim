@@ -967,7 +967,7 @@ suite "Waku v2 Rest API - Relay":
     await node.stop()
 
   asyncTest "Without a relay peer, a message encoded at the maximum size gets the answers of the largest message gossipsub sends but is not stored - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
-    # TODO: relay-frame-size-limit
+    # TODO: logos-delivery#4486
     let node = testWakuNode()
     let driver = newSqliteArchiveDriver()
     check:
@@ -1046,7 +1046,7 @@ suite "Waku v2 Rest API - Relay":
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(2)
 
   asyncTest "With a relay peer in the mesh, a message encoded at the maximum size is answered 200 on the static route and 400 NoPeersToPublish on the auto route, and is neither relayed nor stored - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
-    # TODO: relay-frame-size-limit
+    # TODO: logos-delivery#4486
     let publisher = testWakuNode()
     let publisherDriver = newSqliteArchiveDriver()
     (await publisher.mountRelay()).isOkOr:
@@ -1160,7 +1160,7 @@ suite "Waku v2 Rest API - Relay":
       publisher.hasMeshPeer(shard, receiver.peerInfo.peerId)
 
   asyncTest "A message encoded at the maximum size is recorded as the largest message of its shard though it is not published - POST /relay/v1/messages/{topic}":
-    # TODO: relay-frame-size-limit
+    # TODO: logos-delivery#4486
     let node = testWakuNode()
     let driver = newSqliteArchiveDriver()
     check:

@@ -132,7 +132,7 @@ suite "Waku v2 Rest API - Admin":
       )
 
   asyncTest "get peers lists an inbound peer at a port it does not listen on":
-    # TODO: admin-peer-inbound-addr
+    # TODO: logos-delivery#4480
     let
       primaryIp = $getPrimaryIPAddr()
       node1TcpAddr =
@@ -164,7 +164,7 @@ suite "Waku v2 Rest API - Admin":
       node2ListenAddr notin listedAddrs
 
   asyncTest "post peers fails on the address get peers lists for an inbound peer":
-    # TODO: admin-peer-inbound-addr
+    # TODO: logos-delivery#4480
     let
       primaryIp = $getPrimaryIPAddr()
       node1TcpAddr =
@@ -206,7 +206,7 @@ suite "Waku v2 Rest API - Admin":
       listenAddrResponse.status == 200
 
   asyncTest "get peers lists a peer that dialled in over quic at its listen address":
-    # TODO: admin-peer-inbound-addr
+    # TODO: logos-delivery#4480
     let
       primaryIp = $getPrimaryIPAddr()
       node1TcpAddr =
@@ -245,7 +245,7 @@ suite "Waku v2 Rest API - Admin":
       node2ListenAddr notin listedAddrs
 
   asyncTest "get peer by id keeps an inbound peer that left at its source port, CannotConnect":
-    # TODO: admin-peer-inbound-addr
+    # TODO: logos-delivery#4480
     let node4 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
     check node4.mountMetadata(1, @[0.uint16]).isOk()
     await node4.start()
@@ -547,7 +547,7 @@ suite "Waku v2 Rest API - Admin":
       getRes3.data.peers.len() == 0
 
   asyncTest "get connected peers omits a peer that connected in while a dial to it failed, which get relay peers and get peers stats report as CannotConnect":
-    # TODO: peer-stale-port-redial
+    # TODO: logos-delivery#4481
     let node1TcpAddr =
       "/ip4/" & $getPrimaryIPAddr() & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
       $peerInfo1.peerId

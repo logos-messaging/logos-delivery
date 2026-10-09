@@ -20,6 +20,7 @@ import
   ],
   ../waku_relay/utils,
   ../waku_archive/archive_utils,
+  ../waku_store_sync/sync_utils,
   ../testlib/[wakucore, wakunode, testasync]
 
 const
@@ -49,14 +50,6 @@ proc syncWith(node, peer: WakuNode): Future[Result[void, string]] {.async.} =
   return await node.wakuStoreReconciliation.storeSynchronization(
     Opt.some(peer.switch.peerInfo.toRemotePeerInfo())
   )
-
-proc transferCount(direction: string): float64 =
-  try:
-    return logos_delivery_total_transfer_messages_exchanged.valueByName(
-      "logos_delivery_total_transfer_messages_exchanged_total", [direction]
-    )
-  except ValueError:
-    return 0.0
 
 suite "Waku Store Sync - End to End":
   var nodes {.threadvar.}: seq[WakuNode]
@@ -163,7 +156,7 @@ suite "Waku Store Sync - End to End":
     check insertCount(syncIngress) == syncInsertsBefore + 6
 
   asyncTest "A message above the default size limit is not synced, nor the messages sent after it in its session":
-    # TODO: sync-transfer-max-size
+    # TODO: logos-delivery#4485
     # Given a relay node with a raised max message size that archived a message above the default limit, then three small ones
     let
       nodeA = await newStoreSyncNode(newSqliteArchiveDriver())
@@ -204,8 +197,8 @@ suite "Waku Store Sync - End to End":
     for hash in hashes:
       check not await nodeB.wakuArchive.holdsMessages(@[hash])
 
-  asyncTest "Two messages above the default size limit sent over TCP stop the sender's transfers to every peer until that peer disconnects":
-    # TODO: sync-transfer-max-size
+  asyncTest "Two messages above the default size limit sent over TCP stop the transfers of the sender to every peer until that peer disconnects":
+    # TODO: logos-delivery#4485
     # Given a relay node with a raised max message size that archived two messages above the default limit
     let
       nodeA = await newStoreSyncNode(newSqliteArchiveDriver())
@@ -256,7 +249,7 @@ suite "Waku Store Sync - End to End":
       transferCount(Sending) == sentBefore + 3
 
   asyncTest "Seven messages above the default size limit sent over QUIC stop the sender after six":
-    # TODO: sync-transfer-max-size
+    # TODO: logos-delivery#4485
     # Given a relay node with a raised max message size that archived seven messages above the default limit
     let
       nodeA = await newStoreSyncNode(newSqliteArchiveDriver())
@@ -295,8 +288,116 @@ suite "Waku Store Sync - End to End":
     await sleepAsync(500.milliseconds)
     check transferCount(Sending) == sentBefore + 6
 
-    # A node whose transfer write is stuck does not stop while its peer stays connected.
+    # TODO: logos-delivery#4484
     await nodeB.stop()
     nodes = @[nodeA]
     checkUntilTimeout:
       not nodeA.switch.isConnected(nodeB.peerInfo.peerId)
+
+  asyncTest "A node stopped while its store sync transfer writes to a peer over TCP does not complete its stop":
+    # TODO: logos-delivery#4484
+    # Given a node that archived three hundred 100 KB messages, and a peer connected to it over TCP
+    let
+      msgs = toSeq(0 ..< 300).mapIt(fakeWakuMessage(newSeq[byte](100_000)))
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, msgs)
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.start()))
+    await nodeB.connectToNodes(
+      @[
+        RemotePeerInfo.init(
+          nodeA.peerInfo.peerId, nodeA.peerInfo.addrs.filterIt("/quic-v1" notin $it)
+        )
+      ]
+    )
+
+    let sentBefore = transferCount(Sending)
+
+    # When the peer syncs with it, and the node is stopped once its transfer has sent a message
+    let res = await nodeB.syncWith(nodeA)
+    check res.isOk()
+    checkUntilTimeoutCustom(10.seconds, 1.milliseconds):
+      transferCount(Sending) > sentBefore
+    let stopping = nodeA.stop()
+
+    # Then the stop does not complete within 3 s, and the node sent only part of the messages
+    check:
+      not await stopping.join().withTimeout(3.seconds)
+      transferCount(Sending) < sentBefore + float64(msgs.len)
+
+    # A second cancel reaches the transfer loop, which now waits for its next message.
+    await nodeA.wakuStoreTransfer.stop()
+    check await stopping.join().withTimeout(5.seconds)
+    nodes = @[nodeB]
+
+  asyncTest "A node stopped while its store sync transfer writes to a peer over QUIC does not complete its stop":
+    # TODO: logos-delivery#4484
+    # Given a node that archived three hundred 100 KB messages, and a peer connected to it over QUIC
+    let
+      msgs = toSeq(0 ..< 300).mapIt(fakeWakuMessage(newSeq[byte](100_000)))
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, msgs)
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.start()))
+    await nodeB.connectToNodes(
+      @[
+        RemotePeerInfo.init(
+          nodeA.peerInfo.peerId, nodeA.peerInfo.addrs.filterIt("/quic-v1" in $it)
+        )
+      ]
+    )
+
+    let sentBefore = transferCount(Sending)
+
+    # When the peer syncs with it, and the node is stopped once its transfer has sent a message
+    let res = await nodeB.syncWith(nodeA)
+    check res.isOk()
+    checkUntilTimeoutCustom(10.seconds, 1.milliseconds):
+      transferCount(Sending) > sentBefore
+    let stopping = nodeA.stop()
+
+    # Then the stop does not complete within 3 s, and the node sent only part of the messages
+    check:
+      not await stopping.join().withTimeout(3.seconds)
+      transferCount(Sending) < sentBefore + float64(msgs.len)
+
+    # A second cancel reaches the transfer loop, which now waits for its next message.
+    await nodeA.wakuStoreTransfer.stop()
+    check await stopping.join().withTimeout(5.seconds)
+    nodes = @[nodeB]
+
+  asyncTest "A node stopped after its store sync transfer sent every message completes its stop":
+    # TODO: logos-delivery#4484
+    # Given a node that archived three hundred 100 KB messages, and a peer connected to it over TCP
+    let
+      msgs = toSeq(0 ..< 300).mapIt(fakeWakuMessage(newSeq[byte](100_000)))
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, msgs)
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.start()))
+    await nodeB.connectToNodes(
+      @[
+        RemotePeerInfo.init(
+          nodeA.peerInfo.peerId, nodeA.peerInfo.addrs.filterIt("/quic-v1" notin $it)
+        )
+      ]
+    )
+
+    let sentBefore = transferCount(Sending)
+
+    # When the peer syncs with it, and the node is stopped once its transfer has sent every message
+    let res = await nodeB.syncWith(nodeA)
+    check res.isOk()
+    checkUntilTimeout:
+      transferCount(Sending) == sentBefore + float64(msgs.len)
+    let stopping = nodeA.stop()
+
+    # Then the stop completes
+    check await stopping.join().withTimeout(3.seconds)
+    nodes = @[nodeB]

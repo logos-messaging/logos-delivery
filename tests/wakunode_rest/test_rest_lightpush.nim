@@ -633,7 +633,7 @@ suite "Waku v2 Rest API - lightpush":
         )
 
   asyncTest "Without a relay peer, a push encoded at the maximum size is answered 505 like the largest message gossipsub sends but is not stored - POST /lightpush/v3/message":
-    # TODO: relay-frame-size-limit
+    # TODO: logos-delivery#4486
     let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
     defer:
       await restLightPushTest.shutdown()
@@ -691,7 +691,7 @@ suite "Waku v2 Rest API - lightpush":
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
 
   asyncTest "With a relay peer in the mesh, a push encoded at the maximum size is answered 505 No peers for topic and is neither relayed nor stored - POST /lightpush/v3/message":
-    # TODO: relay-frame-size-limit
+    # TODO: logos-delivery#4486
     let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
     defer:
       await restLightPushTest.shutdown()

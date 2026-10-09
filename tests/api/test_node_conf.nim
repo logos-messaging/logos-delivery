@@ -9,7 +9,9 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/conf_builder/external_discovery_conf_builder,
   logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder,
-  logos_delivery/waku/factory/networks_config
+  logos_delivery/waku/factory/networks_config,
+  logos_delivery/waku/common/utils/parse_size_units,
+  logos_delivery/waku/waku_core/message/default_values
 
 suite "WakuNodeConf - preset integration":
   test "TWN preset applies TheWakuNetworkConf":
@@ -114,7 +116,37 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.numShardsInCluster == 1
       wakuConf.rlnEvmConf.isNone()
 
-  test "Invalid preset returns error":
+  test "status.prod preset in a JSON config without max-msg-size runs the 150KiB default instead of the 1024KiB of the preset":
+    # TODO: logos-delivery#4482
+    ## Given
+    let parsed = parseLogosDeliveryConf("""{"preset": "status.prod"}""").valueOr:
+      raiseAssert error
+
+    ## When
+    let wakuConf = WakuNodeConf(parsed.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+
+    ## Then the default of max-msg-size counts as set and the preset's size is discarded
+    check:
+      NetworkPresetConf.StatusProdConf().maxMessageSize == "1024KiB"
+      wakuConf.maxMessageSizeBytes == DefaultMaxWakuMessageSize
+
+  test "status.prod preset in a JSON config with max-msg-size 1024KiB runs 1024KiB":
+    # TODO: logos-delivery#4482
+    ## Given
+    let parsed = parseLogosDeliveryConf(
+      """{"preset": "status.prod", "messagingOverrides": {"maxMessageSize": "1024KiB"}}"""
+    ).valueOr:
+      raiseAssert error
+
+    ## When
+    let wakuConf = WakuNodeConf(parsed.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+
+    ## Then
+    check wakuConf.maxMessageSizeBytes == parseCorrectMsgSize("1024KiB")
+
+  test "StatusProd preset runs on cluster 16 with one auto-sharding shard and RLN off":
     ## Given
     var conf = defaultKernelConf().valueOr:
       raiseAssert error

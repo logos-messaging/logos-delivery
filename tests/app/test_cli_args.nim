@@ -174,6 +174,36 @@ suite "Waku external config - apply preset":
     ## Then
     assert res.isErr(), "Invalid shard was accepted"
 
+  test "status.prod preset without --max-msg-size runs the 150KiB default instead of the 1024KiB of the preset":
+    # TODO: logos-delivery#4482
+    ## Given
+    var conf = WakuNodeConf.load(version = "", cmdLine = @["--preset=status.prod"])
+    applyModeFlags(conf, DefaultKernelModeFlags)
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then the default of --max-msg-size counts as set and the preset's size is discarded
+    check:
+      NetworkPresetConf.StatusProdConf().maxMessageSize == "1024KiB"
+      wakuConf.maxMessageSizeBytes == DefaultMaxWakuMessageSize
+
+  test "status.prod preset with --max-msg-size set to 1024KiB runs 1024KiB":
+    # TODO: logos-delivery#4482
+    ## Given
+    var conf = WakuNodeConf.load(
+      version = "", cmdLine = @["--preset=status.prod", "--max-msg-size=1024KiB"]
+    )
+    applyModeFlags(conf, DefaultKernelModeFlags)
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check wakuConf.maxMessageSizeBytes == parseCorrectMsgSize("1024KiB")
+
 suite "Waku external config - node key":
   test "Passed node key is used":
     ## Setup
