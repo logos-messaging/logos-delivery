@@ -216,9 +216,9 @@ proc buildLibStaticMac(libName: string, folderName: string) =
 ### Mobile
 
 proc nimblePkgPath(pkg: string): string =
-  ## Package root from nimble.paths, or from the `--path` entries in NIM_PARAMS
-  ## when built as a dependency. `nimble path` is unusable inside a task (it
-  ## mixes Info and lock-validation noise into stdout).
+  ## Package root from nimble.paths, the `--path` entries in NIM_PARAMS, or
+  ## `nimble path`. The last mixes Info and lock-validation noise into stdout, so
+  ## only a line holding the package's nimble file counts.
   var lines: seq[string]
   if fileExists("nimble.paths"):
     lines = readFile("nimble.paths").splitLines()
@@ -228,7 +228,11 @@ proc nimblePkgPath(pkg: string): string =
     let line = rawLine.strip().replace("\"", "")
     if line.startsWith("--path:") and ("/pkgs2/" & pkg & "-") in line:
       return line[7 .. ^1]
-  quit "Package " & pkg & " not found in nimble.paths or NIM_PARAMS"
+  for line in gorgeEx("nimble path " & pkg).output.splitLines():
+    let candidate = line.strip()
+    if candidate.isAbsolute() and fileExists(candidate / (pkg & ".nimble")):
+      return candidate
+  quit "Package " & pkg & " not found in nimble.paths, NIM_PARAMS or nimble path"
 
 ### Mobile Android
 
