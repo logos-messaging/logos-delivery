@@ -9,6 +9,7 @@ import
     waku_core,
     waku_archive,
     waku_archive/archive_metrics,
+    waku_archive/retention_policy/retention_policy_time,
     waku_store_sync,
   ],
   ../waku_relay/utils,
@@ -145,3 +146,36 @@ suite "Waku Store Sync - End to End":
       await nodeA.wakuArchive.holdsMessages(hashesA & hashesB)
       await nodeB.wakuArchive.holdsMessages(hashesA & hashesB)
     check insertCount(syncIngress) == syncInsertsBefore + 6
+
+  asyncTest "The sync range is clamped to the archive's time retention":
+    # Given a node whose time retention is shorter than the sync range plus jitter
+    let node = newTestWakuNode(generateSecp256k1Key(), listenIp, listenPort)
+    node.mountArchive(
+      newSqliteArchiveDriver(), @[RetentionPolicy(TimeRetentionPolicy.new(1800))]
+    ).isOkOr:
+      raiseAssert error
+    nodes = @[node]
+
+    # When store sync is mounted with a 3600 s range and a 20 s relay jitter
+    (
+      await node.mountStoreSync(
+        DefaultClusterId,
+        @[DefaultShardId],
+        @[],
+        storeSyncRange = 3600,
+        storeSyncInterval = 300,
+        storeSyncRelayJitter = 20,
+      )
+    ).isOkOr:
+      raiseAssert error
+    await node.start()
+
+    # Then the effective range is the retention minus the jitter
+    check node.wakuStoreReconciliation.getEffectiveSyncRange() == 1780.seconds
+
+  asyncTest "The sync range stays as configured without a time retention":
+    let node = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[node]
+    await node.start()
+
+    check node.wakuStoreReconciliation.getEffectiveSyncRange() == 3600.seconds

@@ -10,6 +10,8 @@ import
     waku_core/message/digest,
     waku_archive,
     waku_archive/archive_metrics,
+    waku_archive/retention_policy/retention_policy_capacity,
+    waku_archive/retention_policy/retention_policy_time,
     waku_archive/driver/queue_driver,
   ],
   ../waku_archive/archive_utils,
@@ -664,3 +666,26 @@ suite "Waku Archive - insert metrics":
         ArchiveDriverResult[bool].ok(true)
       (waitFor driver.put(hash, DefaultPubSubTopic, message)) ==
         ArchiveDriverResult[bool].ok(false)
+
+suite "Waku Archive - time retention":
+  test "archive reports its shortest time retention":
+    ## Given
+    let driver = newSqliteArchiveDriver()
+    let timePolicy = RetentionPolicy(TimeRetentionPolicy.new(1800))
+    let longerTimePolicy = RetentionPolicy(TimeRetentionPolicy.new(3600))
+    let capacityPolicy = RetentionPolicy(CapacityRetentionPolicy.new(100))
+
+    let withTime = WakuArchive.new(driver, retentionPolicies = @[timePolicy]).get()
+    let withCapacity =
+      WakuArchive.new(driver, retentionPolicies = @[capacityPolicy]).get()
+    let withBoth =
+      WakuArchive.new(driver, retentionPolicies = @[capacityPolicy, timePolicy]).get()
+    let withTwoTimes =
+      WakuArchive.new(driver, retentionPolicies = @[longerTimePolicy, timePolicy]).get()
+
+    ## Then
+    check:
+      withTime.getShortestTimeRetention() == Opt.some(chronos.seconds(1800))
+      withCapacity.getShortestTimeRetention().isNone()
+      withBoth.getShortestTimeRetention() == Opt.some(chronos.seconds(1800))
+      withTwoTimes.getShortestTimeRetention() == Opt.some(chronos.seconds(1800))

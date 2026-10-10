@@ -12,6 +12,9 @@ type TimeRetentionPolicy* = ref object of RetentionPolicy
 proc new*(T: type TimeRetentionPolicy, retentionTime: int64): T =
   TimeRetentionPolicy(retentionTime: retentionTime.seconds)
 
+func getRetentionTime*(p: TimeRetentionPolicy): chronos.Duration =
+  p.retentionTime
+
 method `$`*(p: TimeRetentionPolicy): string =
   "time:" & $p.retentionTime.seconds
 

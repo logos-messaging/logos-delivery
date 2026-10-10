@@ -398,7 +398,21 @@ proc new*(
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
 ): Future[Result[T, string]] {.async.} =
-  let res = await initFillStorage(syncRange, wakuArchive, clock())
+  let timeRetention =
+    if wakuArchive.isNil():
+      Opt.none(Duration)
+    else:
+      wakuArchive.getShortestTimeRetention()
+  let effectiveRange = clampSyncRange(syncRange, relayJitter, timeRetention)
+  if effectiveRange != syncRange:
+    warn "Store sync range reduced to fit the message time retention",
+      requested_sync_range = syncRange,
+      relay_jitter = relayJitter,
+      time_retention = timeRetention.get(),
+      effective_sync_range = effectiveRange,
+      fix = "lower --store-sync-range or raise the time retention"
+
+  let res = await initFillStorage(effectiveRange, wakuArchive, clock())
   let storage =
     if res.isErr():
       warn "will not sync messages before this point in time", error = res.error
@@ -411,7 +425,7 @@ proc new*(
     contentTopics: contentTopics.toHashSet(),
     peerManager: peerManager,
     storage: storage,
-    syncRange: syncRange,
+    syncRange: effectiveRange,
     syncInterval: syncInterval,
     relayJitter: relayJitter,
     clock: clock,
@@ -431,9 +445,15 @@ proc new*(
   sync.codec = WakuReconciliationCodec
 
   info "Store Reconciliation protocol initialized",
-    sync_range = syncRange, sync_interval = syncInterval, relay_jitter = relayJitter
+    sync_range = effectiveRange,
+    sync_interval = syncInterval,
+    relay_jitter = relayJitter
 
   return ok(sync)
+
+func getEffectiveSyncRange*(self: SyncReconciliation): Duration =
+  ## The sync range in use, after clamping to the archive's time retention.
+  self.syncRange
 
 proc periodicSync(self: SyncReconciliation) {.async.} =
   debug "Periodic sync initialized", interval = $self.syncInterval

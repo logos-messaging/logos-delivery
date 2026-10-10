@@ -7,6 +7,7 @@ import
     waku_core/message/digest,
     waku_archive,
     waku_archive/retention_policy,
+    waku_archive/retention_policy/retention_policy_time,
     waku_archive/retention_policy/retention_policy_capacity,
     waku_archive/retention_policy/retention_policy_size,
   ],
@@ -150,3 +151,10 @@ suite "Waku Archive - Retention policy":
 
     ## Cleanup
     (waitFor driver.close()).expect("driver to close")
+
+  test "time retention policy exposes its retention time":
+    ## Given
+    let retentionPolicy = TimeRetentionPolicy.new(1800)
+
+    ## Then
+    check retentionPolicy.getRetentionTime() == chronos.seconds(1800)
