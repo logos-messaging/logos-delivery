@@ -30,6 +30,7 @@ requires "nim == 2.2.6",
   "serialization",
   "json_serialization",
   "toml_serialization",
+  "protobuf_serialization",
   "faststreams",
   # Networking & P2P
   "libp2p == 2.4.1",

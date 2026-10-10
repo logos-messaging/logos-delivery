@@ -59,7 +59,7 @@ proc sendSubscribeRequest(
     await connection.closeWithEOF()
 
   try:
-    await connection.writeLP(filterSubscribeRequest.encode().buffer)
+    await connection.writeLP(filterSubscribeRequest.encode())
   except CatchableError:
     let errMsg =
       "exception in waku_filter_v2 client writeLP: " & getCurrentExceptionMsg()

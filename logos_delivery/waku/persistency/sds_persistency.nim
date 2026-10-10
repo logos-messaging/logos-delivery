@@ -55,7 +55,6 @@
 
 import std/algorithm
 import chronos, chronicles, results
-import libp2p/protobuf/minprotobuf
 import ./persistency
 import ./keys
 import types/persistence

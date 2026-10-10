@@ -119,6 +119,18 @@ suite "Receive backfill":
         persistency.close()
       let job = persistency.openJob(MessagingJobId).get()
       check (await job.readLastReceivedAt()).get() == Opt.some(Base)
+      # The bytes that the `minprotobuf` codec wrote for the time 42. The new
+      # codec reads them, and it writes the same bytes.
+      let minprotobufRecord = @[0x08'u8, 0x2a]
+      await job.persistPut(BackfillCategory, LastOnlineKey, minprotobufRecord)
+      await job.waitStored(BackfillCategory, LastOnlineKey, minprotobufRecord)
+      check (await job.readLastReceivedAt()).get() == Opt.some(Timestamp(42))
+      await job.writeLastReceivedAt(Base)
+      await job.waitLastReceivedAt(Opt.some(Base))
+      await job.writeLastReceivedAt(Timestamp(42))
+      await job.waitLastReceivedAt(Opt.some(Timestamp(42)))
+      check (await job.get(BackfillCategory, LastOnlineKey)).get() ==
+        Opt.some(minprotobufRecord)
       for badRecord in [
         @[0x08'u8, 0x00],
         @[0xff'u8, 0x01, 0x02],
@@ -408,6 +420,12 @@ suite "Receive backfill":
     check byTopic.len == 2
     check byTopic.getOrDefault(TestTopic) == liveRecord
     check byTopic.getOrDefault(OtherTopic) == gapRecord
+    # The row has the bytes that the `minprotobuf` codec wrote: the time 42,
+    # the state 0, the shard "/s" and the content topic "/c", each present.
+    let smallOp = topicRecordPersistenceOp(
+      ("/s", "/c"), TopicRecord.init(Timestamp(42), TopicRecordState.Online)
+    )[0]
+    check smallOp.payload == hexToSeqByte("082a10001a022f7322022f63")
     # A record that does not decode is left out, so its topic is new.
     let badTopic: BackfillTopic = ("/waku/2/rs/3/0", "/backfill/1/bad/proto")
     let badKey = topicRecordPersistenceOp(badTopic, liveRecord)[0].key

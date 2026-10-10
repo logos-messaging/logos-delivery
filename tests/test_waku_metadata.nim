@@ -3,6 +3,7 @@
 import
   std/[sequtils, tables],
   testutils/unittests,
+  stew/byteutils,
   chronos,
   chronicles,
   libp2p/switch,
@@ -20,6 +21,7 @@ import
     node/peer_manager,
     discovery/waku_discv5,
     waku_metadata,
+    waku_metadata/rpc,
     waku_relay/protocol,
   ],
   ./testlib/wakucore,
@@ -109,3 +111,29 @@ procSuite "Waku Metadata Protocol":
       response.get().shards == @[uint32(0), uint32(1)]
 
     await allFutures([node1.stop(), node2.stop()])
+
+suite "Waku Metadata - shards on the wire":
+  test "the decoder reads the shards of each writer":
+    # Cluster 1 and shards 0 and 5, in four forms.
+    const forms = [
+      "0801100010051a020005", # master: field 2 unpacked and field 3 packed
+      "08011a020005", # go-waku: field 3 packed only
+      "080112020005", # the schema: field 2 packed only
+      "080110001005", # a node before #2511: field 2 unpacked only
+    ]
+    for hex in forms:
+      let request = WakuMetadataRequest.decode(hexToSeqByte(hex))
+      let response = WakuMetadataResponse.decode(hexToSeqByte(hex))
+      check:
+        request.isOk()
+        request.get().clusterId == Opt.some(1'u32)
+        request.get().shards == @[0'u32, 5]
+        response.isOk()
+        response.get().shards == @[0'u32, 5]
+
+  test "the encoder writes the bytes of master":
+    let request = WakuMetadataRequest(clusterId: Opt.some(1'u32), shards: @[0'u32, 5])
+    let response = WakuMetadataResponse(clusterId: Opt.some(1'u32), shards: @[0'u32, 5])
+    check:
+      request.encode() == hexToSeqByte("0801100010051a020005")
+      response.encode() == hexToSeqByte("0801100010051a020005")

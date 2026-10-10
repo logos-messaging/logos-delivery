@@ -65,7 +65,7 @@ proc sendRequest*(
     )
     .encode()
   try:
-    (await self.sendThruWaku(request.buffer)).isOkOr:
+    (await self.sendThruWaku(request)).isOkOr:
       return err("Could not send stealth commitment payload thru waku: " & $error)
   except CatchableError:
     return err(
@@ -84,7 +84,7 @@ proc sendResponse*(
     )
     .encode()
   try:
-    (await self.sendThruWaku(response.buffer)).isOkOr:
+    (await self.sendThruWaku(response)).isOkOr:
       return err("Could not send stealth commitment payload thru waku: " & $error)
   except CatchableError:
     return err(

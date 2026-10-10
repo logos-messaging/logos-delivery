@@ -4,79 +4,44 @@ import results
 
 import ../common/protobuf
 
-type WakuMetadataRequest* = object
-  clusterId*: Opt[uint32]
-  shards*: seq[uint32]
+type
+  WakuMetadataRequest* = object
+    clusterId*: Opt[uint32]
+    shards*: seq[uint32]
 
-type WakuMetadataResponse* = object
-  clusterId*: Opt[uint32]
-  shards*: seq[uint32]
+  WakuMetadataResponse* = object
+    clusterId*: Opt[uint32]
+    shards*: seq[uint32]
 
-proc encode*(rpc: WakuMetadataRequest): ProtoBuffer =
-  var pb = initProtoBuffer()
+  MetadataRow {.proto3.} = object
+    ## The wire form of a metadata request and response. Since #2511, a node
+    ## writes the shards in field 2, unpacked, and in field 3, packed. go-waku
+    ## writes and reads field 3 only. The schema has field 2 only.
+    clusterId {.fieldNumber: 1, pint.}: Opt[uint32]
+    shardsDeprecated {.fieldNumber: 2, pint, packed: false.}: seq[uint32]
+    shards {.fieldNumber: 3, pint, packed: true.}: seq[uint32]
 
-  pb.write3(1, rpc.clusterId)
-  for shard in rpc.shards:
-    pb.write3(2, shard) # deprecated
-  pb.writePacked(3, rpc.shards)
-  pb.finish3()
+protobufCodec(MetadataRow)
 
-  pb
+proc encodeRow(clusterId: Opt[uint32], shards: seq[uint32]): seq[byte] =
+  MetadataRow(clusterId: clusterId, shardsDeprecated: shards, shards: shards).encode()
 
-proc decode*(T: type WakuMetadataRequest, buffer: seq[byte]): ProtoResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = WakuMetadataRequest()
+proc decodeRow(buffer: seq[byte]): ProtobufResult[(Opt[uint32], seq[uint32])] =
+  let row = ?MetadataRow.decode(buffer)
+  # Field 3 first, then field 2 in each form, as master reads them.
+  let shards = if row.shards.len > 0: row.shards else: row.shardsDeprecated
+  ok((row.clusterId, shards))
 
-  var clusterId: uint64
-  if not ?pb.getField(1, clusterId):
-    rpc.clusterId = Opt.none(uint32)
-  else:
-    rpc.clusterId = Opt.some(clusterId.uint32)
+proc encode*(rpc: WakuMetadataRequest): seq[byte] =
+  encodeRow(rpc.clusterId, rpc.shards)
 
-  var shards: seq[uint64]
-  if ?pb.getPackedRepeatedField(3, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
-  elif ?pb.getPackedRepeatedField(2, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
-  elif ?pb.getRepeatedField(2, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
+proc encode*(rpc: WakuMetadataResponse): seq[byte] =
+  encodeRow(rpc.clusterId, rpc.shards)
 
-  ok(rpc)
+proc decode*(T: type WakuMetadataRequest, buffer: seq[byte]): ProtobufResult[T] =
+  let (clusterId, shards) = ?decodeRow(buffer)
+  ok(T(clusterId: clusterId, shards: shards))
 
-proc encode*(rpc: WakuMetadataResponse): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, rpc.clusterId)
-  for shard in rpc.shards:
-    pb.write3(2, shard) # deprecated
-  pb.writePacked(3, rpc.shards)
-  pb.finish3()
-
-  pb
-
-proc decode*(T: type WakuMetadataResponse, buffer: seq[byte]): ProtoResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = WakuMetadataResponse()
-
-  var clusterId: uint64
-  if not ?pb.getField(1, clusterId):
-    rpc.clusterId = Opt.none(uint32)
-  else:
-    rpc.clusterId = Opt.some(clusterId.uint32)
-
-  var shards: seq[uint64]
-
-  if ?pb.getPackedRepeatedField(3, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
-  elif ?pb.getPackedRepeatedField(2, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
-  elif ?pb.getRepeatedField(2, shards):
-    for shard in shards:
-      rpc.shards.add(shard.uint32)
-
-  ok(rpc)
+proc decode*(T: type WakuMetadataResponse, buffer: seq[byte]): ProtobufResult[T] =
+  let (clusterId, shards) = ?decodeRow(buffer)
+  ok(T(clusterId: clusterId, shards: shards))

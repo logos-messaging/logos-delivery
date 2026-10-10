@@ -407,3 +407,8 @@ suite "Node app - Validators":
     check:
       msgAppHash.toHex() == expectedMsgAppHash
       signature.toHex() == expectedSignature
+
+  test "the time window refuses the lowest timestamp":
+    check:
+      withinTimeWindow(WakuMessage(timestamp: getNowInNanosecondTime()))
+      not withinTimeWindow(WakuMessage(timestamp: Timestamp.low))

@@ -2,110 +2,35 @@ import std/times
 import confutils, chronicles, chronos, results
 
 import logos_delivery/waku/[waku_core, common/protobuf]
-import libp2p/protobuf/minprotobuf
 
-export times, confutils, chronicles, chronos, results, waku_core, protobuf, minprotobuf
+export times, confutils, chronicles, chronos, results, waku_core, protobuf
 
 type SerializedKey* = seq[byte]
 
-type WakuStealthCommitmentMsg* = object
-  request*: bool
-  spendingPubKey*: Opt[SerializedKey]
-  viewingPubKey*: Opt[SerializedKey]
-  ephemeralPubKey*: Opt[SerializedKey]
-  stealthCommitment*: Opt[SerializedKey]
-  viewTag*: Opt[uint64]
+type WakuStealthCommitmentMsg* {.proto3.} = object
+  request* {.fieldNumber: 1.}: bool
+  spendingPubKey* {.fieldNumber: 2.}: Opt[SerializedKey]
+  viewingPubKey* {.fieldNumber: 3.}: Opt[SerializedKey]
+  stealthCommitment* {.fieldNumber: 4.}: Opt[SerializedKey]
+  ephemeralPubKey* {.fieldNumber: 5.}: Opt[SerializedKey]
+  viewTag* {.fieldNumber: 6, pint.}: Opt[uint64]
 
-proc decode*(T: type WakuStealthCommitmentMsg, buffer: seq[byte]): ProtoResult[T] =
-  var msg = WakuStealthCommitmentMsg()
-  let pb = initProtoBuffer(buffer)
+proc validateDecoded(msg: WakuStealthCommitmentMsg): ProtobufResult[void] =
+  let hasRequestKeys = msg.spendingPubKey.isSome() and msg.viewingPubKey.isSome()
+  let hasResponseFields =
+    msg.stealthCommitment.isSome() and msg.viewTag.isSome() and
+    msg.ephemeralPubKey.isSome()
+  if msg.request and not hasRequestKeys:
+    return err(ProtobufError.missingRequiredField("spending_pub_key, viewing_pub_key"))
+  if not msg.request and not hasResponseFields:
+    return err(
+      ProtobufError.missingRequiredField(
+        "stealth_commitment, ephemeral_pub_key, view_tag"
+      )
+    )
+  ok()
 
-  var request: uint64
-  discard ?pb.getField(1, request)
-  msg.request = request == 1
-  var spendingPubKey = newSeq[byte]()
-  discard ?pb.getField(2, spendingPubKey)
-  msg.spendingPubKey =
-    if spendingPubKey.len > 0:
-      Opt.some(spendingPubKey)
-    else:
-      Opt.none(SerializedKey)
-  var viewingPubKey = newSeq[byte]()
-  discard ?pb.getField(3, viewingPubKey)
-  msg.viewingPubKey =
-    if viewingPubKey.len > 0:
-      Opt.some(viewingPubKey)
-    else:
-      Opt.none(SerializedKey)
-
-  if msg.spendingPubKey.isSome() and msg.viewingPubKey.isSome():
-    msg.stealthCommitment = Opt.none(SerializedKey)
-    msg.viewTag = Opt.none(uint64)
-    return ok(msg)
-  if msg.spendingPubKey.isSome() and msg.viewingPubKey.isNone():
-    return err(ProtoError.RequiredFieldMissing)
-  if msg.spendingPubKey.isNone() and msg.viewingPubKey.isSome():
-    return err(ProtoError.RequiredFieldMissing)
-  if msg.request == true and msg.spendingPubKey.isNone() and msg.viewingPubKey.isNone():
-    return err(ProtoError.RequiredFieldMissing)
-
-  var stealthCommitment = newSeq[byte]()
-  discard ?pb.getField(4, stealthCommitment)
-  msg.stealthCommitment =
-    if stealthCommitment.len > 0:
-      Opt.some(stealthCommitment)
-    else:
-      Opt.none(SerializedKey)
-
-  var ephemeralPubKey = newSeq[byte]()
-  discard ?pb.getField(5, ephemeralPubKey)
-  msg.ephemeralPubKey =
-    if ephemeralPubKey.len > 0:
-      Opt.some(ephemeralPubKey)
-    else:
-      Opt.none(SerializedKey)
-
-  var viewTag: uint64
-  discard ?pb.getField(6, viewTag)
-  msg.viewTag =
-    if viewTag != 0:
-      Opt.some(viewTag)
-    else:
-      Opt.none(uint64)
-
-  if msg.stealthCommitment.isNone() and msg.viewTag.isNone() and
-      msg.ephemeralPubKey.isNone():
-    return err(ProtoError.RequiredFieldMissing)
-
-  if msg.stealthCommitment.isSome() and msg.viewTag.isNone():
-    return err(ProtoError.RequiredFieldMissing)
-
-  if msg.stealthCommitment.isNone() and msg.viewTag.isSome():
-    return err(ProtoError.RequiredFieldMissing)
-
-  if msg.stealthCommitment.isSome() and msg.viewTag.isSome():
-    msg.spendingPubKey = Opt.none(SerializedKey)
-    msg.viewingPubKey = Opt.none(SerializedKey)
-
-  ok(msg)
-
-proc encode*(msg: WakuStealthCommitmentMsg): ProtoBuffer =
-  var serialised = initProtoBuffer()
-
-  serialised.write(1, uint64(msg.request))
-
-  if msg.spendingPubKey.isSome():
-    serialised.write(2, msg.spendingPubKey.get())
-  if msg.viewingPubKey.isSome():
-    serialised.write(3, msg.viewingPubKey.get())
-  if msg.stealthCommitment.isSome():
-    serialised.write(4, msg.stealthCommitment.get())
-  if msg.ephemeralPubKey.isSome():
-    serialised.write(5, msg.ephemeralPubKey.get())
-  if msg.viewTag.isSome():
-    serialised.write(6, msg.viewTag.get())
-
-  return serialised
+protobufCodec(WakuStealthCommitmentMsg, validateDecoded)
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
   ## Converts a string to the corresponding byte sequence.

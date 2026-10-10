@@ -2,7 +2,10 @@
 
 import testutils/unittests
 import
-  results, logos_delivery/waku/waku_core/message, logos_delivery/waku/waku_core/time
+  results,
+  logos_delivery/waku/waku_core/message,
+  logos_delivery/waku/waku_core/time,
+  logos_delivery/waku/waku_core/topics
 
 suite "Waku Payload":
   test "Encode/Decode waku message with timestamp":
@@ -13,11 +16,16 @@ suite "Waku Payload":
       version = 0'u32
       payload = @[byte 0, 1, 2]
       timestamp = Timestamp(10)
-      msg = WakuMessage(payload: payload, version: version, timestamp: timestamp)
+      msg = WakuMessage(
+        payload: payload,
+        contentTopic: DefaultContentTopic,
+        version: version,
+        timestamp: timestamp,
+      )
 
     ## When
     let pb = msg.encode()
-    let msgDecoded = WakuMessage.decode(pb.buffer)
+    let msgDecoded = WakuMessage.decode(pb)
 
     ## Then
     check:
@@ -34,11 +42,13 @@ suite "Waku Payload":
     let
       version = 0'u32
       payload = @[byte 0, 1, 2]
-      msg = WakuMessage(payload: payload, version: version)
+      msg = WakuMessage(
+        payload: payload, contentTopic: DefaultContentTopic, version: version
+      )
 
     ## When
     let pb = msg.encode()
-    let msgDecoded = WakuMessage.decode(pb.buffer)
+    let msgDecoded = WakuMessage.decode(pb)
 
     ## Then
     check:

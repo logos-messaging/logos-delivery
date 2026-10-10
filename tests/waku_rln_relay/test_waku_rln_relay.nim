@@ -124,7 +124,7 @@ suite "Waku rln relay":
         rlnIdentifier: rlnIdentifier,
       )
       protobuf = rateLimitProof.encode()
-      decodednsp = RateLimitProof.init(protobuf.buffer)
+      decodednsp = RateLimitProof.init(protobuf)
 
     require:
       decodednsp.isOk()
@@ -182,7 +182,7 @@ suite "Waku rln relay":
     let shareY3 = shareX3
 
     proc encodeAndGetBuf(proof: RateLimitProof): seq[byte] =
-      return proof.encode().buffer
+      return proof.encode()
 
     let
       proof1 = RateLimitProof(

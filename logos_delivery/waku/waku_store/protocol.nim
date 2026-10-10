@@ -11,7 +11,6 @@ import
   bearssl/rand,
   libp2p/crypto/crypto,
   libp2p/protocols/protocol,
-  libp2p/protobuf/minprotobuf,
   libp2p/stream/connection,
   metrics
 import
@@ -47,10 +46,11 @@ proc handleQueryRequest(
     debug "Failed to decode rpc", peerId = requestor, error = $error
     logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
 
+    res.requestId = "N/A"
     res.statusCode = uint32(ErrorCode.BAD_REQUEST)
     res.statusDesc = "decoding rpc failed: " & $error
 
-    return (res.encode().buffer, "not_parsed_requestId")
+    return (res.encode(), "not_parsed_requestId")
 
   let requestId = req.requestId
 
@@ -62,7 +62,7 @@ proc handleQueryRequest(
     res.requestId = requestId
     res.statusCode = uint32(ErrorCode.BAD_REQUEST)
     res.statusDesc = error
-    return (res.encode().buffer, requestId)
+    return (res.encode(), requestId)
 
   let queryResult = await self.requestHandler(req)
 
@@ -70,10 +70,11 @@ proc handleQueryRequest(
     debug "Store query failed",
       peerId = requestor, requestId = requestId, error = $error
 
+    res.requestId = requestId
     res.statusCode = uint32(error.kind)
     res.statusDesc = $error
 
-    return (res.encode().buffer, "not_parsed_requestId")
+    return (res.encode(), requestId)
 
   res.requestId = requestId
   res.statusCode = 200
@@ -82,7 +83,7 @@ proc handleQueryRequest(
   debug "Sending store query response",
     peerId = requestor, requestId = requestId, messages = res.messages.len
 
-  return (res.encode().buffer, requestId)
+  return (res.encode(), requestId)
 
 proc initProtocolHandler(self: WakuStore) =
   let rejectReposnseBuffer = StoreQueryResponse(
@@ -92,7 +93,7 @@ proc initProtocolHandler(self: WakuStore) =
     requestId: "N/A",
     statusCode: uint32(ErrorCode.TOO_MANY_REQUESTS),
     statusDesc: $ErrorCode.TOO_MANY_REQUESTS,
-  ).encode().buffer
+  ).encode()
 
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
     var successfulQuery = false ## only consider the correct queries in metrics

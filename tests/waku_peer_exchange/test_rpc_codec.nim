@@ -1,5 +1,6 @@
 {.used.}
 
+import results, stew/byteutils
 import
   std/net,
   testutils/unittests,
@@ -23,12 +24,12 @@ suite "Peer Exchange RPC":
   asyncTest "Encode - Decode":
     # Setup
     let rpcReq = PeerExchangeRpc.makeRequest(2)
-    let rpcReqBuffer: seq[byte] = rpcReq.encode().buffer
+    let rpcReqBuffer: seq[byte] = rpcReq.encode()
     let resReq = PeerExchangeRpc.decode(rpcReqBuffer)
 
     check:
       resReq.isOk
-      resReq.get().request.numPeers == 2
+      resReq.get().request.get().numPeers == 2
 
     var
       enr1 = enr.Record(seqNum: 0, raw: @[])
@@ -47,7 +48,7 @@ suite "Peer Exchange RPC":
     let rpc = PeerExchangeRpc.makeResponse(peerInfos)
 
     # When encoding and decoding
-    let rpcBuffer: seq[byte] = rpc.encode().buffer
+    let rpcBuffer: seq[byte] = rpc.encode()
     let res = PeerExchangeRpc.decode(rpcBuffer)
 
     # Then the peerInfos match the originals
@@ -71,3 +72,33 @@ suite "Peer Exchange RPC":
     check:
       resEnr1 == enr1
       resEnr2 == enr2
+
+suite "Peer Exchange - RPC codec bytes":
+  test "a response without a request decodes":
+    # Field 2 only. It has one peer with ENR bytes e1 e2, and status 200.
+    let res = PeerExchangeRpc.decode(hexToSeqByte("12090a040a02e1e250c801"))
+    check:
+      res.isOk()
+      res.get().request.isNone()
+      res.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
+      res.get().response.peerInfos == @[PeerExchangePeerInfo(enr: @[byte 0xe1, 0xe2])]
+
+  test "a response without a status code gets its code from the peers":
+    # An older peer writes no status code. With peers, the code is SUCCESS.
+    let withPeers = PeerExchangeRpc.decode(hexToSeqByte("12060a040a02e1e2"))
+    # Without peers, the code is SERVICE_UNAVAILABLE.
+    let withoutPeers = PeerExchangeRpc.decode(hexToSeqByte("1200"))
+    check:
+      withPeers.isOk()
+      withPeers.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
+      withPeers.get().response.peerInfos.len == 1
+      withoutPeers.isOk()
+      withoutPeers.get().response.status_code ==
+        PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE
+
+  test "a response writes an empty request in field 1":
+    # Field 1 empty, and field 2 with status 429.
+    let res = PeerExchangeRpc.makeErrorResponse(
+      PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS
+    )
+    check res.encode() == hexToSeqByte("0a00120350ad03")

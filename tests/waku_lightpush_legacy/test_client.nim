@@ -37,7 +37,7 @@ suite "Waku Legacy Lightpush Client":
     handler = proc(
         pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult[void]] {.async.} =
-      let msgLen = message.encode().buffer.len
+      let msgLen = message.encode().len
       if msgLen > int(DefaultMaxWakuMessageSize) + 64 * 1024:
         return err("length greater than maxMessageSize")
       handlerFuture.complete((pubsubTopic, message))
@@ -291,9 +291,11 @@ suite "Waku Legacy Lightpush Client":
       # When publishing the payload
       let publishResponse = await server.handleRequest(clientPeerId, fakeBuffer)
 
-      # Then the response is negative
+      # Then the response is negative, with the placeholder request id, and
+      # a client can decode it
       check:
-        publishResponse.requestId == ""
+        publishResponse.requestId == "N/A"
+        PushRPC.decode(publishResponse.encode()).isOk()
 
       # And the error is returned
       let response = publishResponse.response.get()

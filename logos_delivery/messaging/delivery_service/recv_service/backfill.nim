@@ -8,10 +8,10 @@
 {.push raises: [].}
 
 import std/[algorithm, sets]
-import chronos, chronicles, results, libp2p/protobuf/minprotobuf
+import chronos, chronicles, results
 import
   logos_delivery/waku/[waku_core, waku_store/common],
-  logos_delivery/waku/common/paging,
+  logos_delivery/waku/common/[paging, protobuf],
   logos_delivery/waku/persistency/persistency
 from logos_delivery/waku/waku_archive/archive import MaxMessageTimestampVariance
 
@@ -125,20 +125,20 @@ func archivedBefore*(
   ## The archive has every message with a timestamp before this time.
   return now - variance - archiveTime
 
-func encodeTimestamp(at: Timestamp): seq[byte] =
-  var pb = initProtoBuffer()
-  pb.write(1, uint64(at))
-  pb.finish()
-  return pb.buffer
+type LastReceivedRow {.proto3.} = object ## The stored last received time.
+  at {.fieldNumber: 1, pint.}: Timestamp
 
-func decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
-  let pb = initProtoBuffer(bytes)
-  var raw: uint64
-  let present = pb.getField(1, raw).valueOr:
+protobufCodec(LastReceivedRow)
+
+proc encodeTimestamp(at: Timestamp): seq[byte] =
+  LastReceivedRow(at: at).encode()
+
+proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
+  let row = LastReceivedRow.decode(bytes).valueOr:
     return err("timestamp: " & $error)
-  if not present or raw == 0 or raw > uint64(int64.high):
+  if row.at <= 0:
     return err("timestamp is missing or out of range")
-  return ok(Timestamp(raw))
+  return ok(row.at)
 
 func topicKey(topic: BackfillTopic): Opt[Key] =
   ## None when a name is too long for a key.
@@ -146,39 +146,41 @@ func topicKey(topic: BackfillTopic): Opt[Key] =
     return Opt.none(Key)
   return Opt.some(key(TopicKeyTag, topic.pubsubTopic, topic.contentTopic))
 
-func encodeTopicRecord(topic: BackfillTopic, record: TopicRecord): seq[byte] =
-  ## The row of a topic. It carries the topic, so a read of the rows needs
-  ## no decode of the keys.
-  var pb = initProtoBuffer()
-  pb.write(1, uint64(record.timestamp))
-  pb.write(2, uint64(ord(record.state)))
-  pb.write(3, topic.pubsubTopic)
-  pb.write(4, topic.contentTopic)
-  pb.finish()
-  return pb.buffer
+type TopicRecordRow {.proto3.} = object
+  ## The stored row of a topic. It carries the topic, so a read of the rows
+  ## needs no decode of the keys. Each field keeps its presence, so a row has
+  ## the bytes that the `minprotobuf` codec wrote.
+  timestamp {.fieldNumber: 1, pint.}: Opt[uint64]
+  state {.fieldNumber: 2, pint.}: Opt[uint64]
+  pubsubTopic {.fieldNumber: 3.}: Opt[string]
+  contentTopic {.fieldNumber: 4.}: Opt[string]
 
-func decodeTopicRecord(bytes: seq[byte]): Result[(BackfillTopic, TopicRecord), string] =
-  let pb = initProtoBuffer(bytes)
-  var timestamp, state: uint64
-  var pubsubTopic, contentTopic: string
-  let hasTimestamp = pb.getField(1, timestamp).valueOr:
-    return err("topic record timestamp: " & $error)
-  let hasState = pb.getField(2, state).valueOr:
-    return err("topic record state: " & $error)
-  let hasShard = pb.getField(3, pubsubTopic).valueOr:
-    return err("topic record shard: " & $error)
-  let hasContentTopic = pb.getField(4, contentTopic).valueOr:
-    return err("topic record content topic: " & $error)
-  if not hasTimestamp or not hasState or not hasShard or not hasContentTopic:
+protobufCodec(TopicRecordRow)
+
+proc encodeTopicRecord(topic: BackfillTopic, record: TopicRecord): seq[byte] =
+  TopicRecordRow(
+    timestamp: Opt.some(uint64(record.timestamp)),
+    state: Opt.some(uint64(ord(record.state))),
+    pubsubTopic: Opt.some(topic.pubsubTopic),
+    contentTopic: Opt.some(topic.contentTopic),
+  ).encode()
+
+proc decodeTopicRecord(bytes: seq[byte]): Result[(BackfillTopic, TopicRecord), string] =
+  let row = TopicRecordRow.decode(bytes).valueOr:
+    return err("topic record: " & $error)
+  if row.timestamp.isNone() or row.state.isNone() or row.pubsubTopic.isNone() or
+      row.contentTopic.isNone():
     return err("topic record is incomplete")
+  let timestamp = row.timestamp.get()
   if timestamp == 0 or timestamp > uint64(int64.high):
     return err("topic record timestamp is out of range")
+  let state = row.state.get()
   if state > uint64(ord(TopicRecordState.high)):
     return err("topic record state is out of range")
   let record = TopicRecord.init(Timestamp(timestamp), TopicRecordState(state))
-  return ok(((pubsubTopic, contentTopic), record))
+  return ok(((row.pubsubTopic.get(), row.contentTopic.get()), record))
 
-func topicRecordPersistenceOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
+proc topicRecordPersistenceOp*(topic: BackfillTopic, record: TopicRecord): seq[TxOp] =
   ## The write of a topic record. Empty for a topic whose names are too long
   ## for a key. Such a topic has no record, so it is new at each start.
   let recordKey = topicKey(topic).valueOr:

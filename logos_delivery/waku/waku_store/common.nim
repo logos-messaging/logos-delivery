@@ -1,7 +1,7 @@
 {.push raises: [].}
 
-import std/sequtils, results, stew/byteutils
-import ../waku_core, ../common/paging
+import std/sequtils, results
+import ../waku_core, ../common/[paging, protobuf]
 
 from ../waku_core/codecs import WakuStoreCodec
 export WakuStoreCodec
@@ -20,35 +20,35 @@ type WakuStoreResult*[T] = Result[T, string]
 ## API types
 
 type
-  StoreQueryRequest* = object
-    requestId*: string
-    includeData*: bool
+  StoreQueryRequest* {.proto3.} = object
+    requestId* {.fieldNumber: 1.}: string
+    includeData* {.fieldNumber: 2.}: bool
 
-    pubsubTopic*: Opt[PubsubTopic]
-    contentTopics*: seq[ContentTopic]
-    startTime*: Opt[Timestamp]
-    endTime*: Opt[Timestamp]
+    pubsubTopic* {.fieldNumber: 10.}: Opt[PubsubTopic]
+    contentTopics* {.fieldNumber: 11.}: seq[ContentTopic]
+    startTime* {.fieldNumber: 12, sint.}: Opt[Timestamp]
+    endTime* {.fieldNumber: 13, sint.}: Opt[Timestamp]
 
-    messageHashes*: seq[WakuMessageHash]
+    messageHashes* {.fieldNumber: 20, ext.}: seq[WakuMessageHash]
 
-    paginationCursor*: Opt[WakuMessageHash]
-    paginationForward*: PagingDirection
-    paginationLimit*: Opt[uint64]
+    paginationCursor* {.fieldNumber: 51, ext.}: Opt[WakuMessageHash]
+    paginationForward* {.fieldNumber: 52, ext.}: PagingDirection
+    paginationLimit* {.fieldNumber: 53, pint.}: Opt[uint64]
 
-  WakuMessageKeyValue* = object
-    messageHash*: WakuMessageHash
-    message*: Opt[WakuMessage]
-    pubsubTopic*: Opt[PubsubTopic]
+  WakuMessageKeyValue* {.proto3.} = object
+    messageHash* {.fieldNumber: 1, ext.}: WakuMessageHash
+    message* {.fieldNumber: 2.}: Opt[WakuMessage]
+    pubsubTopic* {.fieldNumber: 3.}: Opt[PubsubTopic]
 
-  StoreQueryResponse* = object
-    requestId*: string
+  StoreQueryResponse* {.proto3.} = object
+    requestId* {.fieldNumber: 1.}: string
 
-    statusCode*: uint32
-    statusDesc*: string
+    statusCode* {.fieldNumber: 10, pint.}: uint32
+    statusDesc* {.fieldNumber: 11.}: string
 
-    messages*: seq[WakuMessageKeyValue]
+    messages* {.fieldNumber: 20, ext.}: seq[WakuMessageKeyValue]
 
-    paginationCursor*: Opt[WakuMessageHash]
+    paginationCursor* {.fieldNumber: 51, ext.}: Opt[WakuMessageHash]
 
   # Types to be used by clients that use the hash in hex
   WakuMessageKeyValueHex* = object
@@ -158,9 +158,13 @@ proc toHex*(response: StoreQueryResponse): StoreQueryResponseHex =
   )
 
 func validate*(req: StoreQueryRequest): Result[void, string] =
-  if req.startTime.isSome() and req.endTime.isSome() and
-      req.endTime.get() - req.startTime.get() > MaxQueryTimeRange:
-    return err("time range exceeds 24h")
+  if req.startTime.isSome() and req.endTime.isSome():
+    let startTime = req.startTime.get()
+    # The same check as `endTime - startTime > MaxQueryTimeRange`, with no
+    # overflow.
+    if startTime <= Timestamp.high - MaxQueryTimeRange and
+        req.endTime.get() > startTime + MaxQueryTimeRange:
+      return err("time range exceeds 24h")
 
   let hasContentFilter =
     req.pubsubTopic.isSome() or req.contentTopics.len > 0 or req.startTime.isSome() or

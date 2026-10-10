@@ -150,6 +150,11 @@ suite "Waku Peer Exchange":
         response3.get().peerInfos.anyIt(it.enr == node3.enr.raw) or
           response3.get().peerInfos.anyIt(it.enr == node4.enr.raw)
 
+      # A request for more peers than the cache holds gets the peers it has.
+      let response4 = await node2.wakuPeerExchangeClient.request(uint64.high)
+      check:
+        response4.get(PeerExchangeResponse()).peerInfos.len == 2
+
     asyncTest "Request returns a discovered peer marked CanConnect, not one marked CannotConnect":
       let
         node1 = newTestWakuNode(generateSecp256k1Key())
@@ -363,7 +368,7 @@ suite "Waku Peer Exchange":
       let rpc = PeerExchangeRpc.makeRequest(1)
 
       var buffer: seq[byte]
-      await conn.writeLP(rpc.encode().buffer)
+      await conn.writeLP(rpc.encode())
       buffer = await conn.readLp(DefaultMaxRpcSize.int)
 
       # Decode the response

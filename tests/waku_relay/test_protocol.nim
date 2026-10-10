@@ -4,6 +4,7 @@ import
   std/[strformat, sets, tables, sequtils],
   testutils/unittests,
   chronos,
+  metrics,
   libp2p/protocols/pubsub/[pubsub, gossipsub],
   libp2p/[stream/connection, switch],
   ./crypto_utils,
@@ -20,6 +21,14 @@ import
   ../testlib/[wakucore, wakunode, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
+
+proc invalidMessages(path: string): float64 =
+  ## The count of `logos_delivery_relay_invalid_messages` for `path`, 0 before
+  ## its first increment.
+  try:
+    logos_delivery_relay_invalid_messages.value([path])
+  except KeyError:
+    0.0
 
 suite "Waku Relay":
   var messageSeq {.threadvar.}: seq[(PubsubTopic, WakuMessage)]
@@ -1070,7 +1079,7 @@ suite "Waku Relay":
       let
         msgWithoutPayload =
           fakeWakuMessage(contentTopic = contentTopic, payload = getByteSequence(0))
-        sizeEmptyMsg = uint64(msgWithoutPayload.encode().buffer.len)
+        sizeEmptyMsg = uint64(msgWithoutPayload.encode().len)
 
       let
         msg1 =
@@ -1084,16 +1093,23 @@ suite "Waku Relay":
         ) # 100KiB
         msg4 = fakeWakuMessage(
           contentTopic = contentTopic,
-          payload = getByteSequence(DefaultMaxWakuMessageSize - sizeEmptyMsg - 26),
+          payload = getByteSequence(DefaultMaxWakuMessageSize - sizeEmptyMsg - 28),
         ) # Max Size (Inclusive Limit)
         msg5 = fakeWakuMessage(
           contentTopic = contentTopic,
-          payload = getByteSequence(DefaultMaxWakuMessageSize - sizeEmptyMsg - 25),
+          payload = getByteSequence(DefaultMaxWakuMessageSize - sizeEmptyMsg - 27),
         ) # Max Size (Exclusive Limit)
         msg6 = fakeWakuMessage(
           contentTopic = contentTopic,
           payload = getByteSequence(DefaultMaxWakuMessageSize),
         ) # MaxWakuMessageSize -> Out of Max Size
+
+      # The relay accepts an encoded message of at most
+      # `DefaultMaxWakuMessageSize - 24` bytes. These checks fail first when the
+      # encoding of a message changes.
+      check:
+        uint64(msg4.encode().len) == DefaultMaxWakuMessageSize - 24
+        uint64(msg5.encode().len) == DefaultMaxWakuMessageSize - 23
 
       # Notice that the message is wrapped with more data in https://github.com/status-im/nim-libp2p/blob/3011ba4326fa55220a758838835797ff322619fc/libp2p/protocols/pubsub/gossipsub.nim#L627-L632
       # And therefore, we need to substract a hard-coded values above (for msg4 & msg5), obtained empirically,
@@ -1135,7 +1151,7 @@ suite "Waku Relay":
         (pubsubTopic, msg3) == handlerFuture.read()
         (pubsubTopic, msg3) == otherHandlerFuture.read()
 
-      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 26' message
+      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 28' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg4)
@@ -1147,7 +1163,7 @@ suite "Waku Relay":
         (pubsubTopic, msg4) == handlerFuture.read()
         (pubsubTopic, msg4) == otherHandlerFuture.read()
 
-      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 25' message
+      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 27' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       let msg5Res = await node.publish(pubsubTopic, msg5)
@@ -1361,3 +1377,34 @@ suite "Waku Relay":
         not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
         (pubsubTopic, msg2) == otherHandlerFuture.read()
+
+  suite "Messages that peers refuse":
+    asyncTest "validateMessage refuses a message that peers refuse at decode":
+      let refusedBefore = invalidMessages("validate")
+
+      # Given messages that the decoder refuses
+      let
+        msgWithEmptyContentTopic = fakeWakuMessage(testMessage, contentTopic = "")
+        msgWithNonUtf8ContentTopic =
+          fakeWakuMessage(testMessage, contentTopic = "/t\xff")
+        msgWithLongMeta =
+          fakeWakuMessage(testMessage, meta = newSeq[byte](MaxMetaAttrLength + 1))
+
+      # Then only the valid message passes
+      check:
+        (await node.validateMessage(pubsubTopic, wakuMessage)).isOk()
+        (await node.validateMessage(pubsubTopic, msgWithEmptyContentTopic)).isErr()
+        (await node.validateMessage(pubsubTopic, msgWithNonUtf8ContentTopic)).isErr()
+        (await node.validateMessage(pubsubTopic, msgWithLongMeta)).isErr()
+        invalidMessages("validate") == refusedBefore + 3
+
+    asyncTest "publish refuses a message that peers refuse at decode":
+      let refusedBefore = invalidMessages("publish")
+      # When publishing a message without a content topic
+      let res =
+        await node.publish(pubsubTopic, fakeWakuMessage(testMessage, contentTopic = ""))
+
+      # Then the publish fails
+      check:
+        res.isErr() and res.error == PublishOutcome.InvalidMessage
+        invalidMessages("publish") == refusedBefore + 1

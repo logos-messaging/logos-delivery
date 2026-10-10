@@ -93,3 +93,10 @@ func mapPubishingErrorToPushResult*(
         Opt.some("Error generating message id, skipping publish"),
       )
     )
+  of InvalidMessage:
+    return err(
+      (
+        LightPushErrorCode.INVALID_MESSAGE,
+        Opt.some("Invalid message, skipping publish"),
+      )
+    )

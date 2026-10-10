@@ -1,6 +1,7 @@
 import results, testutils/unittests, chronos, libp2p/crypto/crypto, web3
 
 import logos_delivery/waku/incentivization/[rpc, rpc_codec, common]
+import logos_delivery/waku/common/protobuf
 
 suite "Waku Incentivization Eligibility Codec":
   asyncTest "encode eligibility proof from txid":
@@ -10,13 +11,20 @@ suite "Waku Incentivization Eligibility Codec":
     let txHashAsBytes = @(txHash.bytes())
     let eligibilityProof = EligibilityProof(proofOfPayment: Opt.some(txHashAsBytes))
     let encoded = encode(eligibilityProof)
-    let decoded = EligibilityProof.decode(encoded.buffer).get()
+    let decoded = EligibilityProof.decode(encoded).get()
     check:
       eligibilityProof == decoded
 
   asyncTest "encode eligibility status":
     let eligibilityStatus = init(EligibilityStatus, true)
     let encoded = encode(eligibilityStatus)
-    let decoded = EligibilityStatus.decode(encoded.buffer).get()
+    let decoded = EligibilityStatus.decode(encoded).get()
     check:
       eligibilityStatus == decoded
+
+  asyncTest "an eligibility status without a status code is refused":
+    let res = EligibilityStatus.decode(EligibilityStatus(statusCode: 0).encode())
+    check:
+      res.isErr()
+      res.error.kind == ProtobufErrorKind.MissingRequiredField
+      res.error.field == "status_code"

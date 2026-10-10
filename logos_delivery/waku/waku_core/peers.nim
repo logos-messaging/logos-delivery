@@ -18,7 +18,7 @@ import
   libp2p/peerinfo,
   libp2p/routing_record,
   json_serialization
-import ../waku_enr
+import ../waku_enr, ../common/protobuf
 
 type
   Connectedness* = enum
@@ -45,23 +45,53 @@ type
     Inbound
     Outbound
 
-type RemotePeerInfo* = ref object
-  peerId*: PeerID
-  addrs*: seq[MultiAddress]
-  enr*: Opt[enr.Record]
-  protocols*: seq[string]
-  shards*: seq[uint16]
-  mixPubKey*: Opt[Curve25519Key]
+type RemotePeerInfo* {.proto3.} = ref object
+  peerId* {.fieldNumber: 1, ext.}: PeerID
+  addrs* {.fieldNumber: 2, ext.}: seq[MultiAddress]
+  enr* {.fieldNumber: 7, ext.}: Opt[enr.Record]
+  protocols* {.fieldNumber: 3.}: seq[string]
+  shards* {.dontSerialize.}: seq[uint16]
+  mixPubKey* {.dontSerialize.}: Opt[Curve25519Key]
 
-  agent*: string
-  protoVersion*: string
-  publicKey*: crypto.PublicKey
-  connectedness*: Connectedness
-  disconnectTime*: int64
-  origin*: PeerOrigin
-  direction*: PeerDirection
-  lastFailedConn*: Moment
-  numberFailedConn*: int
+  agent* {.dontSerialize.}: string
+  protoVersion* {.dontSerialize.}: string
+  publicKey* {.fieldNumber: 4, ext.}: crypto.PublicKey
+  connectedness* {.fieldNumber: 5, ext.}: Connectedness
+  disconnectTime* {.fieldNumber: 6, pint.}: int64
+  origin* {.dontSerialize.}: PeerOrigin
+  direction* {.dontSerialize.}: PeerDirection
+  lastFailedConn* {.dontSerialize.}: Moment
+  numberFailedConn* {.dontSerialize.}: int
+
+# The library does not encode `enr.Record`. These procs encode the raw ENR
+# bytes as a `bytes` field. The decode proc ignores an ENR that is not valid.
+
+func computeFieldSize*(
+    field: int, value: enr.Record, ProtoType: type ProtobufExt, skipDefault: static bool
+): int =
+  computeFieldSize(field, value.raw, pbytes, skipDefault)
+
+proc writeField*(
+    stream: OutputStream,
+    field: int,
+    value: enr.Record,
+    ProtoType: type ProtobufExt,
+    skipDefault: static bool = false,
+) {.raises: [IOError].} =
+  writeField(stream, field, value.raw, pbytes, skipDefault)
+
+proc readFieldInto*(
+    stream: InputStream,
+    value: var enr.Record,
+    header: FieldHeader,
+    ProtoType: type ProtobufExt,
+): bool {.raises: [SerializationError, IOError].} =
+  var data: seq[byte]
+  if not readFieldInto(stream, data, header, pbytes):
+    return false
+  value = enr.Record.fromBytes(data).valueOr:
+    return false
+  true
 
 func `$`*(remotePeerInfo: RemotePeerInfo): string =
   $remotePeerInfo.peerId

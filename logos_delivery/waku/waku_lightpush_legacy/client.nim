@@ -38,7 +38,7 @@ proc sendPushRequest(
     await connection.closeWithEOF()
 
   let rpc = PushRPC(requestId: generateRequestId(wl.rng), request: Opt.some(req))
-  await connection.writeLP(rpc.encode().buffer)
+  await connection.writeLP(rpc.encode())
 
   var buffer: seq[byte]
   try:

@@ -11,7 +11,7 @@ procSuite "Waku Protobufs":
 
     let buffer = res.encode()
 
-    let decodedBuff = WakuMetadataResponse.decode(buffer.buffer)
+    let decodedBuff = WakuMetadataResponse.decode(buffer)
     check:
       decodedBuff.isOk()
       decodedBuff.get().clusterId.get() == res.clusterId.get()
@@ -22,7 +22,7 @@ procSuite "Waku Protobufs":
 
     let buffer = req.encode()
 
-    let decodedBuff = WakuMetadataRequest.decode(buffer.buffer)
+    let decodedBuff = WakuMetadataRequest.decode(buffer)
     check:
       decodedBuff.isOk()
       decodedBuff.get().clusterId.get() == req.clusterId.get()

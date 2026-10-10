@@ -996,7 +996,7 @@ suite "Waku Sync: transfer":
       maxSize = int(DefaultMaxWakuMessageSize)
       largeMsg = fakeWakuMessage(payload = newSeq[byte](100 * 1024))
       encodingOverhead =
-        fakeWakuMessage(payload = newSeq[byte](maxSize)).encode().buffer.len - maxSize
+        fakeWakuMessage(payload = newSeq[byte](maxSize)).encode().len - maxSize
       atLimitMsg = fakeWakuMessage(payload = newSeq[byte](maxSize - encodingOverhead))
       laterMsg = fakeWakuMessage()
       largeHash = computeMessageHash(DefaultPubsubTopic, largeMsg)
@@ -1024,7 +1024,7 @@ suite "Waku Sync: transfer":
       await sleepAsync(100.milliseconds)
 
     check:
-      atLimitMsg.encode().buffer.len == maxSize
+      atLimitMsg.encode().len == maxSize
       await clientArchive.holdsMessages(@[laterHash])
       not await clientArchive.holdsMessages(@[atLimitHash])
 

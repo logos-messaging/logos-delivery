@@ -165,6 +165,12 @@ suite "Waku Store - query handler":
     ## Cleanup
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
 
+  test "history query from -1 to the last timestamp is rejected":
+    let req = StoreQueryRequest(
+      startTime: Opt.some(Timestamp(-1)), endTime: Opt.some(Timestamp.high)
+    )
+    check req.validate().isErr()
+
   asyncTest "history query mixing message hashes and content filters is rejected":
     ## Setup
     let

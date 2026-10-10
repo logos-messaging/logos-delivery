@@ -28,7 +28,7 @@ proc handleRequest*(
   var
     isSuccess = false
     pushResponseInfo = ""
-    requestId = ""
+    requestId = "N/A" # replaced by the id of a request that decodes
 
   if reqDecodeRes.isErr():
     pushResponseInfo = decodeRpcFailure & ": " & $reqDecodeRes.error
@@ -122,7 +122,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
       )
 
     try:
-      await conn.writeLp(rpc.encode().buffer)
+      await conn.writeLp(rpc.encode())
     except LPStreamError:
       debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
 
