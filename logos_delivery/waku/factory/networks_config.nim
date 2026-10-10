@@ -15,6 +15,8 @@ type
     case kind*: ShardingConfKind
     of AutoSharding:
       numShardsInCluster*: uint16
+      shardOverride*: seq[uint16]
+        ## Shard ids to use instead of `[0..numShardsInCluster-1]`; empty for none.
     of StaticSharding:
       discard
 
@@ -182,6 +184,18 @@ proc StatusProdConf*(T: type NetworkPresetConf): NetworkPresetConf =
 
 const MaxAllowedSubscribedShard* = 60
 
+proc shards*(shardingConf: ShardingConf): seq[uint16] =
+  ## The shard ids autosharding produces: the override when set, otherwise the
+  ## indices `[0..numShardsInCluster-1]`. Empty for static sharding.
+  case shardingConf.kind
+  of StaticSharding:
+    return @[]
+  of AutoSharding:
+    if shardingConf.shardOverride.len > 0:
+      return shardingConf.shardOverride
+    for i in 0'u16 ..< shardingConf.numShardsInCluster:
+      result.add(i)
+
 proc validateShards*(
     shardingConf: ShardingConf, shards: seq[uint16]
 ): Result[void, string] =
@@ -197,11 +211,20 @@ proc validateShards*(
     return ok()
   of AutoSharding:
     let numShardsInCluster = shardingConf.numShardsInCluster
+    if shardingConf.shardOverride.len > 0 and
+        shardingConf.shardOverride.len != numShardsInCluster.int:
+      let msg =
+        "shard override must hold exactly numShardsInCluster (" & $numShardsInCluster &
+        ") values, got: " & $shardingConf.shardOverride.len
+      error "validateShards failed", error = msg
+      return err(msg)
+
+    let validShards = shardingConf.shards()
     for shard in shards:
-      if shard >= numShardsInCluster:
+      if shard notin validShards:
         let msg =
-          "validateShards invalid shard: " & $shard & " when numShardsInCluster: " &
-          $numShardsInCluster
+          "validateShards invalid shard: " & $shard & " when valid shards are: " &
+          $validShards
         error "validateShards failed", error = msg
         return err(msg)
 

@@ -372,6 +372,12 @@ hence would have reachability issues.""",
     name: "shard"
   .}: seq[uint16]
 
+  shardOverride* {.
+    desc:
+      "Shard ids auto-sharding uses instead of [0..NUM_SHARDS_IN_NETWORK-1]: a content topic that hashes to index i lands on the i-th value. Provide exactly NUM_SHARDS_IN_NETWORK values. Argument may be repeated.",
+    name: "shard-override"
+  .}: seq[uint16]
+
   contentTopics* {.
     desc: "Default content topic to subscribe to. Argument may be repeated.",
     name: "content-topic"
@@ -1350,6 +1356,10 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     # Add static nodes (multiaddrs and those extracted from ENR entries)
     if staticNodesFromEntry.len > 0:
       b.withStaticNodes(staticNodesFromEntry)
+
+  # It is not possible to pass an empty sequence on the CLI, so empty means unset.
+  if n.shardOverride.len != 0:
+    b.withShardOverride(n.shardOverride)
 
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)

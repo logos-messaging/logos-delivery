@@ -133,6 +133,38 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.numShardsInCluster == 1
       wakuConf.rlnEvmConf.isNone()
 
+  test "StatusProd preset with a shard override lands on that shard":
+    ## Given
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+    conf.shardOverride = @[32'u16]
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.shardingConf.numShardsInCluster == 1
+      wakuConf.shardingConf.shardOverride == @[32'u16]
+      wakuConf.subscribeShards == @[32'u16]
+
+  test "Shard override of the wrong length fails validation":
+    ## Given
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+    conf.shardOverride = @[32'u16, 64]
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    check wakuConfRes.isErr() or wakuConfRes.get().validate().isErr()
+
   test "Invalid preset returns error":
     ## Given
     var conf = defaultKernelConf().valueOr:

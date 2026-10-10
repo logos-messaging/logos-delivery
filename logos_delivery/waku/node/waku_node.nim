@@ -463,11 +463,20 @@ proc mountMetadata*(
 
 ## Waku AutoSharding
 proc mountAutoSharding*(
-    node: WakuNode, clusterId: uint16, shardCount: uint32
+    node: WakuNode,
+    clusterId: uint16,
+    shardCount: uint32,
+    shardOverride: seq[uint16] = @[],
 ): Result[void, string] =
-  info "Mounting auto sharding", clusterId = clusterId, shardCount = shardCount
-  node.wakuAutoSharding =
-    Opt.some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
+  if shardOverride.len > 0 and shardOverride.len != int(shardCount):
+    return err(
+      "shard override must hold exactly shardCount (" & $shardCount & ") values, got: " &
+        $shardOverride.len
+    )
+
+  info "Mounting auto sharding",
+    clusterId = clusterId, shardCount = shardCount, shardOverride = shardOverride
+  node.wakuAutoSharding = Opt.some(Sharding.new(clusterId, shardCount, shardOverride))
 
   return ok()
 

@@ -108,6 +108,7 @@ type WakuConfBuilder* = object
   clusterId: Opt[uint16]
   shardingConf: Opt[ShardingConfKind]
   numShardsInCluster: Opt[uint16]
+  shardOverride: Opt[seq[uint16]]
   subscribeShards: Opt[seq[uint16]]
   protectedShards: Opt[seq[ProtectedShard]]
   contentTopics: Opt[seq[string]]
@@ -210,6 +211,9 @@ proc withShardingConf*(b: var WakuConfBuilder, shardingConf: ShardingConfKind) =
 
 proc withNumShardsInCluster*(b: var WakuConfBuilder, numShardsInCluster: uint16) =
   b.numShardsInCluster = Opt.some(numShardsInCluster)
+
+proc withShardOverride*(b: var WakuConfBuilder, shardOverride: seq[uint16]) =
+  b.shardOverride = Opt.some(shardOverride)
 
 proc withSubscribeShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
   b.subscribeShards = Opt.some(shards)
@@ -353,17 +357,19 @@ proc nodeKey(
 proc buildShardingConf(
     bShardingConfKind: Opt[ShardingConfKind],
     bNumShardsInCluster: Opt[uint16],
+    bShardOverride: Opt[seq[uint16]],
     bSubscribeShards: Opt[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
   case bShardingConfKind.get(DefaultShardingConfKind)
   of StaticSharding:
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
   of AutoSharding:
-    let numShardsInCluster = bNumShardsInCluster.get(DefaultNumShardsInCluster)
-    let shardingConf =
-      ShardingConf(kind: AutoSharding, numShardsInCluster: numShardsInCluster)
-    let upperShard = uint16(numShardsInCluster - 1)
-    (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
+    let shardingConf = ShardingConf(
+      kind: AutoSharding,
+      numShardsInCluster: bNumShardsInCluster.get(DefaultNumShardsInCluster),
+      shardOverride: bShardOverride.get(@[]),
+    )
+    (shardingConf, bSubscribeShards.get(shardingConf.shards()))
 
 proc resolveSubscribeShards(
     shardingConf: ShardingConf,
@@ -377,8 +383,8 @@ proc resolveSubscribeShards(
   if shardingConf.kind != AutoSharding or shardingConf.numShardsInCluster == 0:
     return ok(confShards)
 
-  let autoSharding = Sharding(
-    clusterId: clusterId, shardCountGenZero: uint32(shardingConf.numShardsInCluster)
+  let autoSharding = Sharding.new(
+    clusterId, uint32(shardingConf.numShardsInCluster), shardingConf.shardOverride
   )
   var shards = confShards
   for contentTopic in contentTopics:
@@ -669,7 +675,8 @@ proc build*(
       builder.clusterId.get().uint16
 
   let (shardingConf, confShards) = buildShardingConf(
-    builder.shardingConf, builder.numShardsInCluster, builder.subscribeShards
+    builder.shardingConf, builder.numShardsInCluster, builder.shardOverride,
+    builder.subscribeShards,
   )
   let contentTopics = builder.contentTopics.get(@[])
   let subscribeShards =

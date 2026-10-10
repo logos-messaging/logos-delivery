@@ -13,9 +13,31 @@ type Sharding* = object
   clusterId*: uint16
   # TODO: generations could be stored in a table here
   shardCountGenZero*: uint32
+  shardOverride*: seq[uint16]
+    ## Shard ids to use instead of the indices `[0..shardCountGenZero-1]`.
+    ## When it holds exactly `shardCountGenZero` values, a content topic that
+    ## hashes to index `i` lands on shard `shardOverride[i]`. Otherwise ignored.
 
-proc new*(T: type Sharding, clusterId: uint16, shardCount: uint32): T =
-  return Sharding(clusterId: clusterId, shardCountGenZero: shardCount)
+proc new*(
+    T: type Sharding,
+    clusterId: uint16,
+    shardCount: uint32,
+    shardOverride: seq[uint16] = @[],
+): T =
+  return Sharding(
+    clusterId: clusterId, shardCountGenZero: shardCount, shardOverride: shardOverride
+  )
+
+proc shardId(s: Sharding, index: int): uint16 =
+  if s.shardOverride.len == int(s.shardCountGenZero):
+    s.shardOverride[index]
+  else:
+    uint16(index)
+
+proc shards*(s: Sharding): seq[uint16] =
+  ## Every shard id autosharding can produce.
+  for i in 0 ..< int(s.shardCountGenZero):
+    result.add(s.shardId(i))
 
 proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShard =
   let bytes = toBytes(topic.application) & toBytes(topic.version)
@@ -25,9 +47,9 @@ proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShar
   # We only use the last 64 bits of the hash as having more shards is unlikely.
   let hashValue = uint64.fromBytesBE(hash.data[24 .. 31])
 
-  let shard = hashValue mod uint64(count)
+  let index = int(hashValue mod uint64(count))
 
-  RelayShard(clusterId: s.clusterId, shardId: uint16(shard))
+  RelayShard(clusterId: s.clusterId, shardId: s.shardId(index))
 
 proc getShard*(s: Sharding, topic: NsContentTopic): Result[RelayShard, string] =
   ## Compute the (pubsub topic) shard to use for this content topic.

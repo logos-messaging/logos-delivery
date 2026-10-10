@@ -64,6 +64,50 @@ suite "Autosharding":
         shard9 == RelayShard(clusterId: ClusterId, shardId: 7)
         shard10 == RelayShard(clusterId: ClusterId, shardId: 3)
 
+    test "Generate Gen0 Shard with shardOverride":
+      # Given a sharding with a forced shard mapping (index -> value)
+      let sharding = Sharding.new(
+        ClusterId, GenerationZeroShardsCount, @[10'u16, 11, 12, 13, 14, 15, 16, 17]
+      )
+
+      let
+        nsContentTopic1 = NsContentTopic.parse(contentTopicShort).value()
+          # hashes to index 3
+        nsContentTopic3 = NsContentTopic.parse(contentTopicShort2).value()
+          # hashes to index 6
+        nsContentTopic9 = NsContentTopic.parse(contentTopicFull4).value()
+          # hashes to index 7
+
+      # When we generate gen0 shards from them
+      let
+        shard1 = sharding.getGenZeroShard(nsContentTopic1, GenerationZeroShardsCount)
+        shard3 = sharding.getGenZeroShard(nsContentTopic3, GenerationZeroShardsCount)
+        shard9 = sharding.getGenZeroShard(nsContentTopic9, GenerationZeroShardsCount)
+
+      # Then the computed index is remapped through the override
+      check:
+        shard1 == RelayShard(clusterId: ClusterId, shardId: 13)
+        shard3 == RelayShard(clusterId: ClusterId, shardId: 16)
+        shard9 == RelayShard(clusterId: ClusterId, shardId: 17)
+        sharding.shards() == @[10'u16, 11, 12, 13, 14, 15, 16, 17]
+
+    test "shardOverride is ignored when its length differs from the shard count":
+      let sharding =
+        Sharding.new(ClusterId, GenerationZeroShardsCount, @[10'u16, 11, 12])
+      let nsContentTopic1 = NsContentTopic.parse(contentTopicShort).value()
+
+      check:
+        sharding.getGenZeroShard(nsContentTopic1, GenerationZeroShardsCount) ==
+          RelayShard(clusterId: ClusterId, shardId: 3)
+
+    test "A single-shard cluster lands on the override value":
+      let sharding = Sharding.new(16, 1, @[32'u16])
+
+      check:
+        sharding.getShard(contentTopicShort).value() ==
+          RelayShard(clusterId: 16, shardId: 32)
+        sharding.shards() == @[32'u16]
+
   suite "getShard from NsContentTopic":
     test "Generate Gen0 Shard with topic.generation==none":
       let sharding =
