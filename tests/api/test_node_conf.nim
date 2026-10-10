@@ -133,12 +133,12 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.numShardsInCluster == 1
       wakuConf.rlnEvmConf.isNone()
 
-  test "StatusProd preset with a shard override lands on that shard":
+  test "StatusProd preset with autosharding shards lands on those shards":
     ## Given
     var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "status.prod"
-    conf.shardOverride = @[32'u16]
+    conf.autoshardingShards = @[32'u16]
 
     ## When
     let wakuConfRes = conf.toWakuConf()
@@ -148,22 +148,40 @@ suite "WakuNodeConf - preset integration":
     let wakuConf = wakuConfRes.get()
     require wakuConf.validate().isOk()
     check:
-      wakuConf.shardingConf.numShardsInCluster == 1
-      wakuConf.shardingConf.shardOverride == @[32'u16]
+      wakuConf.shardingConf.shards == @[32'u16]
       wakuConf.subscribeShards == @[32'u16]
 
-  test "Shard override of the wrong length fails validation":
+  test "Autosharding shards set the shard count over the preset's":
     ## Given
     var conf = defaultKernelConf().valueOr:
       raiseAssert error
     conf.preset = "status.prod"
-    conf.shardOverride = @[32'u16, 64]
+    conf.autoshardingShards = @[32'u16, 64]
 
     ## When
     let wakuConfRes = conf.toWakuConf()
 
     ## Then
-    check wakuConfRes.isErr() or wakuConfRes.get().validate().isErr()
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.shardingConf.numShardsInCluster == 2
+      wakuConf.subscribeShards == @[32'u16, 64]
+
+  test "Autosharding shards must match num-shards-in-network":
+    ## Given
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+    conf.numShardsInNetwork = 1
+    conf.autoshardingShards = @[32'u16, 64]
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    check wakuConfRes.isErr()
 
   test "Invalid preset returns error":
     ## Given

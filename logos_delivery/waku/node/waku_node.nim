@@ -463,22 +463,17 @@ proc mountMetadata*(
 
 ## Waku AutoSharding
 proc mountAutoSharding*(
-    node: WakuNode,
-    clusterId: uint16,
-    shardCount: uint32,
-    shardOverride: seq[uint16] = @[],
+    node: WakuNode, clusterId: uint16, shards: seq[uint16]
 ): Result[void, string] =
-  if shardOverride.len > 0 and shardOverride.len != int(shardCount):
-    return err(
-      "shard override must hold exactly shardCount (" & $shardCount & ") values, got: " &
-        $shardOverride.len
-    )
-
-  info "Mounting auto sharding",
-    clusterId = clusterId, shardCount = shardCount, shardOverride = shardOverride
-  node.wakuAutoSharding = Opt.some(Sharding.new(clusterId, shardCount, shardOverride))
+  info "Mounting auto sharding", clusterId = clusterId, shards = shards
+  node.wakuAutoSharding = Opt.some(Sharding.new(clusterId, shards))
 
   return ok()
+
+proc mountAutoSharding*(
+    node: WakuNode, clusterId: uint16, shardCount: uint32
+): Result[void, string] =
+  node.mountAutoSharding(clusterId, Sharding.new(clusterId, shardCount).shards)
 
 proc getMixNodePoolSize*(node: WakuNode): int =
   ## The number of mix pool members a path can use; zero when mix is not mounted.

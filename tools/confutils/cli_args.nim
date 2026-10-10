@@ -372,10 +372,10 @@ hence would have reachability issues.""",
     name: "shard"
   .}: seq[uint16]
 
-  shardOverride* {.
+  autoshardingShards* {.
     desc:
-      "Shard ids auto-sharding uses instead of [0..NUM_SHARDS_IN_NETWORK-1]: a content topic that hashes to index i lands on the i-th value. Provide exactly NUM_SHARDS_IN_NETWORK values. Argument may be repeated.",
-    name: "shard-override"
+      "Shard ids auto-sharding uses instead of [0..NUM_SHARDS_IN_NETWORK-1]: a content topic that hashes to index i lands on the i-th value. Sets the number of shards when NUM_SHARDS_IN_NETWORK is not given. Argument may be repeated.",
+    name: "autosharding-shards"
   .}: seq[uint16]
 
   contentTopics* {.
@@ -1358,13 +1358,14 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       b.withStaticNodes(staticNodesFromEntry)
 
   # It is not possible to pass an empty sequence on the CLI, so empty means unset.
-  if n.shardOverride.len != 0:
-    b.withShardOverride(n.shardOverride)
+  if n.autoshardingShards.len != 0:
+    b.withAutoshardingShards(n.autoshardingShards)
+    b.withShardingConf(AutoSharding)
 
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)
     b.withShardingConf(AutoSharding)
-  elif networkPresetConf.isNone():
+  elif networkPresetConf.isNone() and n.autoshardingShards.len == 0:
     b.withShardingConf(StaticSharding)
 
   # It is not possible to pass an empty sequence on the CLI
