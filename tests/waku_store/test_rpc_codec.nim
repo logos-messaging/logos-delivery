@@ -9,8 +9,9 @@ import
     waku_store/common,
     waku_store/protocol_metrics,
     waku_store/rpc_codec,
+    common/protobuf,
   ],
-  ../testlib/wakucore
+  ../testlib/[wakucore, protobuf_errors]
 
 proc keyValueOf(hashByte: byte, message: WakuMessage): WakuMessageKeyValue =
   ## A key-value with the hash `hashByte` 00 .. and the default pubsub topic.
@@ -65,7 +66,7 @@ procSuite "Waku Store - RPC codec":
 
   test "StoreQueryRequest protobuf codec - empty history query":
     ## Given
-    let emptyQuery = StoreQueryRequest()
+    let emptyQuery = StoreQueryRequest(requestId: "r")
 
     ## When
     let pb = emptyQuery.encode()
@@ -156,7 +157,7 @@ procSuite "Waku Store - RPC codec":
 
   test "StoreQueryResponse protobuf codec - empty history response":
     ## Given
-    let emptyRes = StoreQueryResponse()
+    let emptyRes = StoreQueryResponse(requestId: "r", statusCode: 200)
 
     ## When
     let pb = emptyRes.encode()
@@ -242,3 +243,19 @@ suite "Waku Store - read limits":
     for i in 0 ..< int(MaxPageSize):
       res.messages.add(keyValueOf(byte(i + 1), message))
     check res.encode().len <= DefaultMaxQueryResponseSize
+
+suite "Waku Store - required fields":
+  test "a query without a request id is refused":
+    let res = StoreQueryRequest.decode(StoreQueryRequest(includeData: true).encode())
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("request_id")
+
+  test "a response without a request id or a status code is refused":
+    let noId = StoreQueryResponse.decode(StoreQueryResponse(statusCode: 200).encode())
+    let noCode = StoreQueryResponse.decode(StoreQueryResponse(requestId: "r").encode())
+    check:
+      noId.isErr()
+      noId.error == ProtobufError.missingRequiredField("request_id")
+      noCode.isErr()
+      noCode.error == ProtobufError.missingRequiredField("status_code")

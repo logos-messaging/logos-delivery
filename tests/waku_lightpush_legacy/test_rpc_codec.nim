@@ -14,3 +14,11 @@ suite "Waku Legacy Lightpush - RPC codec":
     check:
       res.isErr()
       res.error == ProtobufError.missingRequiredField("content_topic")
+
+  test "an rpc without a request id is refused":
+    let res = PushRPC.decode(
+      PushRPC(response: Opt.some(PushResponse(isSuccess: true))).encode()
+    )
+    check:
+      res.isErr()
+      res.error == ProtobufError.missingRequiredField("request_id")

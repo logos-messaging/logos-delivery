@@ -1,0 +1,28 @@
+{.push raises: [].}
+
+import
+  json,
+  std/sets,
+  stew/byteutils,
+  strformat,
+  chronicles,
+  json_serialization,
+  json_serialization/pkg/results,
+  presto/[route, client, common]
+import
+  logos_delivery/waku/waku_core,
+  rest/serdes,
+  rest/responses,
+  rest/rest_serdes,
+  rest/kernel_api/lightpush/types
+
+export types
+
+proc encodeBytes*(value: PushRequest, contentType: string): RestResult[seq[byte]] =
+  return encodeBytesOf(value, contentType)
+
+proc sendPushRequest*(
+  body: PushRequest
+): RestResponse[PushResponse] {.
+  rest, endpoint: "/lightpush/v3/message", meth: HttpMethod.MethodPost
+.}

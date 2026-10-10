@@ -83,11 +83,18 @@ suite "Peer Exchange - RPC codec bytes":
       res.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
       res.get().response.peerInfos == @[PeerExchangePeerInfo(enr: @[byte 0xe1, 0xe2])]
 
-  test "a response without a status code decodes as UNKNOWN":
-    let res = PeerExchangeRpc.decode(hexToSeqByte("12060a040a02e1e2"))
+  test "a response without a status code gets its code from the peers":
+    # An older peer writes no status code. With peers, the code is SUCCESS.
+    let withPeers = PeerExchangeRpc.decode(hexToSeqByte("12060a040a02e1e2"))
+    # Without peers, the code is SERVICE_UNAVAILABLE.
+    let withoutPeers = PeerExchangeRpc.decode(hexToSeqByte("1200"))
     check:
-      res.isOk()
-      res.get().response.status_code == PeerExchangeResponseStatusCode.UNKNOWN
+      withPeers.isOk()
+      withPeers.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
+      withPeers.get().response.peerInfos.len == 1
+      withoutPeers.isOk()
+      withoutPeers.get().response.status_code ==
+        PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE
 
   test "a response writes an empty request in field 1":
     # Field 1 empty, and field 2 with status 429.

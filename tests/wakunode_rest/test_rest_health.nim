@@ -10,16 +10,17 @@ import
   libp2p/multiaddress,
   libp2p/crypto/crypto
 import
+  rest/server,
+  rest/client,
+  rest/responses,
+  rest/kernel_api/health/handlers as health_rest_interface,
+  rest/kernel_api/health/client as health_rest_client
+import
   logos_delivery/waku/[
     common/waku_protocol,
     waku_node,
     node/waku_node as waku_node2,
       # TODO: Remove after moving `git_version` to the app code.
-    rest_api/endpoint/server,
-    rest_api/endpoint/client,
-    rest_api/endpoint/responses,
-    rest_api/endpoint/health/handlers as health_rest_interface,
-    rest_api/endpoint/health/client as health_rest_client,
     rln,
     node/health_monitor,
   ],

@@ -44,6 +44,9 @@ declareCounter logos_delivery_relay_network_bytes,
   "total traffic per topic, distinct gross/net and direction",
   labels = ["topic", "type", "direction"]
 
+declarePublicCounter logos_delivery_relay_invalid_messages,
+  "messages that the WakuMessage decoder refuses, per path", labels = ["path"]
+
 declarePublicGauge(
   logos_delivery_relay_total_msg_bytes_per_shard,
   "total length of messages seen per shard",
@@ -579,6 +582,7 @@ proc validateMessage*(
   let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
 
   validateWakuMessageFields(msg).isOkOr:
+    logos_delivery_relay_invalid_messages.inc(labelValues = ["validate"])
     debug "Waku message that the decoder refuses", msg_hash = msgHash, error = $error
     return err($error)
 
@@ -690,6 +694,7 @@ proc publish*(
     return err(NoTopicSpecified)
 
   validateWakuMessageFields(wakuMessage).isOkOr:
+    logos_delivery_relay_invalid_messages.inc(labelValues = ["publish"])
     debug "Not publishing a message that the decoder refuses",
       pubsubTopic = pubsubTopic, error = $error
     return err(InvalidMessage)

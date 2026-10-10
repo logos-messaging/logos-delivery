@@ -118,7 +118,7 @@ suite "Protobuf Serialisation":
         decodedRemotePeerInfo == remotePeerInfo
 
 suite "WakuPeerStorage - load":
-  test "a stored peer that does not decode is deleted, and the other peers load":
+  test "a stored peer that does not decode is skipped and kept, and the other peers load":
     # Three rows that the `minprotobuf` codec stored, in the order of their
     # peer ids. Each row has the protocol "/vac/waku/relay/2.0.0". The row in
     # the middle also has the protocol bytes 2f 78 ff, which are not valid
@@ -179,4 +179,4 @@ suite "WakuPeerStorage - load":
       storage.getAll(onPeer).isOk()
       loaded == expected
       database.query("SELECT peerId FROM Peer", onRow).isOk()
-      rowCount == 2
+      rowCount == 3

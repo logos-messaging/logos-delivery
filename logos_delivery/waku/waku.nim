@@ -41,9 +41,6 @@ import
     node/waku_metrics,
     node/subscription_manager,
     node/waku_node/mix_rln,
-    rest_api/message_cache,
-    rest_api/endpoint/server,
-    rest_api/endpoint/builder as rest_server_builder,
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
     discovery/discv5_peer_discovery,
@@ -103,7 +100,6 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
 
   healthMonitor*: NodeHealthMonitor
 
-  restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
   appCallbacks*: AppCallbacks
 
@@ -234,23 +230,6 @@ proc new*(
 
   let healthMonitor = NodeHealthMonitor.new(node, wakuConf.dnsAddrsNameServers)
 
-  let restServer: WakuRestServerRef =
-    if wakuConf.restServerConf.isSome():
-      let restServer = startRestServerEssentials(
-        healthMonitor, wakuConf.restServerConf.get()
-      ).valueOr:
-        error "Starting essential REST server failed", error = $error
-        return err("Failed to start essential REST server in Waku.new: " & $error)
-
-      restServer
-    else:
-      nil
-
-  if not restServer.isNil():
-    let boundRestPort = restServer.httpServer.address.port
-    node.ports.rest = boundRestPort.uint16
-    wakuConf.restServerConf.get().port = boundRestPort
-
   node.setupAppCallbacks(wakuConf, appCallbacks, healthMonitor).isOkOr:
     error "Failed setting up app callbacks", error = error
     return err("Failed setting up app callbacks: " & $error)
@@ -263,7 +242,6 @@ proc new*(
     node: node,
     healthMonitor: healthMonitor,
     appCallbacks: appCallbacks,
-    restServer: restServer,
     brokerCtx: brokerCtx,
   )
 
@@ -654,20 +632,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ).isOkOr:
     error "Failed to set RequestHealthReport provider", error = error
 
-  if conf.restServerConf.isSome():
-    rest_server_builder.startRestServerProtocolSupport(
-      waku.restServer,
-      waku.node,
-      waku.wakuDiscv5,
-      conf.restServerConf.get(),
-      conf.relay,
-      conf.lightPush,
-      conf.clusterId,
-      conf.subscribeShards,
-      conf.contentTopics,
-    ).isOkOr:
-      return err ("Starting protocols support REST server failed: " & $error)
-
   if conf.metricsServerConf.isSome():
     try:
       let (server, port) = (
@@ -722,9 +686,6 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     ## node.stop() because discovery backends read them while stopping.
     ## GetDiscoveryRequirements stays (see new): it is config-only.
     waku.clearNodeState()
-
-    if not waku.restServer.isNil():
-      await waku.restServer.stop()
   except Exception:
     error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())

@@ -43,11 +43,11 @@ proc invalidLengthField*(T: type ProtobufError, field: string): T =
 proc `$`*(err: ProtobufError): string =
   case err.kind
   of DecodeFailure:
-    return "DecodeFailure " & err.error
+    return "DecodeFailure: " & err.error
   of MissingRequiredField:
-    return "MissingRequiredField " & err.field
+    return "MissingRequiredField: " & err.field
   of InvalidLengthField:
-    return "InvalidLengthField " & err.field
+    return "InvalidLengthField: " & err.field
 
 ## Codec procs
 
@@ -56,15 +56,10 @@ template noValidation(value: untyped): ProtobufResult[void] =
   ProtobufResult[void].ok()
 
 template protobufCodec*(T: untyped, validator: untyped) =
-  ## Makes `encode` and `decode` for the `{.proto3.}` type `T`. After the
-  ## decode, `decode` calls `validator(value)`. The validator returns
-  ## `ProtobufResult[void]`. A validator with a `var` parameter can also
-  ## correct the value. `decode` calls the validator for `T` only, so the
-  ## validator of an object must check the objects that it contains.
-  ##
-  ## `decode` has a `type` parameter, so it is generic, and Nim finds the
-  ## `mixin` symbols of the library at the call site of a generic proc. The
-  ## inner proc is not generic, so a caller needs no import of the library.
+  ## Makes `encode` and `decode` for the `{.proto3.}` type `T`. `decode` calls
+  ## `validator(value)`, and a `var` validator can correct the value. The
+  ## validator of `T` must also check the objects that `T` contains. The inner
+  ## proc is not generic, so a caller needs no import of the library.
   proc encode*(value: T): seq[byte] =
     Protobuf.encode(value)
 

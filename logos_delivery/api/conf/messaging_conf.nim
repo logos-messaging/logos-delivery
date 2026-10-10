@@ -98,7 +98,8 @@ type MessagingClientConf* = object
     ## Max messages tracked by the send service; sends beyond it are rejected
     ## (default 1000).
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
-    ## Store catch-up of missed messages after a start (default true).
+    ## Store catch-up of missed messages after a start (default true). A
+    ## start with false deletes the saved catch-up state.
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
     Opt[int64] ## Timeout of one Store query, in seconds (default 10, 1 .. 300).
 

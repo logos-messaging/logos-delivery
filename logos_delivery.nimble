@@ -11,7 +11,7 @@ license = "MIT or Apache License 2.0"
 skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 
 # Nimble installs only the namesake directory; dependents need these too.
-installDirs = @["library", "migrations", "tools"]
+installDirs = @["library", "migrations", "rest", "tools"]
 
 const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.

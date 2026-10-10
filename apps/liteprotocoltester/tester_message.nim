@@ -7,7 +7,7 @@ import
   json_serialization/pkg/results,
   json_serialization/lexer
 
-import logos_delivery/waku/rest_api/endpoint/serdes
+import rest/serdes
 
 type ProtocolTesterMessage* = object
   sender*: string

@@ -28,7 +28,7 @@ proc handleRequest*(
   var
     isSuccess = false
     pushResponseInfo = ""
-    requestId = ""
+    requestId = "N/A" # replaced by the id of a request that decodes
 
   if reqDecodeRes.isErr():
     pushResponseInfo = decodeRpcFailure & ": " & $reqDecodeRes.error

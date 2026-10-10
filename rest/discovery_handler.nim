@@ -1,0 +1,41 @@
+{.push raises: [].}
+
+import chronos, std/sequtils, results
+import
+  logos_delivery/waku/discovery/waku_discv5,
+  logos_delivery/waku/waku_relay,
+  logos_delivery/waku/waku_core,
+  rest/message_cache
+
+### Discovery
+
+type DiscoveryHandler* =
+  proc(): Future[Result[Opt[RemotePeerInfo], string]] {.async, closure.}
+
+proc defaultDiscoveryHandler*(
+    discv5: WakuDiscoveryV5, cap: Capabilities
+): DiscoveryHandler =
+  proc(): Future[Result[Opt[RemotePeerInfo], string]] {.async, closure.} =
+    #Discv5 is already filtering peers by shards no need to pass a predicate.
+    let findPeers = discv5.findRandomPeers()
+
+    if not await findPeers.withTimeout(60.seconds):
+      return err("discovery process timed out!")
+
+    var peers = findPeers.read()
+
+    peers.keepItIf(it.supportsCapability(cap))
+
+    if peers.len == 0:
+      return ok(Opt.none(RemotePeerInfo))
+
+    let remotePeerInfo = peers[0].toRemotePeerInfo().valueOr:
+      return err($error)
+
+    return ok(Opt.some(remotePeerInfo))
+
+### Message Cache
+
+proc messageCacheHandler*(cache: MessageCache): WakuRelayHandler =
+  return proc(pubsubTopic: string, msg: WakuMessage): Future[void] {.async, closure.} =
+    cache.addMessage(pubsubTopic, msg)

@@ -16,7 +16,6 @@ logScope:
 type WakuPeerStorage* = ref object of PeerStorage
   database*: SqliteDatabase
   replaceStmt: SqliteStmt[(seq[byte], seq[byte]), void]
-  deleteStmt: SqliteStmt[seq[byte], void]
 
 ##########################
 # Protobuf Serialisation #
@@ -85,13 +84,8 @@ proc new*(T: type WakuPeerStorage, db: SqliteDatabase): PeerStorageResult[T] =
     )
     .expect("Valid statement")
 
-  let deleteStmt = db
-    .prepareStmt("DELETE FROM Peer WHERE peerId = ?;", seq[byte], void)
-    .expect("Valid statement")
-
   # General initialization
-  let ps =
-    WakuPeerStorage(database: db, replaceStmt: replaceStmt, deleteStmt: deleteStmt)
+  let ps = WakuPeerStorage(database: db, replaceStmt: replaceStmt)
 
   return ok(ps)
 
@@ -117,10 +111,8 @@ proc peerIdText(data: seq[byte]): string =
 method getAll*(
     db: WakuPeerStorage, onData: peer_storage.DataProc
 ): PeerStorageResult[void] =
-  ## Retrieves all peers from storage. It deletes a row that does not decode,
+  ## Retrieves all peers from storage. It skips a row that does not decode,
   ## and it loads the other rows.
-
-  var undecodable: seq[seq[byte]]
 
   proc peer(s: ptr sqlite3_stmt) {.gcsafe, raises: [].} =
     let
@@ -134,9 +126,8 @@ method getAll*(
         sId = cast[ptr UncheckedArray[byte]](sqlite3_column_blob(s, 0))
         sIdL = sqlite3_column_bytes(s, 0)
         peerId = @(toOpenArray(sId, 0, sIdL - 1))
-      info "Deleting a stored peer that does not decode",
+      info "Skipping a stored peer that does not decode",
         peerId = peerIdText(peerId), error = $error
-      undecodable.add(peerId)
       return
 
     onData(storedInfo)
@@ -150,15 +141,10 @@ method getAll*(
   queryRes.isOkOr:
     return err("peer storage query failed: " & error)
 
-  for peerId in undecodable:
-    db.deleteStmt.exec(peerId).isOkOr:
-      return err("failed to delete a stored peer: " & error)
-
   return ok()
 
 proc close*(db: WakuPeerStorage) =
   ## Closes the database.
 
   db.replaceStmt.dispose()
-  db.deleteStmt.dispose()
   db.database.close()

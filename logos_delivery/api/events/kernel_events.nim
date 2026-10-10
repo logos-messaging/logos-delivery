@@ -12,14 +12,16 @@ EventBroker:
     topic*: PubsubTopic
     message*: WakuMessage
 
-# Emitted when a content topic becomes subscribed.
+# Emitted when a content topic becomes subscribed on a shard.
 EventBroker:
   type ContentTopicSubscribedEvent* = object
+    shard*: PubsubTopic
     contentTopic*: ContentTopic
 
-# Emitted when a content topic stops being subscribed.
+# Emitted when a content topic stops being subscribed on a shard.
 EventBroker:
   type ContentTopicUnsubscribedEvent* = object
+    shard*: PubsubTopic
     contentTopic*: ContentTopic
 
 # Emitted by the health monitor when overall node connectivity changes.
