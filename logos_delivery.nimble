@@ -236,8 +236,8 @@ proc nimblePkgPath(pkg: string): string =
 ### Mobile Android
 
 proc androidToolchain() =
-  ## Fills in the ANDROID_* variables config.nims reads, from ANDROID_NDK_ROOT
-  ## (or ANDROID_NDK_HOME) and CPU, unless the Makefile already set them.
+  ## Fills in the ANDROID_* toolchain variables from ANDROID_NDK_ROOT (or
+  ## ANDROID_NDK_HOME) and CPU, unless the Makefile already set them.
   if getEnv("ANDROID_TOOLCHAIN_DIR").len > 0:
     return
   let ndk = getEnv("ANDROID_NDK_ROOT", getEnv("ANDROID_NDK_HOME"))
@@ -280,10 +280,31 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
+  # cmake runs on the build host, so left alone it hands Leopard-RS the host's
+  # compiler. Point it at the NDK clang, and define ANDROID so Leopard-RS takes
+  # its LEO_TARGET_MOBILE path instead of including <tmmintrin.h>. OpenMP is off:
+  # the NDK's libomp.so would have to ship with the library. Leopard-RS is C++,
+  # and the NDK's C driver links no C++ runtime by itself, so link it statically.
+  let toolchainDir = getEnv("ANDROID_TOOLCHAIN_DIR")
+  let compiler = getEnv("ANDROID_COMPILER")
+  let ndkClang = toolchainDir / "bin" / compiler
+  let sysroot = toolchainDir / "sysroot"
+  let toolchainParams =
+    " --clang.path:\"" & toolchainDir / "bin" & "\"" &
+    " --clang.exe:" & compiler & " --clang.linkerexe:" & compiler &
+    " --passC:--sysroot=" & sysroot & " --passL:--sysroot=" & sysroot &
+    " --cincludes:" & sysroot & "/usr/include/" &
+    " -d:\"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
+    " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
+    " -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_C_COMPILER=" & ndkClang &
+    " -DCMAKE_CXX_COMPILER=" & ndkClang & "++ -DCMAKE_CXX_FLAGS=-DANDROID\"" &
+    " -d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp" &
+    " --passL:-lc++_static --passL:-lc++abi"
+
   let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
   selfExec "c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
-    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
+    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK" & toolchainParams & " " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
