@@ -12,6 +12,8 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "rest", "tools"]
+# A dependent's `nimble liblogosdelivery` needs the same build configuration.
+installFiles = @["config.nims"]
 
 const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
@@ -211,9 +213,63 @@ proc buildLibStaticMac(libName: string, folderName: string) =
     archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
     "static", libName & ".nim", libname
 
+### Mobile
+
+proc nimblePkgPath(pkg: string): string =
+  ## Package root from nimble.paths, or from the `--path` entries in NIM_PARAMS
+  ## when built as a dependency. `nimble path` is unusable inside a task (it
+  ## mixes Info and lock-validation noise into stdout).
+  var lines: seq[string]
+  if fileExists("nimble.paths"):
+    lines = readFile("nimble.paths").splitLines()
+  else:
+    lines = getNimParams().split(' ')
+  for rawLine in lines:
+    let line = rawLine.strip().replace("\"", "")
+    if line.startsWith("--path:") and ("/pkgs2/" & pkg & "-") in line:
+      return line[7 .. ^1]
+  quit "Package " & pkg & " not found in nimble.paths or NIM_PARAMS"
+
 ### Mobile Android
 
+proc androidToolchain() =
+  ## Fills in the ANDROID_* variables config.nims reads, from ANDROID_NDK_ROOT
+  ## (or ANDROID_NDK_HOME) and CPU, unless the Makefile already set them.
+  if getEnv("ANDROID_TOOLCHAIN_DIR").len > 0:
+    return
+  let ndk = getEnv("ANDROID_NDK_ROOT", getEnv("ANDROID_NDK_HOME"))
+  if ndk.len == 0:
+    quit "Error: set ANDROID_NDK_ROOT or ANDROID_NDK_HOME"
+  let hostTag = when defined(macosx): "darwin-x86_64" else: "linux-x86_64"
+  let arch =
+    case getEnv("CPU")
+    of "arm64": "aarch64-linux-android"
+    of "amd64": "x86_64-linux-android"
+    of "i386": "i686-linux-android"
+    of "arm": "armv7a-linux-androideabi"
+    else: quit "Error: CPU must be one of arm64, amd64, i386, arm"
+  putEnv("ANDROID_TOOLCHAIN_DIR", ndk / "toolchains/llvm/prebuilt" / hostTag)
+  putEnv("ANDROID_ARCH", arch)
+  putEnv("ANDROID_COMPILER", arch & getEnv("ANDROID_TARGET", "30") & "-clang")
+
+proc rebuildNatLibs(cc: string) =
+  ## Same as Nat.mk's rebuild-nat-libs-nimbledeps, for builds without the
+  ## Makefile: nat_traversal links archives its install hook built for the host.
+  let natDir = nimblePkgPath("nat_traversal")
+  let stamp = natDir / ".nat-libs-cc"
+  if fileExists(stamp) and readFile(stamp).strip() == cc:
+    return
+  exec "find \"" & natDir & "/vendor\" \\( -name '*.o' -o -name '*.a' \\) -delete"
+  exec "make -C \"" & natDir & "/vendor/miniupnp/miniupnpc\" CC=\"" & cc &
+    "\" CFLAGS=\"-Os -fPIC\" build/libminiupnpc.a"
+  exec "make -C \"" & natDir & "/vendor/libnatpmp-upstream\" CC=\"" & cc &
+    "\" CFLAGS=\"-Wall -Wno-cpp -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4\" libnatpmp.a"
+  writeFile(stamp, cc & "\n")
+
 proc buildMobileAndroid(srcDir = ".", params = "") =
+  androidToolchain()
+  rebuildNatLibs(getEnv("ANDROID_TOOLCHAIN_DIR") / "bin" / getEnv("ANDROID_COMPILER"))
+
   let cpu = getEnv("CPU")
   let abiDir = getEnv("ABIDIR")
 
@@ -221,9 +277,10 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
+  let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
   selfExec "c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
-    outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
+    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
@@ -244,15 +301,6 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   if sdkPath.len == 0:
     quit "Error: IOS_SDK_PATH not set. Set it to the path of the iOS SDK"
-
-  # Package roots from nimble.paths — `nimble path` is unusable inside a
-  # task (it mixes Info and lock-validation noise into stdout).
-  proc nimblePkgPath(pkg: string): string =
-    for rawLine in readFile("nimble.paths").splitLines():
-      let line = rawLine.strip()
-      if line.startsWith("--path:\"") and ("/pkgs2/" & pkg & "-") in line:
-        return line[8 ..< line.high]
-    quit "Package " & pkg & " not found in nimble.paths — run 'make build-deps' first"
 
   let natTraversalPath = nimblePkgPath("nat_traversal")
 
