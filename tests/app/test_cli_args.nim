@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[os, strutils],
+  std/[os, sequtils, strutils],
   testutils/unittests,
   chronos,
   libp2p/crypto/[crypto, secp],
@@ -559,7 +559,44 @@ suite "Node config - Messaging API flags":
     let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
     check not conf.messaging.isSet()
 
+func parsePkgVersion(nimbleFile: string): (int, int, int) =
+  for line in nimbleFile.splitLines():
+    if line.startsWith("version"):
+      let parts = line.split('"')[1].split('.')
+      return (parseInt(parts[0]), parseInt(parts[1]), parseInt(parts[2]))
+  raiseAssert "no version in logos_delivery.nimble"
+
+const
+  PkgVersion = parsePkgVersion(staticRead("../../logos_delivery.nimble"))
+  DeprecatedFlagsRemovalVersion = (0, 42, 0)
+  ## One argument per flag marked obsolete for removal in v0.42.0.
+  DeprecatedFlagArgs = [
+    "--dns-discovery=true", "--rln-relay-dynamic=true",
+    "--rln-relay-eth-private-key=0xabc",
+    "--staticnode=/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ",
+    "--relay-client=true", "--metrics-logging=false", "--discv5-table-ip-limit=5",
+    "--discv5-bucket-ip-limit=3", "--discv5-bits-per-hop=2",
+    "--discv5-bootstrap-node=enr:-QEKuECA0zhRJej2eaOoOPddNcYr7-5NdRwuoLCe2EE4wfEYkAZhFotg6Kkr8K15pMAGyUyt0smHkZCjLeld0BUzogNtAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc2hhcmRzLnRlc3Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zaGFyZHMudGVzdC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0",
+    "--store-resume=true", "--relay-peer-exchange=true",
+    "--nat-discovery-timeout-ms=5000", "--ports-shift=2", "--ext-multiaddr-only=true",
+    "--peer-store-capacity=500", "--store-message-db-migration=false",
+    "--agent-string=test-agent", "--filter-subscription-timeout=60",
+    "--filter-max-peers-to-serve=10", "--filter-max-criteria=50",
+  ]
+
 suite "Waku external config - deprecated flags":
+  test "deprecated flags are rejected from v0.42.0":
+    ## Until v0.42.0 the flags are obsolete but accepted. From then on each
+    ## must be an unknown option; this fails while any of them is still defined.
+    if PkgVersion < DeprecatedFlagsRemovalVersion:
+      skip()
+    else:
+      for arg in DeprecatedFlagArgs:
+        checkpoint arg
+        expect ConfigurationError:
+          discard
+            WakuNodeConf.load(version = "", cmdLine = @[arg], quitOnFailure = false)
+
   test "deprecated flags still parse and leave the config unchanged":
     ## Given
     let cmdLine = @["--dns-discovery", "--rln-relay-eth-private-key=0xabc"]
@@ -579,6 +616,58 @@ suite "Waku external config - deprecated flags":
       wakuConf.dnsDiscoveryConf.isNone()
       wakuConf.discv5Conf.isSome() == defaultWakuConf.discv5Conf.isSome()
       wakuConf.rlnEvmConf.isNone()
+
+  test "flags deprecated for v0.42.0 still parse and keep their effect":
+    ## Given
+    let cmdLine = @[
+      "--staticnode=/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ",
+      "--relay-client=true", "--metrics-logging=false", "--discv5-table-ip-limit=5",
+      "--discv5-bucket-ip-limit=3", "--discv5-bits-per-hop=2",
+      "--discv5-bootstrap-node=enr:-QEKuECA0zhRJej2eaOoOPddNcYr7-5NdRwuoLCe2EE4wfEYkAZhFotg6Kkr8K15pMAGyUyt0smHkZCjLeld0BUzogNtAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc2hhcmRzLnRlc3Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zaGFyZHMudGVzdC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0",
+      "--store-resume=true", "--relay-peer-exchange=true",
+      "--nat-discovery-timeout-ms=5000", "--ports-shift=2",
+      "--ext-multiaddr=/ip4/1.2.3.4/tcp/60000", "--ext-multiaddr-only=true",
+      "--peer-store-capacity=500", "--store-message-db-migration=false",
+      "--agent-string=test-agent", "--filter-subscription-timeout=60",
+      "--filter-max-peers-to-serve=10", "--filter-max-criteria=50",
+    ]
+
+    ## When
+    var conf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
+    applyModeFlags(conf, DefaultKernelModeFlags)
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check:
+      wakuConf.staticNodes.len == 1
+      wakuConf.circuitRelayClient
+      wakuConf.discv5Conf.get().tableIpLimit == 5
+      wakuConf.discv5Conf.get().bucketIpLimit == 3
+      wakuConf.discv5Conf.get().bitsPerHop == 2
+      conf.discv5BootstrapNodes.len == 1
+      conf.storeResume
+      conf.relayPeerExchange
+      conf.natDiscoveryTimeoutMs == 5000
+      conf.portsShift == 2
+      conf.extMultiAddrsOnly
+      conf.peerStoreCapacity == Opt.some(500)
+      not conf.storeMessageDbMigration
+      conf.agentString == "test-agent"
+      conf.filterSubscriptionTimeout == 60
+      conf.filterMaxPeersToServe == 10
+      conf.filterMaxCriteria == 50
+
+  test "--circuit-relay-client replaces --relay-client":
+    ## Given / When
+    var conf =
+      WakuNodeConf.load(version = "", cmdLine = @["--circuit-relay-client=true"])
+    applyModeFlags(conf, DefaultKernelModeFlags)
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check wakuConf.circuitRelayClient
 
   test "on-chain RLN no longer needs --rln-relay-dynamic":
     ## Given

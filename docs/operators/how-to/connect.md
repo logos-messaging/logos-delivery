@@ -13,13 +13,13 @@ discover and connect to random peers using discovery v5 with a bootstrap node.
 
 ## Option 1: Configure peers statically
 
-Static peers can be provided to a nwaku node on startup using the `--staticnode` CLI parameter.
-The `--staticnode` option can be repeated for each peer you want to connect to on startup.
+Static peers can be provided to a nwaku node on startup using the `--entry-node` CLI parameter with a multiaddr.
+The `--entry-node` option can be repeated for each peer you want to connect to on startup.
 
 ```sh
 ./build/logosdeliverynode \
-  --staticnode:<libp2p-multiaddr-peer1> \
-  --staticnode:<libp2p-multiaddr-peer2>
+  --entry-node:<libp2p-multiaddr-peer1> \
+  --entry-node:<libp2p-multiaddr-peer2>
 ```
 
 As an example, consider a nwaku node that connects to two known peers
@@ -29,8 +29,8 @@ and peer IDs `16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H` and `16Uiu2
 
 ```sh
 ./build/logosdeliverynode \
-  --staticnode:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
-  --staticnode:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ
+  --entry-node:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
+  --entry-node:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ
 ```
 
 ## Option 2: Discover peers using DNS discovery
@@ -47,13 +47,13 @@ There is also a [more comprehensive tutorial](../../tutorial/dns-disc.md) for ad
 Enable Discovery v5 using the `--discv5-discovery` option.
 
 It is possible to configure bootstrap entries for the Discovery v5 routing table
-using the `--discv5-bootstrap-node` option repeatedly.
+using the `--entry-node` option repeatedly.
 
 ```sh
 ./build/logosdeliverynode \
   --discv5-discovery:true \
-  --discv5-bootstrap-node:<discv5-enr-bootstrap-entry1> \
-  --discv5-bootstrap-node:<discv5-enr-bootstrap-entry2>
+  --entry-node:<discv5-enr-bootstrap-entry1> \
+  --entry-node:<discv5-enr-bootstrap-entry2>
 ```
 
 Note that if Discovery v5 is enabled and used in conjunction with DNS-based discovery,
