@@ -239,12 +239,11 @@ proc query*(
     return ok gotResults
   except Exception, CatchableError:
     error "exception in query", query = query, error = getCurrentExceptionMsg()
-
-  # release implicit transaction
-  discard sqlite3_reset(s) # same return information as step
-  discard sqlite3_clear_bindings(s) # no errors possible
-  discard sqlite3_finalize(s)
-    # NB: dispose of the prepared query statement and free associated memory
+  finally:
+    # Runs on every exit, including the early returns above. An unfinalized
+    # statement makes `sqlite3_close` fail with SQLITE_BUSY and keeps the
+    # database and its -wal/-shm files open.
+    discard sqlite3_finalize(s)
 
 proc prepareStmt*(
     db: SqliteDatabase, stmt: string, Params: type, Res: type
