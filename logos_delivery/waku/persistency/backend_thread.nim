@@ -11,7 +11,8 @@
 ##   3. registers the PersistEvent listener and the 6 RequestBroker
 ##      providers under that context
 ##   4. runs the chronos event loop until shutdown is signalled
-##   5. clears providers + listeners, closes the backend
+##   5. clears providers + listeners, closes the backend, then closes the
+##      thread's chronos dispatcher (see `releaseThreadDispatcher`)
 ##
 ## The arg struct lives in shared memory (``allocShared0``). The dbPath is
 ## carried as a shared cstring buffer rather than a Nim string to avoid
@@ -22,6 +23,8 @@ import std/os
 import std/atomics # std/concurrency/atomics is the same module in Nim 2.2
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
+import
+  brokers/internal/mt_broker_common # teardownBrokerThread, closeThreadDispatcherSelector
 import ./[types, backend_comm, backend_sqlite]
 
 export broker_context, backend_comm
@@ -190,11 +193,31 @@ proc clearProviders(ctx: BrokerContext) {.async.} =
 
 # ── thread proc ─────────────────────────────────────────────────────────
 
+proc releaseThreadDispatcher() =
+  ## chronos never closes a thread's dispatcher: its selector (epoll / kqueue)
+  ## and its wake-up fd (eventfd / socketpair) would leak once per job.
+  ## `teardownBrokerThread` must come first: it stops the broker dispatch loop
+  ## and closes the broker signal, whose fd is still registered with the
+  ## dispatcher, and `closeThreadDispatcher` asserts an empty selector. Its own
+  ## `onThreadDestruction` hook, which runs later, is then a no-op.
+  teardownBrokerThread()
+  when declared(closeThreadDispatcher):
+    # chronos after v4.4.1 (status-im/nim-chronos#614): closes the selector
+    # and the wake-up fd.
+    let diagnostic = closeThreadDispatcher()
+    if diagnostic.isSome():
+      error "storage thread dispatcher did not close cleanly", err = diagnostic.get()
+  else:
+    # Released chronos has no wake-up fd, only the selector to close.
+    closeThreadDispatcherSelector()
+
 proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
   ## Worker thread entrypoint. Errors during setup are surfaced via
   ## arg.errBuf + readyFlag=ReadyState.Error; the spawning thread checks both.
 
   setThreadBrokerContext(arg.ctx)
+  defer:
+    releaseThreadDispatcher()
 
   let path = $arg.dbPath
 

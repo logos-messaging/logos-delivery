@@ -5,6 +5,7 @@ import
   ./test_enr_builder,
   ./test_protobuf_validation,
   ./test_sqlite_migrations,
+  ./test_sqlite_query,
   ./test_parse_size,
   ./test_requestratelimiter,
   ./test_ratelimit_setting,

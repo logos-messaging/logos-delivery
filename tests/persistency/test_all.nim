@@ -9,3 +9,4 @@ import ./test_sds_persistency
 import ./test_string_lookup
 import ./test_singleton
 import ./test_thread_affinity
+import ./test_fd_leak
