@@ -305,7 +305,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
   selfExec "c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
-    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK" & toolchainParams & " " & params &
+    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
@@ -354,7 +354,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --app:staticlib --out:" & nimLib &
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
-      " -d:metrics -d:discv5_protocol_id=d5waku" &
+      " -d:metrics -d:discv5_protocol_id=d5waku" & libFeatureFlags &
       " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
       " --cc:clang" &
       " --passC:\"" & targetFlags & "\" --passL:\"" & targetFlags & "\"" &
