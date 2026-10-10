@@ -253,6 +253,11 @@ proc setupProtocols(
   else:
     info "Auto sharding is disabled"
 
+  for shardId in conf.extraListenShards:
+    node.subscriptionManager.extraListenShards.add(
+      $RelayShard(clusterId: conf.clusterId, shardId: shardId)
+    )
+
   # Mount relay on all nodes
   var peerExchangeHandler = Opt.none(RoutingRecordsHandler)
   if conf.relayPeerExchange:

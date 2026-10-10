@@ -256,16 +256,26 @@ proc unsubscribe*(
   return ok()
 
 proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
-  ## Subscribes to a content topic, resolving its shard via autosharding.
+  ## Subscribes to a content topic, resolving its shard via autosharding, and
+  ## on every extra listen shard.
   let shard = ?self.getShardForContentTopic(topic)
-  return self.subscribe(shard, topic)
+  ?self.subscribe(shard, topic)
+  for listenShard in self.extraListenShards:
+    if listenShard != shard:
+      ?self.subscribe(listenShard, topic)
+  return ok()
 
 proc unsubscribe*(
     self: SubscriptionManager, topic: ContentTopic
 ): Result[void, string] =
-  ## Unsubscribes from a content topic, resolving its shard via autosharding.
+  ## Unsubscribes from a content topic, resolving its shard via autosharding,
+  ## and from every extra listen shard.
   let shard = ?self.getShardForContentTopic(topic)
-  return self.unsubscribe(shard, topic)
+  ?self.unsubscribe(shard, topic)
+  for listenShard in self.extraListenShards:
+    if listenShard != shard:
+      ?self.unsubscribe(listenShard, topic)
+  return ok()
 
 proc unsubscribeAll*(
     self: SubscriptionManager, shard: PubsubTopic
