@@ -182,6 +182,10 @@ type
   SubscriptionManager* = ref object of RootObj
     node*: WakuNode
     shards*: Table[PubsubTopic, ShardSubscription]
+    extraListenShards*: seq[PubsubTopic]
+      ## Shards every content topic is also subscribed on, receive-only.
+      ## Deprecated: removed once Status's shard migration ends, see
+      ## https://github.com/status-im/status-go/issues/7498.
     edgeFilterSubStates*: Table[PubsubTopic, EdgeFilterSubState]
     edgeFilterWakeup*: AsyncEvent
     edgeFilterSubLoopFut*: Future[void]

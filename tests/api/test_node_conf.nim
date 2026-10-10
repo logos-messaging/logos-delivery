@@ -151,6 +151,25 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.shards == @[32'u16]
       wakuConf.subscribeShards == @[32'u16]
 
+  test "Extra listen shards reach the node configuration":
+    ## Given
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+    conf.autoshardingShards = @[32'u16]
+    conf.extraListenShards = @[64'u16]
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.subscribeShards == @[32'u16]
+      wakuConf.extraListenShards == @[64'u16]
+
   test "Autosharding shards set the shard count over the preset's":
     ## Given
     var conf = defaultKernelConf().valueOr:

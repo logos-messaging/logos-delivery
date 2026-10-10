@@ -62,3 +62,42 @@ suite "Shard subscription events":
     await sleepAsync(chronos.milliseconds(10))
 
     check subscribed == @[TestShard]
+
+suite "Extra listen shards":
+  var node {.threadvar.}: WakuNode
+
+  asyncSetup:
+    node = newTestWakuNode(generateSecp256k1Key())
+    (await node.mountRelay()).isOkOr:
+      raiseAssert error
+    node.mountAutoSharding(16, @[32'u16]).isOkOr:
+      raiseAssert error
+    node.subscriptionManager.extraListenShards = @[PubsubTopic("/waku/2/rs/16/64")]
+
+  asyncTeardown:
+    await node.stop()
+
+  asyncTest "a content topic is also subscribed and unsubscribed on the listen shard":
+    const contentTopic = ContentTopic("/status/1/listen-shard/proto")
+
+    node.subscriptionManager.subscribe(contentTopic).isOkOr:
+      raiseAssert error
+
+    check:
+      node.subscriptionManager.isContentSubscribed(
+        PubsubTopic("/waku/2/rs/16/32"), contentTopic
+      )
+      node.subscriptionManager.isContentSubscribed(
+        PubsubTopic("/waku/2/rs/16/64"), contentTopic
+      )
+
+    node.subscriptionManager.unsubscribe(contentTopic).isOkOr:
+      raiseAssert error
+
+    check:
+      not node.subscriptionManager.isContentSubscribed(
+        PubsubTopic("/waku/2/rs/16/32"), contentTopic
+      )
+      not node.subscriptionManager.isContentSubscribed(
+        PubsubTopic("/waku/2/rs/16/64"), contentTopic
+      )

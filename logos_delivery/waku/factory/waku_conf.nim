@@ -130,6 +130,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   clusterId*: uint16
   subscribeShards*: seq[uint16]
+  extraListenShards*: seq[uint16]
+    ## Shards every subscribed content topic is also received on, receive-only.
+    ## Deprecated: removed once Status's shard migration ends, see
+    ## https://github.com/status-im/status-go/issues/7498.
   protectedShards*: seq[ProtectedShard]
 
   shardingConf*: ShardingConf

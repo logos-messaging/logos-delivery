@@ -378,6 +378,12 @@ hence would have reachability issues.""",
     name: "autosharding-shards"
   .}: seq[uint16]
 
+  extraListenShards* {.
+    desc:
+      "Deprecated, removed once Status's shard migration ends (https://github.com/status-im/status-go/issues/7498). Shard to also receive every subscribed content topic on, without publishing there. Argument may be repeated.",
+    name: "extra-listen-shard"
+  .}: seq[uint16]
+
   contentTopics* {.
     desc: "Default content topic to subscribe to. Argument may be repeated.",
     name: "content-topic"
@@ -1361,6 +1367,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.autoshardingShards.len != 0:
     b.withAutoshardingShards(n.autoshardingShards)
     b.withShardingConf(AutoSharding)
+
+  if n.extraListenShards.len != 0:
+    b.withExtraListenShards(n.extraListenShards)
 
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)

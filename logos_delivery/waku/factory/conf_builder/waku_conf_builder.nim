@@ -109,6 +109,7 @@ type WakuConfBuilder* = object
   shardingConf: Opt[ShardingConfKind]
   numShardsInCluster: Opt[uint16]
   autoshardingShards: Opt[seq[uint16]]
+  extraListenShards: Opt[seq[uint16]]
   subscribeShards: Opt[seq[uint16]]
   protectedShards: Opt[seq[ProtectedShard]]
   contentTopics: Opt[seq[string]]
@@ -214,6 +215,9 @@ proc withNumShardsInCluster*(b: var WakuConfBuilder, numShardsInCluster: uint16)
 
 proc withAutoshardingShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
   b.autoshardingShards = Opt.some(shards)
+
+proc withExtraListenShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
+  b.extraListenShards = Opt.some(shards)
 
 proc withSubscribeShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
   b.subscribeShards = Opt.some(shards)
@@ -933,6 +937,7 @@ proc build*(
     shardingConf: shardingConf,
     contentTopics: contentTopics,
     subscribeShards: subscribeShards,
+    extraListenShards: builder.extraListenShards.get(@[]),
     protectedShards: protectedShards,
     relay: relay,
     lightPush: lightPush and relay, # can't mount lightpush without relay
