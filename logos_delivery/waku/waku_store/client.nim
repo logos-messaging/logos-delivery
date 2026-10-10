@@ -23,11 +23,15 @@ type WakuStoreClient* = ref object
   peerManager: PeerManager
   rng: crypto.Rng
   storeMsgMetricsPerShard*: Table[string, float64]
+  maxResponseSize*: int ## the largest response that the client reads
 
 proc new*(
-    T: type WakuStoreClient, peerManager: PeerManager, rng: crypto.Rng
+    T: type WakuStoreClient,
+    peerManager: PeerManager,
+    rng: crypto.Rng,
+    maxResponseSize = DefaultMaxQueryResponseSize,
 ): T {.gcsafe.} =
-  WakuStoreClient(peerManager: peerManager, rng: rng)
+  WakuStoreClient(peerManager: peerManager, rng: rng, maxResponseSize: maxResponseSize)
 
 proc sendStoreRequest(
     self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
@@ -49,7 +53,7 @@ proc sendStoreRequest(
 
   let buf =
     try:
-      await connection.readLp(DefaultMaxRpcSize.int)
+      await connection.readLp(self.maxResponseSize)
     except LPStreamError as exc:
       return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
 

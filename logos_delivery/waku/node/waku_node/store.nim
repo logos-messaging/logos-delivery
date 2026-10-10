@@ -21,6 +21,7 @@ import
   ../../waku_store/protocol as store,
   ../../waku_store/client as store_client,
   ../../waku_store/common as store_common,
+  ../../waku_store/rpc_codec as store_rpc_codec,
   ../../waku_store/resume,
   ../peer_manager,
   ../../common/rate_limit/setting,
@@ -115,10 +116,15 @@ proc mountStore*(
 
   node.switch.mount(node.wakuStore, protocolMatcher(store_common.WakuStoreCodec))
 
-proc mountStoreClient*(node: WakuNode) =
+proc mountStoreClient*(
+    node: WakuNode, maxMessageSize = int(DefaultMaxWakuMessageSize)
+) =
+  ## `maxMessageSize` sets the largest store response that the client reads.
   info "mounting store client"
 
-  node.wakuStoreClient = store_client.WakuStoreClient.new(node.peerManager, node.rng)
+  node.wakuStoreClient = store_client.WakuStoreClient.new(
+    node.peerManager, node.rng, maxQueryResponseSize(maxMessageSize)
+  )
 
 proc query*(
     node: WakuNode, request: store_common.StoreQueryRequest, peer: RemotePeerInfo

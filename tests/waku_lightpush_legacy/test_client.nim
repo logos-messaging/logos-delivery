@@ -359,3 +359,39 @@ suite "Waku Legacy Lightpush Client":
 
       # Then the response is negative
       check not publishResponse.isOk()
+
+suite "Waku Legacy Lightpush Client - response size":
+  asyncTest "a response above the read limit is an error result":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    proc reply(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+      try:
+        let buf = await conn.readLp(int(DefaultMaxWakuMessageSize) * 2)
+        let rpc = PushRPC.decode(buf).valueOr:
+          return
+        let resp = PushRPC(
+          requestId: rpc.requestId,
+          response: Opt.some(
+            PushResponse(
+              isSuccess: true,
+              info: Opt.some('x'.repeat(DefaultMaxPushResponseSize + 1)),
+            )
+          ),
+        )
+        await conn.writeLp(resp.encode())
+      except LPStreamError:
+        return
+
+    serverSwitch.mount(
+      LPProtocol.new(codecs = @[WakuLegacyLightPushCodec], handler = reply)
+    )
+    let client = newTestWakuLegacyLightpushClient(clientSwitch)
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    let res = await client.publish(
+      DefaultPubsubTopic, fakeWakuMessage(), serverSwitch.peerInfo.toRemotePeerInfo()
+    )
+    check res.isErr()
+
+    await allFutures(clientSwitch.stop(), serverSwitch.stop())

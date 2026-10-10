@@ -223,3 +223,72 @@ suite "Waku Store - query handler":
 
     ## Cleanup
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
+
+suite "Waku Store - read limits":
+  asyncTest "a query above the size limit gets no answer, and the next query does":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    let queryHandler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      return ok(StoreQueryResponse(statusCode: 200))
+    let
+      server = await newTestWakuStore(serverSwitch, handler = queryHandler)
+      client = newTestWakuStoreClient(clientSwitch)
+      serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+
+    # A length prefix of 2^40 bytes, and no data. The server closes the stream.
+    let conn = await clientSwitch.dial(
+      serverPeerInfo.peerId, serverPeerInfo.addrs, WakuStoreCodec
+    )
+    await conn.write(@[0x80'u8, 0x80, 0x80, 0x80, 0x80, 0x20])
+    let reply = catch:
+      await conn.readLp(1024)
+    await conn.close()
+
+    let res = await client.query(
+      StoreQueryRequest(contentTopics: @[DefaultContentTopic]), peer = serverPeerInfo
+    )
+    check:
+      reply.isErr()
+      res.isOk()
+
+    await allFutures(serverSwitch.stop(), clientSwitch.stop())
+
+  asyncTest "a query with many message hashes gets an answer":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    var hashCount = 0
+    let queryHandler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      hashCount = req.messageHashes.len
+      return ok(StoreQueryResponse(statusCode: 200))
+    let
+      server = await newTestWakuStore(serverSwitch, handler = queryHandler)
+      client = newTestWakuStoreClient(clientSwitch)
+      serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+
+    # 50 000 hashes take about 1.7 MB.
+    var hashes = newSeqOfCap[WakuMessageHash](50_000)
+    for i in 0 ..< 50_000:
+      var hash: WakuMessageHash
+      hash[0] = byte(i and 0xff)
+      hash[1] = byte((i shr 8) and 0xff)
+      hash[2] = byte(i shr 16)
+      hashes.add(hash)
+
+    let res = await client.query(
+      StoreQueryRequest(messageHashes: hashes), peer = serverPeerInfo
+    )
+    check:
+      res.isOk()
+      hashCount == 50_000
+
+    await allFutures(serverSwitch.stop(), clientSwitch.stop())

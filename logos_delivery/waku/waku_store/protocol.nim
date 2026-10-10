@@ -107,7 +107,7 @@ proc initProtocolHandler(self: WakuStore) =
 
     self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
       let readRes = catch:
-        await conn.readLp(DefaultMaxRpcSize.int)
+        await conn.readLp(DefaultMaxQuerySize)
 
       let reqBuf = readRes.valueOr:
         debug "Connection read error", error = error.msg

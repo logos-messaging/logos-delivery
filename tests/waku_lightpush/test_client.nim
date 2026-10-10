@@ -418,3 +418,35 @@ suite "Waku Lightpush Client":
         publishResponse.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
         publishResponse.error.desc ==
           Opt.some(dialFailure & ": " & $serverRemotePeerInfo2 & " is not accessible")
+
+suite "Waku Lightpush Client - response size":
+  asyncTest "a response above the read limit is an error result":
+    let
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
+    proc reply(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+      try:
+        let buf = await conn.readLp(int(DefaultMaxWakuMessageSize) * 2)
+        let req = LightpushRequest.decode(buf).valueOr:
+          return
+        let resp = LightPushResponse(
+          requestId: req.requestId,
+          statusCode: LightPushSuccessCode.SUCCESS,
+          statusDesc: Opt.some('x'.repeat(DefaultMaxPushResponseSize + 1)),
+        )
+        await conn.writeLp(resp.encode())
+      except LPStreamError:
+        return
+
+    serverSwitch.mount(LPProtocol.new(codecs = @[WakuLightPushCodec], handler = reply))
+    let client = newTestWakuLightpushClient(clientSwitch)
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+
+    let res = await client.publish(
+      Opt.some(DefaultPubsubTopic),
+      fakeWakuMessage(),
+      serverSwitch.peerInfo.toRemotePeerInfo(),
+    )
+    check res.isErr()
+
+    await allFutures(clientSwitch.stop(), serverSwitch.stop())

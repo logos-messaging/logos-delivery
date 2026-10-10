@@ -51,8 +51,8 @@ proc sendPushRequest(
 
   var buffer: seq[byte]
   try:
-    buffer = await connection.readLp(DefaultMaxRpcSize.int)
-  except LPStreamRemoteClosedError:
+    buffer = await connection.readLp(DefaultMaxPushResponseSize)
+  except LPStreamError:
     debug "Failed to read response from peer", error = getCurrentExceptionMsg()
     return lightpushResultInternalError(
       "Failed to read response from peer: " & getCurrentExceptionMsg()
