@@ -108,6 +108,7 @@ type WakuConfBuilder* = object
   clusterId: Opt[uint16]
   shardingConf: Opt[ShardingConfKind]
   numShardsInCluster: Opt[uint16]
+  autoshardingShards: Opt[seq[uint16]]
   subscribeShards: Opt[seq[uint16]]
   protectedShards: Opt[seq[ProtectedShard]]
   contentTopics: Opt[seq[string]]
@@ -210,6 +211,9 @@ proc withShardingConf*(b: var WakuConfBuilder, shardingConf: ShardingConfKind) =
 
 proc withNumShardsInCluster*(b: var WakuConfBuilder, numShardsInCluster: uint16) =
   b.numShardsInCluster = Opt.some(numShardsInCluster)
+
+proc withAutoshardingShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
+  b.autoshardingShards = Opt.some(shards)
 
 proc withSubscribeShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
   b.subscribeShards = Opt.some(shards)
@@ -353,17 +357,25 @@ proc nodeKey(
 proc buildShardingConf(
     bShardingConfKind: Opt[ShardingConfKind],
     bNumShardsInCluster: Opt[uint16],
+    bAutoshardingShards: Opt[seq[uint16]],
     bSubscribeShards: Opt[seq[uint16]],
-): (ShardingConf, seq[uint16]) =
+): Result[(ShardingConf, seq[uint16]), string] =
   case bShardingConfKind.get(DefaultShardingConfKind)
   of StaticSharding:
-    (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
+    ok((ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[])))
   of AutoSharding:
-    let numShardsInCluster = bNumShardsInCluster.get(DefaultNumShardsInCluster)
     let shardingConf =
-      ShardingConf(kind: AutoSharding, numShardsInCluster: numShardsInCluster)
-    let upperShard = uint16(numShardsInCluster - 1)
-    (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
+      if bAutoshardingShards.isSome():
+        let shards = bAutoshardingShards.get()
+        if bNumShardsInCluster.isSome() and bNumShardsInCluster.get().int != shards.len:
+          return err(
+            "autosharding-shards must hold num-shards-in-network (" &
+              $bNumShardsInCluster.get() & ") values, got: " & $shards.len
+          )
+        ShardingConf.autoSharding(shards)
+      else:
+        ShardingConf.autoSharding(bNumShardsInCluster.get(DefaultNumShardsInCluster))
+    ok((shardingConf, bSubscribeShards.get(shardingConf.shards)))
 
 proc resolveSubscribeShards(
     shardingConf: ShardingConf,
@@ -374,12 +386,10 @@ proc resolveSubscribeShards(
   ## With autosharding, add the shards derived from the content topics so that
   ## relay, metadata and the ENR all advertise the same shard set. Static
   ## sharding can't map content topics to shards, so they are ignored there.
-  if shardingConf.kind != AutoSharding or shardingConf.numShardsInCluster == 0:
+  if shardingConf.kind != AutoSharding or shardingConf.shards.len == 0:
     return ok(confShards)
 
-  let autoSharding = Sharding(
-    clusterId: clusterId, shardCountGenZero: uint32(shardingConf.numShardsInCluster)
-  )
+  let autoSharding = Sharding.new(clusterId, shardingConf.shards)
   var shards = confShards
   for contentTopic in contentTopics:
     let shard = autoSharding.getShard(contentTopic).valueOr:
@@ -477,10 +487,11 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   )
   case networkPresetConf.shardingConf.kind
   of AutoSharding:
-    checkSetPresetValueToField(
-      builder.numShardsInCluster, networkPresetConf.shardingConf.numShardsInCluster,
-      "Num Shards In Cluster overrides network conf preset",
-    )
+    if builder.autoshardingShards.isNone():
+      checkSetPresetValueToField(
+        builder.numShardsInCluster, networkPresetConf.shardingConf.numShardsInCluster,
+        "Num Shards In Cluster overrides network conf preset",
+      )
   of StaticSharding:
     discard
 
@@ -668,8 +679,9 @@ proc build*(
     else:
       builder.clusterId.get().uint16
 
-  let (shardingConf, confShards) = buildShardingConf(
-    builder.shardingConf, builder.numShardsInCluster, builder.subscribeShards
+  let (shardingConf, confShards) = ?buildShardingConf(
+    builder.shardingConf, builder.numShardsInCluster, builder.autoshardingShards,
+    builder.subscribeShards,
   )
   let contentTopics = builder.contentTopics.get(@[])
   let subscribeShards =

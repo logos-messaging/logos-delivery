@@ -290,12 +290,8 @@ proc subscribeAllAutoshards*(self: SubscriptionManager): Result[void, string] =
     return ok()
 
   let autoSharding = self.node.wakuAutoSharding.get()
-  let numShards = autoSharding.shardCountGenZero
-  if numShards == 0:
-    return ok()
-
-  for i in 0'u32 ..< numShards:
-    let shardObj = RelayShard(clusterId: autoSharding.clusterId, shardId: uint16(i))
+  for shardId in autoSharding.shards:
+    let shardObj = RelayShard(clusterId: autoSharding.clusterId, shardId: shardId)
     self.subscribeShard(PubsubTopic($shardObj)).isOkOr:
       error "failed to auto-subscribe relay to cluster shard",
         shard = $shardObj, error = error

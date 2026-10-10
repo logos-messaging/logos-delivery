@@ -12,12 +12,21 @@ import ./content_topic, ./pubsub_topic
 type Sharding* = object
   clusterId*: uint16
   # TODO: generations could be stored in a table here
-  shardCountGenZero*: uint32
+  shards*: seq[uint16]
+    ## Generation-zero shard ids: a content topic that hashes to index `i`
+    ## lands on `shards[i]`.
+
+proc new*(T: type Sharding, clusterId: uint16, shards: seq[uint16]): T =
+  return Sharding(clusterId: clusterId, shards: shards)
 
 proc new*(T: type Sharding, clusterId: uint16, shardCount: uint32): T =
-  return Sharding(clusterId: clusterId, shardCountGenZero: shardCount)
+  ## Auto-sharding over the shards `[0..shardCount-1]`.
+  var shards = newSeqOfCap[uint16](shardCount)
+  for i in 0'u32 ..< shardCount:
+    shards.add(uint16(i))
+  return Sharding.new(clusterId, shards)
 
-proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShard =
+proc getGenZeroShard*(s: Sharding, topic: NsContentTopic): RelayShard =
   let bytes = toBytes(topic.application) & toBytes(topic.version)
 
   let hash = sha256.digest(bytes)
@@ -25,20 +34,20 @@ proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShar
   # We only use the last 64 bits of the hash as having more shards is unlikely.
   let hashValue = uint64.fromBytesBE(hash.data[24 .. 31])
 
-  let shard = hashValue mod uint64(count)
+  let index = hashValue mod uint64(s.shards.len)
 
-  RelayShard(clusterId: s.clusterId, shardId: uint16(shard))
+  RelayShard(clusterId: s.clusterId, shardId: s.shards[index])
 
 proc getShard*(s: Sharding, topic: NsContentTopic): Result[RelayShard, string] =
   ## Compute the (pubsub topic) shard to use for this content topic.
 
   if topic.generation.isNone():
     ## Implicit generation # is 0 for all content topic
-    return ok(s.getGenZeroShard(topic, int(s.shardCountGenZero)))
+    return ok(s.getGenZeroShard(topic))
 
   case topic.generation.get()
   of 0:
-    return ok(s.getGenZeroShard(topic, int(s.shardCountGenZero)))
+    return ok(s.getGenZeroShard(topic))
   else:
     return err("Generation > 0 are not supported yet")
 
