@@ -35,35 +35,8 @@ const portableBuild = not defined(marchNative) or defined(disableMarchNative)
 # and nimcache is not keyed by defines: a tree first built with other flags keeps
 # the old archive. Use -d:LeopardRebuild or wipe nimcache when switching.
 if defined(android):
-  # cmake runs on the build host, so left alone it hands Leopard-RS the host's
-  # x86-64 compiler and produces an archive that cannot link into the target
-  # .so. Point it at the same NDK clang this file gives Nim, and define ANDROID
-  # so Leopard-RS takes its LEO_TARGET_MOBILE path instead of including
-  # <tmmintrin.h>. -march=native must stay off even here: the x86_64 ABI's NDK
-  # clang accepts it, and would then tune for the build machine.
-  let ndkClang = getEnv("ANDROID_TOOLCHAIN_DIR") & "/bin/" & getEnv("ANDROID_COMPILER")
-  switch(
-    "define",
-    "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
-      " -DCMAKE_POSITION_INDEPENDENT_CODE=ON" &
-      " -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE -DCMAKE_SYSTEM_NAME=Linux" &
-      " -DCMAKE_C_COMPILER=" & ndkClang & " -DCMAKE_CXX_COMPILER=" & ndkClang &
-      "++ -DCMAKE_CXX_FLAGS=-DANDROID",
-  )
-  # nim-leopard's non-macOS defaults add -fopenmp, and the NDK resolves its
-  # -lomp to a shared libomp.so that every consumer of our .so would then have
-  # to ship. Leopard is built without OpenMP above, so drop it on this side too.
-  switch("define", "LeopardExtraCompilerFlags=-fno-openmp")
-  switch("define", "LeopardExtraLinkerFlags=-fno-openmp")
-  # Leopard-RS is C++ and allocates its tables with `new[]`. Everywhere else Nim
-  # notices the mixed-mode build and links through the C++ driver, which brings
-  # the runtime in by itself; here the android section below pins
-  # clang.linkerexe to the NDK's C driver, which does not. Name libc++
-  # explicitly, and take the static one so the .so stays self-contained -- a
-  # -shared link does not fail on the missing symbols, it just defers them to
-  # dlopen on the device.
-  switch("passL", "-lc++_static")
-  switch("passL", "-lc++abi")
+  # Leopard-RS and the NDK toolchain are set by the libLogosDeliveryAndroid task.
+  discard
 elif portableBuild:
   # Leopard-RS' CMakeLists adds -march=native whenever the compiler accepts it.
   # Seed the cache variable guarding that probe so a portable build stays
@@ -205,19 +178,6 @@ switch("warning", "ObservableStores:off")
 
 # Too many false positives for "Warning: method has lock level <unknown>, but another method has 0 [LockLevel]"
 switch("warning", "LockLevel:off")
-
-if defined(android):
-  var clang = getEnv("ANDROID_COMPILER")
-  var ndk_home = getEnv("ANDROID_TOOLCHAIN_DIR")
-  var sysroot = ndk_home & "/sysroot"
-  var cincludes = sysroot & "/usr/include/" & getEnv("ANDROID_ARCH")
-
-  switch("clang.path", ndk_home & "/bin")
-  switch("clang.exe", clang)
-  switch("clang.linkerexe", clang)
-  switch("passC", "--sysroot=" & sysRoot)
-  switch("passL", "--sysroot=" & sysRoot)
-  switch("cincludes", sysRoot & "/usr/include/")
 
 # begin Nimble config (version 2)
 --noNimblePath
