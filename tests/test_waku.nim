@@ -53,7 +53,7 @@ suite "LogosDelivery API - Create node":
     check:
       not ld.isNil()
       ld.waku.conf.clusterId == 99
-      ld.waku.conf.shardingConf.numShardsInCluster == 16
+      ld.waku.conf.shardingConf.shards.len == 16
       ld.waku.conf.maxMessageSizeBytes == 1024'u64 * 1024'u64
       ld.waku.conf.staticNodes.len == 1
       ld.waku.conf.relay == true
