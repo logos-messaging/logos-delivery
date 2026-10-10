@@ -1,4 +1,4 @@
-import std/random, chronos, chronicles
+import std/random, chronos, chronicles, metrics
 
 import
   logos_delivery/waku/[
@@ -7,10 +7,19 @@ import
     waku_store_sync/common,
     waku_store_sync/reconciliation,
     waku_store_sync/transfer,
+    waku_store_sync/protocols_metrics,
   ],
   ../testlib/wakucore
 
 randomize()
+
+proc transferCount*(direction: string): float64 =
+  try:
+    return logos_delivery_total_transfer_messages_exchanged.valueByName(
+      "logos_delivery_total_transfer_messages_exchanged_total", [direction]
+    )
+  except ValueError:
+    return 0.0
 
 proc randomHash*(rng: var Rand): WakuMessageHash =
   var hash = EmptyWakuMessageHash

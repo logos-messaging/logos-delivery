@@ -687,3 +687,94 @@ suite "WakuNode - Relay":
 
     ## Cleanup
     await node.stop()
+
+  asyncTest "A node at the default max message size does not receive a 300000-byte message from a peer at 1024KiB, and a peer at 1024KiB does":
+    # TODO: logos-delivery#4482
+    ## node2 runs the default max message size, node1 and node3 run 1024KiB
+    let
+      raisedMaxMessageSize = 1024 * 1024
+      node1 = newTestWakuNode(generateSecp256k1Key())
+      node2 = newTestWakuNode(generateSecp256k1Key())
+      node3 = newTestWakuNode(generateSecp256k1Key())
+      shard = DefaultRelayShard
+      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      largePayload = newSeq[byte](300_000)
+      smallPayload = "after the large message".toBytes()
+
+    var
+      node2ReceivedLarge = newFuture[bool]()
+      node2ReceivedSmall = newFuture[bool]()
+      node3ReceivedLarge = newFuture[bool]()
+      node3ReceivedSmall = newFuture[bool]()
+
+    proc simpleHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    proc node2Handler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      if msg.payload == largePayload and not node2ReceivedLarge.finished():
+        node2ReceivedLarge.complete(true)
+      if msg.payload == smallPayload and not node2ReceivedSmall.finished():
+        node2ReceivedSmall.complete(true)
+
+    proc node3Handler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      if msg.payload == largePayload and not node3ReceivedLarge.finished():
+        node3ReceivedLarge.complete(true)
+      if msg.payload == smallPayload and not node3ReceivedSmall.finished():
+        node3ReceivedSmall.complete(true)
+
+    await node1.start()
+    (await node1.mountRelay(maxMessageSize = raisedMaxMessageSize)).isOkOr:
+      assert false, "Failed to mount relay"
+    await node2.start()
+    (await node2.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node3.start()
+    (await node3.mountRelay(maxMessageSize = raisedMaxMessageSize)).isOkOr:
+      assert false, "Failed to mount relay"
+
+    node1.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node2.subscribe((kind: PubsubSub, topic: $shard), node2Handler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+    node3.subscribe((kind: PubsubSub, topic: $shard), node3Handler).isOkOr:
+      assert false, "Failed to subscribe to topic: " & $error
+
+    await allFutures(
+      node2.connectToNodes(@[node1.switch.peerInfo.toRemotePeerInfo()]),
+      node3.connectToNodes(@[node1.switch.peerInfo.toRemotePeerInfo()]),
+    )
+    checkUntilTimeout:
+      node1.hasMeshPeer($shard, node2.switch.peerInfo.peerId)
+      node1.hasMeshPeer($shard, node3.switch.peerInfo.peerId)
+
+    check:
+      (
+        await node1.publish(
+          Opt.some($shard),
+          WakuMessage(payload: largePayload, contentTopic: contentTopic),
+        )
+      ).isOk()
+    checkUntilTimeout:
+      node3ReceivedLarge.finished()
+
+    check:
+      (
+        await node1.publish(
+          Opt.some($shard),
+          WakuMessage(payload: smallPayload, contentTopic: contentTopic),
+        )
+      ).isOk()
+    checkUntilTimeout:
+      node2ReceivedSmall.finished()
+      node3ReceivedSmall.finished()
+
+    ## node2 drops the larger message and still receives the message after it
+    check not node2ReceivedLarge.finished()
+
+    await allFutures(node1.stop(), node2.stop(), node3.stop())

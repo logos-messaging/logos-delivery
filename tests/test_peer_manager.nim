@@ -633,6 +633,56 @@ procSuite "Peer Manager":
 
     await allFutures(nodes.mapIt(it.stop()))
 
+  asyncTest "connectPeer() failing after the peer connected in leaves it CannotConnect while connected, and a retry counts a connection it does not make":
+    # TODO: logos-delivery#4481
+    let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))
+    await allFutures(nodes.mapIt(it.start()))
+    let
+      peerStore = nodes[0].peerManager.switch.peerStore
+      peerId = nodes[1].peerInfo.peerId
+
+    proc holdConnection(
+        server: StreamServer, transp: StreamTransport
+    ) {.async: (raises: []).} =
+      await noCancel transp.join()
+
+    let stalled = createStreamServer(
+      initTAddress("127.0.0.1:0"), holdConnection, flags = {ServerFlags.ReuseAddr}
+    )
+    stalled.start()
+    let stalledAddr =
+      MultiAddress.init("/ip4/127.0.0.1/tcp/" & $stalled.localAddress().port).get()
+
+    # Node 1 connects in while node 0's own dial to it is still in flight.
+    let dial = nodes[0].peerManager.connectPeer(
+      RemotePeerInfo.init(peerId, @[stalledAddr]), dialTimeout = chronos.seconds(3)
+    )
+    let connectedIn =
+      await nodes[1].peerManager.connectPeer(nodes[0].peerInfo.toRemotePeerInfo())
+    checkUntilTimeout:
+      peerStore.connectedness(peerId) == Connected
+    let dialed = await dial
+
+    check:
+      connectedIn
+      not dialed
+      nodes[0].switch.isConnected(peerId)
+      peerStore.connectedness(peerId) == CannotConnect
+
+    let initiated = logos_delivery_node_conns_initiated.value(["api"])
+    let retried = await nodes[0].peerManager.connectPeer(peerStore.getPeer(peerId))
+    let (inPeers, outPeers) = nodes[0].peerManager.connectedPeers()
+
+    check:
+      retried
+      logos_delivery_node_conns_initiated.value(["api"]) == initiated + 1
+      inPeers == @[peerId]
+      outPeers.len == 0
+      peerStore.connectedness(peerId) == CannotConnect
+
+    stalled.stop()
+    await allFutures(stalled.closeWait(), nodes[0].stop(), nodes[1].stop())
+
   asyncTest "reconnectPeers only reconnects persisted (Cache) peers":
     ## Regression: freshly discovered relay peers were wrongly swept into the
     ## reconnect backoff path. reconnectPeers must act only on peers loaded from

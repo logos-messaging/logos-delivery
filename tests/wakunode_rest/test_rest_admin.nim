@@ -133,6 +133,7 @@ suite "Waku v2 Rest API - Admin":
       )
 
   asyncTest "get peers lists an inbound peer at a port it does not listen on":
+    # TODO: logos-delivery#4480
     let
       primaryIp = $getPrimaryIPAddr()
       node1TcpAddr =
@@ -162,6 +163,128 @@ suite "Waku v2 Rest API - Admin":
           it.endsWith("/p2p/" & $peerInfo2.peerId)
       )
       node2ListenAddr notin listedAddrs
+
+  asyncTest "post peers fails on the address get peers lists for an inbound peer":
+    # TODO: logos-delivery#4480
+    let
+      primaryIp = $getPrimaryIPAddr()
+      node1TcpAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
+        $peerInfo1.peerId
+      node2ListenAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node2.boundTcpPort() & "/p2p/" &
+        $peerInfo2.peerId
+
+    let restServerForNode3 =
+      WakuRestServerRef.init(parseIpAddress("127.0.0.1"), Port(0)).tryGet()
+    installAdminApiHandlers(restServerForNode3.router, node3)
+    restServerForNode3.start()
+    defer:
+      await restServerForNode3.stop()
+      await restServerForNode3.closeWait()
+
+    let clientForNode3 = newRestHttpClient(restServerForNode3.localAddress())
+
+    let connected =
+      await node2.peerManager.connectPeer(parsePeerInfo(node1TcpAddr).tryGet())
+
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
+      node1.peerManager.switch.peerStore.peerExists(peerInfo2.peerId)
+
+    let listedAddrs = (await client.getPeers()).data.mapIt(it.multiaddr)
+    let listedAddrResponse = await clientForNode3.postPeers(listedAddrs)
+    let listenAddrResponse = await clientForNode3.postPeers(@[node2ListenAddr])
+
+    # A node not connected to the inbound peer cannot dial the address listed for it, only its listen address.
+    check:
+      connected
+      listedAddrs.len == 1
+      listedAddrResponse.status == 400
+      listedAddrs.allIt(
+        listedAddrResponse.data == "Failed to connect to peer at index: 0 - " & it
+      )
+      listenAddrResponse.status == 200
+
+  asyncTest "get peers lists a peer that dialled in over quic at its listen address":
+    # TODO: logos-delivery#4480
+    let
+      primaryIp = $getPrimaryIPAddr()
+      node1TcpAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
+        $peerInfo1.peerId
+      node2ListenAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node2.boundTcpPort() & "/p2p/" &
+        $peerInfo2.peerId
+      node1QuicAddrs = peerInfo1.addrs.filterIt("/quic-v1" in $it)
+      node3QuicListenAddrs = peerInfo3.addrs.filterIt("/quic-v1" in $it).mapIt(
+          constructMultiaddrStr(it, peerInfo3.peerId)
+        )
+
+    let connectedOverTcp =
+      await node2.peerManager.connectPeer(parsePeerInfo(node1TcpAddr).tryGet())
+    let connectedOverQuic = await node3.peerManager.connectPeer(
+      RemotePeerInfo.init(peerInfo1.peerId, node1QuicAddrs)
+    )
+
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
+      node1.peerManager.switch.peerStore.peerExists(peerInfo2.peerId)
+      node1.peerManager.switch.peerStore.isConnected(peerInfo3.peerId)
+      node1.peerManager.switch.peerStore.peerExists(peerInfo3.peerId)
+
+    let listedAddrs = (await client.getPeers()).data.mapIt(it.multiaddr)
+
+    # A peer that dialled in over quic is listed at its listen address, one that dialled in over tcp is not.
+    check:
+      connectedOverTcp
+      connectedOverQuic
+      node1QuicAddrs.len == 1
+      node3QuicListenAddrs.len == 1
+      listedAddrs.len == 2
+      node3QuicListenAddrs.allIt(it in listedAddrs)
+      node2ListenAddr notin listedAddrs
+
+  asyncTest "get peer by id keeps an inbound peer that left at its source port, CannotConnect":
+    # TODO: logos-delivery#4480
+    let node4 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
+    check node4.mountMetadata(1, @[0.uint16]).isOk()
+    await node4.start()
+
+    let
+      primaryIp = $getPrimaryIPAddr()
+      node1TcpAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
+        $peerInfo1.peerId
+      node4PeerId = node4.peerInfo.peerId
+      node4ListenAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node4.boundTcpPort() & "/p2p/" & $node4PeerId
+
+    let connected =
+      await node4.peerManager.connectPeer(parsePeerInfo(node1TcpAddr).tryGet())
+
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(node4PeerId)
+      node1.peerManager.switch.peerStore.peerExists(node4PeerId)
+
+    let connectedResponse = await client.getPeerById($node4PeerId)
+
+    await node4.stop()
+    checkUntilTimeout:
+      not node1.peerManager.switch.peerStore.isConnected(node4PeerId)
+    await node1.peerManager.connectToRelayPeers()
+
+    let leftResponse = await client.getPeerById($node4PeerId)
+
+    # Once the inbound peer has left and a dial to it has failed, it is still listed at the address its connection came from.
+    check:
+      connected
+      connectedResponse.status == 200
+      connectedResponse.data.connected == Connected
+      connectedResponse.data.multiaddr != node4ListenAddr
+      leftResponse.status == 200
+      leftResponse.data.connected == CannotConnect
+      leftResponse.data.multiaddr == connectedResponse.data.multiaddr
 
   asyncTest "Set wrong peer":
     let nonExistentPeer =
@@ -423,6 +546,65 @@ suite "Waku v2 Rest API - Admin":
       getRes3.status == 200
       $getRes3.contentType == $MIMETYPE_JSON
       getRes3.data.peers.len() == 0
+
+  asyncTest "get connected peers omits a peer that connected in while a dial to it failed, which get relay peers and get peers stats report as CannotConnect":
+    # TODO: logos-delivery#4481
+    let node1TcpAddr =
+      "/ip4/" & $getPrimaryIPAddr() & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
+      $peerInfo1.peerId
+
+    proc holdConnection(
+        server: StreamServer, transp: StreamTransport
+    ) {.async: (raises: []).} =
+      await noCancel transp.join()
+
+    let stalled = createStreamServer(
+      initTAddress("127.0.0.1:0"), holdConnection, flags = {ServerFlags.ReuseAddr}
+    )
+    stalled.start()
+    defer:
+      stalled.stop()
+      await stalled.closeWait()
+    let stalledAddr =
+      MultiAddress.init("/ip4/127.0.0.1/tcp/" & $stalled.localAddress().port).tryGet()
+
+    # Node 2 connects in while node 1's own dial to it is still in flight.
+    let dial = node1.peerManager.connectPeer(
+      RemotePeerInfo.init(peerInfo2.peerId, @[stalledAddr]), dialTimeout = 3.seconds
+    )
+    let connectedIn =
+      await node2.peerManager.connectPeer(parsePeerInfo(node1TcpAddr).tryGet())
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
+    let dialed = await dial
+
+    let shardTopic = $RelayShard(clusterId: 1, shardId: 5)
+    checkUntilTimeout:
+      node1.hasGossipsubPeer(shardTopic, peerInfo2.peerId)
+      node1.peerManager.getPeer(peerInfo2.peerId).getShards() == @[5.uint16]
+
+    let connectedResponse = await client.getConnectedPeers()
+    let connectedOnShardResponse = await client.getConnectedPeersByShard(5)
+    let relayResponse = await client.getRelayPeersByShard(5)
+    let peerStatsResponse = await client.getPeersStats()
+    let peerStats = peerStatsResponse.data
+
+    check:
+      connectedIn
+      not dialed
+      node1.switch.isConnected(peerInfo2.peerId)
+      connectedResponse.status == 200
+      connectedResponse.data.len == 0
+      connectedOnShardResponse.status == 200
+      connectedOnShardResponse.data.len == 0
+      relayResponse.status == 200
+      relayResponse.data.peers.mapIt(it.connected) == @[CannotConnect]
+      relayResponse.data.peers.allIt(it.multiaddr.endsWith("/p2p/" & $peerInfo2.peerId))
+      peerStatsResponse.status == 200
+      peerStats.getOrDefault("By Connectedness") ==
+        {$Connected: 0, $NotConnected: 0, $CannotConnect: 1, $CanConnect: 0}.toOrderedTable()
+      peerStats.getOrDefault("Relay peers") ==
+        {"5": 1, "Total relay peers": 1}.toOrderedTable()
 
   asyncTest "get mesh peers":
     # Connect to nodes 2 and 3 using the Admin API

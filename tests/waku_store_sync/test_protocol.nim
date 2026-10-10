@@ -5,11 +5,13 @@ import
   std/[sets, random, math, algorithm],
   testutils/unittests,
   chronos,
+  metrics,
   libp2p/crypto/crypto
 import chronos, chronos/asyncsync
 import nimcrypto
 import
   ../../logos_delivery/waku/[
+    common/protobuf,
     node/peer_manager,
     waku_core,
     waku_core/message,
@@ -18,6 +20,7 @@ import
     waku_store_sync/storage/range_processing,
     waku_store_sync/reconciliation,
     waku_store_sync/transfer,
+    waku_store_sync/protocols_metrics,
     waku_archive/archive,
     waku_archive/driver,
     waku_archive/common,
@@ -34,6 +37,14 @@ proc collectDiffs*(
     let sid = chan.recv() # synchronous receive
     received.incl sid.hash
   result = received
+
+proc transferBytes(direction: string): float64 =
+  try:
+    return logos_delivery_total_bytes_exchanged.valueByName(
+      "logos_delivery_total_bytes_exchanged_total", [Transfer, direction]
+    )
+  except ValueError:
+    return 0.0
 
 suite "Waku Sync: reconciliation":
   var serverSwitch {.threadvar.}: Switch
@@ -992,6 +1003,7 @@ suite "Waku Sync: transfer":
       response.messages.len > 0
 
   asyncTest "transfer a 100 KiB message but not a message encoded at the default limit":
+    # TODO: logos-delivery#4485
     let
       maxSize = int(DefaultMaxWakuMessageSize)
       largeMsg = fakeWakuMessage(payload = newSeq[byte](100 * 1024))
@@ -1027,6 +1039,45 @@ suite "Waku Sync: transfer":
       atLimitMsg.encode().buffer.len == maxSize
       await clientArchive.holdsMessages(@[laterHash])
       not await clientArchive.holdsMessages(@[atLimitHash])
+
+  asyncTest "a transfer payload with the message as field 1 and the pubsub topic as field 2 is counted in bytes but neither stored nor counted as a message":
+    # TODO: logos-delivery#4483
+    let
+      specMsg = fakeWakuMessage(payload = "message as field 1")
+      nodeMsg = fakeWakuMessage(payload = "pubsub topic as field 1")
+      specHash = computeMessageHash(DefaultPubsubTopic, specMsg)
+      nodeHash = computeMessageHash(DefaultPubsubTopic, nodeMsg)
+
+    var specPayload = initProtoBuffer()
+    specPayload.write(1, specMsg.encode().buffer)
+    specPayload.write(2, DefaultPubsubTopic)
+
+    var nodePayload = initProtoBuffer()
+    nodePayload.write(1, DefaultPubsubTopic)
+    nodePayload.write(2, nodeMsg.encode().buffer)
+
+    let
+      bytesBefore = transferBytes(Receiving)
+      messagesBefore = transferCount(Receiving)
+      conn = await clientSwitch.dial(
+        serverPeerInfo.peerId, serverPeerInfo.addrs, WakuTransferCodec
+      )
+
+    await conn.writeLp(specPayload.buffer)
+    await conn.writeLp(nodePayload.buffer)
+
+    # The receiver reads a stream's payloads in order, so the first is handled once
+    # the second is stored.
+    checkUntilTimeout:
+      await serverArchive.holdsMessages(@[nodeHash])
+
+    check:
+      not await serverArchive.holdsMessages(@[specHash])
+      transferCount(Receiving) - messagesBefore == 1.0
+      transferBytes(Receiving) - bytesBefore ==
+        float64(specPayload.buffer.len + nodePayload.buffer.len)
+
+    await conn.close()
 
   ## Disabled until we impl. DOS protection again
   #[ asyncTest "Check the exact missing messages are received":

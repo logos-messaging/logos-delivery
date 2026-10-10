@@ -47,6 +47,14 @@ proc testWakuNode(): WakuNode =
 
   newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
+proc maxMsgBytesPerShard(shard: PubsubTopic): float64 =
+  try:
+    return logos_delivery_relay_max_msg_bytes_per_shard.valueByName(
+      "logos_delivery_relay_max_msg_bytes_per_shard", [shard]
+    )
+  except ValueError:
+    return 0.0
+
 proc rejectFirstMessageAsRlnInvalid(node: WakuNode) =
   ## Registers a relay validator that rejects the first message it sees with
   ## the RLN validator's error marker, then accepts everything.
@@ -958,6 +966,239 @@ suite "Waku v2 Rest API - Relay":
     await restServer.stop()
     await restServer.closeWait()
     await node.stop()
+
+  asyncTest "Without a relay peer, a message encoded at the maximum size gets the answers of the largest message gossipsub sends but is not stored - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
+    # TODO: logos-delivery#4486
+    let node = testWakuNode()
+    let driver = newSqliteArchiveDriver()
+    check:
+      (await node.mountRelay()).isOk()
+      node.mountAutoSharding(DefaultClusterId, 1).isOk
+      node.mountArchive(driver).isOk()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restServer = WakuRestServerRef.init(parseIpAddress("0.0.0.0"), Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let
+      client = newRestHttpClient(restServer.localAddress())
+      contentTopic = ContentTopic("/myapp/1/size-limit/proto")
+      shard = $RelayShard(clusterId: DefaultClusterId, shardId: 0)
+      ts = now()
+      sizeEmptyMsg = uint64(
+        fakeWakuMessage(
+          payload = getByteSequence(0), contentTopic = contentTopic, ts = ts
+        )
+          .encode().buffer.len
+      )
+      atLimitLen = DefaultMaxWakuMessageSize - sizeEmptyMsg - 2
+      rpcOverhead = uint64(shard.len + 10)
+      largestGossipsubLen = atLimitLen - rpcOverhead
+      staticAtLimit = fakeWakuMessage(
+        payload = getByteSequence(atLimitLen), contentTopic = contentTopic, ts = ts
+      )
+      autoAtLimit = fakeWakuMessage(
+        payload = getByteSequence(atLimitLen), contentTopic = contentTopic, ts = ts + 1
+      )
+      staticLargestGossipsubMsg = fakeWakuMessage(
+        payload = getByteSequence(largestGossipsubLen),
+        contentTopic = contentTopic,
+        ts = ts,
+      )
+      autoLargestGossipsubMsg = fakeWakuMessage(
+        payload = getByteSequence(largestGossipsubLen),
+        contentTopic = contentTopic,
+        ts = ts + 1,
+      )
+
+    let subscribeResponse = await client.relayPostAutoSubscriptionsV1(@[contentTopic])
+    let staticAtLimitResponse =
+      await client.relayPostMessagesV1(shard, toRelayWakuMessage(staticAtLimit))
+    let autoAtLimitResponse =
+      await client.relayPostAutoMessagesV1(toRelayWakuMessage(autoAtLimit))
+    let storedAfterAtLimit = await driver.getMessagesCount()
+    let staticLargestGossipsubResponse = await client.relayPostMessagesV1(
+      shard, toRelayWakuMessage(staticLargestGossipsubMsg)
+    )
+    let autoLargestGossipsubResponse =
+      await client.relayPostAutoMessagesV1(toRelayWakuMessage(autoLargestGossipsubMsg))
+
+    # Then both sizes are answered 200 on the static route and 400 NoPeersToPublish on the auto route, and only the largest messages gossipsub sends are stored
+    check:
+      subscribeResponse.status == 200
+      staticAtLimit.encode().buffer.len == int(DefaultMaxWakuMessageSize)
+      staticAtLimitResponse.status == 200
+      staticAtLimitResponse.data == "OK"
+      autoAtLimitResponse.status == 400
+      autoAtLimitResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+      storedAfterAtLimit == ArchiveDriverResult[int64].ok(0)
+      staticLargestGossipsubResponse.status == 200
+      staticLargestGossipsubResponse.data == "OK"
+      autoLargestGossipsubResponse.status == 400
+      autoLargestGossipsubResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(2)
+
+  asyncTest "With a relay peer in the mesh, a message encoded at the maximum size is answered 200 on the static route and 400 NoPeersToPublish on the auto route, and is neither relayed nor stored - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
+    # TODO: logos-delivery#4486
+    let publisher = testWakuNode()
+    let publisherDriver = newSqliteArchiveDriver()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check:
+      publisher.mountAutoSharding(DefaultClusterId, 1).isOk
+      publisher.mountArchive(publisherDriver).isOk()
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    let receiverDriver = newSqliteArchiveDriver()
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      check:
+        receiver.mountAutoSharding(DefaultClusterId, 1).isOk
+        receiver.mountArchive(receiverDriver).isOk()
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      contentTopic = ContentTopic("/myapp/1/size-limit/proto")
+      shard = $RelayShard(clusterId: DefaultClusterId, shardId: 0)
+      ts = now()
+      sizeEmptyMsg = uint64(
+        fakeWakuMessage(
+          payload = getByteSequence(0), contentTopic = contentTopic, ts = ts
+        )
+          .encode().buffer.len
+      )
+      atLimitLen = DefaultMaxWakuMessageSize - sizeEmptyMsg - 2
+      rpcOverhead = uint64(shard.len + 10)
+      largestGossipsubLen = atLimitLen - rpcOverhead
+      staticAtLimit = fakeWakuMessage(
+        payload = getByteSequence(atLimitLen), contentTopic = contentTopic, ts = ts
+      )
+      autoAtLimit = fakeWakuMessage(
+        payload = getByteSequence(atLimitLen), contentTopic = contentTopic, ts = ts + 1
+      )
+      staticLargestGossipsubMsg = fakeWakuMessage(
+        payload = getByteSequence(largestGossipsubLen),
+        contentTopic = contentTopic,
+        ts = ts,
+      )
+      autoLargestGossipsubMsg = fakeWakuMessage(
+        payload = getByteSequence(largestGossipsubLen),
+        contentTopic = contentTopic,
+        ts = ts + 1,
+      )
+
+    for client in [publisherClient, receiverClient]:
+      let response = await client.relayPostAutoSubscriptionsV1(@[contentTopic])
+      check response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasMeshPeer(shard, receiver.peerInfo.peerId)
+
+    let staticAtLimitResponse = await publisherClient.relayPostMessagesV1(
+      shard, toRelayWakuMessage(staticAtLimit)
+    )
+    let autoAtLimitResponse =
+      await publisherClient.relayPostAutoMessagesV1(toRelayWakuMessage(autoAtLimit))
+    let staticLargestGossipsubResponse = await publisherClient.relayPostMessagesV1(
+      shard, toRelayWakuMessage(staticLargestGossipsubMsg)
+    )
+    let autoLargestGossipsubResponse = await publisherClient.relayPostAutoMessagesV1(
+      toRelayWakuMessage(autoLargestGossipsubMsg)
+    )
+    let received = await receiverClient.waitForRelayAutoMessages(contentTopic, 2)
+
+    # Then the receiver gets and stores only the largest messages gossipsub sends, which the publisher stores too, with the receiver still in its mesh
+    check:
+      staticAtLimit.encode().buffer.len == int(DefaultMaxWakuMessageSize)
+      staticAtLimitResponse.status == 200
+      staticAtLimitResponse.data == "OK"
+      autoAtLimitResponse.status == 400
+      autoAtLimitResponse.data ==
+        "Failed to publish: publish failed in relay: NoPeersToPublish"
+      staticLargestGossipsubResponse.status == 200
+      autoLargestGossipsubResponse.status == 200
+      received.mapIt(it.timestamp) ==
+        @[
+          Opt.some(staticLargestGossipsubMsg.timestamp),
+          Opt.some(autoLargestGossipsubMsg.timestamp),
+        ]
+      received.mapIt(it.payload) ==
+        @[
+          toRelayWakuMessage(staticLargestGossipsubMsg).payload,
+          toRelayWakuMessage(autoLargestGossipsubMsg).payload,
+        ]
+      (await publisherDriver.getMessagesCount()) == ArchiveDriverResult[int64].ok(2)
+      (await receiverDriver.getMessagesCount()) == ArchiveDriverResult[int64].ok(2)
+      publisher.hasMeshPeer(shard, receiver.peerInfo.peerId)
+
+  asyncTest "A message encoded at the maximum size is recorded as the largest message of its shard though it is not published - POST /relay/v1/messages/{topic}":
+    # TODO: logos-delivery#4486
+    let node = testWakuNode()
+    let driver = newSqliteArchiveDriver()
+    check:
+      (await node.mountRelay()).isOk()
+      node.mountArchive(driver).isOk()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restServer = WakuRestServerRef.init(parseIpAddress("0.0.0.0"), Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let
+      client = newRestHttpClient(restServer.localAddress())
+      ts = now()
+      sizeEmptyMsg = uint64(
+        fakeWakuMessage(payload = getByteSequence(0), ts = ts).encode().buffer.len
+      )
+      atLimit = fakeWakuMessage(
+        payload = getByteSequence(DefaultMaxWakuMessageSize - sizeEmptyMsg - 2), ts = ts
+      )
+
+    let subscribeResponse = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+    let response =
+      await client.relayPostMessagesV1(DefaultPubsubTopic, toRelayWakuMessage(atLimit))
+
+    # Then the shard's largest message is one the node neither sent nor stored
+    check:
+      subscribeResponse.status == 200
+      atLimit.encode().buffer.len == int(DefaultMaxWakuMessageSize)
+      response.status == 200
+      (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(0)
+      maxMsgBytesPerShard(DefaultPubsubTopic) == float64(atLimit.payload.len)
 
   asyncTest "Post a message timestamped outside the RLN bound returns 400 - POST /relay/v1/messages/{topic}":
     ## Proof generation refuses a timestamp further from the clock than the
