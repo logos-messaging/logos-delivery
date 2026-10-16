@@ -57,9 +57,10 @@ suite "WakuNodeConf - preset integration":
     require wakuConfRes.isOk()
     let wakuConf = wakuConfRes.get()
     require wakuConf.kademliaDiscoveryConf.isSome()
-    let presetEntryNodes = NetworkPresetConf.LogosDevConf().entryNodes
+    let preset = NetworkPresetConf.LogosDevConf()
     check:
-      wakuConf.kademliaDiscoveryConf.get().bootstrapNodes.len == presetEntryNodes.len
+      wakuConf.kademliaDiscoveryConf.get().bootstrapNodes.len ==
+        preset.kadBootstrapNodes.len + preset.entryNodes.len
 
   test "LogosTest preset applies LogosTestConf":
     ## Given
@@ -340,7 +341,10 @@ suite "WakuNodeConf - service discovery exclusivity":
     check:
       wakuConf.kademliaDiscoveryConf.isNone()
       wakuConf.externalDiscoveryConf.isSome()
+      ## The preset's kad bootstrap peers (the fleet's libp2p_module hosts) come
+      ## first: the host hands libp2p only the first bootstrap peer.
       wakuConf.externalDiscoveryConf.get().bootstrapNodes ==
+        NetworkPresetConf.LogosDevConf().kadBootstrapNodes &
         NetworkPresetConf.LogosDevConf().entryNodes
 
   test "--kad-bootstrap-node feeds the plugin instead of enabling in-process kademlia":
