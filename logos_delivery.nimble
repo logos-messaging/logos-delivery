@@ -49,9 +49,10 @@ requires "nim == 2.2.6",
   # Cryptography
   "nimcrypto >= 0.7.3",
   "secp256k1 >= 0.8.0.8.0",
-  "bearssl",
+  # 0.2.14 writes into the read-only nix store when cross-building for Windows.
+  "bearssl == 0.2.13",
   # RPC & APIs
-  "json_rpc == 0.6.1",
+  "json_rpc == 0.7.0",
   "presto",
   "https://github.com/status-im/nim-web3#cdfe5601d2812a58e54faf53ee634452d01e5918",
   # Database
@@ -77,7 +78,7 @@ requires "nim == 2.2.6",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-requires "https://github.com/logos-messaging/nim-ffi#4c1218626bbbf89e19836845b690937cd255c3f0"
+requires "https://github.com/logos-messaging/nim-ffi#d98f77141de9c95c0c543d191a79aee18e7536a4"
 
 # No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
 requires "https://github.com/logos-messaging/nim-sds.git#4b08d508dbfa69c0e2e3883db67adf1fe5a0c994"
