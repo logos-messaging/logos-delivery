@@ -546,7 +546,7 @@ define compile_liblogosdelivery
 mkdir -p "$(1)"
 rm -f "$(1)/$(2)"
 "$(NIM_BIN)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
-cp library/*.h "$(1)/"
+cp library/*.h library/*.hpp "$(1)/"
 endef
 
 LIB_DIR := $(CURDIR)/build

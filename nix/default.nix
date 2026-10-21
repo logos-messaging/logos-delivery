@@ -111,7 +111,7 @@ let
   cBindingsOutputDir = "generated";
   cBindingsArgs = [
     "--define:ffiGenBindings"
-    "--define:targetLang=c"
+    "--define:targetLang=c,cpp"
     "--define:ffiOutputDir=${cBindingsOutputDir}"
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
@@ -198,7 +198,7 @@ pkgs.stdenv.mkDerivation {
   # hook makes cmakeConfigurePhase the configurePhase and fails on the repo root.
   dontUseCmakeConfigure = true;
 
-  # The generated C helpers include <tinycbor/cbor.h> and call TinyCBOR's
+  # The generated C and C++ helpers include <tinycbor/cbor.h> and call TinyCBOR's
   # encoder/decoder API. Propagate it from the library package to consumers.
   propagatedBuildInputs = lib.optionals (!buildApp) [ tinycbor ];
 
@@ -298,10 +298,11 @@ ${installLibpq "$out/${dllDir}"}
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_rln.h    $out/include/
+    cp library/liblogosdelivery.hpp      $out/include/
 
     # The public header includes the generated binding, which in turn includes
     # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
-    for header in logosdelivery.h nim_ffi_cbor.h nim_ffi_prelude.h; do
+    for header in logosdelivery.h logosdelivery.hpp nim_ffi_cbor.h nim_ffi_prelude.h; do
       if [ ! -f ${cBindingsDir}/$header ]; then
         echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
         echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
@@ -311,7 +312,7 @@ ${installLibpq "$out/${dllDir}"}
       fi
     done
     mkdir -p $out/include/generated
-    cp ${cBindingsDir}/*.h $out/include/generated/
+    cp ${cBindingsDir}/*.h ${cBindingsDir}/*.hpp $out/include/generated/
     runHook postInstall
   '';
 
