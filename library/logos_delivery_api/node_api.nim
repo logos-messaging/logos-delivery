@@ -219,6 +219,8 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
+  lib.installServiceDiscoveryHost()
+
   return ok(lib)
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
@@ -290,4 +292,5 @@ proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   (await self.stopNode()).isOkOr:
     chronicles.error "DESTROY failed", err = error
   restServices.del($self.waku.brokerCtx)
+  self.removeServiceDiscoveryHost()
   await self.teardownFFIEventScope()

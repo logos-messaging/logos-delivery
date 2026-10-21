@@ -14,10 +14,11 @@ import
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
 
 include
+  # Before node_api: create and destroy install and remove the discovery host.
+  ./logos_delivery_api/service_discovery_host_api,
   ./logos_delivery_api/node_api,
   ./logos_delivery_api/messaging_api,
   ./logos_delivery_api/debug_api,
-  ./logos_delivery_api/service_discovery_plugin_api,
   ./logos_delivery_api/sync_exports,
   ./kernel_api/peer_manager_api,
   ./kernel_api/discovery_api,
