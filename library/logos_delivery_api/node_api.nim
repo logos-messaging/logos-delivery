@@ -1,10 +1,8 @@
-import std/[json, tables]
+import std/tables
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import stew/byteutils
-import logos_delivery/waku/common/base64
-from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -15,11 +13,7 @@ import
   logos_delivery/waku/rln/rln_lez/transport,
   rest/rest_service,
   ../declare_lib,
-  ../json_event
-
-# Add JSON serialization for RequestId
-proc `%`*(id: RequestId): JsonNode =
-  %($id)
+  ../events/ffi_events
 
 proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ## Bridges every broker event the library re-publishes onto the FFI event
@@ -29,8 +23,12 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   MessageSentEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
-      emitEvent("onMessageSent"):
-        $newJsonEvent("message_sent", event),
+      fireEvent:
+        onMessageSent(
+          MessageSentPayload(
+            requestId: $event.requestId, messageHash: event.messageHash
+          )
+        ),
   ).isOkOr:
     chronicles.error "MessageSentEvent.listen failed", err = $error
     return err("MessageSentEvent.listen failed: " & $error)
@@ -38,8 +36,14 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   MessageErrorEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageErrorEvent) {.async: (raises: []).} =
-      emitEvent("onMessageError"):
-        $newJsonEvent("message_error", event),
+      fireEvent:
+        onMessageError(
+          MessageErrorPayload(
+            requestId: $event.requestId,
+            messageHash: event.messageHash,
+            error: event.error,
+          )
+        ),
   ).isOkOr:
     chronicles.error "MessageErrorEvent.listen failed", err = $error
     return err("MessageErrorEvent.listen failed: " & $error)
@@ -47,8 +51,12 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   MessageQueuedEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageQueuedEvent) {.async: (raises: []).} =
-      emitEvent("onMessageQueued"):
-        $newJsonEvent("message_queued", event),
+      fireEvent:
+        onMessageQueued(
+          MessageQueuedPayload(
+            requestId: $event.requestId, messageHash: event.messageHash
+          )
+        ),
   ).isOkOr:
     chronicles.error "MessageQueuedEvent.listen failed", err = $error
     return err("MessageQueuedEvent.listen failed: " & $error)
@@ -56,8 +64,12 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   MessagePropagatedEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-      emitEvent("onMessagePropagated"):
-        $newJsonEvent("message_propagated", event),
+      fireEvent:
+        onMessagePropagated(
+          MessagePropagatedPayload(
+            requestId: $event.requestId, messageHash: event.messageHash
+          )
+        ),
   ).isOkOr:
     chronicles.error "MessagePropagatedEvent.listen failed", err = $error
     return err("MessagePropagatedEvent.listen failed: " & $error)
@@ -65,8 +77,14 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   MessageReceivedEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageReceivedEvent) {.async: (raises: []).} =
-      emitEvent("onMessageReceived"):
-        $newJsonEvent("message_received", event),
+      fireEvent:
+        onMessageReceived(
+          MessageReceivedPayload(
+            messageHash: event.messageHash,
+            message: event.message.toPayload(),
+            source: $event.source,
+          )
+        ),
   ).isOkOr:
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
@@ -74,8 +92,10 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   EventConnectionStatusChange.listen(
     self.waku.brokerCtx,
     proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
-      emitEvent("onConnectionStatusChange"):
-        $newJsonEvent("connection_status_change", event),
+      fireEvent:
+        onConnectionStatusChange(
+          ConnectionStatusChangePayload(connectionStatus: $event.connectionStatus)
+        ),
   ).isOkOr:
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
@@ -83,13 +103,11 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   EventShardTopicHealthChange.listen(
     self.waku.brokerCtx,
     proc(event: EventShardTopicHealthChange) {.async: (raises: []).} =
-      emitEvent("onTopicHealthChange"):
-        $(
-          %*{
-            "eventType": "relay_topic_health_change",
-            "pubsubTopic": $event.topic,
-            "topicHealth": $event.health,
-          }
+      fireEvent:
+        onTopicHealthChange(
+          TopicHealthChangePayload(
+            pubsubTopic: $event.topic, topicHealth: $event.health
+          )
         ),
   ).isOkOr:
     chronicles.error "EventShardTopicHealthChange.listen failed", err = $error
@@ -98,13 +116,9 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   WakuPeerEvent.listen(
     self.waku.brokerCtx,
     proc(event: WakuPeerEvent) {.async: (raises: []).} =
-      emitEvent("onConnectionChange"):
-        $(
-          %*{
-            "eventType": "connection_change",
-            "peerId": $event.peerId,
-            "peerEvent": $event.kind,
-          }
+      fireEvent:
+        onConnectionChange(
+          ConnectionChangePayload(peerId: $event.peerId, peerEvent: $event.kind)
         ),
   ).isOkOr:
     chronicles.error "WakuPeerEvent.listen failed", err = $error
@@ -113,14 +127,13 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ChannelMessageReceivedEvent.listen(
     self.waku.brokerCtx,
     proc(event: ChannelMessageReceivedEvent) {.async: (raises: []).} =
-      emitEvent("onChannelMessageReceived"):
-        $(
-          %*{
-            "eventType": "channel_message_received",
-            "channelId": string(event.channelId),
-            "senderId": $event.senderId,
-            "payload": string(base64.encode(event.payload)),
-          }
+      fireEvent:
+        onChannelMessageReceived(
+          ChannelMessageReceivedPayload(
+            channelId: string(event.channelId),
+            senderId: $event.senderId,
+            payload: event.payload,
+          )
         ),
   ).isOkOr:
     chronicles.error "ChannelMessageReceivedEvent.listen failed", err = $error
@@ -129,8 +142,12 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ChannelMessageSentEvent.listen(
     self.waku.brokerCtx,
     proc(event: ChannelMessageSentEvent) {.async: (raises: []).} =
-      emitEvent("onChannelMessageSent"):
-        $newJsonEvent("channel_message_sent", event),
+      fireEvent:
+        onChannelMessageSent(
+          ChannelMessageSentPayload(
+            channelId: string(event.channelId), requestId: $event.requestId
+          )
+        ),
   ).isOkOr:
     chronicles.error "ChannelMessageSentEvent.listen failed", err = $error
     return err("ChannelMessageSentEvent.listen failed: " & $error)
@@ -138,8 +155,14 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ChannelMessageErrorEvent.listen(
     self.waku.brokerCtx,
     proc(event: ChannelMessageErrorEvent) {.async: (raises: []).} =
-      emitEvent("onChannelMessageError"):
-        $newJsonEvent("channel_message_error", event),
+      fireEvent:
+        onChannelMessageError(
+          ChannelMessageErrorPayload(
+            channelId: string(event.channelId),
+            requestId: $event.requestId,
+            error: event.error,
+          )
+        ),
   ).isOkOr:
     chronicles.error "ChannelMessageErrorEvent.listen failed", err = $error
     return err("ChannelMessageErrorEvent.listen failed: " & $error)
@@ -147,14 +170,13 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ChannelMessageLostEvent.listen(
     self.waku.brokerCtx,
     proc(event: ChannelMessageLostEvent) {.async: (raises: []).} =
-      emitEvent("onChannelMessageLost"):
-        $(
-          %*{
-            "eventType": "channel_message_lost",
-            "channelId": string(event.channelId),
-            "payloadHash": byteutils.toHex(event.payloadHash),
-            "reason": event.reason,
-          }
+      fireEvent:
+        onChannelMessageLost(
+          ChannelMessageLostPayload(
+            channelId: string(event.channelId),
+            payloadHash: byteutils.toHex(event.payloadHash),
+            reason: event.reason,
+          )
         ),
   ).isOkOr:
     chronicles.error "ChannelMessageLostEvent.listen failed", err = $error

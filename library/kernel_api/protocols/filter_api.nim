@@ -6,7 +6,7 @@ import
   logos_delivery/waku/waku_core/subscription/push_handler,
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_core/topics/content_topic,
-  library/events/json_message_event,
+  library/events/ffi_events,
   library/declare_lib
 
 proc waku_filter_subscribe(
@@ -14,8 +14,8 @@ proc waku_filter_subscribe(
 ): Future[Result[string, string]] {.ffi.} =
   proc onReceivedMessage(): FilterPushHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      emitEvent("onReceivedMessage"):
-        $JsonMessageEvent.new(pubsubTopic, msg)
+      fireEvent:
+        onReceivedMessage(receivedMessage(pubsubTopic, msg))
 
   (
     await self.waku.filterSubscribe(
