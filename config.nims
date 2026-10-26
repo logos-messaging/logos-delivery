@@ -58,7 +58,8 @@ elif portableBuild:
     if defined(macosx):
       "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
     elif defined(windows) and buildOS == "windows":
-      "-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release"
+      # No OpenMP, so the DLL doesn't need a libgomp shipped next to it.
+      "-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
     elif defined(windows) and buildOS != "windows":
       # Cross-built: the builder has no MSYS make, and the mingw toolchains we
       # cross with carry no OpenMP runtime for Leopard-RS to link against.
@@ -77,6 +78,10 @@ elif portableBuild:
       " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
       leopardCxxFlags,
   )
+  if defined(windows):
+    # nim-leopard adds -fopenmp to its own compile and link flags on Windows.
+    switch("define", "LeopardExtraCompilerFlags=-fno-openmp")
+    switch("define", "LeopardExtraLinkerFlags=-fno-openmp")
 if portableBuild:
   switch("define", "disableMarchNative")
   # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
