@@ -389,6 +389,57 @@ suite "Waku Store Sync - same-timestamp bounds":
           (d1002b .. d1003, RangeType.Skip),
         ]
 
+  test "same-timestamp prefixes that grow and shrink keep their order":
+    proc at1002(hashHex: string): SyncID =
+      SyncID(
+        time: Timestamp(1002),
+        hash: hexToByteArray[32](hashHex & "00".repeat(32 - hashHex.len div 2)),
+      )
+
+    let
+      p1 = at1002("351c5e")
+      p2 = at1002("3560d9")
+      p3 = at1002("3560da")
+      p4 = at1002("36")
+      d1000 = SyncID(time: Timestamp(1000), hash: EmptyFingerprint)
+      d1003 = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
+      payload = RangesData(
+        cluster: 2,
+        shards: @[3'u16],
+        ranges: @[
+          (zero .. d1000, RangeType.Skip),
+          (d1000 .. p1, RangeType.Skip),
+          (p1 .. p2, RangeType.Skip),
+          (p2 .. p3, RangeType.Skip),
+          (p3 .. p4, RangeType.Skip),
+          (p4 .. d1003, RangeType.Skip),
+        ],
+      )
+      # 1000, +2, then prefixes of 2, 3 and 1 bytes, then +1; each Skip
+      bytes =
+        header &
+        @[
+          byte 0xe8, 0x07, 0, 2, 0, 0, 2, 0x35, 0x60, 0, 0, 3, 0x35, 0x60, 0xda, 0, 0,
+          1, 0x36, 0, 1, 0,
+        ]
+
+    let res = RangesData.deltaDecode(bytes)
+
+    # Each prefix decodes with the remaining bytes zero, and still sorts above
+    # the previous decoded prefix.
+    check:
+      payload.deltaEncode() == bytes
+      res.isOk()
+      res.get().ranges ==
+        @[
+          (zero .. d1000, RangeType.Skip),
+          (d1000 .. at1002(""), RangeType.Skip),
+          (at1002("") .. at1002("3560"), RangeType.Skip),
+          (at1002("3560") .. at1002("3560da"), RangeType.Skip),
+          (at1002("3560da") .. at1002("36"), RangeType.Skip),
+          (at1002("36") .. d1003, RangeType.Skip),
+        ]
+
 suite "Store sync - codec bounds":
   test "a shard count beyond the payload is refused":
     # Cluster 2, then a shard count of int64.high.
@@ -439,6 +490,21 @@ suite "Store sync - codec bounds":
       check:
         res.isErr()
         res.error == "Range upper bound is not above its lower bound"
+
+  test "a malformed hash prefix is refused":
+    # Cluster 2, shard 3, the upper bound 100 and Skip, then a time difference 0.
+    let
+      noLength = RangesData.deltaDecode(hexToSeqByte("020103" & "6400" & "00"))
+      # a prefix of 33 bytes
+      tooLong = RangesData.deltaDecode(
+        hexToSeqByte("020103" & "6400" & "0021" & "35".repeat(33) & "00")
+      )
+      # a prefix of 2 bytes with 1 left in the payload
+      truncated = RangesData.deltaDecode(hexToSeqByte("020103" & "6400" & "000235"))
+    for res in [noLength, tooLong, truncated]:
+      check:
+        res.isErr()
+        res.error == "Cannot decode hash prefix"
 
   test "an incomplete shard is refused":
     # Cluster 2, one shard, and nine bytes that all continue.

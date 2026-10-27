@@ -162,25 +162,29 @@ proc getRangeType(idx: var int, buffer: seq[byte]): Result[RangeType, string] =
 
   return ok(rangeType)
 
-proc updateHash(idx: var int, buffer: seq[byte], hash: var WakuMessageHash) =
+proc updateHash(
+    idx: var int, buffer: seq[byte], hash: var WakuMessageHash
+): Result[void, string] =
   if idx >= buffer.len:
-    return
+    return err("Cannot decode hash prefix")
 
   let sameBytes = int(buffer[idx])
 
   if sameBytes > 32:
-    return
+    return err("Cannot decode hash prefix")
 
   idx += 1
 
   if idx + sameBytes > buffer.len:
-    return
+    return err("Cannot decode hash prefix")
 
   let slice = buffer[idx ..< idx + sameBytes]
   idx += sameBytes
 
   for i, bytes in slice:
     hash[i] = bytes
+
+  return ok()
 
 proc getTimeDiff(idx: var int, buffer: seq[byte]): Timestamp =
   let min = min(idx + VarIntLen, buffer.len)
@@ -321,7 +325,7 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
 
     var hash = EmptyWakuMessageHash
     if timeDiff == 0:
-      updateHash(idx, buffer, hash)
+      ?updateHash(idx, buffer, hash)
 
     let upperRangeBound = SyncID(time: lastBound.time + timeDiff, hash: hash)
     if not (lowerRangeBound < upperRangeBound):
