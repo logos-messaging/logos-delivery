@@ -892,6 +892,15 @@ suite "Postgres driver - concurrent DDL outcomes":
     check not "ERROR:  no space left on device".isConcurrentDdlOutcome()
     check not "ERROR:  deadlock detected".isConcurrentDdlOutcome()
 
+suite "Postgres driver - query metric labels":
+  test "hash lookup statements map to their labels":
+    const hashes = "'0a1b','2c3d'"
+    check:
+      convertQueryToMetricLabel(timestampsByHashesQuery(hashes)) == "messages_lookup"
+      convertQueryToMetricLabel(
+        messagesAtTimestampsQuery(hashes, [Timestamp(1_720_364_735_000_000_000)], 20)
+      ) == "messages_lookup_fetch"
+
 suite "Postgres connection lifecycle":
   ## A database restart used to take the node down: closing a connection whose
   ## backend was gone failed, which left the remaining connections open and

@@ -845,6 +845,10 @@ proc getMessageHashesPreparedStmt(
 
   return ok(rows)
 
+func timestampsByHashesQuery*(hashes: string): string =
+  return
+    fmt"SELECT DISTINCT timestamp FROM messages_lookup WHERE messagehash IN ({hashes});"
+
 func messagesAtTimestampsQuery*(
     hashes: string, timestamps: openArray[Timestamp], maxPageSize: uint
 ): string =
@@ -880,8 +884,7 @@ proc getMessagesByMessageHashes(
 
   (
     await s.readConnPool.pgQuery(
-      query =
-        fmt"SELECT DISTINCT timestamp FROM messages_lookup WHERE messagehash IN ({hashes});",
+      query = timestampsByHashesQuery(hashes),
       rowCallback = timestampsCallback,
       requestId = requestId,
     )
