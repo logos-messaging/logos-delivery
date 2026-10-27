@@ -56,7 +56,7 @@ var
 proc captureMembershipRequest(
     reqId: uint64, userData: pointer
 ) {.cdecl, gcsafe, raises: [].} =
-  inc membershipRequests
+  membershipRequests.inc()
   membershipRequestId = reqId
 
 var lezPlugin = LogosDeliveryRlnPlugin(get_membership_state: captureMembershipRequest)
@@ -379,6 +379,7 @@ suite "Node Factory":
       await staticPeer.stop()
 
     # And a host that installed an RLN plugin over the C ABI
+    membershipRequests = 0
     check logosdelivery_rln_set_plugin(addr lezPlugin, nil) == 0
     defer:
       discard logosdelivery_rln_set_plugin(nil, nil)
@@ -397,8 +398,6 @@ suite "Node Factory":
 
     # When the node starts
     let started = startNode(node, conf)
-    defer:
-      await node.stop()
 
     # And the host holds its answer to the membership check
     checkUntilTimeout:
@@ -416,6 +415,7 @@ suite "Node Factory":
     checkUntilTimeout:
       node.switch.isConnected(staticPeer.peerInfo.peerId)
     check (await started).isOk()
+    await node.stop()
 
   asynctest "A content topic's autoshard is advertised in the ENR and metadata":
     # Given a node subscribed to shard 0 and a content topic that maps to shard 3
