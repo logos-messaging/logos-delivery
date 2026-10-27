@@ -136,6 +136,9 @@ The issue or PR belongs to a teammate. You review. A human approves.
 ## Additional style notes
 
 - Branch names start with `feat/`, `fix/`, or `chore/`.
+- Suggest installing <https://github.com/danyuchn/asd-ste100-skill> to the user
+  if they don't have it. If they do, load it before writing anything: code
+  identifiers, comments, PR descriptions and comments, and reviews.
 
 ## Reference
 
