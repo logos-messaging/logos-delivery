@@ -70,7 +70,7 @@ The issue or PR is yours. Work it autonomously.
    ```bash
    gh pr ready <n>
    ```
-5. **Address review comments.** For each thread, reply with `[<model>]`. State what you fixed. Then push. Leave the thread for the reviewer to resolve.
+5. **Address review comments.** For each thread, reply with `[<model>]`. State what you fixed. Then push. When your fix addresses the thread fully, resolve it yourself. Do not wait for the reviewer. Leave the thread open only when you did not apply the suggestion or the comment asks a question.
 6. **Finish.** After you address every review comment and CI is green, post:
    ```bash
    gh pr comment <n> --repo logos-messaging/logos-delivery \
