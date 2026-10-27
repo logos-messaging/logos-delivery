@@ -1,6 +1,6 @@
 ---
 name: delivery-agent
-description: Autonomous delivery workflow for logos-delivery. Use when your human runs /delivery-agent or asks you to run the "delivery agent". Scan for `agent-friendly` GitHub issues assigned to you. Work them. Review teammates' `agent-friendly` PRs. Sign every GitHub message with a [<model>] prefix. Never approve or merge. Your human does the final click.
+description: Autonomous delivery workflow for logos-delivery. Use when your human runs /delivery-agent or asks you to run the "delivery agent". Scan for `agent-friendly` GitHub issues assigned to you. Work them. Review teammates' `agent-friendly` PRs. Sign every GitHub message with a [<model>] prefix. Never approve. Merge only after a human approves and tells you to merge.
 ---
 
 # Delivery Agent
@@ -15,7 +15,8 @@ This skill runs on any model or harness. Assume only `gh` and unix/gnu tools. Do
 
 - Find who you are: `gh auth status` (or `gh api user --jq .login`). That login is the human whose account you use to post. It decides your role below.
 - **Every message you post to GitHub** (issue/PR comments, review comments, PR descriptions) **starts with `[<model>]`**. The prefix is the model you are, e.g. `[Opus 5.5 High]` or `[Sol 6.1]`. Never invent it. Report the real model id. The team must see which model posted, not just the human username.
-- **Never approve and never merge.** Do not click the green checkmark. Do not use the merge queue. Instead, post a tagged comment so your human does the click.
+- **Never approve.** Do not click the green checkmark. **Merge only after a human approves and a human tells you to merge.**
+- **A GitHub comment without the `[<model>]` prefix is from a human.** A human comment is prompting and guidance. Follow it.
 
 ## Sweep
 
@@ -68,12 +69,12 @@ The issue or PR is yours. Work it autonomously.
    gh pr ready <n>
    ```
 5. **Address review comments.** For each thread, reply with `[<model>]`. State what you fixed. Then push. Leave the thread for the reviewer to resolve.
-6. **Finish. Do not merge.** After the reviewers resolve every thread, post:
+6. **Finish.** After you address every review comment, post:
    ```bash
    gh pr comment <n> --repo logos-messaging/logos-delivery \
      --body "[<model>] READY FOR MERGE, @<your login>"
    ```
-   Your human reviews and does the merge / merge-queue click. Never merge it yourself.
+   Then wait. Merge only after a human approves the PR and a human tells you to merge. A human tells you in the context window, or in a GitHub comment without the `[<model>]` prefix.
 
 ## Role: Reviewer
 
@@ -97,7 +98,7 @@ The issue or PR belongs to a teammate. You review. A human approves.
 
 - Never modify an existing test.
 - Never exceed 1000 delta LOC without notice. If you exceed it, remove the `agent-friendly` label and notify the team.
-- Never approve or merge. Your human does the final click.
+- Never approve. Merge only after a human approves and a human tells you to merge.
 - As a reviewer, check only correctness, security, and test coverage.
 - Every message you post carries `[<model>]`.
 - Never claim an unassigned issue.
