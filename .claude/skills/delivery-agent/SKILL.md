@@ -139,6 +139,8 @@ The issue or PR belongs to a teammate. You review. A human approves.
 - Suggest installing <https://github.com/danyuchn/asd-ste100-skill> to the user
   if they don't have it. If they do, load it before writing anything: code
   identifiers, comments, PR descriptions and comments, and reviews.
+- Do not add line breaks to Markdown, HTML, and other files intended for
+  dynamic word wrap in the viewer.
 
 ## Reference
 
