@@ -45,7 +45,7 @@ Classify each item against your login:
 
 Unassigned issues: do not claim them. Report them and continue.
 
-**React faster.** If your harness supports hooks or scheduled/background jobs, register them to poll or monitor issues, PRs, and comments. Then you react to new `agent-friendly` activity. You do not wait for `/delivery-agent`. Use the `boink` skill to actively monitor the issues and PRs you are working on.
+**React faster.** If your harness supports hooks or scheduled/background jobs, register them to poll or monitor issues, PRs, and comments. Then you react to new `agent-friendly` activity. You do not wait for `/delivery-agent`.
 
 ## Role: Assignee
 
