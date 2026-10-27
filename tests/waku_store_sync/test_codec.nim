@@ -329,6 +329,66 @@ suite "Waku Store Sync - first range":
         @[(zero .. at100, RangeType.Skip), (at100 .. at200, RangeType.Fingerprint)]
       res.get().fingerprints == @[FullFingerprint]
 
+suite "Waku Store Sync - same-timestamp bounds":
+  # The WAKU-SYNC example of delta encoding for sequential SyncIDs.
+  let
+    zero = SyncID(time: Timestamp(0), hash: EmptyFingerprint)
+    at1000 = SyncID(
+      time: Timestamp(1000), hash: hexToByteArray[32]("4a8a769a" & "00".repeat(28))
+    )
+    at1002a = SyncID(
+      time: Timestamp(1002), hash: hexToByteArray[32]("351c5e86" & "00".repeat(28))
+    )
+    at1002b = SyncID(
+      time: Timestamp(1002), hash: hexToByteArray[32]("3560d9c4" & "00".repeat(28))
+    )
+    at1003 = SyncID(
+      time: Timestamp(1003), hash: hexToByteArray[32]("beabef25" & "00".repeat(28))
+    )
+    # cluster 2, one shard, shard 3
+    header = @[byte 2, 1, 3]
+
+  test "same-timestamp bounds are encoded against the previous bound":
+    let payload = RangesData(
+      cluster: 2,
+      shards: @[3'u16],
+      ranges: @[
+        (zero .. at1000, RangeType.Skip),
+        (at1000 .. at1002a, RangeType.Skip),
+        (at1002a .. at1002b, RangeType.Skip),
+        (at1002b .. at1003, RangeType.Skip),
+      ],
+    )
+
+    # 1000 (the varint e8 07), +2, +0 with the hash prefix 35 60, +1; each Skip
+    check payload.deltaEncode() ==
+      header & @[byte 0xe8, 0x07, 0, 2, 0, 0, 2, 0x35, 0x60, 0, 1, 0]
+
+  test "a range after a same-timestamp bound starts at that bound":
+    let res = RangesData.deltaDecode(
+      header & @[byte 0xe8, 0x07, 0, 2, 0, 0, 2, 0x35, 0x60, 0, 1, 0]
+    )
+
+    # A bound after a time difference has no hash on the wire, and a hash prefix
+    # decodes with the remaining bytes zero.
+    let
+      d1000 = SyncID(time: Timestamp(1000), hash: EmptyFingerprint)
+      d1002a = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
+      d1002b = SyncID(
+        time: Timestamp(1002), hash: hexToByteArray[32]("3560" & "00".repeat(30))
+      )
+      d1003 = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
+
+    check:
+      res.isOk()
+      res.get().ranges ==
+        @[
+          (zero .. d1000, RangeType.Skip),
+          (d1000 .. d1002a, RangeType.Skip),
+          (d1002a .. d1002b, RangeType.Skip),
+          (d1002b .. d1003, RangeType.Skip),
+        ]
+
 suite "Store sync - codec bounds":
   test "a shard count beyond the payload is refused":
     # Cluster 2, then a shard count of int64.high.
@@ -363,6 +423,22 @@ suite "Store sync - codec bounds":
     let bytes =
       hexToSeqByte("ffffffffffffffff7f" & "00".repeat(32) & "01" & "00".repeat(40))
     check deltaDecode(itemSet, bytes, 2).isErr()
+
+  test "a range whose upper bound is not above its lower bound is refused":
+    # Cluster 2, shard 3, then ranges as (time difference, hash prefix, Skip).
+    let
+      # (0, 0) as the first upper bound, equal to the implicit lower bound
+      firstAtZero = RangesData.deltaDecode(hexToSeqByte("020103" & "000000"))
+      # 100, then 100 with the one-byte prefix 00
+      equalBound = RangesData.deltaDecode(hexToSeqByte("020103" & "6400" & "00010000"))
+      # 100, 100 with prefix 50, then 100 with prefix 40
+      lowerHash = RangesData.deltaDecode(
+        hexToSeqByte("020103" & "6400" & "00015000" & "00014000")
+      )
+    for res in [firstAtZero, equalBound, lowerHash]:
+      check:
+        res.isErr()
+        res.error == "Range upper bound is not above its lower bound"
 
   test "an incomplete shard is refused":
     # Cluster 2, one shard, and nine bytes that all continue.

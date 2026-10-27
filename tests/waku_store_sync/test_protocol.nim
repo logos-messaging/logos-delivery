@@ -428,6 +428,42 @@ suite "Waku Sync: reconciliation":
       processed.fingerprints.len == 0
       processed.itemSets == @[ItemSet(elements: elements[1 .. 2], reconciled: false)]
 
+  asyncTest "preProcessPayload skips a range that ends exactly at the lower bound":
+    let now = getNowInNanosecondTime()
+    (server, client) = await newNarrowServerAndClient(now)
+
+    let lowerBound = calculateTimeRange(now, narrowRelayJitter, narrowSyncRange).a
+    var h1: WakuMessageHash
+    h1[0] = 1
+
+    let
+      split = SyncID(time: lowerBound, hash: EmptyFingerprint)
+      farStart = SyncID(time: lowerBound - 1000.seconds.nanos, hash: EmptyFingerprint)
+      rangeEnd = SyncID(time: lowerBound + 1000.seconds.nanos, hash: EmptyFingerprint)
+      payload = RangesData(
+        ranges: @[
+          (farStart .. split, RangeType.ItemSet),
+          (split .. rangeEnd, RangeType.Fingerprint),
+        ],
+        fingerprints: @[FullFingerprint],
+        itemSets: @[
+          ItemSet(
+            elements: @[SyncID(time: lowerBound - 1, hash: h1)], reconciled: false
+          )
+        ],
+      )
+
+    let processed = server.preProcessPayload(payload, lowerBound).get()
+
+    check:
+      processed.ranges ==
+        @[
+          (farStart .. split, RangeType.Skip),
+          (split .. rangeEnd, RangeType.Fingerprint),
+        ]
+      processed.fingerprints == @[FullFingerprint]
+      processed.itemSets.len == 0
+
   asyncTest "a node offers the messages of every content topic":
     server = await newTestWakuRecon(
       serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds

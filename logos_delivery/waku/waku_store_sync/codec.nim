@@ -43,10 +43,13 @@ proc encodeUpperBound(
     output: var seq[byte],
     bound: SyncID,
     lastTimestamp: var Timestamp,
-    lastHash: Fingerprint,
+    lastHash: var Fingerprint,
 ) =
   let timeDiff = uint64(bound.time) - uint64(lastTimestamp)
   lastTimestamp = bound.time
+
+  let previousHash = lastHash
+  lastHash = bound.hash
 
   # encode timestamp
   let buf = timeDiff.toBytes(Leb128)
@@ -54,7 +57,7 @@ proc encodeUpperBound(
 
   if timeDiff == 0:
     var sameBytes = 0
-    for (byte1, byte2) in zip(lastHash, bound.hash):
+    for (byte1, byte2) in zip(previousHash, bound.hash):
       sameBytes.inc()
 
       if byte1 != byte2:
@@ -302,7 +305,7 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
 
   var
     payload = RangesData()
-    lastTime = Timestamp(0)
+    lastBound = SyncID(time: Timestamp(0), hash: EmptyWakuMessageHash)
     idx = 0
 
   payload.cluster = ?getCluster(idx, buffer)
@@ -310,20 +313,21 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
 
   # The first range starts at SyncID 0. An empty payload is the header alone.
   while idx < buffer.len:
-    let lowerRangeBound = SyncID(time: lastTime, hash: EmptyWakuMessageHash)
+    let lowerRangeBound = lastBound
 
     let timeDiff = getTimeDiff(idx, buffer)
-    if timeDiff > Timestamp.high - lastTime:
+    if timeDiff > Timestamp.high - lastBound.time:
       return err("Cannot decode time difference")
 
     var hash = EmptyWakuMessageHash
     if timeDiff == 0:
       updateHash(idx, buffer, hash)
 
-    let thisTime = lastTime + timeDiff
-    lastTime = thisTime
+    let upperRangeBound = SyncID(time: lastBound.time + timeDiff, hash: hash)
+    if not (lowerRangeBound < upperRangeBound):
+      return err("Range upper bound is not above its lower bound")
+    lastBound = upperRangeBound
 
-    let upperRangeBound = SyncID(time: thisTime, hash: hash)
     let bounds = lowerRangeBound .. upperRangeBound
 
     let rangeType = ?getRangeType(idx, buffer)
