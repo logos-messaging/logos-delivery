@@ -57,6 +57,10 @@ Classify each item against your login:
 
 Unassigned issues: leave them alone. Report them and move on.
 
+**Faster reaction.** If your harness supports hooks or scheduled/background jobs,
+register them to poll or monitor issues, PRs, and comments — so you react to new
+`agent-friendly` activity sooner instead of waiting for `/delivery-agent`.
+
 ## Role — Assignee
 
 The issue or PR is yours. Work it autonomously, but gate the ending on your
