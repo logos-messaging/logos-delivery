@@ -4,7 +4,7 @@ import os
 mode = ScriptMode.Verbose
 
 ### Package
-version = "0.39.2"
+version = "0.40.0"
 author = "Status Research & Development GmbH"
 description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"

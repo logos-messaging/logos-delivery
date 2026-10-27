@@ -1,6 +1,5 @@
 ## Built on the Waku protocol packages: logos_delivery/waku/{node,net,discovery,
-## factory,rln,incentivization,persistency} and the LogosDelivery entry
-## point
+## factory,rln,persistency} and the LogosDelivery entry point
 ##
 ## The node that runs the protocols: its assembly and configuration, networking,
 ## peer management, discovery and REST API, and the services composed from
@@ -56,8 +55,6 @@ import
   ./wakunode_rest/test_rest_store
 
 import ./waku_rln_relay/test_all
-
-import ./incentivization/test_all
 
 # Node Factory
 import ./factory/test_all
