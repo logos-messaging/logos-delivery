@@ -140,6 +140,7 @@ type WakuConfBuilder* = object
   networkPresetConf: Opt[NetworkPresetConf]
 
   staticNodes: seq[string]
+  storeNodes: seq[string]
 
   remoteStoreNode: Opt[string]
   remoteLightPushNode: Opt[string]
@@ -507,6 +508,8 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
 
   if builder.extraListenShards.isNone() and networkPresetConf.extraListenShards.len > 0:
     builder.extraListenShards = Opt.some(networkPresetConf.extraListenShards)
+
+  builder.storeNodes = networkPresetConf.storeNodes
 
   checkSetPresetValueToField(
     builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
@@ -954,6 +957,7 @@ proc build*(
     rendezvous: rendezvous,
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
+    storeNodes: builder.storeNodes,
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,
     remoteFilterNode: builder.remoteFilterNode,

@@ -4,7 +4,7 @@
 ## this information, but any other module can populate the information it needs to be
 ## accessible through the debug API.
 
-import std/[tables, sequtils, strutils]
+import std/[json, tables, sequtils, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
 import logos_delivery/waku/factory/waku_conf
@@ -26,6 +26,7 @@ type
     MyMixPubKey
     MaxMessageSize
     IsRunning
+    StoreNodes
 
   WakuStateInfo* {.requiresInit.} = object
     node: WakuNode
@@ -68,6 +69,9 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.IsRunning:
     ## "true" between a successful start and stop, "false" otherwise.
     return $self.node.started
+  of NodeInfoId.StoreNodes:
+    ## The network preset's store nodes, as a JSON array of multiaddrs.
+    return $(%self.conf.storeNodes)
   else:
     return "unknown info item id"
 
