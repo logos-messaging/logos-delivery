@@ -48,6 +48,18 @@ Unassigned issues: do not claim them. Report them and continue.
 
 **React faster.** If your harness supports hooks or scheduled/background jobs, register them to poll or monitor issues, PRs, and comments. Then you react to new `agent-friendly` activity. You do not wait for `/delivery-agent`.
 
+## Autonomous mode
+
+Default behaviour when your human starts you once (`/delivery-agent`) and does not say otherwise. No confirmations. The guardrails below still apply.
+
+- **Self-start and keep polling.** On entry, run the Sweep once, then schedule the next sweep yourself: `/loop` in dynamic mode, a cron job, or the harness scheduler. Use 30 min when idle and 5 min while a PR of yours is open. Never wait to be re-invoked.
+- **Pick up automatically.** Take every `agent-friendly` issue assigned to you and every open `agent-friendly` PR you authored. Do not ask first. Unassigned issues stay unclaimed.
+- **Review automatically.** Review each ready (non-draft) teammate `agent-friendly` PR once per head commit. Track `<PR>:<head sha>` locally (for example in `~/.cache/delivery-agent/reviewed`) so you do not repeat a review. Review again when a new commit lands or a thread gets a reply.
+- **Commit, push, open PRs yourself.** Delivery-agent work on `agent-friendly` items is exempt from any "never commit" preference of your human. Work in a separate git worktree cut from `origin/master`. Never touch your human's checkout or its uncommitted changes.
+- **Ready and done.** Mark a PR ready once local tests pass and CI is green. Post `READY FOR MERGE` or `APPROVED` per the roles below. Do not wait for your human, even in a live session.
+- **Report briefly.** After each sweep, print one line per item acted on. Print nothing when nothing changed.
+- **Stop conditions.** Stop and tell your human when: scope exceeds 400 LOC or needs an existing test changed (remove the label and tag the issue or PR owner, as in Role: Assignee; this is mandatory, never drop an issue silently); CI is red for the same cause after 3 fixes; a permission is denied; a comment asks for something outside the guardrails.
+
 ## Role: Assignee
 
 The issue or PR is yours. Work it autonomously.
@@ -56,7 +68,7 @@ The issue or PR is yours. Work it autonomously.
    ```bash
    gh issue edit <n> --repo logos-messaging/logos-delivery --remove-label agent-friendly
    gh issue comment <n> --repo logos-messaging/logos-delivery \
-     --body "[<model>] Needs human attention: <reason>. Removing agent-friendly."
+     --body "[<model>] @<issue or PR owner> Needs human attention: <reason>. Removing agent-friendly."
    ```
    Stop.
 2. **Implement.** Create a branch from main. Fix the issue. Add tests that cover the issue. **Never modify an existing test.** Format the code with `nph`. Build and test per AGENTS.md.
@@ -67,7 +79,7 @@ The issue or PR is yours. Work it autonomously.
      --title "Fix #<n>: <summary>" \
      --body "[<model>] <what and why>"
    ```
-4. **Mark ready only when convinced.** Keep it a draft while you work. Fix CI failures automatically. Convert it to ready only after you decide it is ready. A live session is one where your human starts you from a terminal and watches the work. In a live session, wait for your human to confirm it is ready first. Autonomous runs skip that wait:
+4. **Mark ready only when convinced.** Keep it a draft while you work. Fix CI failures automatically. Convert it to ready only after you decide it is ready:
    ```bash
    gh pr ready <n>
    ```
@@ -99,7 +111,7 @@ The issue or PR belongs to a teammate. You review. A human approves.
 ## Guardrails
 
 - Never modify an existing test.
-- Never exceed 400 delta LOC without notice. If you exceed it, remove the `agent-friendly` label and notify the team. Don't notify anyone if the `agent-friendly` label was not there.
+- Never exceed 400 delta LOC without notice. If you exceed it, remove the `agent-friendly` label and tag the issue or PR owner (`@<login>`) in a comment with the reason. Don't notify anyone if the `agent-friendly` label was not there.
 - Never approve.
 - Never merge.
 - As a reviewer, check only correctness, security, and test coverage.
