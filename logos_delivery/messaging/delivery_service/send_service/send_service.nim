@@ -11,7 +11,7 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, publish],
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
-import logos_delivery/api/events/messaging_client_events
+import logos_delivery/api/events/[kernel_events, messaging_client_events]
 import logos_delivery/api/conf/modes
 import logos_delivery/messaging/messaging_metrics
 
@@ -73,6 +73,8 @@ type SendService* = ref object of RootObj
     ## Chronos wakes the waiters in the order that they started to wait, so the
     ## parked tasks reach `admissionLock` in the order that they parked.
   retryLoopHandle: Future[void] ## The `retryLoop`, nil while the service does not run.
+  seenMsgListener: MessageSeenEventListener
+    ## Calls `markSeen` for each message that this node receives from the network.
   attempts: int
     ## The number of attempts that ended, in admission or in a send. Only tests
     ## read it.
@@ -455,12 +457,28 @@ proc retryLoop(self: SendService) {.async: (raises: [CancelledError]).} =
     await sleepAsync(self.retryInterval)
     self.retryNow()
 
+proc completeIfSeen(task: DeliveryTask): bool =
+  ## Completes a task whose message this node received from the network after a
+  ## mix attempt started, as a mix send whose reply arrived. Returns true when it
+  ## completes the task.
+  if not task.seenOnNetwork or task.firstPropagatedTime.isSome():
+    return false
+  debug "Message seen on the network, the mix send is complete",
+    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+  task.state = DeliveryState.SuccessfullyPropagated
+  task.propagatedAnonymously = true
+  task.firstPropagatedTime = Opt.some(Moment.now())
+  return true
+
 proc sendUntilPropagated(
     self: SendService, task: DeliveryTask
 ): Future[bool] {.async: (raises: [CancelledError]).} =
   ## Makes the first attempt at once, then one attempt at each tick of
   ## `retryLoop`, until the task propagates. Returns false when the task failed.
   while true:
+    if task.completeIfSeen():
+      self.reportPropagated(task)
+      return true
     if not self.needsAdmission(task) or await self.runAdmission(task):
       await self.sendSlots.acquire()
       try:
@@ -475,6 +493,8 @@ proc sendUntilPropagated(
       finally:
         self.sendSlots.release2()
     self.attempts.inc()
+    # A task with `seenOnNetwork` is complete, also when its attempt failed.
+    discard task.completeIfSeen()
     case task.state
     of DeliveryState.SuccessfullyPropagated:
       self.reportPropagated(task)
@@ -578,6 +598,18 @@ proc enqueue*(self: SendService, task: DeliveryTask): Result[RequestId, string] 
   self.startDeliverSoon(task)
   return ok(task.requestId)
 
+proc markSeen(self: SendService, pubsubTopic: PubsubTopic, msg: WakuMessage) =
+  ## Marks the task of a message that this node received from the network, when
+  ## the task had a mix attempt and no plain attempt. A plain attempt puts
+  ## the message on the network in the clear, so a copy of it tells nothing
+  ## about the mix send.
+  if self.deliveryTasks.len == 0:
+    return
+  let task = self.deliveryTasks.getOrDefault(computeMessageHash(pubsubTopic, msg))
+  if task.isNil() or not task.anonymized or task.plainAttempted:
+    return
+  task.seenOnNetwork = true
+
 proc startSendService*(self: SendService) =
   ## Starts each task. Call it after `stopSendService` ends. A call while the
   ## service runs does nothing.
@@ -587,13 +619,21 @@ proc startSendService*(self: SendService) =
   for task in self.deliveryTasks.values:
     self.startDeliverSoon(task)
   self.retryLoopHandle = self.retryLoop()
+  self.seenMsgListener = MessageSeenEvent.listen(
+    self.brokerCtx,
+    proc(event: MessageSeenEvent) {.async: (raises: []).} =
+      self.markSeen(event.topic, event.message),
+  ).valueOr:
+    # Without the listener, only the reply of the exit completes a mix send.
+    error "Failed to set MessageSeenEvent listener", error = error
+    MessageSeenEventListener()
   if self.checkStoreForMessages:
     self.storeValidationHandle = self.storeValidationLoop()
 
 proc stopSendService*(self: SendService) {.async: (raises: []).} =
-  ## Cancels each `deliver`, `retryLoop` and the Store validation loop. The tasks
-  ## stay in the send queue with no event, and `startSendService` starts them
-  ## again.
+  ## Cancels each `deliver`, `retryLoop` and the Store validation loop, and drops
+  ## the `MessageSeenEvent` listener. The tasks stay in the send queue with no
+  ## event, and `startSendService` starts them again.
   self.running = false
   var handles: seq[Future[void]]
   for handle in [self.retryLoopHandle, self.storeValidationHandle]:
@@ -605,3 +645,5 @@ proc stopSendService*(self: SendService) {.async: (raises: []).} =
     if task.isRunning():
       handles.add(task.deliverHandle)
   await cancelAndWait(handles)
+  await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
+  self.seenMsgListener = MessageSeenEventListener()
