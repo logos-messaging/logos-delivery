@@ -896,7 +896,10 @@ suite "Postgres driver - query metric labels":
   test "hash lookup statements map to their labels":
     const hashes = "'0a1b','2c3d'"
     check:
-      convertQueryToMetricLabel(timestampsByHashesQuery(hashes)) == "messages_lookup"
+      convertQueryToMetricLabel(
+        "SELECT DISTINCT timestamp FROM messages_lookup WHERE messagehash IN (" & hashes &
+          ");"
+      ) == "messages_lookup"
       convertQueryToMetricLabel(
         messagesAtTimestampsQuery(hashes, [Timestamp(1_720_364_735_000_000_000)], 20)
       ) == "messages_lookup_fetch"
