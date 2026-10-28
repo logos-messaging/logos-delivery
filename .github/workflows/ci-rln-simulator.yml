@@ -102,18 +102,6 @@ jobs:
           submodules: false
           clean: true
 
-      - name: Get submodules hash
-        id: submodules
-        run: echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
-        with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
-
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
 
