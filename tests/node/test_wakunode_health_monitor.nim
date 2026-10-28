@@ -668,6 +668,44 @@ suite "Health Monitor - events":
 
     check lastReported(RelayProtocol) == Opt.some(HealthStatus.NOT_READY)
 
+  asyncTest "store client strength counts only the exclusive store peers":
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      nodeA.mountStoreClient()
+      await nodeA.start()
+    defer:
+      await nodeA.stop()
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      nodeB.mountArchive(newSqliteArchiveDriver()).expect(
+        "Node B failed to mount archive"
+      )
+      await nodeB.mountStore()
+      await nodeB.start()
+    defer:
+      await nodeB.stop()
+
+    let peerB = nodeB.switch.peerInfo.toRemotePeerInfo()
+    await nodeA.connectToNodes(@[peerB])
+    let pm = nodeA.peerManager
+    let deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline and pm.getCapablePeersCount(WakuStoreCodec) == 0:
+      await sleepAsync(50.milliseconds)
+    require pm.getCapablePeersCount(WakuStoreCodec) == 1
+
+    pm.setExclusivePeers(WakuStoreCodec, @[])
+    check:
+      pm.getSelectablePeersCount(WakuStoreCodec) == 0
+      pm.getCapablePeersCount(WakuStoreCodec) == 1
+
+    pm.setExclusivePeers(WakuStoreCodec, @[peerB])
+    check pm.getSelectablePeersCount(WakuStoreCodec) == 1
+
 proc mixPeerInfo(port: int, lightpush = false): RemotePeerInfo =
   let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
   let keyPair = generateKeyPair().expect("mix key pair")

@@ -448,6 +448,12 @@ proc startNode*(
     except CatchableError:
       return err("failed to connect to static nodes: " & getCurrentExceptionMsg())
 
+  if conf.configuredStoreNodesOnly and conf.storeNodes.len > 0:
+    try:
+      await connectToNodes(node, conf.storeNodes, "store")
+    except CatchableError:
+      return err("failed to connect to store nodes: " & getCurrentExceptionMsg())
+
   if dynamicBootstrapNodes.len > 0:
     info "Connecting to dynamic bootstrap peers"
     try:
