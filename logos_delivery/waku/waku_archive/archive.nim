@@ -51,11 +51,7 @@ type WakuArchive* = ref object
   retentionPolicyHandle: Future[void]
   metricsHandle: Future[void]
 
-proc validate*(msg: WakuMessage): Result[void, string] =
-  if msg.ephemeral:
-    # Ephemeral message, do not store
-    return err("ephemeral message, will not store")
-
+proc validate(msg: WakuMessage): Result[void, string] =
   let
     now = getNanosecondTime(getTime().toUnixFloat())
     lowerBound = now - MaxMessageTimestampVariance
@@ -116,6 +112,9 @@ proc handleMessage*(
 ): Future[Result[void, string]] {.async.} =
   ## Archives a relayed message. Succeeds when the archive holds the message after the
   ## call, a duplicate included, and fails when the message is refused or not written.
+  if msg.ephemeral:
+    return err("ephemeral message, will not store")
+
   let msgHash = computeMessageHash(pubsubTopic, msg)
   let msgHashHex = msgHash.to0xHex()
 
