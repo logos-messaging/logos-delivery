@@ -91,6 +91,60 @@ suite "Waku Sync Storage":
     check:
       toSend == diffs
 
+  test "processPayload returns the ids to receive":
+    var rng = initRand()
+    let
+      held = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      promised = SyncID(time: Timestamp(2000), hash: randomHash(rng))
+      storage = SeqStorage.new(@[held], @[DefaultPubsubTopic], @[DefaultContentTopic])
+      bounds =
+        SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
+      payload = RangesData(
+        cluster: 0,
+        shards: @[],
+        ranges: @[(bounds, RangeType.ItemSet)],
+        fingerprints: @[],
+        itemSets: @[ItemSet(elements: @[held, promised], reconciled: true)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+
+    discard storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      hashToSend.len == 0
+      idsToRecv == @[promised]
+
+  test "processPayload returns every id the peer holds in a range we hold nothing in":
+    var rng = initRand()
+    let
+      first = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      second = SyncID(time: Timestamp(2000), hash: randomHash(rng))
+      storage = SeqStorage.new(10)
+      bounds =
+        SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
+      payload = RangesData(
+        cluster: 0,
+        shards: @[],
+        ranges: @[(bounds, RangeType.ItemSet)],
+        fingerprints: @[],
+        itemSets: @[ItemSet(elements: @[first, second], reconciled: true)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+
+    discard storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      hashToSend.len == 0
+      idsToRecv == @[first, second]
+
   test "a fingerprint over a pubsub topic with no local message is empty":
     var rng = initRand()
     let
@@ -102,6 +156,26 @@ suite "Waku Sync Storage":
 
     check storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"], @[]) ==
       EmptyFingerprint
+
+  test "a pending element is in the fingerprint of every pubsub scope":
+    var rng = initRand()
+    let
+      onShard1 = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      pending = SyncID(time: Timestamp(2000), hash: randomHash(rng))
+      storage = SeqStorage.new(
+        @[onShard1, pending],
+        @["/waku/2/rs/0/1", PendingPubsubTopic],
+        @[DefaultContentTopic, ""],
+      )
+      bounds =
+        SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
+      allTopics = storage.computeFingerprint(bounds, @[], @[])
+
+    check:
+      allTopics != pending.hash
+      storage.computeFingerprint(bounds, @["/waku/2/rs/0/1"], @[]) == allTopics
+      storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"], @[]) == pending.hash
 
   test "insert new element":
     var rng = initRand()
@@ -136,6 +210,45 @@ suite "Waku Sync Storage":
     check:
       res.isErr() == false
       storage.length() == 1
+
+  test "remove an element":
+    var rng = initRand()
+    let
+      element1 = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      element2 = SyncID(time: Timestamp(2000), hash: randomHash(rng))
+      storage = SeqStorage.new(
+        @[element1, element2],
+        @[DefaultPubsubTopic, DefaultPubsubTopic],
+        @[DefaultContentTopic, DefaultContentTopic],
+      )
+      bounds =
+        SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
+
+    let res = storage.remove(element1)
+    assert res.isOk(), $res.error
+
+    check:
+      storage.length() == 1
+      storage.computeFingerprint(bounds, @[], @[]) == element2.hash
+
+  test "removing an absent element changes nothing":
+    var rng = initRand()
+    let
+      element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      absent = SyncID(time: Timestamp(2000), hash: randomHash(rng))
+      storage =
+        SeqStorage.new(@[element], @[DefaultPubsubTopic], @[DefaultContentTopic])
+      bounds =
+        SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
+
+    let res = storage.remove(absent)
+    assert res.isOk(), $res.error
+
+    check:
+      storage.length() == 1
+      storage.computeFingerprint(bounds, @[], @[]) == element.hash
 
   test "prune elements":
     var rng = initRand()

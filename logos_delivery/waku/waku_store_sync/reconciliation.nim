@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, sets],
+  std/[deques, sequtils, sets],
   stew/byteutils,
   results,
   chronicles,
@@ -65,10 +65,47 @@ type SyncReconciliation* = ref object of LPProtocol
   relayJitter: Duration # Amount of time since the present to ignore when syncing
   clock: proc(): Timestamp {.gcsafe, raises: [].} # Source of the present time
 
+  # Elements a peer promised in a round. They are in the storage under
+  # PendingPubsubTopic until they arrive or their deadline passes.
+  pendingTimeout: Duration
+  pendingSet: HashSet[WakuMessageHash]
+  pendingQueue: Deque[(SyncID, Moment)] # with their deadline, in order
+
   # futures
   periodicSyncFut: Future[void]
   periodicPruneFut: Future[void]
   idsReceiverFut: Future[void]
+
+proc insertConfirmed(
+    self: SyncReconciliation,
+    id: SyncID,
+    pubsubTopic: PubsubTopic,
+    contentTopic: ContentTopic,
+) =
+  if self.pendingSet.contains(id.hash):
+    self.pendingSet.excl(id.hash)
+    # The pending entry has no real topic, so it is replaced rather than kept.
+    self.storage.remove(id).isOkOr:
+      error "failed to remove pending message",
+        msg_hash = byteutils.toHex(id.hash), error = $error
+
+  self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
+    error "failed to insert new message",
+      msg_hash = byteutils.toHex(id.hash), error = $error
+
+proc expirePending(self: SyncReconciliation) =
+  ## Drops the promised elements that did not arrive by their deadline, so that
+  ## the next round asks for them again.
+  let now = Moment.now()
+  while self.pendingQueue.len > 0 and self.pendingQueue.peekFirst()[1] <= now:
+    let (id, _) = self.pendingQueue.popFirst()
+    if not self.pendingSet.contains(id.hash):
+      continue
+
+    self.pendingSet.excl(id.hash)
+    self.storage.remove(id).isOkOr:
+      error "failed to remove pending message",
+        msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation, pubsubTopic: PubsubTopic, msg: WakuMessage
@@ -82,9 +119,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -99,9 +134,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -109,9 +142,7 @@ proc messageIngress*(
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
 ) =
-  self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, contentTopic)
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
@@ -178,6 +209,8 @@ proc processRequest(
   # Signal to transfer protocol that this reconciliation is starting
   await self.localWantsTx.addLast(conn.peerId)
 
+  self.expirePending()
+
   # Fixed for the session, so that a range the peer sends back in a later
   # round never crosses a bound that moved by the round-trip time.
   let lowerBound = calculateTimeRange(self.clock(), self.relayJitter, self.syncRange).a
@@ -223,7 +256,7 @@ proc processRequest(
       break
 
     var
-      hashToRecv: seq[WakuMessageHash]
+      idsToRecv: seq[SyncID]
       hashToSend: seq[WakuMessageHash]
       sendPayload: RangesData
       # the scope the reply's ranges cover; ours when there is none
@@ -240,16 +273,28 @@ proc processRequest(
         payload = preProcessedPayload
 
       sendPayload =
-        self.storage.processPayload(preProcessedPayload, hashToSend, hashToRecv)
+        self.storage.processPayload(preProcessedPayload, hashToSend, idsToRecv)
 
-      trace "sync payload processed",
-        hash_to_send = hashToSend, hash_to_recv = hashToRecv
+      trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
+
+      # Promised elements count as present from here on, so that a round that
+      # overlaps their transfer does not ask for them again. Nothing awaits
+      # between processPayload and this insert, so none of them is here yet.
+      let deadline = Moment.now() + self.pendingTimeout
+      for id in idsToRecv:
+        diffs.inc()
+        self.storage.insert(id, PendingPubsubTopic, "").isOkOr:
+          error "failed to insert pending message",
+            msg_hash = byteutils.toHex(id.hash), error = $error
+          continue
+        self.pendingSet.incl(id.hash)
+        self.pendingQueue.addLast((id, deadline))
 
       for hash in hashToSend:
+        # A pending element is not in the archive, so it cannot be sent.
+        if self.pendingSet.contains(hash):
+          continue
         self.remoteNeedsTx.addLastNoWait((conn.peerId, hash))
-        diffs.inc()
-
-      for hash in hashToRecv:
         diffs.inc()
     else:
       debug "Sync scope mismatch",
@@ -302,6 +347,8 @@ proc initiate(
     syncRange: Duration,
     shards: seq[uint16],
 ): Future[Result[void, string]] {.async.} =
+  self.expirePending()
+
   let
     timeRange = calculateTimeRange(self.clock(), offset, syncRange)
     lower = SyncID(time: timeRange.a, hash: EmptyFingerprint)
@@ -427,6 +474,7 @@ proc new*(
     localWantsTx: AsyncQueue[PeerId],
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
+    pendingTimeout: timer.Duration = DefaultSyncInterval,
 ): Future[Result[T, string]] {.async.} =
   let timeRetention =
     if wakuArchive.isNil():
@@ -459,6 +507,7 @@ proc new*(
     syncInterval: syncInterval,
     relayJitter: relayJitter,
     clock: clock,
+    pendingTimeout: pendingTimeout,
     idsRx: idsRx,
     localWantsTx: localWantsTx,
     remoteNeedsTx: remoteNeedsTx,

@@ -48,6 +48,7 @@ proc newTestWakuRecon*(
     syncInterval: timer.Duration = DefaultSyncInterval,
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     cluster: uint16 = DefaultClusterId,
+    pendingTimeout: timer.Duration = DefaultSyncInterval,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -63,6 +64,7 @@ proc newTestWakuRecon*(
     localWantsTx = wantsTx,
     remoteNeedsTx = needsTx,
     clock = clock,
+    pendingTimeout = pendingTimeout,
   )
 
   let proto = res.get()

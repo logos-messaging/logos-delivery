@@ -21,6 +21,11 @@ method batchInsert*(
 ): Result[void, string] {.base, gcsafe, raises: [].} =
   return err("batchInsert method not implemented for SyncStorage")
 
+method remove*(
+    self: SyncStorage, element: SyncID
+): Result[void, string] {.base, gcsafe, raises: [].} =
+  return err("remove method not implemented for SyncStorage")
+
 method prune*(
     self: SyncStorage, timestamp: Timestamp
 ): int {.base, gcsafe, raises: [].} =
@@ -38,7 +43,7 @@ method processPayload*(
     self: SyncStorage,
     input: RangesData,
     hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
+    idsToRecv: var seq[SyncID],
 ): RangesData {.base, gcsafe, raises: [].} =
   return RangesData(ranges: @[], fingerprints: @[FullFingerprint], itemSets: @[])
 

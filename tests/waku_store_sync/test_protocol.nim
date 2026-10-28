@@ -73,6 +73,18 @@ proc newLimitedReceiver(
   switch.mount(transfer)
   return (switch, transfer, archive)
 
+proc newSecondServer(
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    wantsTx: AsyncQueue[PeerId],
+    needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+): Future[(Switch, SyncReconciliation, RemotePeerInfo)] {.async.} =
+  ## A started reconciliation server with its own switch.
+  let switch = newTestSwitch()
+  await switch.start()
+  let server =
+    await newTestWakuRecon(switch, @[], DefaultSyncRange, idsRx, wantsTx, needsTx)
+  return (switch, server, switch.peerInfo.toRemotePeerInfo())
+
 proc encodedLen(msg: WakuMessage): int =
   WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode().len
 
@@ -220,6 +232,113 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((serverPeerInfo.peerId, hash1)) == true
       remoteNeeds.contains((serverPeerInfo.peerId, hash2)) == true
       remoteNeeds.contains((serverPeerInfo.peerId, hash3)) == true
+
+  asyncTest "a second round does not queue a message the first round already promised":
+    # Given two servers holding one message and an empty client
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+    serverB.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the client syncs with both before the message arrives
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+
+    # Then only the first server queued it
+    check:
+      remoteNeeds.len == 1
+      remoteNeeds.contains((clientPeerInfo.peerId, hash))
+
+  asyncTest "a promised message is asked for again once the pending timeout passes":
+    # Given two servers holding one message and an empty client with a short timeout
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 500.milliseconds,
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+    serverB.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the message has not arrived by the timeout
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+    await sleepAsync(600.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+
+    # Then the second server queues it too
+    check remoteNeeds.len == 2
+
+  asyncTest "a promised message that arrives is kept after the pending timeout":
+    # Given two servers holding one message and an empty client with a short timeout
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 500.milliseconds,
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+    serverB.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the message arrives by transfer before the timeout
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+    await clientIds.put(
+      (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
+    )
+    await sleepAsync(600.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+
+    # Then the second server does not queue it
+    check remoteNeeds.len == 1
 
   asyncTest "sync 2 nodes empty client full server, relay jitter shifts the time range":
     server = await newTestWakuRecon(

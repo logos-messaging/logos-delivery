@@ -9,6 +9,10 @@ const
   DefaultSyncRange*: Duration = 1.hours
   DefaultGossipSubJitter*: Duration = 20.seconds
 
+# Pubsub topic of an element a peer promised but that has not arrived yet.
+# Relay shard topics are `/waku/2/rs/...`, so no message carries this one.
+const PendingPubsubTopic* = "/waku/2/sync/pending"
+
 type
   Fingerprint* = array[32, byte]
 

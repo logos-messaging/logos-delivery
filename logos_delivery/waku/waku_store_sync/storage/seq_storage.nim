@@ -132,6 +132,19 @@ method batchInsert*(
 
   return ok()
 
+method remove*(self: SeqStorage, element: SyncID): Result[void, string] {.raises: [].} =
+  ## Removing an absent element is a no-op. Topic indexes that become unused
+  ## stay allocated until the next prune.
+  let idx = self.elements.lowerBound(element, common.cmp)
+  if idx >= self.elements.len or self.elements[idx] != element:
+    return ok()
+
+  self.elements.delete(idx)
+  self.pubsubTopicIndexes.delete(idx)
+  self.contentTopicIndexes.delete(idx)
+
+  return ok()
+
 method prune*(self: SeqStorage, timestamp: Timestamp): int {.raises: [].} =
   ## Remove all elements before the timestamp.
   ## Returns # of elements pruned.
@@ -218,6 +231,7 @@ proc findIdxBounds(self: SeqStorage, slice: Slice[SyncID]): Opt[Slice[int]] =
 proc pubsubScope(self: SeqStorage, pubsubTopics: seq[PubsubTopic]): PackedSet[int] =
   ## The local indexes of `pubsubTopics`. An empty set means every topic, so a
   ## request whose topics are all unknown here gets an index no element has.
+  ## Pending elements have no shard yet, so they are in every scope.
   var scope = initPackedSet[int]()
   for inputTopic in pubsubTopics:
     for i, localTopic in self.pubsubTopics:
@@ -227,6 +241,11 @@ proc pubsubScope(self: SeqStorage, pubsubTopics: seq[PubsubTopic]): PackedSet[in
   if pubsubTopics.len > 0 and scope.len == 0:
     # -1 is never an element's topic index, so nothing matches
     scope.incl(-1)
+
+  if pubsubTopics.len > 0:
+    for i, localTopic in self.pubsubTopics:
+      if localTopic == PendingPubsubTopic:
+        scope.incl(i)
 
   return scope
 
@@ -331,7 +350,7 @@ proc processItemSetRange*(
     contentTopicSet: PackedSet[int],
     inputItemSet: ItemSet,
     hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
+    idsToRecv: var seq[SyncID],
     output: var RangesData,
 ) {.raises: [].} =
   ## Compares item sets and outputs differences
@@ -339,6 +358,9 @@ proc processItemSetRange*(
   let idxSlice = self.findIdxBounds(inputBounds)
 
   if idxSlice.isNone():
+    for element in inputItemSet.elements:
+      idsToRecv.add(element)
+
     if not inputItemSet.reconciled:
       output.ranges.add((inputBounds, RangeType.ItemSet))
       let state = ItemSet(elements: @[], reconciled: true)
@@ -378,7 +400,7 @@ proc processItemSetRange*(
     let theirElement = inputItemSet.elements[i]
 
     if theirElement < ourElement:
-      hashToRecv.add(theirElement.hash)
+      idsToRecv.add(theirElement)
       i.inc()
     elif theirElement > ourElement:
       hashToSend.add(ourElement.hash)
@@ -391,7 +413,7 @@ proc processItemSetRange*(
     # in case they have more elements
     let theirElement = inputItemSet.elements[i]
     i.inc()
-    hashToRecv.add(theirElement.hash)
+    idsToRecv.add(theirElement)
 
   if not inputItemSet.reconciled:
     output.ranges.add((inputBounds, RangeType.ItemSet))
@@ -401,11 +423,30 @@ proc processItemSetRange*(
   else:
     output.ranges.add((inputBounds, RangeType.Skip))
 
+proc processItemSetRange*(
+    self: SeqStorage,
+    inputBounds: Slice[SyncID],
+    pubsubTopicSet: PackedSet[int],
+    contentTopicSet: PackedSet[int],
+    inputItemSet: ItemSet,
+    hashToSend: var seq[Fingerprint],
+    hashToRecv: var seq[Fingerprint],
+    output: var RangesData,
+) {.raises: [].} =
+  ## Same as above, with only the hashes of the elements to receive.
+  var idsToRecv: seq[SyncID]
+  self.processItemSetRange(
+    inputBounds, pubsubTopicSet, contentTopicSet, inputItemSet, hashToSend, idsToRecv,
+    output,
+  )
+  for id in idsToRecv:
+    hashToRecv.add(id.hash)
+
 method processPayload*(
     self: SeqStorage,
     input: RangesData,
     hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
+    idsToRecv: var seq[SyncID],
 ): RangesData {.raises: [].} =
   var output = RangesData()
 
@@ -439,7 +480,7 @@ method processPayload*(
       j.inc()
 
       self.processItemSetRange(
-        bounds, pubsubTopicSet, contentTopicSet, itemSet, hashToSend, hashToRecv, output
+        bounds, pubsubTopicSet, contentTopicSet, itemSet, hashToSend, idsToRecv, output
       )
 
       continue
@@ -473,6 +514,20 @@ method processPayload*(
 
   if allSkip:
     output = RangesData()
+
+  return output
+
+proc processPayload*(
+    self: SyncStorage,
+    input: RangesData,
+    hashToSend: var seq[Fingerprint],
+    hashToRecv: var seq[Fingerprint],
+): RangesData {.gcsafe, raises: [].} =
+  ## Same as the method, with only the hashes of the elements to receive.
+  var idsToRecv: seq[SyncID]
+  let output = self.processPayload(input, hashToSend, idsToRecv)
+  for id in idsToRecv:
+    hashToRecv.add(id.hash)
 
   return output
 
