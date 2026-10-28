@@ -1339,9 +1339,11 @@ proc prunePeerStore*(pm: PeerManager) =
   let pruningCount = numPeers - capacity
   var peersToPrune: HashSet[PeerId]
 
-  # prune failed connections
+  # prune failed connections. A configured or application mix node stays: the
+  # peer store is the mix pool of this node, and a prune says nothing about the
+  # node as a mix hop.
   for peerId, count in peerStore[NumberFailedConnBook].book.pairs:
-    if count < pm.maxFailedAttempts:
+    if count < pm.maxFailedAttempts or peerStore.hasDurableMixKey(peerId):
       continue
 
     if peersToPrune.len >= pruningCount:
@@ -1349,7 +1351,9 @@ proc prunePeerStore*(pm: PeerManager) =
 
     peersToPrune.incl(peerId)
 
-  var notConnected = peerStore.getDisconnectedPeers().mapIt(it.peerId)
+  var notConnected = peerStore.getDisconnectedPeers().mapIt(it.peerId).filterIt(
+      not peerStore.hasDurableMixKey(it)
+    )
 
   # Always pick random non-connected peers
   shuffle(notConnected)

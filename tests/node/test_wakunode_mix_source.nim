@@ -16,7 +16,7 @@ import
 import libp2p_mix
 import libp2p_mix/mix_protocol
 import libp2p/crypto/curve25519
-import libp2p_mix/[mix_pool, external_pool, pool, curve25519]
+import libp2p_mix/[mix_pool, mix_node, external_pool, pool, curve25519]
 import libp2p_mix/mix_events
 import
   logos_delivery/waku/[
@@ -296,6 +296,34 @@ suite "Delivery provides the mix peers":
       store[MixAliveBook][peer.peerId] == Moment()
       store[MixPubKeyBook][peer.peerId] == peer.mixPubKey.get()
       pool.countUsable([]).get() == 1
+
+  asyncTest "a peer store prune keeps a configured mix node and drops discovered ones":
+    let node = await newTestNode()
+    defer:
+      node.peerManager.stop()
+    let store = node.switch.peerStore
+    node.peerManager.configureMix(true).get()
+    let pool = node.peerManager.mixPool
+    let configured = candidate()
+    node.peerManager.storeMixPeer(
+      MixPubInfo.init(
+        configured.peerId,
+        configured.addrs[0],
+        configured.mixPubKey.get(),
+        configured.publicKey.skkey,
+      ),
+      origin = Static,
+    )
+    for i in 0 ..< 30:
+      node.peerManager.addPeer(candidate(), Kademlia)
+    check pool.countUsable([]).get() == 31
+    store.setCapacity(10)
+    node.peerManager.prunePeerStore()
+    check:
+      store[AddressBook].book.len == 10
+      store[MixPubKeyBook][configured.peerId] == configured.mixPubKey.get()
+      pool.usablePeer(configured.peerId).get().isSome()
+      pool.countUsable([]).get() == 10
 
   asyncTest "reflected records do not renew discovery and removal clears key provenance":
     let node = await newTestNode()

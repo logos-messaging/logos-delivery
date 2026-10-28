@@ -320,6 +320,13 @@ proc isMixCandidate*(peerStore: PeerStore, peerId: PeerId): bool =
   alive == Moment() or peerStore.isConnected(peerId) or
     Moment.now() - alive <= DiscoveredEnrTtl
 
+proc hasDurableMixKey*(peerStore: PeerStore, peerId: PeerId): bool =
+  ## True for a mix key from the configuration or the application. The key has
+  ## no discovery stamp, so it does not expire, and a peer store prune keeps the
+  ## peer.
+  peerStore[MixPubKeyBook][peerId] != default(Curve25519Key) and
+    peerStore[MixAliveBook][peerId] == Moment()
+
 proc excludeFromMix*(peerStore: PeerStore, peerId: PeerId, excluded = true) =
   peerStore[MixExcludedBook][peerId] = excluded
 
