@@ -320,18 +320,10 @@ proc validateExtraListenShards(wakuConf: WakuConf): Result[void, string] =
     )
   return ok()
 
-proc validateConfiguredStoreNodesOnly(wakuConf: WakuConf): Result[void, string] =
-  if wakuConf.configuredStoreNodesOnly and wakuConf.storeNodes.len == 0 and
-      wakuConf.remoteStoreNode.isNone():
-    return
-      err("configured-store-nodes-only needs store nodes from a preset or storenode")
-  return ok()
-
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateExtraListenShards()
   ?wakuConf.validateNoEmptyStrings()
   ?wakuConf.validateExtMultiAddrsOnly()
-  ?wakuConf.validateConfiguredStoreNodesOnly()
   return ok()
