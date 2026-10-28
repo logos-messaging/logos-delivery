@@ -1288,15 +1288,15 @@ proc redialStaticPeersLoop(pm: PeerManager, peers: seq[string]) {.async.} =
     let toDial = peers.filterIt(
       block:
         let info = parsePeerInfo(it)
-        info.isOk() and not pm.switch.isConnected(info.value.peerId) and
-          pm.canBeConnected(info.value.peerId)
+        info.isOk() and not pm.switch.isConnected(info.value.peerId)
     )
     if toDial.len > 0:
       await pm.connectToNodes(toDial, source = "static")
 
 proc startStaticPeersRedial*(pm: PeerManager, peers: seq[string]) =
   ## For nodes without relay, whose connectivity loop is not running:
-  ## dial again the static peers that were down, honouring the backoff.
+  ## dial again the static peers that were down. It retries every interval and
+  ## ignores maxFailedAttempts: a static node has no discovery to replace it.
   pm.started = true
   pm.staticRedialLoopHandle = pm.redialStaticPeersLoop(peers)
 

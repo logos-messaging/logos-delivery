@@ -86,6 +86,25 @@ suite "Peer Manager":
         clientPeerStore.getPeer(serverPeerId).connectedness == Connectedness.Connected
         serverPeerStore.getPeer(clientPeerId).connectedness == Connectedness.Connected
 
+    asyncTest "Static redial ignores maxFailedAttempts":
+      ## Given a static peer that already failed more often than the limit
+      client.peerManager.maxFailedAttempts = 1
+      client.peerManager.initialBackoffInSec = 1
+      let staticAddr = $serverRemotePeerInfo.addrs[0] & "/p2p/" & $serverPeerId
+      clientPeerStore[NumberFailedConnBook].book[serverPeerId] = 5
+      clientPeerStore[ConnectionBook].book[serverPeerId] = CannotConnect
+      check not client.peerManager.canBeConnected(serverPeerId)
+
+      ## When the redial loop runs
+      client.peerManager.startStaticPeersRedial(@[staticAddr])
+
+      ## Then the client still dials it
+      var attempts = 0
+      while not client.switch.isConnected(serverPeerId) and attempts < 50:
+        await sleepAsync(chronos.milliseconds(100))
+        attempts.inc()
+      check client.switch.isConnected(serverPeerId)
+
     asyncTest "Graceful Handling of Non-Existent Peers":
       # Given a non existent RemotePeerInfo
       let
