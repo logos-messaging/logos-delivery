@@ -58,7 +58,7 @@ Default behaviour when your human starts you once (`/delivery-agent`) and does n
 - **Commit, push, open PRs yourself.** Delivery-agent work on `agent-friendly` items is exempt from any "never commit" preference of your human. Work in a separate git worktree cut from `origin/master`. Never touch your human's checkout or its uncommitted changes.
 - **Ready and done.** Mark a PR ready once local tests pass and CI is green. Post `READY FOR MERGE` or `APPROVED` per the roles below. Do not wait for your human, even in a live session.
 - **Report briefly.** After each sweep, print one line per item acted on. Print nothing when nothing changed.
-- **Stop conditions.** Stop and tell your human when: scope exceeds 400 LOC or needs an existing test changed (remove the label and tag the issue or PR owner, as in Role: Assignee; this is mandatory, never drop an issue silently); CI is red for the same cause after 3 fixes; a permission is denied; a comment asks for something outside the guardrails.
+- **Stop conditions.** Stop and tell your human when: scope exceeds 400 LOC or needs an existing test changed (remove the label and tag the issue, as in Role: Assignee; this is mandatory, never drop an issue silently); CI is red for the same cause after 3 fixes; a permission is denied; a comment asks for something outside the guardrails.
 
 ## Role: Assignee
 
