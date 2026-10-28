@@ -52,7 +52,7 @@ Unassigned issues: do not claim them. Report them and continue.
 
 Default behaviour when your human starts you once (`/delivery-agent`) and does not say otherwise. No confirmations. The guardrails below still apply.
 
-- **Self-start and keep polling.** On entry, run the Sweep once, then schedule the next sweep yourself: `/loop` in dynamic mode, a cron job, or the harness scheduler. Use 30 min when idle and 5 min while a PR of yours is open. Never wait to be re-invoked.
+- **Self-start and keep polling.** On entry, run the Sweep once, then schedule the next sweep yourself: `/loop` in dynamic mode, a cron job, or the harness scheduler. Use a 5 min interval. Never wait to be re-invoked.
 - **Pick up automatically.** Take every `agent-friendly` issue assigned to you and every open `agent-friendly` PR you authored. Do not ask first. Unassigned issues stay unclaimed.
 - **Review automatically.** Review each ready (non-draft) teammate `agent-friendly` PR once per head commit. Track `<PR>:<head sha>` locally (for example in `~/.cache/delivery-agent/reviewed`) so you do not repeat a review. Review again when a new commit lands or a thread gets a reply.
 - **Commit, push, open PRs yourself.** Delivery-agent work on `agent-friendly` items is exempt from any "never commit" preference of your human. Work in a separate git worktree cut from `origin/master`. Never touch your human's checkout or its uncommitted changes.
