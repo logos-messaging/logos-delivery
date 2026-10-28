@@ -95,6 +95,11 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   enrReconcileInterval*: Duration = DefaultEnrReconcileInterval
   enrReachable: bool = true
     ## Whether the record last carried a host. Only a change is worth a log.
+  mixAdvertisementWakeup: AsyncEvent
+    ## Each address commit fires it. The commits that come during one check
+    ## wake the loop once.
+  mixAdvertisementLoopHandle*: Future[void]
+  stopping: bool ## True from the start of `stop` to the next `start`.
 
   node*: WakuNode
 
@@ -210,6 +215,25 @@ proc clearNodeState(waku: Waku) =
   GetNodeKey.clearProvider(waku.brokerCtx)
   GetNodePeerInfo.clearProvider(waku.brokerCtx)
   GetDynamicBootstrapNodes.clearProvider(waku.brokerCtx)
+
+proc checkMixAdvertisement(waku: Waku) {.async: (raises: []).} =
+  ## Checks the mix advertisement against the source of the current self hop.
+  await updateMixAdvertisement(
+    waku.node.discoveries, waku.conf, waku.node.wakuMix, waku.node.selfHopSource()
+  )
+
+proc mixAdvertisementLoop(waku: Waku): Future[void] {.async.} =
+  ## Checks the mix advertisement after each wakeup, one check at a time. A
+  ## commit during a check fires the wakeup again, so one more check follows.
+  while true:
+    await waku.mixAdvertisementWakeup.wait()
+    waku.mixAdvertisementWakeup.clear()
+    await waku.checkMixAdvertisement()
+    # Protect against a backend that catches the cancel of `stop`. A broker
+    # request turns `CancelledError` into an error, so the check returns after
+    # the cancel and the loop goes on.
+    if waku.stopping:
+      break
 
 proc new*(
     T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
@@ -471,6 +495,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     debug "stop: attempting to stop node that isn't running"
 
   try:
+    waku.stopping = true
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
     waku.closePersistency()
@@ -480,6 +505,11 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       waku.metricsServer = nil
 
     # discv5 (as attached IPeerDiscovery backend) is stopped by node.stop()
+
+    # Cancel the loop before the node stops the discovery backends that a check
+    # writes to.
+    if not waku.mixAdvertisementLoopHandle.isNil():
+      await waku.mixAdvertisementLoopHandle.cancelAndWait()
 
     if not waku.node.isNil():
       await waku.node.stopMixRln()
@@ -590,9 +620,14 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       waku.node.ports.discv5Udp = discoveryInfo.boundPorts[0]
       waku.conf.discv5Conf.get().udpPort = Port(discoveryInfo.boundPorts[0])
 
+  waku.stopping = false
+  waku.mixAdvertisementWakeup = newAsyncEvent()
+
   ## Set the callback before the explicit refresh in updateWaku,
   ## so a commit in between reaches the ENR.
   waku.node.onCommittedAddresses = proc() {.gcsafe, raises: [].} =
+    # A new self hop can change the mix advertisement.
+    waku.mixAdvertisementWakeup.fire()
     refreshEnrAddrs(waku.node, waku.key, waku.wakuDiscv5).isOkOr:
       error "failed to refresh ENR multiaddrs", error = $error
       return
@@ -633,7 +668,13 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.conf,
     waku.node.getShardsGetter(waku.conf.subscribeShards)(),
   )
-  await advertiseMix(waku.node.discoveries, waku.conf)
+  await advertiseMix(
+    waku.node.discoveries, waku.conf, waku.node.wakuMix, waku.node.selfHopSource()
+  )
+  # Start the loop after the first advertisement, so that only one check writes
+  # at a time. The loop then checks the commits that came during it.
+  if not waku.node.wakuMix.isNil():
+    waku.mixAdvertisementLoopHandle = waku.mixAdvertisementLoop()
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:
