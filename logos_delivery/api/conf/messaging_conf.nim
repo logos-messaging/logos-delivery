@@ -73,6 +73,9 @@ type MessagingClientConf* = object
     ## Sender anonymity level. A level above `None` mounts and uses mix.
   store*: Opt[bool] ## Enable the store protocol.
   storenode* {.name: "storenode".}: Opt[string]
+  configuredStoreNodesOnly* {.name: "configured-store-nodes-only".}: Opt[bool]
+    ## Query only the preset's store nodes and `storenode`, never discovered
+    ## store peers (default false).
   storeMessageDbUrl* {.name: "store-message-db-url".}: Opt[string]
     ## Database connection URL for the store service's persistent storage.
   storeMessageRetentionPolicy* {.name: "store-message-retention-policy".}: Opt[string]
@@ -127,6 +130,8 @@ proc toWakuNodeConf*(
     conf.storeMaxNumDbConnections = self.storeMaxNumDbConnections.get()
   if self.storenode.isSome():
     conf.storenode = self.storenode.get()
+  if self.configuredStoreNodesOnly.isSome():
+    conf.configuredStoreNodesOnly = self.configuredStoreNodesOnly.get()
   if self.localStoragePath.isSome():
     conf.localStoragePath = self.localStoragePath.get()
 

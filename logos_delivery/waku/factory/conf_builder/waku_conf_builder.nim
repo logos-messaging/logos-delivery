@@ -141,6 +141,7 @@ type WakuConfBuilder* = object
 
   staticNodes: seq[string]
   storeNodes: seq[string]
+  configuredStoreNodesOnly: Opt[bool]
 
   remoteStoreNode: Opt[string]
   remoteLightPushNode: Opt[string]
@@ -249,6 +250,12 @@ proc withRlnDisableValidation*(b: var WakuConfBuilder, rlnDisableValidation: boo
 
 proc withMix*(builder: var WakuConfBuilder, mix: bool) =
   builder.mix = Opt.some(mix)
+
+proc withStoreNodes*(b: var WakuConfBuilder, storeNodes: seq[string]) =
+  b.storeNodes = storeNodes
+
+proc withConfiguredStoreNodesOnly*(b: var WakuConfBuilder, only: bool) =
+  b.configuredStoreNodesOnly = Opt.some(only)
 
 proc withRemoteStoreNode*(b: var WakuConfBuilder, remoteStoreNode: string) =
   b.remoteStoreNode = Opt.some(remoteStoreNode)
@@ -509,7 +516,8 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   if builder.extraListenShards.isNone() and networkPresetConf.extraListenShards.len > 0:
     builder.extraListenShards = Opt.some(networkPresetConf.extraListenShards)
 
-  builder.storeNodes = networkPresetConf.storeNodes
+  if builder.storeNodes.len == 0:
+    builder.storeNodes = networkPresetConf.storeNodes
 
   checkSetPresetValueToField(
     builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
@@ -958,6 +966,7 @@ proc build*(
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
     storeNodes: builder.storeNodes,
+    configuredStoreNodesOnly: builder.configuredStoreNodesOnly.get(false),
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,
     remoteFilterNode: builder.remoteFilterNode,
