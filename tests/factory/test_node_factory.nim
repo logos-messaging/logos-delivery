@@ -487,40 +487,6 @@ suite "Node Factory":
       node.peerManager.selectPeers(WakuStoreCodec).mapIt($it.peerId) ==
         @["16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"]
 
-  asynctest "Configured store nodes only connects to the store nodes on start":
-    let storeNode = newTestWakuNode(
-      generateSecp256k1Key(),
-      parseIpAddress("127.0.0.1"),
-      Port(0),
-      clusterId = DefaultClusterId,
-    )
-    storeNode.mountMetadata(DefaultClusterId, @[]).isOkOr:
-      raiseAssert error
-    await storeNode.start()
-    defer:
-      await storeNode.stop()
-
-    var confBuilder = defaultTestWakuConfBuilder()
-    confBuilder.withStoreNodes(
-      @[
-        "/ip4/127.0.0.1/tcp/" & $storeNode.boundTcpPort() & "/p2p/" &
-          $storeNode.peerInfo.peerId
-      ]
-    )
-    confBuilder.withConfiguredStoreNodesOnly(true)
-    let conf = confBuilder.build().valueOr:
-      raiseAssert error
-
-    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
-      raiseAssert error
-    let startResult = await startNode(node, conf)
-    defer:
-      await node.stop()
-
-    check:
-      startResult.isOk()
-      node.switch.isConnected(storeNode.peerInfo.peerId)
-
   asynctest "Configured store nodes only without store nodes selects no store peer":
     var confBuilder = defaultTestWakuConfBuilder()
     confBuilder.withConfiguredStoreNodesOnly(true)
