@@ -263,7 +263,7 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.StoreClientProtocol] = 0
     return p.notMounted()
 
-  let peerCount = countCapablePeers(hm, WakuStoreCodec)
+  let peerCount = hm.node.peerManager.getSelectablePeersCount(WakuStoreCodec)
   hm.strength[WakuProtocol.StoreClientProtocol] = peerCount
 
   if peerCount > 0 or not isNil(hm.node.wakuStore):
