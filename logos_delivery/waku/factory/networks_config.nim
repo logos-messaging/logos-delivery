@@ -46,6 +46,9 @@ type NetworkPresetConf* = object
     ## Shards every subscribed content topic is also received on. Deprecated:
     ## removed once Status's shard migration ends,
     ## https://github.com/status-im/status-go/issues/7498.
+  storeNodes*: seq[string]
+    ## Multiaddrs of the network's store nodes. The node reports them through
+    ## `get_node_info` (`StoreNodes`) for consumers that query store themselves.
 
 proc autoSharding*(T: type ShardingConf, shards: seq[uint16]): T =
   ShardingConf(kind: AutoSharding, shards: shards)
@@ -182,7 +185,9 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
 # The `status.prod` and `status.staging` networks Status runs on. RLN is
 # disabled. Auto-sharding uses the single shard 32, which Status publishes on;
 # during its shard migration nodes also receive on shard 64.
-proc statusNetworkConf(entryNodes: seq[string]): NetworkPresetConf =
+proc statusNetworkConf(
+    entryNodes: seq[string], storeNodes: seq[string]
+): NetworkPresetConf =
   const ZeroChainId = 0'u256
   return NetworkPresetConf(
     maxMessageSize: "1024KiB",
@@ -202,6 +207,7 @@ proc statusNetworkConf(entryNodes: seq[string]): NetworkPresetConf =
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
     entryNodes: entryNodes,
+    storeNodes: storeNodes,
   )
 
 # Bootstrap is done through the status.prod DNS discovery enrtree plus the
@@ -214,7 +220,15 @@ proc StatusProdConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/boot-01.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmAR24Mbb6VuzoyUiGx42UenDkshENVDj4qnmmbabLvo31",
       "/dns4/boot-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm8mUZ18tBWPXDQsaF7PbCKYA35z7WB2xNZH2EVq1qS8LJ",
       "/dns4/boot-01.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmGwcE8v7gmJNEWFtZtojYpPMTHy2jBLL6xRk33qgDxFWX",
-    ]
+    ],
+    @[
+      "/dns4/store-01.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT",
+      "/dns4/store-02.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm9aDJPkhGxc2SFcEACTFdZ91Q5TJjp76qZEhq9iF59x7R",
+      "/dns4/store-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmMELCo218hncCtTvC2Dwbej3rbyHQcR8erXNnKGei7WPZ",
+      "/dns4/store-02.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmJnVR7ZzFaYvciPVafUXuYGLHPzSUigqAmeNw9nJUVGeM",
+      "/dns4/store-01.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm2M7xs7cLPc3jamawkEqbr7cUJX11uvY7LxQ6WFUdUKUT",
+      "/dns4/store-02.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm9CQhsuwPR54q27kNj9iaQVfyRzTGKrhFmr94oD8ujU6P",
+    ],
   )
 
 # Bootstrap is done through the status.staging DNS discovery enrtree plus the
@@ -225,7 +239,15 @@ proc StatusStagingConf*(T: type NetworkPresetConf): NetworkPresetConf =
     @[
       "enrtree://AI4W5N5IFEUIHF5LESUAOSMV6TKWF2MB6GU2YK7PU4TYUGUNOCEPW@boot.staging.status.nodes.status.im",
       "/dns4/boot-01.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmQE7FXQc6iZHdBzYfw3qCSDa9dLc1wsBJKoP4aZvztq2d",
-    ]
+    ],
+    @[
+      "/dns4/store-01.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAm3xVDaz6SRJ6kErwC21zBJEZjavVXg7VSkoWzaV1aMA3F",
+      "/dns4/store-02.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmCDSnT8oNpMR9HH6uipD71KstYuDCAQGpek9XDAVmqdEr",
+      "/dns4/store-01.gc-us-central1-a.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmB7Ur9HQqo3cWDPovRQjo57fxWWDaQx27WxSzDGhN4JKg",
+      "/dns4/store-02.gc-us-central1-a.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmKBd6crqQNZ6nKCSCpHCAwUPn3DUDmkcPSWUTyVXpxKsW",
+      "/dns4/store-01.ac-cn-hongkong-c.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmMU7Y29oL6DmoJfBFv8J4JhYzYgazPL7nGKJFBV3qcj2E",
+      "/dns4/store-02.ac-cn-hongkong-c.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmU7xtcwytXpGpeDrfyhJkiFvTkQbLB9upL5MXPLGceG9K",
+    ],
   )
 
 const MaxAllowedSubscribedShard* = 60
