@@ -802,3 +802,26 @@ suite "Network presets":
         check:
           MultiAddress.init(storeNode).isOk()
           "/p2p/16Uiu2" in storeNode
+
+suite "Waku Conf - configured store nodes only":
+  test "fails validation without store nodes":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withConfiguredStoreNodesOnly(true)
+
+    let res = builder.build()
+    check:
+      res.isErr()
+      "configured-store-nodes-only" in res.error
+
+  test "passes validation with a storenode":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withConfiguredStoreNodesOnly(true)
+    builder.withRemoteStoreNode(
+      "/ip4/127.0.0.1/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"
+    )
+    let conf = builder.build().valueOr:
+      raiseAssert error
+
+    check conf.validate().isOk()

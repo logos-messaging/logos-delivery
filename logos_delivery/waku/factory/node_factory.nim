@@ -247,6 +247,14 @@ proc setupProtocols(
       return err("failed to set node waku store peer: " & error)
     node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
 
+  if conf.configuredStoreNodesOnly:
+    var storePeers: seq[RemotePeerInfo]
+    for storeNode in conf.storeNodes:
+      let storePeer = parsePeerInfo(storeNode).valueOr:
+        return err("failed to parse store node " & storeNode & ": " & error)
+      storePeers.add(storePeer)
+    node.peerManager.setExclusivePeers(WakuStoreCodec, storePeers)
+
   if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
     node.setupStoreResume()
 

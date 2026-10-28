@@ -117,6 +117,8 @@ type PeerManager* = ref object
   maxFailedAttempts*: int
   storage*: PeerStorage
   serviceSlots*: Table[string, RemotePeerInfo]
+  exclusivePeers*: Table[string, seq[RemotePeerInfo]]
+    ## Per protocol, the only peers selected for it besides its service slot.
   relayServiceRatio*: string
   maxRelayPeers*: int
   maxServicePeers*: int
@@ -271,6 +273,11 @@ proc selectPeers*(
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
   ## shuffled randomly. Callers can further filter or pick from this list.
+  pm.exclusivePeers.withValue(proto, exclusive):
+    var peers = exclusive[]
+    shuffle(peers)
+    return peers
+
   var peers = pm.switch.peerStore.getPeersByProtocol(proto)
   trace "Selecting peers from peerstore",
     protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
@@ -305,6 +312,19 @@ proc selectPeer*(
     return Opt.some(peers[0])
   trace "No peer found for protocol", protocol = proto
   return Opt.none(RemotePeerInfo)
+
+proc setExclusivePeers*(pm: PeerManager, proto: string, peers: seq[RemotePeerInfo]) =
+  ## Restricts peer selection for `proto` to `peers` and its service slot.
+  ## Discovered peers are no longer selected for it.
+  pm.exclusivePeers[proto] = peers
+
+proc isSelectable(pm: PeerManager, peerId: PeerId, proto: string): bool =
+  pm.exclusivePeers.withValue(proto, exclusive):
+    pm.serviceSlots.withValue(proto, slot):
+      if slot[].peerId == peerId:
+        return true
+    return exclusive[].anyIt(it.peerId == peerId)
+  return true
 
 # Adds a peer to the service slots, which is a list of peers that are slotted for a given protocol
 proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
@@ -595,7 +615,8 @@ proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]
 
   for peerId, muxers in pm.switch.connManager.getConnections():
     # filter out peers that don't have the capability registered in the peer store
-    if pm.switch.peerStore.hasPeer(peerId, protocol):
+    if pm.switch.peerStore.hasPeer(peerId, protocol) and
+        pm.isSelectable(peerId, protocol):
       for peerConn in muxers:
         if peerConn.connection.transportDir == Direction.In:
           inPeers.add(peerId)

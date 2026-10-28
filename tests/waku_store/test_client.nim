@@ -241,6 +241,23 @@ suite "Store Client":
 
       check observedLastPeers.len >= 2
 
+    asyncTest "queryToAny asks only the exclusive store peers":
+      let peerManager = PeerManager.new(clientSwitch)
+      let exclusiveClient = WakuStoreClient.new(peerManager, crypto.newRng())
+      for _ in 0 ..< 3:
+        let discovered = newTestSwitch().peerInfo.toRemotePeerInfo()
+        discovered.protocols = @[WakuStoreCodec]
+        clientSwitch.peerStore.addPeer(discovered)
+      let exclusive = newTestSwitch().peerInfo.toRemotePeerInfo()
+      peerManager.setExclusivePeers(WakuStoreCodec, @[exclusive])
+
+      for _ in 0 ..< 5:
+        let res = await exclusiveClient.queryToAny(storeQuery)
+        check:
+          res.isErr()
+          res.error.kind == ErrorCode.PEER_DIAL_FAILURE
+          res.error.address == $exclusive
+
 suite "Store Client - peers that hold their streams":
   ## Two Store peers read the request and keep their streams open until teardown.
   var serverSwitches {.threadvar.}: seq[Switch]

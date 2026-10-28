@@ -169,7 +169,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: could probably make it a `PeerRemoteInfo`
   staticNodes*: seq[string]
-  storeNodes*: seq[string] ## The network preset's store nodes, as multiaddrs.
+  storeNodes*: seq[string]
+    ## The network's store nodes as multiaddrs, from the preset by default.
+  configuredStoreNodesOnly*: bool
+    ## Query only `storeNodes` and `remoteStoreNode`, never discovered store peers.
   remoteStoreNode*: Opt[string]
   remoteLightPushNode*: Opt[string]
   remoteFilterNode*: Opt[string]
@@ -317,10 +320,18 @@ proc validateExtraListenShards(wakuConf: WakuConf): Result[void, string] =
     )
   return ok()
 
+proc validateConfiguredStoreNodesOnly(wakuConf: WakuConf): Result[void, string] =
+  if wakuConf.configuredStoreNodesOnly and wakuConf.storeNodes.len == 0 and
+      wakuConf.remoteStoreNode.isNone():
+    return
+      err("configured-store-nodes-only needs store nodes from a preset or storenode")
+  return ok()
+
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateExtraListenShards()
   ?wakuConf.validateNoEmptyStrings()
   ?wakuConf.validateExtMultiAddrsOnly()
+  ?wakuConf.validateConfiguredStoreNodesOnly()
   return ok()

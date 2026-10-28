@@ -471,6 +471,22 @@ suite "Node Factory":
         node.subscriptionManager.shards
       PubsubTopic(listenShard) in node.subscriptionManager.shards
 
+  asynctest "Configured store nodes only makes them the exclusive store peers":
+    let storeNode =
+      "/dns4/store-01.example.com/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"
+    var confBuilder = defaultTestWakuConfBuilder()
+    confBuilder.withStoreNodes(@[storeNode])
+    confBuilder.withConfiguredStoreNodesOnly(true)
+    let conf = confBuilder.build().valueOr:
+      raiseAssert error
+
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    check:
+      node.peerManager.selectPeers(WakuStoreCodec).mapIt($it.peerId) ==
+        @["16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"]
+
   test "Extra listen shards need auto-sharding":
     var confBuilder = defaultTestWakuConfBuilder()
     confBuilder.withShardingConf(StaticSharding)

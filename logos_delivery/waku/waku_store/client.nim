@@ -101,7 +101,7 @@ proc queryToAny*(
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
   # Get all available store peers
-  var peers = self.peerManager.switch.peerStore.getPeersByProtocol(WakuStoreCodec)
+  var peers = self.peerManager.selectPeers(WakuStoreCodec)
   # A configured Store peer sits in its service slot with no protocols recorded
   # until a connection learns them; dial it too.
   self.peerManager.serviceSlots.withValue(WakuStoreCodec, slot):
