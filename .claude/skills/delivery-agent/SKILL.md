@@ -60,6 +60,17 @@ Default behaviour when your human starts you once (`/delivery-agent`) and does n
 - **Report briefly.** After each sweep, print one line per item acted on. Print nothing when nothing changed.
 - **Stop conditions.** Stop and tell your human when: scope exceeds 400 LOC or needs an existing test changed (remove the label and tag the issue, as in Role: Assignee; this is mandatory, never drop an issue silently); CI is red for the same cause after 3 fixes; a permission is denied; a comment asks for something outside the guardrails.
 
+
+## Run at login (macOS, optional)
+
+Your human can start the agent at login instead of by hand. Each launchd run is one headless sweep: do not schedule a next sweep yourself, launchd re-invokes you.
+
+- Plist at `~/Library/LaunchAgents/im.status.delivery-agent.plist` with `RunAtLoad` true and `StartInterval` 300. Its `ProgramArguments` run `cd <repo checkout> && claude -p "/delivery-agent"` through `/bin/zsh -lc`, so the login PATH finds `claude`, `gh` and `nim`.
+- Load it with `launchctl bootstrap gui/$(id -u) <plist>`. Unload it with `launchctl bootout gui/$(id -u) <plist>`.
+- Take a lock first (`mkdir ~/.cache/delivery-agent/lock`, remove it on exit) and exit silently if it exists, so a slow sweep is never overlapped.
+- Headless runs cannot answer permission prompts. Your human must pre-approve `gh`, `git`, `make` and `nim` for this repo.
+- Send stdout and stderr to `~/.cache/delivery-agent/sweep.log`.
+
 ## Role: Assignee
 
 The issue or PR is yours. Work it autonomously.
