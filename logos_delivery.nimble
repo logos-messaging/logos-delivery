@@ -117,6 +117,14 @@ proc getMyCPU(): string =
 proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
+proc copyToLibOut(built: string) =
+  ## Copies a built library into LIBLOGOSDELIVERY_OUT, when that is set.
+  let outDir = getEnv("LIBLOGOSDELIVERY_OUT")
+  if outDir.len == 0:
+    return
+  mkDir outDir
+  cpFile built, outDir / extractFilename(built)
+
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
@@ -238,6 +246,15 @@ proc nimblePkgPath(pkg: string): string =
 
 ### Mobile Android
 
+proc androidTarget(cpu: string): tuple[triple, abi: string] =
+  ## Maps a Nim CPU name to its NDK target triple and Android ABI name.
+  case cpu
+  of "arm64": ("aarch64-linux-android", "arm64-v8a")
+  of "amd64": ("x86_64-linux-android", "x86_64")
+  of "i386": ("i686-linux-android", "x86")
+  of "arm": ("armv7a-linux-androideabi", "armeabi-v7a")
+  else: quit "Error: CPU must be one of arm64, amd64, i386, arm, got '" & cpu & "'"
+
 proc androidToolchain() =
   ## Fills in the ANDROID_* toolchain variables from ANDROID_NDK_ROOT (or
   ## ANDROID_NDK_HOME) and CPU, unless the Makefile already set them.
@@ -247,13 +264,7 @@ proc androidToolchain() =
   if ndk.len == 0:
     quit "Error: set ANDROID_NDK_ROOT or ANDROID_NDK_HOME"
   let hostTag = when defined(macosx): "darwin-x86_64" else: "linux-x86_64"
-  let arch =
-    case getEnv("CPU")
-    of "arm64": "aarch64-linux-android"
-    of "amd64": "x86_64-linux-android"
-    of "i386": "i686-linux-android"
-    of "arm": "armv7a-linux-androideabi"
-    else: quit "Error: CPU must be one of arm64, amd64, i386, arm"
+  let arch = androidTarget(getEnv("CPU")).triple
   putEnv("ANDROID_TOOLCHAIN_DIR", ndk / "toolchains/llvm/prebuilt" / hostTag)
   putEnv("ANDROID_ARCH", arch)
   putEnv("ANDROID_COMPILER", arch & getEnv("ANDROID_TARGET", "30") & "-clang")
@@ -277,7 +288,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   rebuildNatLibs(getEnv("ANDROID_TOOLCHAIN_DIR") / "bin" / getEnv("ANDROID_COMPILER"))
 
   let cpu = getEnv("CPU")
-  let abiDir = getEnv("ABIDIR")
+  let abiDir = getEnv("ABIDIR", androidTarget(cpu).abi)
 
   let outDir = "build/android/" & abiDir
   if not dirExists outDir:
@@ -309,6 +320,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimcache:" & outDir & "/nimcache --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
+  copyToLibOut outDir / "liblogosdelivery.so"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
   let srcDir = "./library"
@@ -323,11 +335,15 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   let iosArch = getEnv("IOS_ARCH")
   let iosSdk = getEnv("IOS_SDK")
-  let sdkPath = getEnv("IOS_SDK_PATH")
+  var sdkPath = getEnv("IOS_SDK_PATH")
   let minVersion = getEnv("IOS_DEPLOYMENT_TARGET", "18.0")
 
   if sdkPath.len == 0:
-    quit "Error: IOS_SDK_PATH not set. Set it to the path of the iOS SDK"
+    let (output, code) = gorgeEx("xcrun --sdk " & iosSdk & " --show-sdk-path")
+    if code != 0:
+      quit "Error: IOS_SDK_PATH not set and xcrun could not find the '" & iosSdk &
+        "' SDK: " & output
+    sdkPath = output.strip()
 
   let natTraversalPath = nimblePkgPath("nat_traversal")
 
@@ -417,6 +433,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     cpFile(header, outDir & "/liblogosdelivery.h")
 
   echo "iOS library created: " & aFile
+  copyToLibOut aFile
 
 task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let srcDir = "./library"
@@ -552,6 +569,9 @@ task liblogosdelivery, "Build liblogosdelivery for the host platform":
     buildLibDynamicMac("liblogosdelivery", "library")
   else:
     buildLibDynamicLinux("liblogosdelivery", "library")
+  copyToLibOut "build" / (
+    when defined(windows): "liblogosdelivery.dll" else: DynlibFormat % "logosdelivery"
+  )
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
   buildLibDynamicWindows("liblogosdelivery", "library")
