@@ -101,7 +101,6 @@ jobs:
   consumer-break-check:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
-    name: "Consumer break check"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -136,7 +135,6 @@ jobs:
   lock-break-check:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
-    name: "Lock break check"
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
@@ -252,7 +250,7 @@ jobs:
     env:
       NIMFLAGS: ""
 
-    name: liblogosdelivery default build - ${{ matrix.os }}
+    name: liblogosdelivery-default-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -451,7 +449,6 @@ jobs:
     secrets: inherit
 
   lint:
-    name: "Lint"
     runs-on: ubuntu-22.04
     needs: changes
     if: >-
@@ -470,9 +467,8 @@ jobs:
   # Full only: jobs that run only when the nightly calls this workflow with
   # full: true.
 
-  deps-freshness:
+  nix-deps-check:
     if: ${{ inputs.full }}
-    name: "nix/deps.nix freshness"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -493,9 +489,8 @@ jobs:
           diff /tmp/deps.nix.fresh nix/deps.nix
 
   # Fails when `nimble lock` cannot solve logos_delivery.nimble from scratch.
-  lock-resolution:
+  lock-check:
     if: ${{ inputs.full }}
-    name: "nimble.lock resolution"
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
@@ -515,9 +510,8 @@ jobs:
 
   # Runs Nimble setup in a new project that requires the checked-out commit of
   # logos-delivery, with no lockfile.
-  consumer-deps:
+  consumer-check:
     if: ${{ inputs.full }}
-    name: "Consumer dependency resolution"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -597,7 +591,7 @@ jobs:
             "$DISCORD_WEBHOOK_URL"
 
   # RLN end-to-end against the simulator. Defaults from tests/simulator/rln-sim.env.
-  rln-simulator:
+  tests-e2e-rln-simulator:
     if: ${{ inputs.full }}
     uses: ./.github/workflows/ci-rln-simulator.yml
     secrets: inherit
