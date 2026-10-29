@@ -8,9 +8,6 @@ name: RLN E2E — Simulator
 # production traffic exercising RLN. Until RLN is enabled there, this is
 # the only end-to-end coverage of the RLN + zerokit path.
 #
-# The image is built ON the runner and tested ON the same runner, so the
-# AVX-512 portability issue in container-image.yml does not apply here.
-#
 # No own schedule: the nightly (ci-daily.yml) reaches this through ci.yml's
 # full run. workflow_dispatch allows manual runs.
 # Run defaults live in tests/simulator/rln-sim.env; inputs override per-run.
@@ -28,6 +25,14 @@ on:
         type: string
         default: ''
       epoch_sec:
+        type: string
+        default: ''
+      node_image:
+        description: "Node image every simulator node runs. Empty builds one from branch."
+        type: string
+        default: ''
+      node_image_artifact:
+        description: "Artifact holding node_image when it could not be pushed to quay.io."
         type: string
         default: ''
   workflow_dispatch:
@@ -103,9 +108,11 @@ jobs:
           clean: true
 
       - name: Install nimble deps
+        if: ${{ inputs.node_image == '' }}
         uses: ./.github/actions/nimble-deps
 
       - name: Build logosdeliverynode
+        if: ${{ inputs.node_image == '' }}
         run: |
           make -j${NPROC} V=1 POSTGRES=1 \
             NIMFLAGS="-d:chronicles_colors:none" \
@@ -113,11 +120,25 @@ jobs:
           make -j${NPROC} V=1 NIMFLAGS="-d:chronicles_colors:none" rlnkeystore
 
       - name: Audit installed deps
+        if: ${{ inputs.node_image == '' }}
         run: make audit-deps
 
       - name: Build local Docker image
+        if: ${{ inputs.node_image == '' }}
         run: |
           docker build -t nwaku-rln-ci:test -f docker/binaries/Dockerfile.bn.amd64 .
+
+      # Loaded under its quay.io name, so the simulator uses it without pulling.
+      - name: Download node image
+        if: ${{ inputs.node_image_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.node_image_artifact }}
+          path: ${{ runner.temp }}/node-image
+
+      - name: Load node image
+        if: ${{ inputs.node_image_artifact != '' }}
+        run: docker load -i "${RUNNER_TEMP}/node-image/node-image.tar.gz"
 
       - name: Clone logos-delivery-simulator
         run: |
@@ -130,7 +151,7 @@ jobs:
           CONTRACT_COMMIT=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD:vendor/waku-rlnv2-contract)
           echo "contract commit (from vendor/waku-rlnv2-contract): $CONTRACT_COMMIT"
           cat > .env <<EOF
-          LD_IMAGE=nwaku-rln-ci:test
+          LD_IMAGE=${{ inputs.node_image || 'nwaku-rln-ci:test' }}
           NUM_LD_NODES=${{ steps.cfg.outputs.num_nodes }}
           MSG_SIZE_KBYTES=1
           TRAFFIC_DELAY_SECONDS=5

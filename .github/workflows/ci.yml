@@ -385,6 +385,7 @@ jobs:
     with:
       node_image: ${{ needs.build-docker-image.outputs.image }}
       node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
+      slow: ${{ inputs.full == true }}
     secrets: inherit
 
   # E2E tests that run the node docker image and drive it over its REST API
@@ -592,8 +593,13 @@ jobs:
 
   # RLN end-to-end against the simulator. Defaults from tests/simulator/rln-sim.env.
   tests-e2e-rln-simulator:
+    needs: build-docker-image
     if: ${{ inputs.full }}
     uses: ./.github/workflows/ci-rln-simulator.yml
+    with:
+      branch: ${{ github.sha }}
+      node_image: ${{ needs.build-docker-image.outputs.image }}
+      node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
     secrets: inherit
 
   # The single required check for this workflow. A matrix or reusable-workflow
