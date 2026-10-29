@@ -70,8 +70,8 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
     ## "true" between a successful start and stop, "false" otherwise.
     return $self.node.started
   of NodeInfoId.StoreNodes:
-    ## The network preset's store nodes, as a JSON array of multiaddrs.
-    return $(%self.conf.storeNodes)
+    ## The preset's store nodes and `storenode`, as a JSON array of multiaddrs.
+    return $(%self.conf.configuredStoreNodes())
   else:
     return "unknown info item id"
 

@@ -102,6 +102,12 @@ proc countCapablePeers(hm: NodeHealthMonitor, codec: string): int =
 
   return hm.node.peerManager.getCapablePeersCount(codec)
 
+proc countSelectablePeers(hm: NodeHealthMonitor, codec: string): int =
+  if isNil(hm.node.peerManager):
+    return 0
+
+  return hm.node.peerManager.getSelectablePeersCount(codec)
+
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.RelayProtocol)
 
@@ -264,7 +270,7 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.StoreClientProtocol] = 0
     return p.notMounted()
 
-  let peerCount = hm.node.peerManager.getSelectablePeersCount(WakuStoreCodec)
+  let peerCount = countSelectablePeers(hm, WakuStoreCodec)
   hm.strength[WakuProtocol.StoreClientProtocol] = peerCount
 
   if peerCount > 0 or not isNil(hm.node.wakuStore):

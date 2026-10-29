@@ -448,6 +448,13 @@ proc startNode*(
     except CatchableError:
       return err("failed to connect to static nodes: " & getCurrentExceptionMsg())
 
+  # With `configuredStoreNodesOnly`, the store client health counts only the
+  # configured store nodes that are connected. Do not wait for the dials, so
+  # an unreachable store node does not make the start slow. `stop` cancels them.
+  if conf.configuredStoreNodesOnly:
+    node.storeNodesConnectFut =
+      node.connectToNodes(conf.configuredStoreNodes(), "store")
+
   if dynamicBootstrapNodes.len > 0:
     info "Connecting to dynamic bootstrap peers"
     try:

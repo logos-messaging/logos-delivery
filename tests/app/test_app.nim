@@ -72,6 +72,49 @@ suite "Node app - Waku":
     check:
       storeNodes == "[]"
 
+  test "store nodes should include the storenode":
+    ## The node also queries `storenode`, so a consumer that reads this list
+    ## must see it.
+    ## Given
+    let conf = defaultTestWakuConf()
+    conf.storeNodes = @[
+      "/dns4/store-01.example.com/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"
+    ]
+    conf.remoteStoreNode = Opt.some(
+      "/dns4/store-02.example.com/tcp/30303/p2p/16Uiu2HAm9aDJPkhGxc2SFcEACTFdZ91Q5TJjp76qZEhq9iF59x7R"
+    )
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let storeNodes = waku.stateInfo.getNodeInfoItem(NodeInfoId.StoreNodes)
+
+    ## Then
+    check:
+      parseJson(storeNodes).to(seq[string]) ==
+        conf.storeNodes & conf.remoteStoreNode.get()
+
+  test "store nodes should list a storenode from the preset once":
+    ## A user can set one of the preset's store nodes as `storenode`.
+    ## Given
+    let conf = defaultTestWakuConf()
+    conf.storeNodes = @[
+      "/dns4/store-01.example.com/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT",
+      "/dns4/store-02.example.com/tcp/30303/p2p/16Uiu2HAm9aDJPkhGxc2SFcEACTFdZ91Q5TJjp76qZEhq9iF59x7R",
+    ]
+    conf.remoteStoreNode = Opt.some(conf.storeNodes[1])
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let storeNodes = waku.stateInfo.getNodeInfoItem(NodeInfoId.StoreNodes)
+
+    ## Then
+    check:
+      parseJson(storeNodes).to(seq[string]) == conf.storeNodes
+
   test "is running should follow start and stop":
     ## Given
     let conf = defaultTestWakuConf()
