@@ -6,6 +6,12 @@ on:
   push:
     branches:
       - master
+  workflow_call:
+    inputs:
+      full:
+        description: "Run every job, whatever paths changed."
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -25,11 +31,13 @@ jobs:
     - uses: actions/checkout@v4
       name: Checkout code
       id: checkout
+      if: ${{ !inputs.full }}
     # `all` is a deny-list rather than an allow-list: every path runs the whole
     # CI unless it is docs or one of the narrow areas below, so a new source
     # directory is covered without anyone remembering to extend this filter.
     - uses: dorny/paths-filter@v4
       id: filter
+      if: ${{ !inputs.full }}
       with:
         # 'some-with-excludes' is what makes the '!' patterns subtractive; the
         # default 'some' would match every file against the bare '**'.
@@ -72,7 +80,7 @@ jobs:
 
     outputs:
       # A push to master runs everything so every master commit keeps a full CI record.
-      all: ${{ github.event_name == 'push' || steps.filter.outputs.all == 'true' }}
+      all: ${{ inputs.full || github.event_name == 'push' || steps.filter.outputs.all == 'true' }}
       tests: ${{ steps.filter.outputs.tests }}
       e2e: ${{ steps.filter.outputs.e2e }}
       examples: ${{ steps.filter.outputs.examples }}
@@ -80,7 +88,9 @@ jobs:
       nix: ${{ steps.filter.outputs.nix }}
       manifest: ${{ steps.filter.outputs.manifest }}
 
-  # Also on nix changes: it is the only check that compares nix/deps.nix
+  # PR level: jobs gated on the changes job.
+
+  # Also on nix changes: it is the only PR check that compares nix/deps.nix
   # against nimble.lock, and the Nix build itself never reads the lock.
   build-health:
     needs: changes
@@ -92,7 +102,6 @@ jobs:
   consumer-break-check:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
-    name: "Consumer break check"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -127,7 +136,6 @@ jobs:
   lock-break-check:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.manifest == 'true' }}
-    name: "Lock break check"
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
@@ -243,7 +251,7 @@ jobs:
     env:
       NIMFLAGS: ""
 
-    name: liblogosdelivery default build - ${{ matrix.os }}
+    name: liblogosdelivery-default-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -378,6 +386,7 @@ jobs:
     with:
       node_image: ${{ needs.build-docker-image.outputs.image }}
       node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
+      slow: ${{ inputs.full == true }}
     secrets: inherit
 
   # E2E tests that run the node docker image and drive it over its REST API
@@ -442,7 +451,6 @@ jobs:
     secrets: inherit
 
   lint:
-    name: "Lint"
     runs-on: ubuntu-22.04
     needs: changes
     if: >-
@@ -457,6 +465,142 @@ jobs:
 
       - name: Lint (nph formatting, metric labels)
         run: make lint
+
+  # Full only: run when this workflow is called with full: true.
+
+  nix-deps-check:
+    if: ${{ inputs.full }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+
+      - name: Regenerate nix/deps.nix and compare
+        run: |
+          # The generator reads repository revisions from nimble.lock; it
+          # does not select newer package versions or follow current release
+          # tags. The diff detects differences between the generated Nix
+          # expressions and the committed file. Unfetchable revisions,
+          # generator failures, and tool or environment incompatibilities
+          # also fail this step.
+          # nix-prefetch-git from the nixpkgs revision that flake.lock pins.
+          nix shell --inputs-from . nixpkgs#nix-prefetch-git --command ./tools/gen-nix-deps.sh nimble.lock /tmp/deps.nix.fresh
+          diff /tmp/deps.nix.fresh nix/deps.nix
+
+  # Fails when `nimble lock` cannot solve logos_delivery.nimble from scratch.
+  lock-check:
+    if: ${{ inputs.full }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Nimble lock
+        id: lock
+        uses: ./.github/actions/lock-check
+        with:
+          target: ${{ github.ref_name }}
+
+      - name: Fail if Nimble lock failed
+        if: ${{ steps.lock.outputs.succeeded != 'true' }}
+        run: |
+          echo "::error::Nimble lock fails on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:8}). The notice \"Nimble lock fails on ${GITHUB_REF_NAME}\" shows the error."
+          exit 1
+
+  # Runs Nimble setup in a new project that requires the checked-out commit of
+  # logos-delivery, with no lockfile.
+  consumer-check:
+    if: ${{ inputs.full }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up a consumer of this commit
+        id: setup
+        uses: ./.github/actions/consumer-setup
+        with:
+          revision: ${{ github.sha }}
+          target: ${{ github.ref_name }}
+
+      - name: Fail if the setup failed
+        if: ${{ steps.setup.outputs.succeeded != 'true' }}
+        run: |
+          echo "::error::Nimble setup of a project that requires logos-delivery fails on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:8}). The notice \"Nimble setup of a project that requires logos-delivery fails on ${GITHUB_REF_NAME}\" shows the error."
+          exit 1
+
+  build-examples-tools:
+    if: ${{ inputs.full }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    name: build-examples-tools-${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install nimble deps
+        uses: ./.github/actions/nimble-deps
+
+      - name: Build examples and tools
+        # -j1: concurrent nimble tasks corrupt shared package metadata.
+        run: make V=1 -j1 examples tools
+
+      - name: Audit installed deps
+        run: make audit-deps
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK_URL" ] && { echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the Discord notification"; exit 0; }
+          STATUS="${{ job.status }}"
+          OS="${{ matrix.os }}"
+          REPO="${{ github.repository }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$STATUS" = "success" ]; then
+            COLOR=3066993
+            TITLE="✅ CI Success"
+          else
+            COLOR=15158332
+            TITLE="❌ CI Failed"
+          fi
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"$TITLE\",
+                \"color\": $COLOR,
+                \"fields\": [
+                  {\"name\": \"Repository\", \"value\": \"$REPO\", \"inline\": true},
+                  {\"name\": \"OS\", \"value\": \"$OS\", \"inline\": true},
+                  {\"name\": \"Status\", \"value\": \"$STATUS\", \"inline\": true}
+                ],
+                \"url\": \"$RUN_URL\",
+                \"footer\": {\"text\": \"Daily logos-delivery CI\"}
+              }]
+            }" \
+            "$DISCORD_WEBHOOK_URL"
+
+  # RLN end-to-end against the simulator. Defaults from tests/simulator/rln-sim.env.
+  tests-e2e-rln-simulator:
+    needs: build-docker-image
+    if: ${{ inputs.full }}
+    uses: ./.github/workflows/ci-rln-simulator.yml
+    with:
+      branch: ${{ github.sha }}
+      node_image: ${{ needs.build-docker-image.outputs.image }}
+      node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
+    secrets: inherit
 
   # The single required check for this workflow. A matrix or reusable-workflow
   # job skipped at job level reports under its raw name (e.g.

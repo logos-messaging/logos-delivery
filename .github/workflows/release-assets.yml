@@ -77,19 +77,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nimble-pkgcache-v1-
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
-        with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-${{matrix.arch}}-submodules-${{ steps.submodules.outputs.hash }}
-
       - name: Get tag
         id: version
         run: |

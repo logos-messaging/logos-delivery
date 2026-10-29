@@ -46,6 +46,5 @@ git add tests-e2e/vendor/logos-delivery-python-bindings
 `liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
 (`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
-The `slow` test is deselected there. `.github/workflows/tests-e2e-c-abi-nightly.yml` (nightly, also on manual dispatch)
-builds the library from the checkout and runs the whole non-docker subset, `slow` included.
-Run it by hand when touching SDS-R.
+The `slow` test is deselected there. The nightly full run (`ci-daily.yml`, also on manual dispatch) passes `slow: true`,
+so its non-docker subset includes it.
