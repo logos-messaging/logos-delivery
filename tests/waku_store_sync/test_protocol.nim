@@ -333,12 +333,53 @@ suite "Waku Sync: reconciliation":
     await clientIds.put(
       (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
     )
+    # The receiver inserts the id as soon as it takes it off the queue.
+    while clientIds.len > 0:
+      await sleepAsync(10.milliseconds)
     await sleepAsync(600.milliseconds)
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
 
     # Then the second server does not queue it
     check remoteNeeds.len == 1
+
+  asyncTest "a peer that asks for a pending message gets it when it arrives":
+    # Given a server holding one message, an empty client and an empty third node
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      (switchC, nodeC, _) = await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await nodeC.stop()
+      await switchC.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch, @[], DefaultSyncRange, clientIds, localWants, remoteNeeds
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the third node syncs with the client while the message is pending there
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+    res = await nodeC.storeSynchronization(Opt.some(clientPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+
+    # And the message then arrives at the client
+    await clientIds.put(
+      (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
+    )
+    while clientIds.len > 0:
+      await sleepAsync(10.milliseconds)
+
+    # Then the client queues it for the third node
+    check:
+      remoteNeeds.len == 2
+      remoteNeeds.contains((switchC.peerInfo.peerId, hash))
 
   asyncTest "sync 2 nodes empty client full server, relay jitter shifts the time range":
     server = await newTestWakuRecon(

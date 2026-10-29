@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[deques, sequtils, sets],
+  std/[deques, sequtils, sets, tables],
   stew/byteutils,
   results,
   chronicles,
@@ -70,6 +70,8 @@ type SyncReconciliation* = ref object of LPProtocol
   pendingTimeout: Duration
   pendingSet: HashSet[WakuMessageHash]
   pendingQueue: Deque[(SyncID, Moment)] # with their deadline, in order
+  # Peers that asked for a pending element. They get it when it arrives.
+  deferredTx: Table[WakuMessageHash, seq[PeerId]]
 
   # futures
   periodicSyncFut: Future[void]
@@ -88,6 +90,14 @@ proc insertConfirmed(
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
+    var peers: seq[PeerId]
+    if self.deferredTx.pop(id.hash, peers):
+      for peer in peers:
+        try:
+          self.remoteNeedsTx.addLastNoWait((peer, id.hash))
+        except AsyncQueueFullError:
+          error "failed to queue message for transfer",
+            msg_hash = byteutils.toHex(id.hash), peer_id = peer
 
   self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
     error "failed to insert new message",
@@ -103,6 +113,7 @@ proc expirePending(self: SyncReconciliation) =
       continue
 
     self.pendingSet.excl(id.hash)
+    self.deferredTx.del(id.hash)
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
@@ -291,8 +302,9 @@ proc processRequest(
         self.pendingQueue.addLast((id, deadline))
 
       for hash in hashToSend:
-        # A pending element is not in the archive, so it cannot be sent.
+        # A pending element is not in the archive yet, so it is sent on arrival.
         if self.pendingSet.contains(hash):
+          self.deferredTx.mgetOrPut(hash, @[]).add(conn.peerId)
           continue
         self.remoteNeedsTx.addLastNoWait((conn.peerId, hash))
         diffs.inc()
