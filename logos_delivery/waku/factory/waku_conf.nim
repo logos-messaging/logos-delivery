@@ -207,6 +207,13 @@ type WakuConf* {.requiresInit.} = ref object
 
   localStoragePath*: string
 
+func configuredStoreNodes*(conf: WakuConf): seq[string] =
+  ## The multiaddrs of `storeNodes`, and then `remoteStoreNode` if it is not
+  ## one of them.
+  if conf.remoteStoreNode.isNone() or conf.remoteStoreNode.get() in conf.storeNodes:
+    return conf.storeNodes
+  return conf.storeNodes & conf.remoteStoreNode.get()
+
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
     relay = conf.relay,
