@@ -981,8 +981,8 @@ suite "Waku API - Send":
     await lightpushNode.start()
     await lightpushNode.connectToNodes(@[relayNode2PeerInfo])
 
-    # Give the node time to dial the static node again.
-    await sleepAsync(3.seconds)
+    checkUntilTimeout:
+      node.waku.node.switch.isConnected(lightpushNodePeerId)
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
