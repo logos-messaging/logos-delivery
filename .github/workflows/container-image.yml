@@ -27,13 +27,8 @@ env:
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
 jobs:
   build-docker-image:
-    strategy:
-      matrix:
-        os: [ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
-
-    name: docker-build-${{ matrix.os }}
     outputs:
       image: ${{ steps.build.outputs.image }}
       image_artifact: ${{ steps.push.outputs.pushed == 'false' && 'node-image' || '' }}

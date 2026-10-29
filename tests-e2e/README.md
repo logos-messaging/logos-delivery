@@ -47,4 +47,4 @@ git add tests-e2e/vendor/logos-delivery-python-bindings
 (`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
 The `slow` test is deselected there. The nightly full run (`ci-daily.yml`, also on manual dispatch) passes `slow: true`,
-so its non-docker subset includes it. When touching SDS-R, run it locally with `pytest tests/c_abi -m slow`.
+so its non-docker subset includes it.

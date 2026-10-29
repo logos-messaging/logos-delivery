@@ -8,23 +8,13 @@ name: RLN E2E — Simulator
 # production traffic exercising RLN. Until RLN is enabled there, this is
 # the only end-to-end coverage of the RLN + zerokit path.
 #
-# No own schedule: the nightly (ci-daily.yml) reaches this through ci.yml's
-# full run. workflow_dispatch allows manual runs.
+# No own schedule: a full CI run calls this. workflow_dispatch allows manual runs.
 # Run defaults live in tests/simulator/rln-sim.env; inputs override per-run.
 
 on:
   workflow_call:
     inputs:
       branch:
-        type: string
-        default: ''
-      num_nodes:
-        type: string
-        default: ''
-      msg_limit:
-        type: string
-        default: ''
-      epoch_sec:
         type: string
         default: ''
       node_image:

@@ -27,7 +27,6 @@ jobs:
         include:
           - subset: non-docker
             name: c-abi
-            # A full run (slow: true) also runs the tests marked slow.
             markers: ${{ inputs.slow && 'not docker_required' || 'not docker_required and not slow' }}
           - subset: docker
             name: c-abi-docker

@@ -31,6 +31,7 @@ jobs:
     - uses: actions/checkout@v4
       name: Checkout code
       id: checkout
+      if: ${{ !inputs.full }}
     # `all` is a deny-list rather than an allow-list: every path runs the whole
     # CI unless it is docs or one of the narrow areas below, so a new source
     # directory is covered without anyone remembering to extend this filter.
@@ -89,7 +90,7 @@ jobs:
 
   # PR level: jobs gated on the changes job.
 
-  # Also on nix changes: it is the only check that compares nix/deps.nix
+  # Also on nix changes: it is the only PR check that compares nix/deps.nix
   # against nimble.lock, and the Nix build itself never reads the lock.
   build-health:
     needs: changes
@@ -465,8 +466,7 @@ jobs:
       - name: Lint (nph formatting, metric labels)
         run: make lint
 
-  # Full only: jobs that run only when the nightly calls this workflow with
-  # full: true.
+  # Full only: run when this workflow is called with full: true.
 
   nix-deps-check:
     if: ${{ inputs.full }}
@@ -501,12 +501,12 @@ jobs:
         id: lock
         uses: ./.github/actions/lock-check
         with:
-          target: master
+          target: ${{ github.ref_name }}
 
       - name: Fail if Nimble lock failed
         if: ${{ steps.lock.outputs.succeeded != 'true' }}
         run: |
-          echo "::error::Nimble lock fails on master (${GITHUB_SHA:0:8}). The notice \"Nimble lock fails on master\" shows the error."
+          echo "::error::Nimble lock fails on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:8}). The notice \"Nimble lock fails on ${GITHUB_REF_NAME}\" shows the error."
           exit 1
 
   # Runs Nimble setup in a new project that requires the checked-out commit of
@@ -523,12 +523,12 @@ jobs:
         uses: ./.github/actions/consumer-setup
         with:
           revision: ${{ github.sha }}
-          target: master
+          target: ${{ github.ref_name }}
 
       - name: Fail if the setup failed
         if: ${{ steps.setup.outputs.succeeded != 'true' }}
         run: |
-          echo "::error::Nimble setup of a project that requires logos-delivery fails on master (${GITHUB_SHA:0:8}). The notice \"Nimble setup of a project that requires logos-delivery fails on master\" shows the error."
+          echo "::error::Nimble setup of a project that requires logos-delivery fails on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:8}). The notice \"Nimble setup of a project that requires logos-delivery fails on ${GITHUB_REF_NAME}\" shows the error."
           exit 1
 
   build-examples-tools:
