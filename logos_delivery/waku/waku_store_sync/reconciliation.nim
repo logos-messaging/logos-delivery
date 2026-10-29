@@ -78,6 +78,15 @@ type SyncReconciliation* = ref object of LPProtocol
   periodicPruneFut: Future[void]
   idsReceiverFut: Future[void]
 
+proc queueTransfer(self: SyncReconciliation, peer: PeerId, hash: WakuMessageHash) =
+  ## Queues `hash` to be sent to `peer`. A full queue drops the transfer, and the
+  ## next round finds the same difference again.
+  try:
+    self.remoteNeedsTx.addLastNoWait((peer, hash))
+  except AsyncQueueFullError as exc:
+    error "failed to queue message for transfer",
+      msg_hash = byteutils.toHex(hash), peer_id = peer, error = exc.msg
+
 proc insertConfirmed(
     self: SyncReconciliation,
     id: SyncID,
@@ -93,11 +102,7 @@ proc insertConfirmed(
     var peers: HashSet[PeerId]
     if self.deferredTx.pop(id.hash, peers):
       for peer in peers:
-        try:
-          self.remoteNeedsTx.addLastNoWait((peer, id.hash))
-        except AsyncQueueFullError:
-          error "failed to queue message for transfer",
-            msg_hash = byteutils.toHex(id.hash), peer_id = peer
+        self.queueTransfer(peer, id.hash)
 
   self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
     error "failed to insert new message",
@@ -107,8 +112,11 @@ proc expirePending(self: SyncReconciliation) =
   ## Drops the promised elements that did not arrive by their deadline, so that
   ## the next round asks for them again.
   let now = Moment.now()
-  while self.pendingQueue.len > 0 and self.pendingQueue.peekFirst()[1] <= now:
-    let (id, _) = self.pendingQueue.popFirst()
+  while self.pendingQueue.len > 0:
+    let (id, deadline) = self.pendingQueue.peekFirst()
+    if deadline > now:
+      break
+    discard self.pendingQueue.popFirst()
     if not self.pendingSet.contains(id.hash):
       continue
 
@@ -306,7 +314,7 @@ proc processRequest(
         if self.pendingSet.contains(hash):
           self.deferredTx.mgetOrPut(hash, initHashSet[PeerId]()).incl(conn.peerId)
           continue
-        self.remoteNeedsTx.addLastNoWait((conn.peerId, hash))
+        self.queueTransfer(conn.peerId, hash)
         diffs.inc()
     else:
       debug "Sync scope mismatch",

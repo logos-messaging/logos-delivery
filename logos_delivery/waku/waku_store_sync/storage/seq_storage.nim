@@ -133,12 +133,15 @@ method batchInsert*(
   return ok()
 
 method remove*(self: SeqStorage, element: SyncID): Result[void, string] {.raises: [].} =
-  ## Removing an absent element is a no-op. Topic indexes that become unused
-  ## stay allocated until the next prune.
+  ## Removes `element` from the store-sync index. An absent element is a no-op.
+
   let idx = self.elements.lowerBound(element, common.cmp)
   if idx >= self.elements.len or self.elements[idx] != element:
+    # Removing an absent element is a no-op.
     return ok()
 
+  # Topics that lose their last element stay allocated and are not marked
+  # unused until the next `prune`.
   self.elements.delete(idx)
   self.pubsubTopicIndexes.delete(idx)
   self.contentTopicIndexes.delete(idx)
@@ -242,6 +245,8 @@ proc pubsubScope(self: SeqStorage, pubsubTopics: seq[PubsubTopic]): PackedSet[in
     # -1 is never an element's topic index, so nothing matches
     scope.incl(-1)
 
+  # Pending (promised, not yet arrived) elements have no shard; include them in every
+  # scope so overlapping rounds don't ask for them again.
   if pubsubTopics.len > 0:
     for i, localTopic in self.pubsubTopics:
       if localTopic == PendingPubsubTopic:
@@ -448,6 +453,10 @@ method processPayload*(
     hashToSend: var seq[Fingerprint],
     idsToRecv: var seq[SyncID],
 ): RangesData {.raises: [].} =
+  ## Compares the peer's ranges with the local index and returns the ranges to
+  ## send back. Appends to `hashToSend` the hashes of local elements the peer
+  ## lacks, and to `idsToRecv` the peer's elements missing here, with their
+  ## timestamps, so the caller can index them before they arrive.
   var output = RangesData()
 
   var
@@ -523,7 +532,8 @@ proc processPayload*(
     hashToSend: var seq[Fingerprint],
     hashToRecv: var seq[Fingerprint],
 ): RangesData {.gcsafe, raises: [].} =
-  ## Same as the method, with only the hashes of the elements to receive.
+  ## Same as the method, for callers that do not index the elements to receive
+  ## before they arrive: reports them by hash only, in `hashToRecv`.
   var idsToRecv: seq[SyncID]
   let output = self.processPayload(input, hashToSend, idsToRecv)
   for id in idsToRecv:

@@ -9,8 +9,8 @@ const
   DefaultSyncRange*: Duration = 1.hours
   DefaultGossipSubJitter*: Duration = 20.seconds
 
-# Pubsub topic of an element a peer promised but that has not arrived yet.
-# Relay shard topics are `/waku/2/rs/...`, so no message carries this one.
+# Placeholder topic for SyncIDs a peer promised us whose messages haven't arrived yet.
+# Local only: never sent on the wire; the entry is replaced by the real topics on message arrival.
 const PendingPubsubTopic* = "/waku/2/sync/pending"
 
 type
