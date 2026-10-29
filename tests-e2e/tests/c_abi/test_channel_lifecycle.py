@@ -1,5 +1,8 @@
+import time
+
 from src.node.wrappers_manager import WrapperManager
-from src.node.wrapper_helpers import EventCollector, create_message_bindings, unique_channel_id
+from src.node.wrapper_helpers import EVENT_TOPIC_HEALTH_CHANGE, EventCollector, create_message_bindings, unique_channel_id
+from src.test_data import DEFAULT_CLUSTER_ID
 
 RC01_CHANNEL_PREFIX = "rc01-channel"
 CONTENT_TOPIC = "/test/1/channel/proto"
@@ -15,6 +18,23 @@ RC04_CHANNEL_PREFIX = "rc04-channel"
 RC04_CLOSED_CHANNEL_PREFIX = "rc04-closed-channel"
 RC04_EPHEMERAL_CHANNEL_PREFIX = "rc04-ephemeral-channel"
 RC04_DISTINCT_CHANNEL_PREFIX = "rc04-distinct-channel"
+
+
+# channel_create subscribes to CONTENT_TOPIC, so the node reports the health
+# of its shard. The node has no peer, so the shard is UnHealthy.
+SHARD_UNHEALTHY_EVENT = {
+    "eventType": EVENT_TOPIC_HEALTH_CHANGE,
+    "pubsubTopic": f"/waku/2/rs/{DEFAULT_CLUSTER_ID}/0",
+    "topicHealth": "UnHealthy",
+}
+
+
+def wait_for_shard_health(collector: EventCollector, timeout_s: float = 5.0) -> list[dict]:
+    """Wait until the shard health event of channel_create arrives, and return all events."""
+    deadline = time.monotonic() + timeout_s
+    while SHARD_UNHEALTHY_EVENT not in collector.snapshot() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return collector.snapshot()
 
 
 class TestChannelLifecycle:
@@ -42,7 +62,8 @@ class TestChannelLifecycle:
             assert duplicate_result.is_err(), f"duplicate channel_create must fail, got Ok({duplicate_result.ok_value!r})"
             assert f"channel already exists: {channel_id}" in duplicate_result.err(), f"unexpected error message: {duplicate_result.err()!r}"
 
-            assert collector.events == [], f"expected no events, got: {collector.events}"
+            events = wait_for_shard_health(collector)
+            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
         finally:
             node.stop_and_destroy()
 
@@ -99,7 +120,8 @@ class TestChannelLifecycle:
             assert unknown_close_result.is_err(), f"channel_close on unknown channel must fail, got Ok({unknown_close_result.ok_value!r})"
             assert f"unknown channel: {unknown_channel_id}" in unknown_close_result.err(), f"unexpected error message: {unknown_close_result.err()!r}"
 
-            assert collector.events == [], f"expected no events, got: {collector.events}"
+            events = wait_for_shard_health(collector)
+            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
         finally:
             node.stop_and_destroy()
 
@@ -132,7 +154,8 @@ class TestChannelLifecycle:
             close_result = node.channel_close(channel_id)
             assert close_result.is_ok(), f"open channel_close failed after a bad-id close: {close_result.err()}"
 
-            assert collector.events == [], f"expected no events, got: {collector.events}"
+            events = wait_for_shard_health(collector)
+            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
         finally:
             node.stop_and_destroy()
 
@@ -190,7 +213,8 @@ class TestChannelLifecycle:
             assert send_result.is_err(), f"channel_send after close must fail, got Ok({send_result.ok_value!r})"
             assert f"unknown channel: {channel_id}" in send_result.err(), f"unexpected error message: {send_result.err()!r}"
 
-            assert collector.events == [], f"expected no events, got: {collector.events}"
+            events = wait_for_shard_health(collector)
+            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
         finally:
             node.stop_and_destroy()
 

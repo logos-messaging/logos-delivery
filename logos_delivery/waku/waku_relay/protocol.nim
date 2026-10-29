@@ -295,6 +295,11 @@ proc logMessageInfo*(
     shardMetrics.sizeSum, labelValues = [topic]
   )
 
+proc markTopicHealthDirty*(w: WakuRelay, topic: PubsubTopic) =
+  ## Makes `topicsHealthLoop` calculate the health of `topic` again.
+  w.topicHealthDirty.incl(topic)
+  w.topicHealthUpdateEvent.fire()
+
 proc initRelayObservers(w: WakuRelay) =
   proc decodeRpcMessageInfo(
       peer: PubSubPeer, msg: Message
@@ -344,20 +349,14 @@ proc initRelayObservers(w: WakuRelay) =
   proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
     if msgs.control.isSome():
       let ctrl = msgs.control.get()
-      var topicsChanged = false
 
       for graft in ctrl.graft:
         if graft.topicID.len > 0:
-          w.topicHealthDirty.incl(graft.topicID)
-          topicsChanged = true
+          w.markTopicHealthDirty(graft.topicID)
 
       for prune in ctrl.prune:
         if prune.topicID.len > 0:
-          w.topicHealthDirty.incl(prune.topicID)
-          topicsChanged = true
-
-      if topicsChanged:
-        w.topicHealthUpdateEvent.fire()
+          w.markTopicHealthDirty(prune.topicID)
 
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
@@ -711,8 +710,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   procCall GossipSub(w).subscribe(pubsubTopic, topicHandler)
 
   w.topicHandlers[pubsubTopic] = topicHandler
-  w.topicHealthDirty.incl(pubsubTopic)
-  w.topicHealthUpdateEvent.fire()
+  w.markTopicHealthDirty(pubsubTopic)
 
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
