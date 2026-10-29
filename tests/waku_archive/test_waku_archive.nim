@@ -28,7 +28,7 @@ suite "Waku Archive - message handling":
     let message = fakeWakuMessage(ephemeral = false, ts = validSenderTime)
 
     ## When
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isOk()
 
     ## Then
     check:
@@ -50,7 +50,8 @@ suite "Waku Archive - message handling":
 
     ## When
     for msg in msgList:
-      waitFor archive.handleMessage(DefaultPubsubTopic, msg)
+      check (waitFor archive.handleMessage(DefaultPubsubTopic, msg)).isOk() ==
+        not msg.ephemeral
 
     ## Then
     check:
@@ -65,8 +66,8 @@ suite "Waku Archive - message handling":
     let message = fakeWakuMessage(ts = now())
 
     ## When
-    waitFor archive.handleMessage(DefaultPubsubTopic, message)
-    waitFor archive.handleMessage(DefaultPubsubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubsubTopic, message)).isOk()
+    check (waitFor archive.handleMessage(DefaultPubsubTopic, message)).isOk()
 
     ## Then
     check:
@@ -82,7 +83,7 @@ suite "Waku Archive - message handling":
     let message = fakeWakuMessage(ts = invalidSenderTime)
 
     ## When
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isErr()
 
     ## Then
     check:
@@ -102,7 +103,7 @@ suite "Waku Archive - message handling":
     let message = fakeWakuMessage(ts = invalidSenderTime)
 
     ## When
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isErr()
 
     ## Then
     check:
@@ -121,7 +122,7 @@ suite "Waku Archive - message handling":
     let message = fakeWakuMessage(ts = invalidSenderTime)
 
     ## When
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isErr()
 
     ## Then
     check:
@@ -207,8 +208,8 @@ procSuite "Waku Archive - find messages":
       msg1 = fakeWakuMessage(contentTopic = topic)
       msg2 = fakeWakuMessage()
 
-    waitFor archive.handleMessage("foo", msg1)
-    waitFor archive.handleMessage("foo", msg2)
+    check (waitFor archive.handleMessage("foo", msg1)).isOk()
+    check (waitFor archive.handleMessage("foo", msg2)).isOk()
 
     ## Given
     let req = ArchiveQuery(includeData: true, contentTopics: @[topic])
@@ -241,9 +242,9 @@ procSuite "Waku Archive - find messages":
       msg2 = fakeWakuMessage(contentTopic = topic2)
       msg3 = fakeWakuMessage(contentTopic = topic3)
 
-    waitFor archive.handleMessage("foo", msg1)
-    waitFor archive.handleMessage("foo", msg2)
-    waitFor archive.handleMessage("foo", msg3)
+    check (waitFor archive.handleMessage("foo", msg1)).isOk()
+    check (waitFor archive.handleMessage("foo", msg2)).isOk()
+    check (waitFor archive.handleMessage("foo", msg3)).isOk()
 
     ## Given
     let req = ArchiveQuery(includeData: true, contentTopics: @[topic1, topic3])
@@ -302,9 +303,9 @@ procSuite "Waku Archive - find messages":
       msg2 = fakeWakuMessage(contentTopic = contentTopic2)
       msg3 = fakeWakuMessage(contentTopic = contentTopic3)
 
-    waitFor archive.handleMessage(pubsubtopic1, msg1)
-    waitFor archive.handleMessage(pubsubtopic2, msg2)
-    waitFor archive.handleMessage(pubsubtopic2, msg3)
+    check (waitFor archive.handleMessage(pubsubtopic1, msg1)).isOk()
+    check (waitFor archive.handleMessage(pubsubtopic2, msg2)).isOk()
+    check (waitFor archive.handleMessage(pubsubtopic2, msg3)).isOk()
 
     ## Given
     # This query targets: pubsubtopic1 AND (contentTopic1 OR contentTopic3)
@@ -341,9 +342,9 @@ procSuite "Waku Archive - find messages":
       msg2 = fakeWakuMessage()
       msg3 = fakeWakuMessage()
 
-    waitFor archive.handleMessage(pubsubtopic2, msg1)
-    waitFor archive.handleMessage(pubsubtopic2, msg2)
-    waitFor archive.handleMessage(pubsubtopic2, msg3)
+    check (waitFor archive.handleMessage(pubsubtopic2, msg1)).isOk()
+    check (waitFor archive.handleMessage(pubsubtopic2, msg2)).isOk()
+    check (waitFor archive.handleMessage(pubsubtopic2, msg3)).isOk()
 
     ## Given
     let req = ArchiveQuery(pubsubTopic: Opt.some(pubsubTopic1))
@@ -372,9 +373,9 @@ procSuite "Waku Archive - find messages":
       msg2 = fakeWakuMessage(payload = "TEST-2")
       msg3 = fakeWakuMessage(payload = "TEST-3")
 
-    waitFor archive.handleMessage(pubsubTopic, msg1)
-    waitFor archive.handleMessage(pubsubTopic, msg2)
-    waitFor archive.handleMessage(pubsubTopic, msg3)
+    check (waitFor archive.handleMessage(pubsubTopic, msg1)).isOk()
+    check (waitFor archive.handleMessage(pubsubTopic, msg2)).isOk()
+    check (waitFor archive.handleMessage(pubsubTopic, msg3)).isOk()
 
     ## Given
     let req = ArchiveQuery(includeData: true, pubsubTopic: Opt.some(pubsubTopic))
@@ -599,12 +600,12 @@ suite "Waku Archive - insert metrics":
     let baseline = insertCount(relayIngress)
 
     let failing = newWakuArchive(newFailingArchiveDriver())
-    waitFor failing.handleMessage(DefaultPubSubTopic, fakeWakuMessage())
+    check (waitFor failing.handleMessage(DefaultPubSubTopic, fakeWakuMessage())).isErr()
 
     check insertCount(relayIngress) == baseline
 
     let stored = newWakuArchive(newSqliteArchiveDriver())
-    waitFor stored.handleMessage(DefaultPubSubTopic, fakeWakuMessage())
+    check (waitFor stored.handleMessage(DefaultPubSubTopic, fakeWakuMessage())).isOk()
 
     check insertCount(relayIngress) == baseline + 1
 
@@ -633,8 +634,8 @@ suite "Waku Archive - insert metrics":
       archive = newWakuArchive(driver)
       message = fakeWakuMessage(ts = now())
 
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
-    waitFor archive.handleMessage(DefaultPubSubTopic, message)
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isOk()
+    check (waitFor archive.handleMessage(DefaultPubSubTopic, message)).isOk()
 
     check:
       (waitFor driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
@@ -650,15 +651,21 @@ suite "Waku Archive - insert metrics":
       driver = newSqliteArchiveDriver()
       archive = newWakuArchive(driver)
 
-    waitFor archive.handleMessage(
-      DefaultPubSubTopic, fakeWakuMessage("first", ts = now())
-    )
-    waitFor archive.handleMessage(
-      DefaultPubSubTopic, fakeWakuMessage("second", ts = now())
-    )
-    waitFor archive.handleMessage(
-      DefaultPubSubTopic, fakeWakuMessage("third", ts = now())
-    )
+    check (
+      waitFor archive.handleMessage(
+        DefaultPubSubTopic, fakeWakuMessage("first", ts = now())
+      )
+    ).isOk()
+    check (
+      waitFor archive.handleMessage(
+        DefaultPubSubTopic, fakeWakuMessage("second", ts = now())
+      )
+    ).isOk()
+    check (
+      waitFor archive.handleMessage(
+        DefaultPubSubTopic, fakeWakuMessage("third", ts = now())
+      )
+    ).isOk()
 
     check (waitFor CapacityRetentionPolicy.new(capacity = 1).execute(driver)).isOk()
 

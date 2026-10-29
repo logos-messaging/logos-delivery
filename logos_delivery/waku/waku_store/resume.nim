@@ -106,10 +106,16 @@ proc initTransferHandler(
             continue
 
           let handleRes = catch:
-            await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
+            await wakuArchive.syncMessageIngress(
+              kv.messageHash, kv.pubsubTopic.get(), kv.message.get()
+            )
 
           handleRes.isOkOr:
             debug "Message transfer failed", error = error.msg
+            continue
+
+          handleRes.get().isOkOr:
+            debug "Message transfer failed", error = error
             continue
 
         if req.paginationCursor.isNone():

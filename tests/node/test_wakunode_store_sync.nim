@@ -5,7 +5,8 @@ import
   results,
   testutils/unittests,
   chronos,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  libp2p/protocols/pubsub/gossipsub
 
 import
   logos_delivery/waku/[
@@ -56,6 +57,24 @@ proc syncWith(node, peer: WakuNode): Future[Result[void, string]] {.async.} =
   return await node.wakuStoreReconciliation.storeSynchronization(
     Opt.some(peer.switch.peerInfo.toRemotePeerInfo())
   )
+
+proc waitForTopicPeer(
+    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = 5.seconds
+) {.async.} =
+  ## Waits until the peer announced its subscription to the topic, so a publish reaches it.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    for p in GossipSub(node.wakuRelay).gossipsub.getOrDefault(topic):
+      if p.peerId == peer:
+        return
+    await sleepAsync(10.milliseconds)
+  raiseAssert $peer & " never announced a subscription to " & topic
+
+proc signalOn(hash: WakuMessageHash, fut: Future[void]): WakuRelayHandler =
+  ## A relay handler that completes the future once it sees the message.
+  return proc(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    if computeMessageHash(topic, msg) == hash and not fut.finished():
+      fut.complete()
 
 suite "Waku Store Sync - End to End":
   var nodes {.threadvar.}: seq[WakuNode]
@@ -160,6 +179,72 @@ suite "Waku Store Sync - End to End":
       await nodeA.wakuArchive.holdsMessages(hashesA & hashesB)
       await nodeB.wakuArchive.holdsMessages(hashesA & hashesB)
     check insertCount(syncIngress) == syncInsertsBefore + 6
+
+  asyncTest "A relay message that the archive refused as late is repaired by sync":
+    # Given node A holding a message that is 60 s old, and node B, which receives it
+    # from A over relay while its archive refuses it as too old
+    let
+      stale = fakeWakuMessage(@[byte 0], ts = now() - 60.seconds.nanos)
+      staleHash = computeMessageHash(DefaultPubsubTopic, stale)
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, @[stale])
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+      received = newFuture[void]("received")
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.mountRelay()))
+    await allFutures(nodes.mapIt(it.start()))
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), noopRawHandler()).isOkOr:
+      raiseAssert error
+    nodeB.subscribe(
+      (kind: PubsubSub, topic: DefaultPubsubTopic), signalOn(staleHash, received)
+    ).isOkOr:
+      raiseAssert error
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+    await nodeA.waitForTopicPeer(DefaultPubsubTopic, nodeB.switch.peerInfo.peerId)
+
+    discard await nodeA.publish(Opt.some(DefaultPubsubTopic), stale)
+    check await received.withTimeout(5.seconds)
+    check not await nodeB.wakuArchive.holdsMessages(@[staleHash])
+
+    # When B syncs with A
+    check (await nodeB.syncWith(nodeA)).isOk()
+
+    # Then B holds the message: the relay handler did not add it to B's sync index
+    checkUntilTimeout:
+      await nodeB.wakuArchive.holdsMessages(@[staleHash])
+
+  asyncTest "A relay message that the archive stored is still offered to sync peers":
+    # Given node A relaying a fresh message to node B, and node C, which has no relay
+    let
+      fresh = fakeWakuMessage(@[byte 1], ts = now())
+      freshHash = computeMessageHash(DefaultPubsubTopic, fresh)
+      nodeA = await newStoreSyncNode(newSqliteArchiveDriver())
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+      nodeC = await newStoreSyncNode(newSqliteArchiveDriver())
+      received = newFuture[void]("received")
+    nodes = @[nodeA, nodeB, nodeC]
+    await allFutures(@[nodeA, nodeB].mapIt(it.mountRelay()))
+    await allFutures(nodes.mapIt(it.start()))
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), noopRawHandler()).isOkOr:
+      raiseAssert error
+    nodeB.subscribe(
+      (kind: PubsubSub, topic: DefaultPubsubTopic), signalOn(freshHash, received)
+    ).isOkOr:
+      raiseAssert error
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+    await nodeA.waitForTopicPeer(DefaultPubsubTopic, nodeB.switch.peerInfo.peerId)
+
+    discard await nodeA.publish(Opt.some(DefaultPubsubTopic), fresh)
+    check await received.withTimeout(5.seconds)
+    check await nodeB.wakuArchive.holdsMessages(@[freshHash])
+
+    # When C syncs with B only
+    check (await nodeC.syncWith(nodeB)).isOk()
+
+    # Then C holds the message: B's relay handler indexed what its archive stored
+    checkUntilTimeout:
+      await nodeC.wakuArchive.holdsMessages(@[freshHash])
 
   asyncTest "The sync range is clamped to the archive's time retention":
     # Given a node whose time retention is shorter than the sync range plus jitter

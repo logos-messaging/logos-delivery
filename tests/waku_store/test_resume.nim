@@ -173,3 +173,51 @@ suite "Store Resume - pages":
     check:
       count.isOk()
       count.get(0) == 148
+
+suite "Store Resume - old messages":
+  var server {.threadvar.}: WakuNode
+  var client {.threadvar.}: WakuNode
+  var clientDriver {.threadvar.}: ArchiveDriver
+  var base {.threadvar.}: Timestamp
+
+  asyncSetup:
+    # Timestamps far older than the 20 s live-relay window.
+    base = now() - 5 * 60 * 1_000_000_000
+    var messages: seq[WakuMessage]
+    for i in 0 ..< 10:
+      messages.add(fakeWakuMessage(@[byte i], ts = base + int64(i)))
+
+    server = newTestWakuNode(generateSecp256k1Key(), IPv4_any(), Port(0))
+    client = newTestWakuNode(generateSecp256k1Key(), IPv4_any(), Port(0))
+
+    let serverDriver = await newArchiveDriverWithMessages(DefaultPubsubTopic, messages)
+    clientDriver = newSqliteArchiveDriver()
+
+    assert server.mountArchive(serverDriver).isOk()
+    assert client.mountArchive(clientDriver).isOk()
+
+    await server.mountStore()
+    await client.mountStore()
+    client.mountStoreClient()
+    client.setupStoreResume()
+
+    await server.start()
+    client.peerManager.addServicePeer(
+      server.peerInfo.toRemotePeerInfo(), WakuStoreCodec
+    )
+
+  asyncTeardown:
+    await allFutures(client.stop(), server.stop())
+
+  asyncTest "resume stores messages older than the live-relay window":
+    await client.start()
+
+    let resumeRes = await client.wakuStoreResume.startStoreResume(
+      base - 1_000_000_000, server.peerInfo.toRemotePeerInfo()
+    )
+    assert resumeRes.isOk(), $resumeRes.error
+
+    let count = await clientDriver.getMessagesCount()
+    check:
+      count.isOk()
+      count.get(0) == 10

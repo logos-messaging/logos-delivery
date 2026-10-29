@@ -194,8 +194,8 @@ suite "Postgres driver":
       archive = newWakuArchive(driver)
       message = fakeWakuMessage(ts = now())
 
-    await archive.handleMessage(DefaultPubsubTopic, message)
-    await archive.handleMessage(DefaultPubsubTopic, message)
+    check (await archive.handleMessage(DefaultPubsubTopic, message)).isOk()
+    check (await archive.handleMessage(DefaultPubsubTopic, message)).isOk()
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
@@ -213,8 +213,8 @@ suite "Postgres driver":
       failuresBefore = errorCount(insertFailure)
       message = fakeWakuMessage(ts = now())
 
-    await newWakuArchive(driver).handleMessage(DefaultPubsubTopic, message)
-    await newWakuArchive(otherDriver).handleMessage(DefaultPubsubTopic, message)
+    check (await newWakuArchive(driver).handleMessage(DefaultPubsubTopic, message)).isOk()
+    check (await newWakuArchive(otherDriver).handleMessage(DefaultPubsubTopic, message)).isOk()
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
@@ -891,6 +891,18 @@ suite "Postgres driver - concurrent DDL outcomes":
     check not "ERROR:  could not acquire advisory lock".isConcurrentDdlOutcome()
     check not "ERROR:  no space left on device".isConcurrentDdlOutcome()
     check not "ERROR:  deadlock detected".isConcurrentDdlOutcome()
+
+suite "Postgres driver - query metric labels":
+  test "hash lookup statements map to their labels":
+    const hashes = "'0a1b','2c3d'"
+    check:
+      convertQueryToMetricLabel(
+        "SELECT DISTINCT timestamp FROM messages_lookup WHERE messagehash IN (" & hashes &
+          ");"
+      ) == "messages_lookup"
+      convertQueryToMetricLabel(
+        messagesAtTimestampsQuery(hashes, [Timestamp(1_720_364_735_000_000_000)], 20)
+      ) == "messages_lookup_fetch"
 
 suite "Postgres connection lifecycle":
   ## A database restart used to take the node down: closing a connection whose
