@@ -166,17 +166,17 @@ proc updateHash(
     idx: var int, buffer: seq[byte], hash: var WakuMessageHash
 ): Result[void, string] =
   if idx >= buffer.len:
-    return err("Cannot decode hash prefix")
+    return err("Cannot decode hash prefix length")
 
   let sameBytes = int(buffer[idx])
 
   if sameBytes > 32:
-    return err("Cannot decode hash prefix")
+    return err("Cannot decode hash prefix: length above 32")
 
   idx += 1
 
   if idx + sameBytes > buffer.len:
-    return err("Cannot decode hash prefix")
+    return err("Cannot decode hash prefix: payload shorter than its length")
 
   let slice = buffer[idx ..< idx + sameBytes]
   idx += sameBytes
