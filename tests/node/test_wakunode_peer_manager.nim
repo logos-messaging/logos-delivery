@@ -99,11 +99,8 @@ suite "Peer Manager":
       client.peerManager.startStaticPeersRedial(@[staticAddr])
 
       ## Then the client still dials it
-      var attempts = 0
-      while not client.switch.isConnected(serverPeerId) and attempts < 50:
-        await sleepAsync(chronos.milliseconds(100))
-        attempts.inc()
-      check client.switch.isConnected(serverPeerId)
+      checkUntilTimeout:
+        client.switch.isConnected(serverPeerId)
 
     asyncTest "Graceful Handling of Non-Existent Peers":
       # Given a non existent RemotePeerInfo
