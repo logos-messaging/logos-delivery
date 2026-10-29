@@ -778,6 +778,10 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
         for fut in state.pending:
           if not fut.finished:
             await fut.cancelAndWait()
+      # A subscribe during the wait can give the shard a content topic again.
+      # Then the shard keeps its state, and the next pass reconciles it.
+      if self.shards.getOrDefault(shard).contentTopics.len > 0:
+        continue
       self.edgeFilterSubStates.del(shard)
 
     for task in subscribeTasks:
@@ -828,6 +832,14 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
     for fut in state.pending:
       if not fut.finished:
         await fut.cancelAndWait()
+
+  # A stopped edge has no filter peer, so each shard reports UNHEALTHY, as
+  # `WakuRelay.stop` does for the relay.
+  for shard, state in self.edgeFilterSubStates.mpairs:
+    state.peers.setLen(0)
+    state.pending.setLen(0)
+    state.pendingPeers.clear()
+    self.updateShardHealth(shard, state)
 
   await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
 
