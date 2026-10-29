@@ -512,7 +512,7 @@ proc waitForStoreValidation(
       MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
       self.finish(task)
     else:
-      debug "Message propagated but not validated by a store node within time window; stop trying.",
+      info "Message propagated but not validated by a store node within time window; stop trying.",
         requestId = task.requestId,
         msgHash = task.msgHash.to0xHex(),
         waited = task.storeValidationWaited + (Moment.now() - started)
@@ -566,13 +566,17 @@ proc enqueue*(self: SendService, task: DeliveryTask): Result[RequestId, string] 
   assert(not task.isNil(), "task for enqueue must not be nil")
   let queued = self.deliveryTasks.getOrDefault(task.msgHash)
   if not queued.isNil():
-    debug "Message already in the send queue",
-      requestId = queued.requestId, msgHash = task.msgHash.to0xHex()
+    info "Message already in the send queue, request folded into the queued one",
+      requestId = task.requestId,
+      queuedRequestId = queued.requestId,
+      msgHash = task.msgHash.to0xHex()
     return ok(queued.requestId)
   if self.isFull():
+    error "Send queue full, request cannot be enqueued",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     return err("Send queue full, retry later")
 
-  debug "Task added to the send queue",
+  info "Task added to the send queue",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
   self.deliveryTasks[task.msgHash] = task
   self.startDeliverSoon(task)
