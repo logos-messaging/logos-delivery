@@ -68,7 +68,7 @@ The issue or PR is yours. Work it autonomously.
    ```bash
    gh issue edit <n> --repo logos-messaging/logos-delivery --remove-label agent-friendly
    gh issue comment <n> --repo logos-messaging/logos-delivery \
-     --body "[<model>] @<issue or PR owner> Needs human attention: <reason>. Removing agent-friendly."
+     --body "[<model>] @<issue or PR assignee> Needs human attention: <reason>. Removing agent-friendly."
    ```
    Stop.
 2. **Implement.** Create a branch from main. Fix the issue. Add tests that cover the issue. **Never modify an existing test.** Format the code with `nph`. Build and test per AGENTS.md.
@@ -111,7 +111,7 @@ The issue or PR belongs to a teammate. You review. A human approves.
 ## Guardrails
 
 - Never modify an existing test.
-- Never exceed 400 delta LOC without notice. If you exceed it, remove the `agent-friendly` label and tag the issue or PR owner (`@<login>`) in a comment with the reason. Don't notify anyone if the `agent-friendly` label was not there.
+- Never exceed 400 delta LOC without notice. If you exceed it, remove the `agent-friendly` label and tag the issue or PR assignee (`@<login>`) in a comment with the reason. Don't notify anyone if the `agent-friendly` label was not there.
 - Never approve.
 - Never merge.
 - As a reviewer, check only correctness, security, and test coverage.
