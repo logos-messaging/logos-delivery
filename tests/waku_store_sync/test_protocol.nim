@@ -77,12 +77,20 @@ proc newSecondServer(
     idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    pendingTimeout: Duration = DefaultSyncInterval,
 ): Future[(Switch, SyncReconciliation, RemotePeerInfo)] {.async.} =
   ## A started reconciliation server with its own switch.
   let switch = newTestSwitch()
   await switch.start()
-  let server =
-    await newTestWakuRecon(switch, @[], DefaultSyncRange, idsRx, wantsTx, needsTx)
+  let server = await newTestWakuRecon(
+    switch,
+    @[],
+    DefaultSyncRange,
+    idsRx,
+    wantsTx,
+    needsTx,
+    pendingTimeout = pendingTimeout,
+  )
   return (switch, server, switch.peerInfo.toRemotePeerInfo())
 
 proc encodedLen(msg: WakuMessage): int =
@@ -380,6 +388,47 @@ suite "Waku Sync: reconciliation":
     check:
       remoteNeeds.len == 2
       remoteNeeds.contains((switchC.peerInfo.peerId, hash))
+
+  asyncTest "a peer that asks twice for a pending message gets it once":
+    # Given a server holding one message, an empty client and an empty third node
+    # whose own pending entries expire fast
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      (switchC, nodeC, _) = await newSecondServer(
+        idsChannel, localWants, remoteNeeds, pendingTimeout = 500.milliseconds
+      )
+    defer:
+      await nodeC.stop()
+      await switchC.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch, @[], DefaultSyncRange, clientIds, localWants, remoteNeeds
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the third node asks the client for it in two rounds
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    res = await nodeC.storeSynchronization(Opt.some(clientPeerInfo))
+    assert res.isOk(), res.error
+    await sleepAsync(600.milliseconds)
+    res = await nodeC.storeSynchronization(Opt.some(clientPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+
+    # And the message then arrives at the client
+    await clientIds.put(
+      (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
+    )
+    while clientIds.len > 0:
+      await sleepAsync(10.milliseconds)
+
+    # Then the client queues it for the third node one time
+    check remoteNeeds.len == 2
 
   asyncTest "sync 2 nodes empty client full server, relay jitter shifts the time range":
     server = await newTestWakuRecon(
