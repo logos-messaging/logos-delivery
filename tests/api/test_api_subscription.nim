@@ -1213,6 +1213,40 @@ suite "Messaging API, SubscriptionManager":
       edgePeerId in
         lateNode.wakuFilter.subscriptions.findSubscribedPeers(shard, testTopic)
 
+  asyncTest "Subscription API, edge node subscribes through a static node that starts later":
+    let shard = PubsubTopic("/waku/2/rs/3/0")
+    let port = block:
+      let probe = createStreamServer(initTAddress("127.0.0.1", Port(0)))
+      let p = probe.localAddress().port
+      await probe.closeWait()
+      p
+    let lateNode = await newFilterServiceNode(shard, bindPort = port, start = false)
+    defer:
+      await lateNode.stop()
+
+    var conf = defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+    conf.kernel.staticnodes =
+      @["/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $lateNode.peerInfo.peerId]
+    let subscriber = await setupSubscriberNode(conf)
+    defer:
+      (await subscriber.stop()).expect("Failed to stop subscriber")
+
+    let testTopic = ContentTopic("/waku/2/filternode/proto")
+    (await subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Failed to subscribe"
+    )
+    check subscriber.waku.node.getRelayShard(testTopic) == shard
+
+    # The first dial fails, because the static node is not up yet.
+    await sleepAsync(NegativeTestTimeout)
+    await lateNode.start()
+    lateNode.serveShard(shard)
+
+    let edgePeerId = subscriber.waku.node.peerInfo.peerId
+    checkUntilTimeout:
+      edgePeerId in
+        lateNode.wakuFilter.subscriptions.findSubscribedPeers(shard, testTopic)
+
 type SendSubscriptionNet = ref object
   servers: seq[WakuNode] ## relay and filter service nodes on `shard`
   edge: LogosDelivery
