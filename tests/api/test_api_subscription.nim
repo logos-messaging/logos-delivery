@@ -1227,7 +1227,12 @@ suite "Messaging API, SubscriptionManager":
     var conf = defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
     conf.kernel.staticnodes =
       @["/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $lateNode.peerInfo.peerId]
-    let subscriber = await setupSubscriberNode(conf)
+    var subscriber: LogosDelivery
+    lockNewGlobalBrokerContext:
+      subscriber = (await LogosDelivery.new(conf)).expect("Failed to create subscriber")
+      subscriber.waku.node.peerManager.initialBackoffInSec = 1
+      subscriber.shortenIntervals()
+      (await subscriber.start()).expect("Failed to start subscriber")
     defer:
       (await subscriber.stop()).expect("Failed to stop subscriber")
 
