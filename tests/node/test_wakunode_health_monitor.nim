@@ -660,6 +660,65 @@ suite "Health Monitor - events":
     await nodeB.stop()
     await nodeA.stop()
 
+  asyncTest "Edge reports UNHEALTHY for its shard at stop":
+    ## A stopped edge has no filter peer. The relay reports UNHEALTHY for each
+    ## shard at its stop, and the edge must do the same.
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
+      nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+      await nodeA.mountFilterClient()
+      check nodeA.mountAutoSharding(1, 1).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      nodeA.subscriptionManager.edgeFilterSubLoopDebounce = 50.milliseconds
+      await nodeA.start()
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
+      nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.mountFilter()
+      check nodeB.mountAutoSharding(1, 1).isOk
+      nodeB.mountMetadata(1, @[0'u16]).expect("Node B failed to mount metadata")
+      await nodeB.start()
+    defer:
+      await nodeB.stop()
+
+    var healths: seq[TopicHealth]
+    let shardHealthLis = EventShardTopicHealthChange
+      .listen(
+        nodeA.brokerCtx,
+        proc(
+            evt: EventShardTopicHealthChange
+        ): Future[void] {.async: (raises: []), gcsafe.} =
+          healths.add(evt.health),
+      )
+      .expect("Failed to listen for shard health")
+    defer:
+      await EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+
+    let shard = PubsubTopic("/waku/2/rs/1/0")
+    let peerB = nodeB.switch.peerInfo.toRemotePeerInfo()
+    await nodeA.connectToNodes(@[peerB])
+    nodeA.subscriptionManager
+      .subscribe(ContentTopic("/waku/2/default-content/proto"))
+      .expect("Failed to subscribe")
+    checkUntilTimeout:
+      TopicHealth.MINIMALLY_HEALTHY in healths
+
+    # The edge reads its stored health again after a restart, so the stop
+    # must also store UNHEALTHY.
+    let reportedBeforeStop = healths.len
+    await nodeA.stop()
+    checkUntilTimeout:
+      healths.len == reportedBeforeStop + 1
+      healths[^1] == TopicHealth.UNHEALTHY
+    check:
+      nodeA.subscriptionManager.edgeFilterPeerCount(shard) == 0
+      nodeA.subscriptionManager.edgeFilterSubStates[shard].currentHealth ==
+        TopicHealth.UNHEALTHY
+
   asyncTest "Edge reports Filter Client READY for a shard no peer serves":
     # TODO: logos-delivery#4590
     var nodeA: WakuNode
