@@ -513,6 +513,13 @@ proc isSubscribed*(w: WakuRelay, topic: PubsubTopic): bool =
 proc subscribedTopics*(w: WakuRelay): seq[PubsubTopic] =
   return toSeq(GossipSub(w).topics.keys())
 
+proc getMinMeshSize*(w: WakuRelay): int =
+  ## Returns the mesh size of the subscribed shard with the fewest mesh peers.
+  let meshSizes = w.subscribedTopics().mapIt(w.getNumPeersInMesh(it).get(0))
+  if meshSizes.len == 0:
+    return 0
+  return min(meshSizes)
+
 proc topicsHealthLoop(w: WakuRelay) {.async.} =
   while true:
     await w.topicHealthUpdateEvent.wait()

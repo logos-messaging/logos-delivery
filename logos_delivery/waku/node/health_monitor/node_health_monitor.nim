@@ -102,13 +102,6 @@ proc countCapablePeers(hm: NodeHealthMonitor, codec: string): int =
 
   return hm.node.peerManager.getCapablePeersCount(codec)
 
-proc weakestShardMeshSize(relay: WakuRelay): int =
-  ## Mesh size of the subscribed shard with the fewest mesh peers.
-  let meshSizes = relay.subscribedTopics().mapIt(relay.getNumPeersInMesh(it).get(0))
-  if meshSizes.len == 0:
-    return 0
-  return min(meshSizes)
-
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.RelayProtocol)
 
@@ -120,7 +113,7 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  hm.strength[WakuProtocol.RelayProtocol] = hm.node.wakuRelay.weakestShardMeshSize()
+  hm.strength[WakuProtocol.RelayProtocol] = hm.node.wakuRelay.getMinMeshSize()
   if relayPeers.len == 0:
     return p.notReady("No connected peers")
 
@@ -763,8 +756,10 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
 
   if not isNil(hm.node.wakuRelay):
     hm.relayObserver = PubSubObserver(
+      # onRecv runs when other peers graft or prune this node
       onRecv: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
         hm.onRelayMsg(peer, msgs),
+      # onSend runs when this node grafts or prunes other peers
       onSend: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
         hm.onRelayMsg(peer, msgs),
     )
