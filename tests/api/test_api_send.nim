@@ -976,6 +976,8 @@ suite "Waku API - Send":
     defer:
       (await node.stop()).expect("Failed to stop node")
 
+    check not node.waku.node.switch.isConnected(lightpushNodePeerId)
+
     await lightpushNode.start()
     await lightpushNode.connectToNodes(@[relayNode2PeerInfo])
 
