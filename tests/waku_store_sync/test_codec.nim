@@ -501,10 +501,13 @@ suite "Store sync - codec bounds":
       )
       # a prefix of 2 bytes with 1 left in the payload
       truncated = RangesData.deltaDecode(hexToSeqByte("020103" & "6400" & "000235"))
-    for res in [noLength, tooLong, truncated]:
-      check:
-        res.isErr()
-        res.error == "Cannot decode hash prefix"
+    check:
+      noLength.isErr()
+      noLength.error == "Cannot decode hash prefix length"
+      tooLong.isErr()
+      tooLong.error == "Cannot decode hash prefix: length above 32"
+      truncated.isErr()
+      truncated.error == "Cannot decode hash prefix: payload shorter than its length"
 
   test "an incomplete shard is refused":
     # Cluster 2, one shard, and nine bytes that all continue.
