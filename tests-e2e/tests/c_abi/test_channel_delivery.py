@@ -31,8 +31,8 @@ RC07_OTHER_CONTENT_TOPIC = "/test/1/rc07-other/proto"
 
 RC08_CHANNEL_PREFIX = "rc08-channel"
 RC08_CONTENT_TOPIC = "/test/1/rc08-channel/proto"
-# Let the delivery settle before replying, so the exchange is interleaved rather
-# than two sends racing each other.
+# Let the delivery settle before replying, so the exchange is interleaved
+# rather than two sends racing each other.
 RC08_INTERLEAVE_SETTLE_S = 5
 
 RC09_CHANNEL_PREFIX = "rc09-channel"

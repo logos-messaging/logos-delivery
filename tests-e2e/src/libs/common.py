@@ -1,5 +1,3 @@
-import uuid
-from datetime import datetime
 from time import sleep
 from src.libs.custom_logger import get_custom_logger
 import base64
@@ -36,7 +34,3 @@ def wait_until(condition, timeout_duration=20, time_between_retries=0.5, message
         return result
 
     return poll()
-
-
-def gen_step_id():
-    return f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}__{str(uuid.uuid4())}"

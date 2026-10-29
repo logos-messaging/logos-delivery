@@ -1,3 +1,45 @@
+## v0.40.0 (2026-10-21)
+
+### Notes
+
+- **Sharding**: configurable shard ids for auto-sharding ([#3963](https://github.com/logos-messaging/logos-delivery/pull/3963)); extra listen-only shards for Status's shard migration ([#4501](https://github.com/logos-messaging/logos-delivery/pull/4501)); new `status.staging` preset, and Status presets on shard 32 receiving on 64 ([#4545](https://github.com/logos-messaging/logos-delivery/pull/4545)).
+- **Store and Store-sync**: bounded reads, session clamping and cancellable transfer loops; hash queries no longer plan every partition.
+- **Robustness**: Postgres calls never block the event loop; dials are aborted on stop; metric labels are bounded.
+- **Wire format**: protobuf codecs move to proto3 (see breaking changes).
+- **Deprecations**: unused node flags are deprecated and will be removed in v0.42.0 ([#4467](https://github.com/logos-messaging/logos-delivery/pull/4467)); the archive capacity retention policy is deprecated ([#4593](https://github.com/logos-messaging/logos-delivery/pull/4593)); `getNodeInfo` adds non-`My` ids and keeps the `My*` ones as deprecated aliases ([#4577](https://github.com/logos-messaging/logos-delivery/pull/4577)).
+
+### Breaking changes
+
+- Store-sync follows the WAKU-SYNC wire formats ([#4571](https://github.com/logos-messaging/logos-delivery/pull/4571)); nodes on the old format cannot sync with this release.
+- Protobuf codecs move to proto3 and `minprotobuf` is retired ([#4488](https://github.com/logos-messaging/logos-delivery/pull/4488)).
+- `--cluster-id=2` no longer maps to the `logos.dev` preset ([#4515](https://github.com/logos-messaging/logos-delivery/pull/4515)).
+- `--shard` now limits the relay shards under autosharding ([#4513](https://github.com/logos-messaging/logos-delivery/pull/4513)); relay refuses shards of another cluster or past the shard count ([#4514](https://github.com/logos-messaging/logos-delivery/pull/4514)).
+- REST: store, lightpush and filter endpoints return stricter status codes and reject invalid input ([#4441](https://github.com/logos-messaging/logos-delivery/pull/4441), [#4444](https://github.com/logos-messaging/logos-delivery/pull/4444), [#4445](https://github.com/logos-messaging/logos-delivery/pull/4445), [#4446](https://github.com/logos-messaging/logos-delivery/pull/4446)).
+
+### Changes
+
+- Relay: keep topic health in sync across stop/start ([#4568](https://github.com/logos-messaging/logos-delivery/pull/4568)); content-topic unsubscribe keeps other topics on the shard ([#4518](https://github.com/logos-messaging/logos-delivery/pull/4518)); subscribe to configured shards on start under static sharding ([#4516](https://github.com/logos-messaging/logos-delivery/pull/4516)); gate relay message INFO logs behind `RELAY_MSG_INFO_LOGS` ([#4520](https://github.com/logos-messaging/logos-delivery/pull/4520))
+- Relay: do not hand a duplicate publish to own handlers again ([#4519](https://github.com/logos-messaging/logos-delivery/pull/4519)); relay a message encoded at the max message size ([#4578](https://github.com/logos-messaging/logos-delivery/pull/4578))
+- Messaging: accept a message priority on send ([#4607](https://github.com/logos-messaging/logos-delivery/pull/4607)); subscribe an edge through its `--filternode` peer ([#4584](https://github.com/logos-messaging/logos-delivery/pull/4584)); refuse API calls on a node that is not started ([#4586](https://github.com/logos-messaging/logos-delivery/pull/4586)); accept `anonymity-level` in `messagingOverrides` ([#4582](https://github.com/logos-messaging/logos-delivery/pull/4582))
+- Node: free the REST and metrics ports on stop ([#4585](https://github.com/logos-messaging/logos-delivery/pull/4585)); drop the discovered-per-shard discv5 metric ([#4587](https://github.com/logos-messaging/logos-delivery/pull/4587))
+- Docs: `stop_node` keeps the event listeners ([#4583](https://github.com/logos-messaging/logos-delivery/pull/4583))
+- Config: `--preset` sets `max-msg-size` when the flag is not given ([#4567](https://github.com/logos-messaging/logos-delivery/pull/4567)); merge `--rate-limit` entries over the default limits ([#4443](https://github.com/logos-messaging/logos-delivery/pull/4443))
+- Messaging: fix send concurrency ([#4517](https://github.com/logos-messaging/logos-delivery/pull/4517)); don't defer a send too large for mix ([#4418](https://github.com/logos-messaging/logos-delivery/pull/4418)); don't subscribe on a send above the None level ([#4417](https://github.com/logos-messaging/logos-delivery/pull/4417)); topic-aware backfill engine ([#4474](https://github.com/logos-messaging/logos-delivery/pull/4474))
+- Store: bound the size of store, lightpush and sync reads ([#4489](https://github.com/logos-messaging/logos-delivery/pull/4489)); stop hash queries from planning every partition ([#4532](https://github.com/logos-messaging/logos-delivery/pull/4532)); follow spec for `ascending` ([#4442](https://github.com/logos-messaging/logos-delivery/pull/4442))
+- Store-sync: skip messages a peer refused as too large ([#4562](https://github.com/logos-messaging/logos-delivery/pull/4562)); let a stop end transfer loops and sync rounds ([#4551](https://github.com/logos-messaging/logos-delivery/pull/4551)); transfer reads up to `--max-msg-size` ([#4547](https://github.com/logos-messaging/logos-delivery/pull/4547)); clamp ranges of peer-started sessions ([#4535](https://github.com/logos-messaging/logos-delivery/pull/4535)) and to the retention ([#4478](https://github.com/logos-messaging/logos-delivery/pull/4478))
+- Archive: create partitions for the hours before node start ([#4524](https://github.com/logos-messaging/logos-delivery/pull/4524)); don't count an already-held message as written or failed ([#4447](https://github.com/logos-messaging/logos-delivery/pull/4447))
+- Postgres: never block the event loop on database calls ([#4531](https://github.com/logos-messaging/logos-delivery/pull/4531)); build each partition in one transaction ([#4599](https://github.com/logos-messaging/logos-delivery/pull/4599)); release SQLite and dispatcher fds on job close ([#4499](https://github.com/logos-messaging/logos-delivery/pull/4499))
+- Peer manager: keep connected peers out of CannotConnect ([#4512](https://github.com/logos-messaging/logos-delivery/pull/4512))
+- Filter: UNSUBSCRIBE is per-requester and all-or-nothing ([#4448](https://github.com/logos-messaging/logos-delivery/pull/4448))
+- Lightpush: pass service BAD_REQUEST through the v3 client ([#4440](https://github.com/logos-messaging/logos-delivery/pull/4440))
+- Mix: shared RLN proofs for native Delivery routing ([#4282](https://github.com/logos-messaging/logos-delivery/pull/4282)); bump the spam protection plugin ([#4464](https://github.com/logos-messaging/logos-delivery/pull/4464), [#4479](https://github.com/logos-messaging/logos-delivery/pull/4479))
+- Node: abort in-flight dials on stop ([#4423](https://github.com/logos-messaging/logos-delivery/pull/4423)); clear broker providers and listeners on stop ([#4460](https://github.com/logos-messaging/logos-delivery/pull/4460)); stop setting unbounded values into metric labels ([#4548](https://github.com/logos-messaging/logos-delivery/pull/4548))
+- REST: report why a request body cannot be decoded ([#4449](https://github.com/logos-messaging/logos-delivery/pull/4449)); skip unknown JSON fields ([#4428](https://github.com/logos-messaging/logos-delivery/pull/4428)); REST owned by `RestService` ([#4477](https://github.com/logos-messaging/logos-delivery/pull/4477), [#4492](https://github.com/logos-messaging/logos-delivery/pull/4492))
+- wakucanary: use `store` as the Store v3 tag ([#4549](https://github.com/logos-messaging/logos-delivery/pull/4549)); fail when protocols were never checked ([#4536](https://github.com/logos-messaging/logos-delivery/pull/4536)); remove the legacy store protocol ([#4509](https://github.com/logos-messaging/logos-delivery/pull/4509))
+- liblogosdelivery: honour the host's logLevel ([#4430](https://github.com/logos-messaging/logos-delivery/pull/4430))
+- Build: refresh `nimble.lock` and `nix/deps.nix` (json_rpc 0.7.0) to the latest versions the constraints allow; bump nim-ffi to `d98f7714` (opt-in request payload cap, fixes over-cap crashes on refc hosts); let dependents build the Android and iOS libraries through Nimble ([#4504](https://github.com/logos-messaging/logos-delivery/pull/4504)); lift the nimcrypto pin ([#4534](https://github.com/logos-messaging/logos-delivery/pull/4534)); retry transient Nimble download failures ([#4465](https://github.com/logos-messaging/logos-delivery/pull/4465)); pin snappy ([#4429](https://github.com/logos-messaging/logos-delivery/pull/4429)); bump nim-secp256k1 ([#4451](https://github.com/logos-messaging/logos-delivery/pull/4451)); update Windows build script ([#3912](https://github.com/logos-messaging/logos-delivery/pull/3912), [#4604](https://github.com/logos-messaging/logos-delivery/pull/4604))
+- chat2: drop nested waitFor in async procs ([#4452](https://github.com/logos-messaging/logos-delivery/pull/4452))
+
 ## v0.39.2 (2026-10-13)
 
 ### Changes

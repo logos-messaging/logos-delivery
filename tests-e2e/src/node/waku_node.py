@@ -1,16 +1,12 @@
-import errno
 import json
 import os
 import random
-import re
-import shutil
 import string
-import subprocess
 import pytest
 import requests
 from src.libs.common import delay
 from src.libs.custom_logger import get_custom_logger
-from tenacity import retry, retry_if_not_exception_type, stop_after_delay, wait_fixed, sleep
+from tenacity import retry, retry_if_not_exception_type, stop_after_delay, wait_fixed
 from docker.errors import NotFound as DockerNotFound
 from src.node.api_clients.rest import REST
 from src.node.docker_mananger import DockerManager
@@ -21,14 +17,6 @@ from src.test_data import DEFAULT_CLUSTER_ID, DEFAULT_SHARD, LOG_ERROR_KEYWORDS
 logger = get_custom_logger(__name__)
 
 
-def select_private_key(prv_keys, key_id):
-    for key in prv_keys:
-        if key.endswith(key_id):
-            return key
-
-    raise ValueError("No matching key was found")
-
-
 def sanitize_docker_flags(input_flags):
     output_flags = {}
     for key, value in input_flags.items():
@@ -36,32 +24,6 @@ def sanitize_docker_flags(input_flags):
         output_flags[key] = value
 
     return output_flags
-
-
-@retry(stop=stop_after_delay(180), wait=wait_fixed(0.5), reraise=True)
-def rln_credential_store_ready(creds_file_path, single_check=False, require_credentials=False):
-    if os.path.exists(creds_file_path):
-        subprocess.run(["sudo", "-n", "chmod", "a+r", creds_file_path], check=False)
-        if require_credentials:
-            try:
-                with open(creds_file_path, "r", encoding="utf-8") as creds_file:
-                    keystore_data = json.load(creds_file)
-            except (OSError, json.JSONDecodeError) as ex:
-                if single_check:
-                    return False
-                raise ValueError(f"Failed to parse RLN keystore at {creds_file_path}: {ex}")
-
-            credentials = keystore_data.get("credentials", {}) if isinstance(keystore_data, dict) else {}
-            if not credentials:
-                if single_check:
-                    return False
-                raise ValueError(f"RLN keystore exists but has no credentials yet: {creds_file_path}")
-
-        return True
-    elif not single_check:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), creds_file_path)
-
-    return False
 
 
 def peer_info2multiaddr(peer, is_nwaku=True):
@@ -89,9 +51,7 @@ class WakuNode:
         self._log_path = os.path.join(DOCKER_LOG_DIR, f"{docker_log_prefix}__{self._image_name.replace('/', '_').replace(':', '_')}.log")
         self._docker_manager = DockerManager(self._image_name)
         self._container = None
-        self.rln_membership_index = None
         self.start_args = {}
-        self._rln_creds_set = False
         logger.debug(f"WakuNode instance initialized with log path {self._log_path}")
 
     @retry(stop=stop_after_delay(60), wait=wait_fixed(1), retry=retry_if_not_exception_type(ValueError), reraise=True)
@@ -128,8 +88,6 @@ class WakuNode:
             "peer-exchange": "true",
             "discv5-discovery": "true",
             "cluster-id": DEFAULT_CLUSTER_ID,
-            "rln-creds-id": None,
-            "rln-creds-source": None,
             "nodekey": self.generate_random_nodekey(),
             # "max-connections": "50",
             # "filter-subscription-timeout": "600",
@@ -174,19 +132,6 @@ class WakuNode:
 
         default_args.update(sanitize_docker_flags(kwargs))
 
-        rln_args, rln_creds_set, keystore_path = self.parse_rln_credentials(default_args, False)
-        self._rln_creds_set = rln_creds_set
-
-        default_args.pop("rln-creds-id", None)
-        default_args.pop("rln-creds-source", None)
-        default_args.pop("rln-keystore-prefix", None)
-
-        if rln_creds_set:
-            rln_credential_store_ready(keystore_path, require_credentials=True)
-            default_args.update(rln_args)
-        else:
-            logger.info(f"RLN credentials not set or credential store not available, starting without RLN")
-
         self.start_args = dict(default_args)
         return default_args, remove_container
 
@@ -206,7 +151,7 @@ class WakuNode:
         DS.waku_nodes.append(self)
         delay(1)
         try:
-            self.ensure_ready(timeout_duration=wait_for_node_sec, rln_required=self._rln_creds_set)
+            self.ensure_ready(timeout_duration=wait_for_node_sec)
         except Exception as ex:
             logger.error(f"REST service did not become ready in time: {ex}")
             # Drop the container before the retry starts another one, so a node that never
@@ -220,63 +165,6 @@ class WakuNode:
             logger.debug(f"Node {self._image_name} reports version {self.get_debug_version()}")
         except Exception as ex:
             logger.debug(f"Could not fetch node version: {ex}")
-
-    @retry(stop=stop_after_delay(250), wait=wait_fixed(0.1), reraise=True)
-    def register_rln(self, **kwargs):
-        logger.debug("Registering RLN credentials...")
-        self._docker_manager.create_network()
-        self._ext_ip = self._docker_manager.generate_random_ext_ip()
-        self._ports = self._docker_manager.generate_ports()
-        self._rest_port = self._ports[0]
-        self._api = REST(self._rest_port)
-        self._volumes = []
-
-        default_args = {"rln-creds-id": None, "rln-creds-source": None, "rln-relay-user-message-limit-registration": 100}
-
-        default_args.update(sanitize_docker_flags(kwargs))
-
-        rln_args, rln_creds_set, keystore_path = self.parse_rln_credentials(default_args, True)
-
-        if rln_creds_set:
-            self._container = self._docker_manager.start_container(
-                self._docker_manager.image,
-                self._ports,
-                rln_args,
-                self._log_path,
-                self._ext_ip,
-                self._volumes,
-                entrypoint="/usr/local/bin/rlnkeystore" if self.is_nwaku() else None,
-            )
-
-            logger.debug(f"Executed container from image {self._image_name}. REST: {self._rest_port} to register RLN")
-
-            logger.debug(f"Waiting for keystore {keystore_path}")
-            try:
-                rln_credential_store_ready(keystore_path, require_credentials=True)
-                self.rln_membership_index = str(self.get_rln_membership_index_from_log())
-                logger.debug(f"Detected RLN membership index from registration logs: {self.rln_membership_index}")
-                self.stop()
-            except Exception as ex:
-                logger.error(f"File {keystore_path} with RLN credentials did not become available in time {ex}")
-                raise
-        else:
-            logger.warn("RLN credentials not set, no action performed")
-
-        return self.rln_membership_index
-
-    @retry(stop=stop_after_delay(10), wait=wait_fixed(0.2), reraise=True)
-    def get_rln_membership_index_from_log(self):
-        if not os.path.exists(self._log_path):
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), self._log_path)
-
-        with open(self._log_path, "r", encoding="utf-8", errors="ignore") as log_file:
-            log_data = log_file.read()
-
-        matches = re.findall(r"membershipIndex=(\d+)", log_data)
-        if not matches:
-            raise ValueError("Could not infer RLN membership index from registration logs")
-
-        return int(matches[-1])
 
     @retry(stop=stop_after_delay(5), wait=wait_fixed(0.1), reraise=True)
     def stop(self):
@@ -300,7 +188,7 @@ class WakuNode:
             logger.debug(f"Restarting container with id {self._container.short_id}")
             self._container.restart()
             if wait_for_node_sec:
-                self.ensure_ready(timeout_duration=wait_for_node_sec, rln_required=self._rln_creds_set)
+                self.ensure_ready(timeout_duration=wait_for_node_sec)
 
     def pause(self):
         if self._container:
@@ -312,7 +200,7 @@ class WakuNode:
             logger.debug(f"Unpause container with id {self._container.short_id}")
             self._container.unpause()
 
-    def ensure_ready(self, timeout_duration=10, rln_required=False):
+    def ensure_ready(self, timeout_duration=10):
         @retry(stop=stop_after_delay(timeout_duration), wait=wait_fixed(0.1), reraise=True)
         def check_healthy(node=self):
             self.health_response = node.health()
@@ -324,13 +212,6 @@ class WakuNode:
 
             if self.health_response.get("nodeHealth") != "READY":
                 raise AssertionError("Waiting for the node health status: READY")
-
-            for p in self.health_response.get("protocolsHealth"):
-                if rln_required and "Rln Relay" in p:
-                    if p["Rln Relay"] != "READY":
-                        raise AssertionError("Waiting for the Rln relay status: READY")
-                    # TODO: Remove once Rln Relay reflects true RLN status
-                    sleep(20)
 
             logger.info("Node protocols are initialized !!")
 
@@ -478,108 +359,6 @@ class WakuNode:
 
     def is_nwaku(self):
         return "nwaku" in self.image
-
-    def prepare_rln_storage_paths(self, cwd, keystore_prefix, selected_id, reset_existing=False):
-        keystore_dir = os.path.join(cwd, f"keystore_{keystore_prefix}_{selected_id}")
-        rln_tree_dir = os.path.join(cwd, f"rln_tree_{keystore_prefix}_{selected_id}")
-
-        if reset_existing:
-            for path, path_name in [(keystore_dir, "keystore"), (rln_tree_dir, "rln tree")]:
-                if os.path.exists(path):
-                    logger.warning(f"Resetting existing RLN {path_name} directory before registration: {path}")
-                    shutil.rmtree(path, ignore_errors=True)
-
-        os.makedirs(keystore_dir, exist_ok=True)
-        os.makedirs(rln_tree_dir, exist_ok=True)
-
-        return keystore_dir, rln_tree_dir
-
-    def parse_rln_credentials(self, default_args, is_registration):
-        rln_args = {}
-        keystore_path = None
-
-        rln_creds_source = default_args["rln-creds-source"]
-        selected_id = default_args["rln-creds-id"]
-
-        if rln_creds_source is None or selected_id is None:
-            logger.debug(f"RLN credentials were not set")
-            return rln_args, False, keystore_path
-
-        imported_creds = json.loads(rln_creds_source)
-        rln_chain_id = imported_creds.get("rln-relay-chain-id")
-        if rln_chain_id is None:
-            eth_client_address = imported_creds.get("rln-relay-eth-client-address", "")
-            if "linea" in eth_client_address:
-                rln_chain_id = "59141"
-            elif "sepolia" in eth_client_address:
-                rln_chain_id = "11155111"
-
-        if len(imported_creds) < 4 or any(value is None for value in imported_creds.values()):
-            logger.warn(f"One or more of required RLN credentials were not set properly")
-            return rln_args, False, keystore_path
-
-        eth_private_key = select_private_key(imported_creds, selected_id)
-
-        cwd = os.getcwd()
-        keystore_prefix = default_args.get("rln-keystore-prefix")
-
-        if not keystore_prefix:
-            logger.warn("rln-keystore-prefix is missing, cannot mount RLN state and keystore")
-            return rln_args, False, keystore_path
-
-        keystore_dir, rln_tree_dir = self.prepare_rln_storage_paths(cwd, keystore_prefix, selected_id, reset_existing=is_registration)
-
-        if self.is_nwaku():
-            if is_registration:
-                rln_args.update(
-                    {
-                        "--execute": None,
-                        "rln-relay-user-message-limit": default_args["rln-relay-user-message-limit-registration"],
-                    }
-                )
-            else:
-                rln_args.update(
-                    {
-                        "rln-relay": "true",
-                    }
-                )
-
-            if not default_args.get("rln-relay-dynamic") and not is_registration:
-                rln_args.update(
-                    {
-                        "rln-relay-cred-path": "/keystore/keystore.json",
-                        "rln-relay-cred-password": imported_creds["rln-relay-cred-password"],
-                        "rln-relay-eth-client-address": imported_creds["rln-relay-eth-client-address"],
-                        "rln-relay-eth-contract-address": imported_creds["rln-relay-eth-contract-address"],
-                    }
-                )
-            else:
-                rln_args.update(
-                    {
-                        "rln-relay-cred-path": "/keystore/keystore.json",
-                        "rln-relay-cred-password": imported_creds["rln-relay-cred-password"],
-                        "rln-relay-eth-client-address": imported_creds["rln-relay-eth-client-address"],
-                        "rln-relay-eth-contract-address": imported_creds["rln-relay-eth-contract-address"],
-                        "rln-relay-eth-private-key": imported_creds[eth_private_key],
-                    }
-                )
-
-            if rln_chain_id is not None:
-                rln_args["rln-relay-chain-id"] = str(rln_chain_id)
-
-            keystore_path = os.path.join(keystore_dir, "keystore.json")
-
-            self._volumes.extend(
-                [
-                    f"{rln_tree_dir}:/etc/rln_tree",
-                    f"{keystore_dir}:/keystore",
-                ]
-            )
-
-        else:
-            raise NotImplementedError("Not implemented for type other than Nim Waku ")
-
-        return rln_args, True, keystore_path
 
     @property
     def container(self):

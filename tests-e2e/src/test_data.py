@@ -24,8 +24,6 @@ VALID_PUBSUB_TOPICS = [
     f"/waku/2/rs/{DEFAULT_CLUSTER_ID}/1000",
 ]
 
-PUBSUB_TOPICS_RLN = [f"/waku/2/rs/{DEFAULT_CLUSTER_ID}/0"]
-
 LOG_ERROR_KEYWORDS = [
     "crash",
     "fatal",

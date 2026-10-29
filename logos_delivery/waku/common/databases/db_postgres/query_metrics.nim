@@ -11,7 +11,8 @@ const QueriesToMetricMap* = toTable(
   {
     "contentTopic IN": "content_topic",
     "SELECT version()": "select_version",
-    "WITH min_timestamp": "messages_lookup",
+    "FROM messages_lookup WHERE messagehash IN": "messages_lookup",
+    "WHERE timestamp IN (": "messages_lookup_fetch",
     "SELECT messageHash FROM messages WHERE pubsubTopic = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, messageHash DESC LIMIT ?":
       "msg_hash_no_ctopic",
     "AS partition_name": "get_partitions_list",

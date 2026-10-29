@@ -145,8 +145,11 @@ proc preProcessPayload*(
     if rangeType == RangeType.Skip:
       continue
 
-    let upperBound = payload.ranges[i][0].b.time
-    if lowerBound > upperBound:
+    let
+      bounds = payload.ranges[i][0]
+      split = SyncID(time: lowerBound, hash: EmptyFingerprint)
+    # The upper bound is exclusive, so a range ending at the split is all older.
+    if not (split < bounds.b):
       payload.ranges[i][1] = RangeType.Skip
 
       if rangeType == RangeType.Fingerprint:
@@ -154,9 +157,7 @@ proc preProcessPayload*(
       elif rangeType == RangeType.ItemSet:
         payload.itemSets.delete(0)
     else:
-      let bounds = payload.ranges[i][0]
       if bounds.a.time < lowerBound:
-        let split = SyncID(time: lowerBound, hash: EmptyFingerprint)
         payload.ranges[i] = (split .. bounds.b, rangeType)
         payload.ranges.insert((bounds.a .. split, RangeType.Skip), i)
 

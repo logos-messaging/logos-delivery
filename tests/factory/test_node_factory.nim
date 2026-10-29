@@ -14,7 +14,7 @@ import
 import tools/confutils/cli_args
 
 import
-  tests/testlib/[wakunode, wakucore],
+  tests/testlib/[wakunode, wakucore, testasync],
   logos_delivery/waku/[
     waku_core,
     waku_node,
@@ -32,6 +32,7 @@ import
     common/rate_limit/setting,
   ],
   logos_delivery/waku/node/subscription_manager,
+  logos_delivery/waku/rln/rln_lez/transport,
   logos_delivery/waku/factory/[
     node_factory,
     internal_config,
@@ -45,6 +46,20 @@ proc servicePeerGauge(codec: string): float64 =
     return logos_delivery_service_peers.value([codec])
   except KeyError:
     return 0.0
+
+const ActiveStateReply = """{"state":"active"}"""
+
+var
+  membershipRequests: int
+  membershipRequestId: uint64
+
+proc captureMembershipRequest(
+    reqId: uint64, userData: pointer
+) {.cdecl, gcsafe, raises: [].} =
+  membershipRequests.inc()
+  membershipRequestId = reqId
+
+var lezPlugin = LogosDeliveryRlnPlugin(get_membership_state: captureMembershipRequest)
 
 suite "Node Factory":
   asynctest "Set up a node based on default configurations":
@@ -353,6 +368,54 @@ suite "Node Factory":
       node.peerManager.switch.peerStore.peers.anyIt(
         it.peerId == discoveredPeer.peerId and it.origin == PeerExchange
       )
+
+  asynctest "Static nodes wait for the host to answer the RLN membership check":
+    # TODO: logos-delivery#4610
+    # Given a static peer
+    let staticPeer = newTestWakuNode(generateSecp256k1Key())
+    check staticPeer.mountMetadata(DefaultClusterId, @[]).isOk()
+    await staticPeer.start()
+    defer:
+      await staticPeer.stop()
+
+    # And a host that installed an RLN plugin over the C ABI
+    membershipRequests = 0
+    check logosdelivery_rln_set_plugin(addr lezPlugin, nil) == 0
+    defer:
+      discard logosdelivery_rln_set_plugin(nil, nil)
+
+    # And a configuration with --entry-node naming the static peer
+    var cliConf = defaultKernelConf().get()
+    cliConf.tcpPort = Port(0)
+    cliConf.entryNodes = @[
+      "/ip4/127.0.0.1/tcp/" & $staticPeer.boundTcpPort() & "/p2p/" &
+        $staticPeer.peerInfo.peerId
+    ]
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # When the node starts
+    let started = startNode(node, conf)
+
+    # And the host holds its answer to the membership check
+    checkUntilTimeout:
+      membershipRequests == 1
+
+    # Then the node has not dialed the static peer, and its start has not returned
+    check:
+      not node.switch.isConnected(staticPeer.peerInfo.peerId)
+      not started.finished()
+
+    # When the host answers
+    check logosdelivery_rln_response(membershipRequestId, ActiveStateReply) == 0
+
+    # Then the node dials the static peer, and its start returns
+    checkUntilTimeout:
+      node.switch.isConnected(staticPeer.peerInfo.peerId)
+    check (await started).isOk()
+    await node.stop()
 
   asynctest "A content topic's autoshard is advertised in the ENR and metadata":
     # Given a node subscribed to shard 0 and a content topic that maps to shard 3
