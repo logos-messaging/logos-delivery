@@ -51,7 +51,7 @@ jobs:
       # Empty values fall back in src/env_vars.py: 
       # DEFAULT_NWAKU to the pinned default,
       # NODE_1/NODE_2/ADDITIONAL_NODES to DEFAULT_NWAKU.
-      DEFAULT_NWAKU: ${{ github.event_name == 'schedule' && 'quay.io/wakuorg/nwaku-pr:nightly' || inputs.node_image || inputs.default_nwaku }}
+      DEFAULT_NWAKU: ${{ inputs.node_image || (github.event_name == 'schedule' && 'quay.io/wakuorg/nwaku-pr:nightly') || inputs.default_nwaku }}
       NODE_1: ${{ inputs.node1 }}
       NODE_2: ${{ inputs.node2 }}
       ADDITIONAL_NODES: ${{ inputs.additional_nodes }}

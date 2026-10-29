@@ -11,8 +11,8 @@ name: RLN E2E — Simulator
 # The image is built ON the runner and tested ON the same runner, so the
 # AVX-512 portability issue in container-image.yml does not apply here.
 #
-# No own schedule: ci-daily.yml is the single daily entry point and calls
-# this via workflow_call. workflow_dispatch allows manual runs.
+# No own schedule: the nightly (ci-daily.yml) reaches this through ci.yml's
+# full run. workflow_dispatch allows manual runs.
 # Run defaults live in tests/simulator/rln-sim.env; inputs override per-run.
 
 on:
