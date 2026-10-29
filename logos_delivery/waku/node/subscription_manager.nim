@@ -168,6 +168,15 @@ proc edgeFilterPeerCount*(self: SubscriptionManager, shard: PubsubTopic): int =
     return state.peers.len
   return 0
 
+proc reportedShardHealth(self: SubscriptionManager, shard: PubsubTopic): TopicHealth =
+  ## The stored health of `shard`, which the health loops compare a new
+  ## health with. `UNHEALTHY` when the node stores none.
+  if not self.node.wakuRelay.isNil():
+    return self.node.wakuRelay.topicsHealth.getOrDefault(shard, TopicHealth.UNHEALTHY)
+  self.edgeFilterSubStates.withValue(shard, state):
+    return state.currentHealth
+  return TopicHealth.UNHEALTHY
+
 proc getShardForContentTopic(
     self: SubscriptionManager, topic: ContentTopic
 ): Result[PubsubTopic, string] =
@@ -239,6 +248,15 @@ proc subscribe*(
     discard self.node.doRelaySubscribe(shard, handler)
   if added:
     ContentTopicSubscribedEvent.emit(self.node.brokerCtx, shard, contentTopic)
+    # A listener learns the health of the shard at each subscribe, and the
+    # health loops report each change after it.
+    EventShardTopicHealthChange.emit(
+      self.node.brokerCtx, shard, self.reportedShardHealth(shard)
+    )
+    # The stored health can be stale, so the relay calculates it again and
+    # reports a change. On an edge, the wake of `edgeFilterSubLoop` does it.
+    if not self.node.wakuRelay.isNil():
+      self.node.wakuRelay.markTopicHealthDirty(shard)
   return ok()
 
 proc unsubscribe*(
