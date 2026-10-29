@@ -102,6 +102,13 @@ proc countCapablePeers(hm: NodeHealthMonitor, codec: string): int =
 
   return hm.node.peerManager.getCapablePeersCount(codec)
 
+proc weakestShardMeshSize(relay: WakuRelay): int =
+  ## Mesh size of the subscribed shard with the fewest mesh peers.
+  let meshSizes = relay.subscribedTopics().mapIt(relay.getNumPeersInMesh(it).get(0))
+  if meshSizes.len == 0:
+    return 0
+  return min(meshSizes)
+
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.RelayProtocol)
 
@@ -113,9 +120,8 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  let count = relayPeers.len
-  hm.strength[WakuProtocol.RelayProtocol] = count
-  if count == 0:
+  hm.strength[WakuProtocol.RelayProtocol] = hm.node.wakuRelay.weakestShardMeshSize()
+  if relayPeers.len == 0:
     return p.notReady("No connected peers")
 
   return p.ready()
@@ -465,12 +471,12 @@ proc calculateConnectionState*(
   if dLowOpt.isSome():
     if relayCount >= dLowOpt.get():
       return ConnectionStatus.Connected
+    if relayCount > 0:
+      return ConnectionStatus.PartiallyConnected
+    # A Core node receives only through Relay, so its edge peers don't count.
+    return ConnectionStatus.Disconnected
 
-  if relayCount > 0:
-    return ConnectionStatus.PartiallyConnected
-
-  # No relay connectivity. Relay might not be mounted, or may just have zero peers.
-  # Fall back to Edge check in any case to be sure.
+  # Relay is not mounted, so check Edge connectivity.
 
   let canSend = lightpushCount > 0
   let canReceive = filterCount > 0
@@ -758,7 +764,9 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   if not isNil(hm.node.wakuRelay):
     hm.relayObserver = PubSubObserver(
       onRecv: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
-        hm.onRelayMsg(peer, msgs)
+        hm.onRelayMsg(peer, msgs),
+      onSend: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
+        hm.onRelayMsg(peer, msgs),
     )
     hm.node.wakuRelay.addObserver(hm.relayObserver)
 

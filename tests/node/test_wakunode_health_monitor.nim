@@ -24,9 +24,11 @@ import
     api/events/peer_events,
     waku_archive,
     waku_mix,
+    waku_relay,
   ]
 
-import ../testlib/[wakunode, wakucore, testasync], ../waku_archive/archive_utils
+import
+  ../testlib/[wakunode, wakucore, testasync, futures], ../waku_archive/archive_utils
 import logos_delivery/waku/node/subscription_manager
 import logos_delivery/waku/waku
 import logos_delivery/waku/factory/waku_state_info
@@ -43,6 +45,26 @@ proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
     return ph.ready()
   else:
     return ph.notReady("mock")
+
+proc startRelayNode(): Future[WakuNode] {.async.} =
+  ## Starts a node with Relay in a new broker context.
+  var node: WakuNode
+  lockNewGlobalBrokerContext:
+    node = newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+    (await node.mountRelay()).expect("Failed to mount relay")
+    await node.start()
+  return node
+
+proc subscribeShard(node: WakuNode, shard: PubsubTopic) =
+  proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+    discard
+
+  node.subscribe((kind: PubsubSub, topic: shard), dummyHandler).expect(
+    "Failed to subscribe"
+  )
+
+proc meshSize(node: WakuNode, shard: PubsubTopic): int =
+  return node.wakuRelay.getNumPeersInMesh(shard).get(0)
 
 suite "Health Monitor - health state calculation":
   test "Disconnected, zero peers":
@@ -73,6 +95,23 @@ suite "Health Monitor - health state calculation":
     # Fully connected since relay connectivity is ideal (>= dLow)
     check state == ConnectionStatus.Connected
 
+  test "Disconnected, Core with no mesh peer ignores edge peers":
+    ## A Core node receives only through Relay. Its lightpush, filter and
+    ## store peers give it no way to receive, so they don't count.
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[RelayProtocol] = 0
+    strength[LightpushClientProtocol] = HealthyThreshold
+    strength[FilterClientProtocol] = HealthyThreshold
+    strength[StoreClientProtocol] = HealthyThreshold
+    let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
+    check state == ConnectionStatus.Disconnected
+
   test "Connected, robust edge":
     let protocols = @[
       protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
@@ -84,7 +123,7 @@ suite "Health Monitor - health state calculation":
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
     strength[StoreClientProtocol] = HealthyThreshold
-    let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
+    let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.Connected
 
   test "Disconnected, edge missing store":
@@ -97,7 +136,7 @@ suite "Health Monitor - health state calculation":
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
     strength[StoreClientProtocol] = 0
-    let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
+    let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, edge meets minimum failover requirement":
@@ -111,7 +150,7 @@ suite "Health Monitor - health state calculation":
     strength[LightpushClientProtocol] = weakCount
     strength[FilterClientProtocol] = weakCount
     strength[StoreClientProtocol] = weakCount
-    let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
+    let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay ignores store server":
@@ -284,6 +323,107 @@ suite "Health Monitor - events":
 
     await monitorA.stopHealthMonitor()
     await nodeA.stop()
+
+  asyncTest "Core status follows the mesh of the weakest subscribed shard":
+    ## A connected peer outside the mesh of a shard does not forward the
+    ## messages of that shard, and they come late. So one shard with too few
+    ## mesh peers must keep the node below the `Connected` status, also when
+    ## the node has `dLow` connected peers.
+    const OtherShard = PubsubTopic("/waku/2/rs/0/1")
+
+    let nodeA = await startRelayNode()
+    var peers: seq[WakuNode]
+    defer:
+      for peer in peers:
+        await peer.stop()
+      await nodeA.stop()
+
+    let dLow = nodeA.wakuRelay.parameters.dLow
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    var lastStatus = ConnectionStatus.Disconnected
+    var connected = newFuture[void]("connected")
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      if status == ConnectionStatus.Connected and not connected.finished():
+        connected.complete()
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+    defer:
+      await monitorA.stopHealthMonitor()
+
+    ## Given `dLow` peers on the default shard and one peer on the other shard
+    nodeA.subscribeShard(DefaultPubsubTopic)
+    nodeA.subscribeShard(OtherShard)
+    for i in 0 .. dLow:
+      peers.add(await startRelayNode())
+      peers[i].subscribeShard(if i < dLow: DefaultPubsubTopic else: OtherShard)
+    await nodeA.connectToNodes(peers.mapIt(it.switch.peerInfo.toRemotePeerInfo()))
+
+    ## Then the other shard keeps node A below the `Connected` status
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) >= dLow
+      nodeA.meshSize(OtherShard) == 1
+      lastStatus == ConnectionStatus.PartiallyConnected
+    let connectedEarly = await connected.withTimeout(FUTURE_TIMEOUT)
+    check not connectedEarly
+
+    # `withTimeout` cancels the future at the timeout.
+    connected = newFuture[void]("connected")
+
+    ## When `dLow - 1` peers of the default shard also subscribe to the other shard
+    for i in 0 ..< dLow - 1:
+      peers[i].subscribeShard(OtherShard)
+
+    ## Then node A has the `Connected` status
+    let gotConnected = await connected.withTimeout(FUTURE_TIMEOUT_LONG)
+    check:
+      gotConnected
+      nodeA.meshSize(OtherShard) >= dLow
+
+  asyncTest "Core status follows a mesh peer that this node grafts in a heartbeat":
+    ## The status depends on the mesh, and libp2p has no event for a mesh
+    ## change. A peer does not reply to a GRAFT that it accepts. So when this
+    ## node grafts a peer, its own GRAFT must wake the health monitor.
+    let nodeA = await startRelayNode()
+    let nodeB = await startRelayNode()
+    defer:
+      await nodeB.stop()
+      await nodeA.stop()
+
+    # Node B never sends a GRAFT, so no GRAFT comes in to wake node A.
+    nodeB.wakuRelay.parameters.d = 0
+    nodeB.wakuRelay.parameters.dLow = 0
+    nodeB.wakuRelay.parameters.dOut = 0
+    # Node A grafts a peer at once when a subscription comes in, and that
+    # message also wakes the health monitor. So node A grafts no peer until
+    # the test lets it.
+    let d = nodeA.wakuRelay.parameters.d
+    nodeA.wakuRelay.parameters.d = 0
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    var lastStatus = ConnectionStatus.Disconnected
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+    defer:
+      await monitorA.stopHealthMonitor()
+
+    ## Given node B on the shard of node A, but not in its mesh
+    nodeA.subscribeShard(DefaultPubsubTopic)
+    nodeB.subscribeShard(DefaultPubsubTopic)
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      nodeA.wakuRelay.getNumConnectedPeers(DefaultPubsubTopic).get(0) == 1
+    check:
+      nodeA.meshSize(DefaultPubsubTopic) == 0
+      lastStatus == ConnectionStatus.Disconnected
+
+    ## When node A grafts node B in its next heartbeat
+    nodeA.wakuRelay.parameters.d = d
+
+    ## Then node A has the `PartiallyConnected` status
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) == 1
+      lastStatus == ConnectionStatus.PartiallyConnected
 
   asyncTest "Edge (light client) health update":
     var nodeA: WakuNode
