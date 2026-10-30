@@ -1243,7 +1243,10 @@ suite "Messaging API, SubscriptionManager":
     check subscriber.waku.node.getRelayShard(testTopic) == shard
 
     # The first dial fails, because the static node is not up yet.
-    await sleepAsync(NegativeTestTimeout)
+    checkUntilTimeout:
+      subscriber.waku.node.peerManager.switch.peerStore.connectedness(
+        lateNode.peerInfo.peerId
+      ) == CannotConnect
     await lateNode.start()
     lateNode.serveShard(shard)
 
