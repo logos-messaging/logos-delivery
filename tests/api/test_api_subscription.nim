@@ -1255,6 +1255,40 @@ suite "Messaging API, SubscriptionManager":
       edgePeerId in
         lateNode.wakuFilter.subscriptions.findSubscribedPeers(shard, testTopic)
 
+  asyncTest "Subscription API, relay node dials a static node that starts later":
+    let shard = PubsubTopic("/waku/2/rs/3/0")
+    let port = block:
+      let probe = createStreamServer(initTAddress("127.0.0.1", Port(0)))
+      let p = probe.localAddress().port
+      await probe.closeWait()
+      p
+    let lateNode = await newFilterServiceNode(shard, bindPort = port, start = false)
+    defer:
+      await lateNode.stop()
+
+    var conf = defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Core)
+    conf.kernel.staticnodes =
+      @["/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $lateNode.peerInfo.peerId]
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).expect("Failed to create node")
+      node.waku.node.peerManager.initialBackoffInSec = 1
+      # The relay connectivity loop gives up on the peer after this many failures.
+      node.waku.node.peerManager.maxFailedAttempts = 1
+      node.shortenIntervals()
+      (await node.start()).expect("Failed to start node")
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    checkUntilTimeout:
+      node.waku.node.peerManager.switch.peerStore.connectedness(
+        lateNode.peerInfo.peerId
+      ) == CannotConnect
+    await lateNode.start()
+
+    checkUntilTimeout:
+      node.waku.node.peerManager.switch.isConnected(lateNode.peerInfo.peerId)
+
 type SendSubscriptionNet = ref object
   servers: seq[WakuNode] ## relay and filter service nodes on `shard`
   edge: LogosDelivery
