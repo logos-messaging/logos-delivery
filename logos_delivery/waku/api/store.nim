@@ -14,7 +14,7 @@ proc isStoreMounted*(self: Waku): bool =
 
 proc hasStorePeer*(self: Waku): bool =
   ## True if at least one store service peer is available to query.
-  return self.node.peerManager.selectPeer(WakuStoreCodec).isSome()
+  return self.node.peerManager.hasPeers(WakuStoreCodec)
 
 proc storeQueryToAny*(
     self: Waku, request: StoreQueryRequest

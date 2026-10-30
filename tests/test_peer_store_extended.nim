@@ -223,10 +223,10 @@ suite "Extended nim-libp2p Peer Store":
       p3.numberFailedConn == 3
       p3.lastFailedConn == Moment.init(1003, Second)
 
-  test "peers() returns all StoredInfo matching a specific protocol":
+  test "getPeersByProtocol() returns all StoredInfo matching a specific protocol":
     # When
-    let storePeers = peerStore.peers("/vac/waku/store/2.0.0")
-    let lpPeers = peerStore.peers("/vac/waku/lightpush/2.0.0")
+    let storePeers = peerStore.getPeersByProtocol("/vac/waku/store/2.0.0")
+    let lpPeers = peerStore.getPeersByProtocol("/vac/waku/lightpush/2.0.0")
 
     # Then
     check:
@@ -349,6 +349,17 @@ suite "Extended nim-libp2p Peer Store":
       disconnedtedPeers.anyIt(it.peerId == p4)
       disconnedtedPeers.anyIt(it.peerId == p5)
       not disconnedtedPeers.anyIt(it.connectedness == Connected)
+
+  test "hasConnectedPeers() returns true only when a peer is connected":
+    # Given p1, p2 and p3 are connected
+    check peerStore.hasConnectedPeers()
+
+    # When no peer is connected
+    for peer in peerStore.getConnectedPeers():
+      peerStore[ConnectionBook][peer.peerId] = NotConnected
+
+    # Then
+    check not peerStore.hasConnectedPeers()
 
   test "del() successfully deletes waku custom books":
     # Given

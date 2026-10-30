@@ -103,7 +103,7 @@ proc peerIdsByProtocol*(
   try:
     return ok(
       self.node.peerManager.switch.peerStore
-        .peers(protocol)
+        .getPeersByProtocol(protocol)
         .filterIt(it.connectedness == Connected)
         .mapIt($it.peerId)
     )
