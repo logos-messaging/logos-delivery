@@ -221,6 +221,13 @@ proc logosdelivery_create_node(
 
   return ok(lib)
 
+proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+  await self.restOf().stop(self)
+  if not self.isRunning():
+    return ok()
+
+  await self.stop()
+
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
@@ -238,17 +245,14 @@ proc logosdelivery_start_node(
     return err("failed to start: " & errMsg)
 
   rest.mount(self).isOkOr:
-    chronicles.error "START_NODE failed to mount REST", err = error
-    return err("failed to mount REST: " & error)
+    let mountErr = error
+    chronicles.error "START_NODE failed to mount REST", err = mountErr
+    (await self.stopNode()).isOkOr:
+      chronicles.error "START_NODE failed to stop after a failed REST mount",
+        err = error
+    return err("failed to mount REST: " & mountErr)
 
   return ok("")
-
-proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  await self.restOf().stop(self)
-  if not self.isRunning():
-    return ok()
-
-  await self.stop()
 
 proc logosdelivery_stop_node(
     self: LogosDelivery
