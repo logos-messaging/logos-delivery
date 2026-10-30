@@ -169,6 +169,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: could probably make it a `PeerRemoteInfo`
   staticNodes*: seq[string]
+  storeNodes*: seq[string]
+    ## The network's store nodes as multiaddrs, from the preset by default.
+  configuredStoreNodesOnly*: bool
+    ## Query only `storeNodes` and `remoteStoreNode`, never discovered store peers.
   remoteStoreNode*: Opt[string]
   remoteLightPushNode*: Opt[string]
   remoteFilterNode*: Opt[string]

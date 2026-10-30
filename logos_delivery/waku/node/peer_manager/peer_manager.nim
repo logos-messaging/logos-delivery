@@ -117,6 +117,8 @@ type PeerManager* = ref object
   maxFailedAttempts*: int
   storage*: PeerStorage
   serviceSlots*: Table[string, RemotePeerInfo]
+  exclusivePeers*: Table[string, seq[RemotePeerInfo]]
+    ## Per protocol, the only peers selected for it besides its service slot.
   relayServiceRatio*: string
   maxRelayPeers*: int
   maxServicePeers*: int
@@ -266,16 +268,23 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
+proc candidatePeers*(pm: PeerManager, proto: string): seq[RemotePeerInfo] =
+  ## Copies of the exclusive peers of `proto` when set, otherwise the peer
+  ## store's peers that support it. Unordered and not filtered by shard.
+  pm.exclusivePeers.withValue(proto, exclusive):
+    return exclusive[].mapIt(it.deepCopy())
+  return pm.switch.peerStore.getPeersByProtocol(proto)
+
 proc selectPeers*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
   ## shuffled randomly. Callers can further filter or pick from this list.
-  var peers = pm.switch.peerStore.getPeersByProtocol(proto)
+  var peers = pm.candidatePeers(proto)
   trace "Selecting peers from peerstore",
     protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
 
-  if shard.isSome():
+  if shard.isSome() and proto notin pm.exclusivePeers:
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
       return @[]
@@ -305,6 +314,21 @@ proc selectPeer*(
     return Opt.some(peers[0])
   trace "No peer found for protocol", protocol = proto
   return Opt.none(RemotePeerInfo)
+
+proc setExclusivePeers*(pm: PeerManager, proto: string, peers: seq[RemotePeerInfo]) =
+  ## Restricts peer selection for `proto` to `peers` and its service slot.
+  ## Discovered peers are no longer selected for it, and the exclusive peers
+  ## are selected regardless of the requested shard.
+  pm.exclusivePeers[proto] = peers
+
+func isSelectable*(pm: PeerManager, peerId: PeerId, proto: string): bool =
+  ## False for a peer outside the exclusive peers and service slot of `proto`.
+  pm.exclusivePeers.withValue(proto, exclusive):
+    pm.serviceSlots.withValue(proto, slot):
+      if slot[].peerId == peerId:
+        return true
+    return exclusive[].anyIt(it.peerId == peerId)
+  return true
 
 # Adds a peer to the service slots, which is a list of peers that are slotted for a given protocol
 proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
@@ -607,6 +631,14 @@ proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]
 func uniquePeersCount(inOut: (seq[PeerId], seq[PeerId])): int =
   let (inPeers, outPeers) = inOut
   return (inPeers & outPeers).toHashSet().len
+
+proc getSelectablePeersCount*(pm: PeerManager, protocol: string): int =
+  ## Like `getCapablePeersCount`, counting only the peers `selectPeer` may pick.
+  let (inPeers, outPeers) = pm.capablePeers(protocol)
+  return (
+    inPeers.filterIt(pm.isSelectable(it, protocol)),
+    outPeers.filterIt(pm.isSelectable(it, protocol)),
+  ).uniquePeersCount()
 
 proc getConnectedPeersCount*(pm: PeerManager, protocol: string): int =
   ## Returns the total number of unique connected peers (inbound + outbound)

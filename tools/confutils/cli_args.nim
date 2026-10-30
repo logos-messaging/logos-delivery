@@ -418,6 +418,13 @@ hence would have reachability issues.""",
     desc: "Peer multiaddress to query for storage", defaultValue: "", name: "storenode"
   .}: string
 
+  configuredStoreNodesOnly* {.
+    desc:
+      "Query only the preset's store nodes and --storenode, never discovered store peers.",
+    defaultValue: false,
+    name: "configured-store-nodes-only"
+  .}: bool
+
   storeMessageRetentionPolicy* {.
     desc:
       "Message store retention policy. Multiple policies may be provided as a semicolon-separated string and are applied as a union. Time retention policy: 'time:<seconds>'. Size retention policy: 'size:<xMB/xGB>'. Capacity retention policy (deprecated): 'capacity:<count>'. Set to 'none' to disable. Example: 'time:3600;size:1GB'. (requires --store)",
@@ -1418,6 +1425,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   # TODO: can we just use `Opt` on the CLI?
   if n.storenode != "":
     b.withRemoteStoreNode(n.storenode)
+  b.withConfiguredStoreNodesOnly(n.configuredStoreNodesOnly)
   if n.filternode != "":
     b.withRemoteFilterNode(n.filternode)
   if n.lightpushnode != "":

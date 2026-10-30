@@ -1447,6 +1447,41 @@ procSuite "Peer Manager":
       selectedPeer5.isSome() == true
       selectedPeer5.get().peerId == peers[2].peerId
 
+  test "selectPeer() picks only the exclusive peers and the service slot":
+    let pm = PeerManager.new(
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
+      storage = nil,
+    )
+    let peers = toSeq(1 .. 3).mapIt(
+        RemotePeerInfo.init(PeerId.init(generateSecp256k1Key()).tryGet(), @[])
+      )
+    pm.switch.peerStore[ProtoBook][peers[0].peerId] = @[WakuStoreCodec]
+
+    pm.setExclusivePeers(WakuStoreCodec, @[peers[1]])
+
+    check:
+      pm.selectPeers(WakuStoreCodec).mapIt(it.peerId) == @[peers[1].peerId]
+      pm.selectPeer(WakuStoreCodec).get().peerId == peers[1].peerId
+
+    pm.addServicePeer(peers[2], WakuStoreCodec)
+
+    check pm.selectPeer(WakuStoreCodec).get().peerId == peers[2].peerId
+
+  test "selectPeer() returns no peer when the exclusive list is empty":
+    let pm = PeerManager.new(
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
+      storage = nil,
+    )
+    let discovered =
+      RemotePeerInfo.init(PeerId.init(generateSecp256k1Key()).tryGet(), @[])
+    pm.switch.peerStore[ProtoBook][discovered.peerId] = @[WakuStoreCodec]
+
+    pm.setExclusivePeers(WakuStoreCodec, @[])
+
+    check pm.selectPeer(WakuStoreCodec).isNone()
+
   test "peer manager cant have more max connections than peerstore size":
     # Peerstore size can't be smaller than max connections
     let peerStoreSize = 20
