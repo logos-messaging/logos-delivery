@@ -14,7 +14,8 @@ import
 import tools/confutils/cli_args
 
 import
-  tests/testlib/[wakunode, wakucore, testasync],
+  tests/testlib/[wakunode, wakucore, testasync, futures],
+  tests/waku_archive/archive_utils,
   logos_delivery/waku/[
     waku_core,
     waku_node,
@@ -27,6 +28,9 @@ import
     discovery/waku_discv5,
     node/peer_manager,
     node/waku_metrics,
+    node/health_monitor/health_status,
+    node/health_monitor/node_health_monitor,
+    common/waku_protocol,
     waku_metadata,
     waku_filter_v2,
     common/rate_limit/setting,
@@ -499,6 +503,84 @@ suite "Node Factory":
     node.peerManager.switch.peerStore[ProtoBook][discovered] = @[WakuStoreCodec]
 
     check node.peerManager.selectPeer(WakuStoreCodec).isNone()
+
+  asynctest "Configured store nodes only makes the edge store client ready with a background dial that the stop cancels":
+    ## An edge node reports `Disconnected` while its store client is not ready.
+    ## With this option, only a connected configured store node makes it ready.
+    # Given a store node for the preset list and a store node for storenode
+    var storeNodes: seq[WakuNode]
+    for _ in 0 ..< 2:
+      let storeNode =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      # The node disconnects a peer that does not report its cluster id through the metadata protocol.
+      check storeNode.mountMetadata(DefaultClusterId, @[]).isOk()
+      storeNode.mountArchive(newSqliteArchiveDriver()).expect("failed to mount archive")
+      await storeNode.mountStore()
+      storeNodes.add(storeNode)
+    await allFutures(storeNodes.mapIt(it.start()))
+    defer:
+      await allFutures(storeNodes.mapIt(it.stop()))
+
+    # And a listener for the preset list that accepts TCP but leaves the libp2p handshake pending
+    let accepted = newAsyncEvent()
+    var held: seq[StreamTransport]
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held.add(client)
+      accepted.fire()
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    defer:
+      for client in held:
+        await client.closeWait()
+      listener.stop()
+      await listener.closeWait()
+
+    proc storeAddress(port: Port, peerId: PeerId): string =
+      "/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $peerId
+
+    # And an edge configuration that names them
+    let listenerPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    var confBuilder = defaultTestWakuConfBuilder()
+    confBuilder.withRelay(false)
+    confBuilder.withStoreNodes(
+      @[
+        storeAddress(storeNodes[0].boundTcpPort(), storeNodes[0].peerInfo.peerId),
+        storeAddress(listener.localAddress().port, listenerPeerId),
+      ]
+    )
+    confBuilder.withRemoteStoreNode(
+      storeAddress(storeNodes[1].boundTcpPort(), storeNodes[1].peerInfo.peerId)
+    )
+    confBuilder.withConfiguredStoreNodesOnly(true)
+    let conf = confBuilder.build().valueOr:
+      raiseAssert error
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+    let monitor = NodeHealthMonitor.new(node)
+
+    # When the node starts
+    let startResult = await startNode(node, conf)
+
+    # Then the start returns before the dial to the listener ends, and the listener gets that dial
+    check:
+      startResult.isOk()
+      node.peerManager.switch.peerStore[NumberFailedConnBook][listenerPeerId] == 0
+    check await accepted.wait().withTimeout(FUTURE_TIMEOUT_MEDIUM)
+
+    # And both store nodes connect and make the store client ready, with no store query
+    checkUntilTimeout:
+      node.peerManager.getSelectablePeersCount(WakuStoreCodec) == 2
+    check monitor.getSyncProtocolHealthInfo(StoreClientProtocol).health ==
+      HealthStatus.READY
+
+    # When the node stops while its dial to the listener is pending
+    let dial = node.storeNodesConnectFut
+    check not dial.isNil() and not dial.finished()
+    check await node.stop().withTimeout(FUTURE_TIMEOUT_MEDIUM)
+
+    # Then the stop cancels the dials
+    check not dial.isNil() and dial.cancelled()
 
   test "Extra listen shards need auto-sharding":
     var confBuilder = defaultTestWakuConfBuilder()
