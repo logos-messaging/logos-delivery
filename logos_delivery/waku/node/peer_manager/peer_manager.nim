@@ -10,6 +10,7 @@ import
   libp2p/protocols/service_discovery/types,
   libp2p/crypto/crypto,
   libp2p_mix/external_pool,
+  libp2p_mix/mix_events,
   brokers/broker_context
 from libp2p_mix/mix_protocol import MixProtocolID
 from libp2p_mix/pool import MixPubKeyBook
@@ -120,6 +121,9 @@ type PeerManager* = ref object
     ## library's external pool, which `provideMixPeers` answers.
   mixAllowAllAddresses: bool
   mixReplyPeerTimeout: chronos.Duration
+  mixDialFailures: Opt[MixHopDialFailedListener]
+    ## The listener for the hops that Mix fails to dial. See `onMixHopDialFailed`.
+  mixDialFailureGeneration: uint64
   switch*: Switch
   wakuMetadata*: WakuMetadata
   initialBackoffInSec*: int
@@ -345,6 +349,12 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 # require pre-connection
 proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.}
 
+proc recordFailedDial(pm: PeerManager, peerId: PeerId) =
+  let store = pm.switch.peerStore
+  store[NumberFailedConnBook][peerId] = store[NumberFailedConnBook][peerId] + 1
+  store[LastFailedConnBook][peerId] = Moment.init(getTime().toUnix, Second)
+  store[ConnectionBook][peerId] = CannotConnect
+
 # Connects to a given node. Note that this function uses `connect` and
 # does not provide a protocol. Streams for relay (gossipsub) are created
 # automatically without the needing to dial.
@@ -411,9 +421,7 @@ proc connectPeer*(
     peerStore[ConnectionBook][peerId] = Connected
     return true
 
-  peerStore[NumberFailedConnBook][peerId] = peerStore[NumberFailedConnBook][peerId] + 1
-  peerStore[LastFailedConnBook][peerId] = Moment.init(getTime().toUnix, Second)
-  peerStore[ConnectionBook][peerId] = CannotConnect
+  pm.recordFailedDial(peerId)
 
   trace "Connecting peer failed",
     peerId = peerId,
@@ -629,6 +637,14 @@ proc removeMixPeer*(pm: PeerManager, peerId: PeerId): bool =
   discard pm.switch.peerStore[MixAliveBook].del(peerId)
   removed
 
+proc recordFailedMixDial(pm: PeerManager, peerId: PeerId) =
+  ## Count a failed Mix dial of a disconnected peer as `connectPeer` does. A
+  ## failure during the backoff of the peer does not count again. So the
+  ## concurrent sends and the forwarded packets of one outage count one failure.
+  if pm.switch.isConnected(peerId) or not pm.mixDialBackoffElapsed(peerId):
+    return
+  pm.recordFailedDial(peerId)
+
 proc connectedReplyPeer(pm: PeerManager, excluded: seq[PeerId]): Opt[PeerId] =
   ## A connected usable peer, picked at random, or none.
   let usable = pm.switch.connectedPeers().filterIt(
@@ -652,8 +668,10 @@ proc selectReplyPeer(
   try:
     await pending.wait(pm.mixReplyPeerTimeout)
   except DialFailedError as exc:
+    pm.recordFailedMixDial(candidate.peerId)
     return err("could not connect a peer for replies: " & exc.msg)
   except AsyncTimeoutError:
+    pm.recordFailedMixDial(candidate.peerId)
     return err("timed out connecting a peer for replies")
   finally:
     await noCancel pending.cancelAndWait()
@@ -672,6 +690,26 @@ proc provideMixPeers*(pm: PeerManager) =
     ok(pm.mixCandidateIds())
   discard SelectMixReplyPeer.reprovideIt(pm.brokerCtx):
     return await pm.selectReplyPeer(excluded)
+  if pm.mixDialFailures.isNone():
+    inc pm.mixDialFailureGeneration
+    let generation = pm.mixDialFailureGeneration
+    proc onMixHopDialFailed(
+        event: MixHopDialFailed
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      if pm.mixDialFailureGeneration != generation:
+        return
+      if not pm.switch.isConnected(event.peerId):
+        pm.recordFailedMixDial(event.peerId)
+      elif pm.switch.peerStore[MixAliveBook][event.peerId] != Moment():
+        # The connected peer refused a Mix stream, so its discovered Mix key is
+        # stale. Discovery stores the key again when the peer advertises Mix. A
+        # configured or application key stays.
+        discard pm.removeMixPeer(event.peerId)
+
+    let listener = MixHopDialFailed.listen(pm.brokerCtx, onMixHopDialFailed).valueOr:
+      error "Could not listen to mix dial failures", error = error
+      return
+    pm.mixDialFailures = Opt.some(listener)
 
 proc clearMixPeers*(pm: PeerManager) =
   ReadMixPeer.clearProvider(pm.brokerCtx)
@@ -681,6 +719,10 @@ proc clearMixPeers*(pm: PeerManager) =
 proc mixPeersProvided*(pm: PeerManager): bool =
   ## True between `provideMixPeers` and `clearMixPeers`.
   ListMixPeerIds.isProvided(pm.brokerCtx)
+
+func brokerCtx*(pm: PeerManager): BrokerContext =
+  ## The broker context of this node. Mix emits its events on it.
+  pm.brokerCtx
 
 proc configureMix*(
     pm: PeerManager,
@@ -1056,6 +1098,9 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Joined:
     direction = if event.initiator: Outbound else: Inbound
     connectedness = Connected
+    if event.initiator:
+      # This also observes outbound connections opened directly by mix.
+      peerStore[NumberFailedConnBook][peerId] = 0
 
     ## Check max allowed in-relay peers
     let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
@@ -1427,6 +1472,11 @@ proc start*(pm: PeerManager) =
 proc stop*(pm: PeerManager) =
   pm.started = false
   pm.clearMixPeers()
+  if pm.mixDialFailures.isSome():
+    let listener = pm.mixDialFailures.get()
+    inc pm.mixDialFailureGeneration
+    pm.mixDialFailures = Opt.none(MixHopDialFailedListener)
+    detachMixHopDialFailedListener(pm.brokerCtx, listener)
 
 proc new*(
     T: type PeerManager,

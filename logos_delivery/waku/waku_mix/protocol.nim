@@ -202,6 +202,7 @@ proc new*(
     localMixNodeInfo,
     peermgr.switch,
     pool = peermgr.mixPool,
+    brokerCtx = peermgr.brokerCtx,
     spamProtection = spamProtection,
     delayStrategy = Opt.some(
       if spamProtection.isSome():
