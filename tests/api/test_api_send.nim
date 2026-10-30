@@ -696,7 +696,7 @@ suite "Waku API - Send":
         @["decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")"]
       rejected == 1.0
 
-  asyncTest "A send retried while the node has no relay peer is handed to the relay handlers once and received once":
+  asyncTest "A send retried while the node has no relay peer is never handed to the relay handlers nor received":
     # Given a core node with REST that is connected to no peer
     var node: LogosDelivery
     var rest: RestService
@@ -736,28 +736,25 @@ suite "Waku API - Send":
     ).valueOr:
       raiseAssert error
 
-    # Then the relay cache returns the message once
-    let first = await client.waitForRelayAutoMessages(contentTopic, 1)
-
-    # Then the send ends with an error event, and the message was handled and received once
+    # Then the send ends with an error event
     check await eventManager.errorFuture.withTimeout(30.seconds)
     eventManager.validate({SendEventOutcome.Error}, requestId)
-    let again = await client.relayGetAutoMessagesV1(contentTopic)
+
+    # And the node's own message reached neither its relay cache nor its receive path
+    let cached = await client.relayGetAutoMessagesV1(contentTopic)
     check:
       subscribeResponse.status == 200
-      first.mapIt(it.payload) == @[base64.encode(payload)]
-      again.status == 200
-      again.data.len == 0
-      nodeMessagesCount(["relay"]) == handledBefore + 1
-      receivedHashes.len == 1
+      cached.status == 200
+      cached.data.len == 0
+      nodeMessagesCount(["relay"]) == handledBefore
+      receivedHashes.len == 0
 
     await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "Own message is received as live with no relay peer":
-    # TODO: logos-delivery#4563
+  asyncTest "Own message is not received with no relay peer":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
@@ -796,8 +793,7 @@ suite "Waku API - Send":
     eventManager.validate({SendEventOutcome.Error}, requestId)
     check:
       eventManager.errorDescs == @["Unable to send within retry time window"]
-      received.mapIt(it.source) == @[MessageSource.Live]
-      received.mapIt(it.message.payload) == @[payload.toBytes()]
+      received.len == 0
 
   asyncTest "Store validation times out with an error event":
     ## The message propagates, but the only reachable store node is outside the

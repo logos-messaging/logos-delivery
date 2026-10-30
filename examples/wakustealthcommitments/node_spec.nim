@@ -52,8 +52,5 @@ proc setup*(): Waku =
     error "Starting waku failed", error = error
     quit(QuitFailure)
 
-  # set triggerOwnHandlers to false, we don't want to process our own stealthCommitments
-  waku.node.wakuRelay.triggerOwnHandlers = false
-
   info "Node setup complete"
   return waku
