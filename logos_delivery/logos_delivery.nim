@@ -217,13 +217,23 @@ proc new*(
     return err("failed to synthesize configuration: " & error)
   return await LogosDelivery.new(conf, appCallbacks)
 
+proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.}
+
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each present layer bottom-up: transport, then messaging, then channels.
+  ## A start that fails stops the layers it started.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
+  # Waku.start rolls back its own failure.
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
+
+  var startSucceeded = false
+  defer:
+    if not startSucceeded:
+      (await self.stop()).isOkOr:
+        error "Failed to stop after a failed start", error = error
 
   if not self.messagingClient.isNil():
     self.messagingClient.start().isOkOr:
@@ -233,6 +243,7 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
     self.reliableChannelManager.start().isOkOr:
       return err("failed to start ReliableChannelManager: " & error)
 
+  startSucceeded = true
   return ok()
 
 proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
