@@ -102,6 +102,19 @@ Example for Linux from macOS:
 
 ## Integration with Your Project
 
+### Building from another project
+
+A project that builds this library without nimble runs the library tasks with its own compiler, through a `.nims` file that includes this package's `.nimble`:
+
+```bash
+printf 'include "%s"\n' "<pkg>/logos_delivery.nimble" > "$LIB_OUT_DIR/logos_delivery.nims"
+nim liblogosdeliveryStaticMac "$LIB_OUT_DIR/logos_delivery.nims"   # or libLogosDeliveryAndroid, libLogosDeliveryIOS, ...
+```
+
+- `NIM_PARAMS` is appended last to every `nim c`, after `--noNimblePath --skipParentCfg --skipUserCfg`, so dependencies come only from its `--path`s and neither user configs nor configs above this package apply. nim runs from `LIB_OUT_DIR`, so paths in `NIM_PARAMS` must be absolute. `NIM_PARAMS` is POSIX-shell quoted: quote paths that hold spaces.
+- `LIB_OUT_DIR` receives every output (library, headers, `generated/`, nimcache); nothing is written into this package or its dependencies. On Android this mode skips the nat_traversal rebuild, which the library does not compile.
+- With `LIB_OUT_DIR` unset, the tasks behave as before.
+
 ### CMake
 
 ```cmake

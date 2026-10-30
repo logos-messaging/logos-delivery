@@ -1,6 +1,7 @@
 #!fmt: off
 
-import os
+# Plain `nim` also runs these tasks (see library/BUILD.md), so import what they use.
+import std/[os, strutils]
 mode = ScriptMode.Verbose
 
 ### Package
@@ -125,6 +126,52 @@ proc copyToLibOut(built: string) =
   mkDir outDir
   cpFile built, outDir / extractFilename(built)
 
+const pkgDir = currentSourcePath().parentDir
+  ## This package's directory, also when an embedder runs the tasks through a
+  ## `.nims` file that includes this one.
+
+proc isEmbedded(): bool =
+  ## LIB_OUT_DIR selects the embedded build, which a project runs without
+  ## nimble and which writes nothing into this package's directory or any
+  ## dependency's; unset, the nimble-driven build applies.
+  getEnv("LIB_OUT_DIR").len > 0
+
+proc libOutDir(): string =
+  ## LIB_OUT_DIR as an absolute path, or "" when unset.
+  if isEmbedded(): absolutePath(getEnv("LIB_OUT_DIR")) else: ""
+
+proc nimParamsWords(): seq[string] =
+  ## NIM_PARAMS split into its arguments. It is shell-quoted, so the shell
+  ## splits it.
+  let (words, exitCode) = gorgeEx("printf '%s\\n' " & getEnv("NIM_PARAMS"))
+  if exitCode != 0:
+    quit "Error: NIM_PARAMS is not valid shell quoting: " & words
+  for word in words.splitLines():
+    if word.len > 0:
+      result.add word
+
+proc libBuildDir(): string =
+  if isEmbedded(): libOutDir() else: "build"
+
+proc embedParams(): string =
+  ## An embedded build (LIB_OUT_DIR set) resolves its dependencies only from the
+  ## `--path`s in NIM_PARAMS, so it goes right before them. It skips the user's
+  ## configs and those above this package; library/config.nims loads the
+  ## package's own instead.
+  if isEmbedded(): " --noNimblePath --skipParentCfg --skipUserCfg -d:lddEmbedded " else: ""
+
+proc pkgPath(path: string): string =
+  if isEmbedded(): pkgDir / path else: path
+
+proc libSelfExec(args: string) =
+  ## nim writes a transient linker script into its working directory when the
+  ## link command is long, so an embedded build runs it from LIB_OUT_DIR.
+  if isEmbedded():
+    withDir libOutDir():
+      selfExec args
+  else:
+    selfExec args
+
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
@@ -148,13 +195,12 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
 
 ## Emitted by `genBindings()` during the library build, so the header can never
 ## drift from the Nim signatures. Not checked in: it is a build artifact.
+## With LIB_OUT_DIR set it goes to LIB_OUT_DIR/generated instead.
 const cBindingsDir = "library/generated"
 
-## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
-## `relativePath`, which needs `getcwd` at compile time and fails to build.
-const cBindingsFlags =
-  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=generated" &
-  " -d:ffiSrcPath=../liblogosdelivery.nim "
+proc cBindingsFlags(): string =
+  let outputDir = if isEmbedded(): libOutDir() / "generated" else: "generated"
+  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & quoteShell(outputDir) & " "
 
 ## The Makefile does not export NIM_PARAMS, so its defines never reach here.
 ##
@@ -166,18 +212,31 @@ const libFeatureFlags =
   " -d:chronicles_runtime_filtering=on "
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
-  if not dirExists "build":
-    mkDir "build"
-  mkDir cBindingsDir
+  let outDir = libBuildDir()
+  if not dirExists outDir:
+    mkDir outDir
+  var outParams = ""
+  if not isEmbedded():
+    mkDir cBindingsDir
+  else:
+    outParams = " --nimcache:" & quoteShell(outDir / "nimcache" / lib_name)
+  let bindingsFlags = cBindingsFlags()
 
   if `type` == "static":
-    selfExec "c" & " --out:build/" & lib_name &
+    libSelfExec "c" & " --out:" & quoteShell(outDir / lib_name) &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & bindingsFlags & outParams & getMyCPU() & " " & params & embedParams() & getNimParams() & " " & quoteShell(pkgPath(srcDir & "/" & srcFile))
   else:
-    selfExec "c" & " --out:build/" & lib_name &
+    libSelfExec "c" & " --out:" & quoteShell(outDir / lib_name) &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & bindingsFlags & outParams & getMyCPU() & " " & params & embedParams() & getNimParams() & " " & quoteShell(pkgPath(srcDir & "/" & srcFile))
+
+  # The public headers include "generated/logosdelivery.h", which sits next to
+  # them under LIB_OUT_DIR.
+  if isEmbedded():
+    for kind, path in walkDir(pkgPath(srcDir)):
+      if kind == pcFile and path.endsWith(".h"):
+        cpFile(path, outDir / path.extractFilename)
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -192,9 +251,9 @@ proc buildLibDynamicLinux(libName: string, folderName: string) =
 proc buildLibDynamicMac(libName: string, folderName: string) =
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
   when defined(arm64):
-    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & quoteShell(sdkPath) & "\" --passL:\"-isysroot " & quoteShell(sdkPath) & "\""
   elif defined(amd64):
-    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & quoteShell(sdkPath) & "\" --passL:\"-isysroot " & quoteShell(sdkPath) & "\""
   else:
     {.error: "Unsupported macOS architecture".}
   buildLibrary libName & ".dylib", folderName,
@@ -214,9 +273,9 @@ proc buildLibStaticLinux(libName: string, folderName: string) =
 proc buildLibStaticMac(libName: string, folderName: string) =
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
   when defined(arm64):
-    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & quoteShell(sdkPath) & "\" --passL:\"-isysroot " & quoteShell(sdkPath) & "\""
   elif defined(amd64):
-    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & quoteShell(sdkPath) & "\" --passL:\"-isysroot " & quoteShell(sdkPath) & "\""
   else:
     {.error: "Unsupported macOS architecture".}
   buildLibrary libName & ".a", folderName,
@@ -228,16 +287,28 @@ proc buildLibStaticMac(libName: string, folderName: string) =
 proc nimblePkgPath(pkg: string): string =
   ## Package root from nimble.paths, the `--path` entries in NIM_PARAMS, or
   ## `nimble path`. The last mixes Info and lock-validation noise into stdout, so
-  ## only a line holding the package's nimble file counts.
-  var lines: seq[string]
-  if fileExists("nimble.paths"):
-    lines = readFile("nimble.paths").splitLines()
+  ## only a line holding the package's nimble file counts. An embedded build
+  ## looks only at NIM_PARAMS, and its `--path`s need not be nimble store
+  ## entries.
+  var args: seq[string]
+  if fileExists("nimble.paths") and not isEmbedded():
+    for line in readFile("nimble.paths").splitLines():
+      args.add line.strip().replace("\"", "")
   else:
-    lines = getNimParams().split(' ')
-  for rawLine in lines:
-    let line = rawLine.strip().replace("\"", "")
-    if line.startsWith("--path:") and ("/pkgs2/" & pkg & "-") in line:
-      return line[7 .. ^1]
+    args = nimParamsWords()
+  for arg in args:
+    if not arg.startsWith("--path:"):
+      continue
+    let dir = arg[7 .. ^1]
+    if isEmbedded():
+      # A --path may point at the package's srcDir rather than its root.
+      for root in [dir, dir.parentDir]:
+        if fileExists(root / (pkg & ".nimble")):
+          return root
+    elif ("/pkgs2/" & pkg & "-") in dir:
+      return dir
+  if isEmbedded():
+    quit "Package " & pkg & " not found in the --paths of NIM_PARAMS"
   for line in gorgeEx("nimble path " & pkg).output.splitLines():
     let candidate = line.strip()
     if candidate.isAbsolute() and fileExists(candidate / (pkg & ".nimble")):
@@ -276,21 +347,23 @@ proc rebuildNatLibs(cc: string) =
   let stamp = natDir / ".nat-libs-cc"
   if fileExists(stamp) and readFile(stamp).strip() == cc:
     return
-  exec "find \"" & natDir & "/vendor\" \\( -name '*.o' -o -name '*.a' \\) -delete"
-  exec "make -C \"" & natDir & "/vendor/miniupnp/miniupnpc\" CC=\"" & cc &
-    "\" CFLAGS=\"-Os -fPIC\" build/libminiupnpc.a"
-  exec "make -C \"" & natDir & "/vendor/libnatpmp-upstream\" CC=\"" & cc &
-    "\" CFLAGS=\"-Wall -Wno-cpp -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4\" libnatpmp.a"
+  exec "find " & quoteShell(natDir / "vendor") & " \\( -name '*.o' -o -name '*.a' \\) -delete"
+  exec "make -C " & quoteShell(natDir / "vendor/miniupnp/miniupnpc") & " CC=" & quoteShell(cc) &
+    " CFLAGS=\"-Os -fPIC\" build/libminiupnpc.a"
+  exec "make -C " & quoteShell(natDir / "vendor/libnatpmp-upstream") & " CC=" & quoteShell(cc) &
+    " CFLAGS=\"-Wall -Wno-cpp -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4\" libnatpmp.a"
   writeFile(stamp, cc & "\n")
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
   androidToolchain()
-  rebuildNatLibs(getEnv("ANDROID_TOOLCHAIN_DIR") / "bin" / getEnv("ANDROID_COMPILER"))
+  # An embedded build compiles no nat_traversal module, so it skips this.
+  if not isEmbedded():
+    rebuildNatLibs(getEnv("ANDROID_TOOLCHAIN_DIR") / "bin" / getEnv("ANDROID_COMPILER"))
 
   let cpu = getEnv("CPU")
   let abiDir = getEnv("ABIDIR", androidTarget(cpu).abi)
 
-  let outDir = "build/android/" & abiDir
+  let outDir = libBuildDir() / "android" / abiDir
   if not dirExists outDir:
     mkDir outDir
 
@@ -304,22 +377,23 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   let ndkClang = toolchainDir / "bin" / compiler
   let sysroot = toolchainDir / "sysroot"
   let toolchainParams =
-    " --clang.path:\"" & toolchainDir / "bin" & "\"" &
+    " --clang.path:" & quoteShell(toolchainDir / "bin") &
     " --clang.exe:" & compiler & " --clang.linkerexe:" & compiler &
-    " --passC:--sysroot=" & sysroot & " --passL:--sysroot=" & sysroot &
-    " --cincludes:" & sysroot & "/usr/include/" &
-    " -d:\"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
-    " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
-    " -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_C_COMPILER=" & ndkClang &
-    " -DCMAKE_CXX_COMPILER=" & ndkClang & "++ -DCMAKE_CXX_FLAGS=-DANDROID\"" &
+    " --passC:" & quoteShell("--sysroot=" & quoteShell(sysroot)) &
+    " --passL:" & quoteShell("--sysroot=" & quoteShell(sysroot)) &
+    " --cincludes:" & quoteShell(sysroot & "/usr/include/") &
+    " " & quoteShell("-d:LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
+      " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
+      " -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_C_COMPILER=" & quoteShell(ndkClang) &
+      " -DCMAKE_CXX_COMPILER=" & quoteShell(ndkClang & "++") & " -DCMAKE_CXX_FLAGS=-DANDROID") &
     " -d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp" &
     " --passL:-lc++_static --passL:-lc++abi"
 
   let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
-  selfExec "c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
-    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimcache:" & outDir & "/nimcache --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
-    getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
+  libSelfExec "c" & " --out:" & quoteShell(outDir & "/liblogosdelivery.so") &
+    " --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:" &
+    quoteShell("-L" & quoteShell(outDir)) & rln & " --passL:-llog --cpu:" & cpu & " --nimcache:" & quoteShell(outDir & "/nimcache") & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
+    embedParams() & getNimParams() & " " & quoteShell(pkgPath(srcDir & "/liblogosdelivery.nim"))
   copyToLibOut outDir / "liblogosdelivery.so"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
@@ -348,7 +422,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let natTraversalPath = nimblePkgPath("nat_traversal")
 
   # Use SDK name in path to differentiate device vs simulator
-  let outDir = "build/ios/" & iosSdk & "-" & iosArch
+  let outDir = libBuildDir() / "ios" / (iosSdk & "-" & iosArch)
   let nimcacheDir = outDir & "/nimcache"
   let vendorObjDir = outDir & "/vendor_obj"
   let nimLib = outDir & "/liblogosdelivery_nim.a"
@@ -362,22 +436,22 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let minVersionFlag =
     if iosSdk == "iphonesimulator": "-mios-simulator-version-min=" & minVersion
     else: "-mios-version-min=" & minVersion
-  let targetFlags = "-arch " & iosArch & " -isysroot " & sdkPath & " " & minVersionFlag
+  let targetFlags = "-arch " & iosArch & " -isysroot " & quoteShell(sdkPath) & " " & minVersionFlag
 
   # nim compiles and archives every C source it owns (generated code and the
   # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
-  selfExec "c" &
-      " --nimcache:" & nimcacheDir &
+  libSelfExec "c" &
+      " --nimcache:" & quoteShell(nimcacheDir) &
       " --os:ios --cpu:" & cpu &
-      " --app:staticlib --out:" & nimLib &
+      " --app:staticlib --out:" & quoteShell(nimLib) &
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" & libFeatureFlags &
       " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
       " --cc:clang" &
       " --passC:\"" & targetFlags & "\" --passL:\"" & targetFlags & "\"" &
-      " " & params & getNimParams() &
-      " " & srcDir & "/liblogosdelivery.nim"
+      " " & params & embedParams() & getNimParams() &
+      " " & quoteShell(pkgPath(srcDir & "/liblogosdelivery.nim"))
 
   # nat_traversal links prebuilt archives instead of compiling its sources
   # through nim, so miniupnpc and libnatpmp are compiled here.
@@ -398,12 +472,12 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     let oFile = vendorObjDir / ("miniupnpc_" & fileName.changeFileExt("o"))
     if fileExists(srcPath) and not fileExists(oFile):
       exec vendorClang &
-          " -I" & miniupnpcIncDir &
-          " -I" & miniupnpcSrcDir &
-          " -I" & miniupnpcBuildDir &
+          " -I" & quoteShell(miniupnpcIncDir) &
+          " -I" & quoteShell(miniupnpcSrcDir) &
+          " -I" & quoteShell(miniupnpcBuildDir) &
           " -DMINIUPNPC_SET_SOCKET_TIMEOUT" &
           " -D_BSD_SOURCE -D_DEFAULT_SOURCE" &
-          " -c " & srcPath & " -o " & oFile
+          " -c " & quoteShell(srcPath) & " -o " & quoteShell(oFile)
 
   echo "Compiling libnatpmp for iOS..."
   let natpmpSrcDir = natTraversalPath / "vendor/libnatpmp-upstream"
@@ -411,22 +485,22 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let natpmpObj = vendorObjDir / "natpmp_natpmp.o"
   if not fileExists(natpmpObj):
     exec vendorClang &
-        " -I" & natpmpSrcDir &
+        " -I" & quoteShell(natpmpSrcDir) &
         " -DENABLE_STRNATPMPERR" &
-        " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
+        " -c " & quoteShell(natpmpSrcDir & "/natpmp.c") & " -o " & quoteShell(natpmpObj)
 
   # Use iOS-specific stub for getgateway
-  let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
+  let getgatewayStubSrc = pkgPath("./library/ios_natpmp_stubs.c")
   let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
   if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
-    exec vendorClang & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
+    exec vendorClang & " -c " & quoteShell(getgatewayStubSrc) & " -o " & quoteShell(getgatewayStubObj)
 
   echo "Creating static library..."
   var inputs = @[nimLib]
   for kind, path in walkDir(vendorObjDir):
     if kind == pcFile and path.endsWith(".o"):
       inputs.add(path)
-  exec "libtool -static -o " & aFile & " " & inputs.join(" ")
+  exec "libtool -static -o " & quoteShell(aFile) & " " & inputs.mapIt(quoteShell(it)).join(" ")
 
   let header = nimcacheDir & "/liblogosdelivery.h"
   if fileExists(header):
@@ -569,7 +643,7 @@ task liblogosdelivery, "Build liblogosdelivery for the host platform":
     buildLibDynamicMac("liblogosdelivery", "library")
   else:
     buildLibDynamicLinux("liblogosdelivery", "library")
-  copyToLibOut "build" / (
+  copyToLibOut libBuildDir() / (
     when defined(windows): "liblogosdelivery.dll" else: DynlibFormat % "logosdelivery"
   )
 
