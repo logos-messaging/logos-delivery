@@ -217,23 +217,29 @@ proc new*(
     return err("failed to synthesize configuration: " & error)
   return await LogosDelivery.new(conf, appCallbacks)
 
-proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.}
-
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each present layer bottom-up: transport, then messaging, then channels.
-  ## A start that fails stops the layers it started.
+  ## A start that fails stops the layers that this call started. The channel
+  ## layer cannot fail, and its `stop` closes the channels made before `start`,
+  ## so the rollback does not stop it.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
-  # Waku.start rolls back its own failure.
+  let transportWasUp = self.waku.node.started
+  # Waku.start stops the node when it fails after the node started.
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
+  let messagingWasUp = self.messagingClient.isNil() or self.messagingClient.started
   var startSucceeded = false
   defer:
     if not startSucceeded:
-      (await self.stop()).isOkOr:
-        error "Failed to stop after a failed start", error = error
+      # noCancel: a cancelled rollback leaves the node half stopped.
+      if not messagingWasUp:
+        await noCancel self.messagingClient.stop()
+      if not transportWasUp:
+        (await noCancel self.waku.stop()).isOkOr:
+          error "Failed to stop after a failed start", error = error
 
   if not self.messagingClient.isNil():
     self.messagingClient.start().isOkOr:

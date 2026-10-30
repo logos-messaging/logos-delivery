@@ -10,6 +10,7 @@ import std/[net, options]
 import chronos, testutils/unittests
 import libp2p/[multiaddress, peerid], libp2p/crypto/crypto
 import brokers/broker_context
+import sds
 import logos_delivery
 import
   logos_delivery/waku/[waku_core, waku_node],
@@ -26,6 +27,21 @@ proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
   else:
     kernel.enableKadDiscovery = Opt.some(true)
   testNodeConf(kernel, EntryLayer.messaging)
+
+proc channelsConf(): LogosDeliveryNodeConf =
+  var kernel = defaultTestWakuNodeConf()
+  kernel.discv5Discovery = Opt.some(true)
+  kernel.enableKadDiscovery = Opt.some(true)
+  testNodeConf(kernel, EntryLayer.channels)
+
+proc holdMessagingSubscribe(ctx: BrokerContext) =
+  ## Another owner holds MessagingSubscribe, so the messaging layer cannot start.
+  let foreign = MessagingSubscribe.setProvider(
+    ctx,
+    proc(contentTopic: ContentTopic): Result[void, string] =
+      ok(),
+  )
+  doAssert foreign.isOk()
 
 template present(r: untyped): bool =
   r.isSome()
@@ -216,5 +232,48 @@ suite "LogosDelivery - broker lifecycle":
       (await node.start()).isOkOr:
         raiseAssert "start after the failed one: " & error
       check node.isRunning()
+      (await node.stop()).isOkOr:
+        raiseAssert error
+
+  asyncTest "a failed start keeps the channels made before start":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(channelsConf())).valueOr:
+        raiseAssert error
+      holdMessagingSubscribe(ctx)
+      let channelId = ChannelId("made-before-start")
+      discard node.reliableChannelManager
+        .createReliableChannel(
+          channelId, ContentTopic("/lifecycle/1/channel/proto"), SdsParticipantID("me")
+        )
+        .expect("createReliableChannel")
+
+      check:
+        (await node.start()).isErr()
+        not node.isRunning()
+        node.reliableChannelManager.channelExists(channelId)
+
+      MessagingSubscribe.clearProvider(ctx)
+      (await node.start()).isOkOr:
+        raiseAssert "start after the failed one: " & error
+      check node.reliableChannelManager.channelExists(channelId)
+      (await node.stop()).isOkOr:
+        raiseAssert error
+
+  asyncTest "a failed start keeps a transport that was already up":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.waku.start()).isOkOr:
+        raiseAssert "transport start: " & error
+      holdMessagingSubscribe(ctx)
+
+      check:
+        (await node.start()).isErr()
+        node.waku.node.started
+        MessagingSend.getCurrentProvider(ctx).isNone()
+
+      MessagingSubscribe.clearProvider(ctx)
       (await node.stop()).isOkOr:
         raiseAssert error
