@@ -22,7 +22,7 @@
 import std/os
 import std/atomics # std/concurrency/atomics is the same module in Nim 2.2
 import chronos, chronicles, results
-import brokers/[event_broker, request_broker, broker_context]
+import brokers/[event_broker, request_broker, signal_broker, broker_context]
 import
   brokers/internal/mt_broker_common # teardownBrokerThread, closeThreadDispatcherSelector
 import ./[types, backend_comm, backend_sqlite]
@@ -47,6 +47,12 @@ type
     errBuf: array[256, char] ## last error message, NUL-terminated
 
   StorageThread = Thread[ptr StorageThreadArg]
+
+SignalBroker(mt):
+  type StorageThreadShutdown = void ## Wakes the storage worker for a stop.
+
+const ShutdownCheckInterval = chronos.seconds(10)
+  ## The worker reads `shutdownFlag` at least this often.
 
 # ── arg helpers ─────────────────────────────────────────────────────────
 
@@ -88,8 +94,11 @@ template unwrapErr(r: untyped): string =
     let pe: PersistencyError = r.error()
     encode(pe)
 
-proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, string] =
-  ## Wires the 6 RequestBroker providers + the PersistEvent listener.
+proc registerProviders(
+    backend: KvBackend, ctx: BrokerContext, shutdownRequested: AsyncEvent
+): Result[void, string] =
+  ## Wires the 6 RequestBroker providers + the PersistEvent listener, and the
+  ## `StorageThreadShutdown` handler that fires `shutdownRequested`.
   ## All closures capture `backend` by reference (it lives for the entire
   ## thread lifetime).
 
@@ -180,6 +189,12 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
   if listenRes.isErr:
     return err("PersistEvent.listen: " & listenRes.error())
 
+  proc onShutdown(): Future[void] {.async: (raises: []).} =
+    shutdownRequested.fire()
+
+  StorageThreadShutdown.onSignal(ctx, onShutdown).isOkOr:
+    return err("StorageThreadShutdown.onSignal: " & error)
+
   return ok()
 
 proc clearProviders(ctx: BrokerContext) {.async.} =
@@ -190,6 +205,7 @@ proc clearProviders(ctx: BrokerContext) {.async.} =
   KvDelete.clearProvider(ctx)
   KvPut.clearProvider(ctx)
   await PersistEvent.dropAllListeners(ctx)
+  await StorageThreadShutdown.dropSignalHandler(ctx)
 
 # ── thread proc ─────────────────────────────────────────────────────────
 
@@ -231,10 +247,11 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
     arg.recordErr("openBackend: " & backendRes.error.msg)
     return
   let backend = backendRes.get()
+  let shutdownRequested = newAsyncEvent()
 
   let regRes =
     try:
-      registerProviders(backend, arg.ctx)
+      registerProviders(backend, arg.ctx, shutdownRequested)
     except CatchableError as e:
       backend.close()
       arg.recordErr("registerProviders raised: " & e.msg)
@@ -248,10 +265,8 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
 
   proc awaitShutdown() {.async.} =
     while arg.shutdownFlag.load(moAcquire) != 1:
-      try:
-        await sleepAsync(milliseconds(10))
-      except CatchableError:
-        discard
+      if await shutdownRequested.wait().withTimeout(ShutdownCheckInterval):
+        return
 
   try:
     waitFor awaitShutdown()
@@ -306,6 +321,10 @@ proc stopStorageThread*(rt: JobRuntime) =
   ## the sense that it tolerates a nil arg (already stopped).
   if rt == nil or rt.arg == nil:
     return
+  # Set `shutdownFlag` only after `signal` returns. A worker that exits on the
+  # flag frees the queue that `signal` writes to.
+  StorageThreadShutdown.signal(rt.arg.ctx).isOkOr:
+    error "Failed to signal the storage thread to stop", err = error
   rt.arg.shutdownFlag.store(1, moRelease)
   joinThread(rt.thread)
   freeArg(rt.arg)
