@@ -1,6 +1,6 @@
 #!fmt: off
 
-import os
+import std/[os, strutils]
 mode = ScriptMode.Verbose
 
 ### Package
@@ -13,13 +13,13 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "rest", "tools"]
 # A dependent's `nimble liblogosdelivery` needs the same build configuration.
-installFiles = @["config.nims"]
+installFiles = @["config.nims", "liblogosdelivery.nims"]
 
 const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
 ### Dependencies
-requires "nim == 2.2.6",
+requires "nim >= 2.2.6",
   # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
   # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
   # solver keeps the name node on the newest tag.
@@ -118,12 +118,26 @@ proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
 proc copyToLibOut(built: string) =
-  ## Copies a built library into LIBLOGOSDELIVERY_OUT, when that is set.
-  let outDir = getEnv("LIBLOGOSDELIVERY_OUT")
+  ## Copies a built library into LIB_OUT_DIR, when that is set.
+  let outDir = getEnv("LIB_OUT_DIR", getEnv("LIBLOGOSDELIVERY_OUT"))
   if outDir.len == 0:
     return
   mkDir outDir
   cpFile built, outDir / extractFilename(built)
+
+const pkgDir = currentSourcePath().parentDir
+
+proc prepareLibraryBuild() =
+  ## nim-leopard's CMakeLists.txt declares test executables from `tests/`, which
+  ## Nimble strips on install, so cmake fails before building libleopard.
+  for line in gorgeEx("nimble path leopard").output.splitLines():
+    let leopard = line.strip()
+    if leopard.isAbsolute() and dirExists(leopard / "vendor" / "leopard"):
+      let testsDir = leopard / "vendor" / "leopard" / "tests"
+      mkDir testsDir
+      for stub in ["benchmark.cpp", "experiments.cpp"]:
+        if not fileExists(testsDir / stub):
+          writeFile(testsDir / stub, "int main() { return 0; }\n")
 
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
@@ -323,8 +337,9 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   copyToLibOut outDir / "liblogosdelivery.so"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
-  let srcDir = "./library"
-  buildMobileAndroid srcDir, "-d:chronicles_log_level=ERROR"
+  prepareLibraryBuild()
+  withDir pkgDir:
+    buildMobileAndroid "./library", "-d:chronicles_log_level=ERROR"
 
 ### Mobile iOS
 
@@ -436,9 +451,9 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   copyToLibOut aFile
 
 task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
-  let srcDir = "./library"
-  let extraParams = "-d:chronicles_log_level=ERROR"
-  buildMobileIOS srcDir, extraParams
+  prepareLibraryBuild()
+  withDir pkgDir:
+    buildMobileIOS "./library", "-d:chronicles_log_level=ERROR"
 
 proc test(name: string, params = "-d:chronicles_log_level=INFO") =
   buildBinary name, "tests/", params
@@ -563,15 +578,17 @@ let chroniclesParams =
 ## Liblogosdelivery build tasks
 
 task liblogosdelivery, "Build liblogosdelivery for the host platform":
-  when defined(windows):
-    buildLibDynamicWindows("liblogosdelivery", "library")
-  elif defined(macosx):
-    buildLibDynamicMac("liblogosdelivery", "library")
-  else:
-    buildLibDynamicLinux("liblogosdelivery", "library")
-  copyToLibOut "build" / (
-    when defined(windows): "liblogosdelivery.dll" else: DynlibFormat % "logosdelivery"
-  )
+  prepareLibraryBuild()
+  withDir pkgDir:
+    when defined(windows):
+      buildLibDynamicWindows("liblogosdelivery", "library")
+    elif defined(macosx):
+      buildLibDynamicMac("liblogosdelivery", "library")
+    else:
+      buildLibDynamicLinux("liblogosdelivery", "library")
+    copyToLibOut "build" / (
+      when defined(windows): "liblogosdelivery.dll" else: DynlibFormat % "logosdelivery"
+    )
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
   buildLibDynamicWindows("liblogosdelivery", "library")
