@@ -125,6 +125,7 @@ type PeerManager* = ref object
   ipTable*: Table[string, seq[PeerId]]
   colocationLimit*: int
   started: bool
+  staticRedialLoopHandle: Future[void]
   shardedPeerManagement: bool # temp feature flag
   onConnectionChange*: ConnectionChangeHandler
   online: bool ## state managed by online_monitor module
@@ -1279,8 +1280,30 @@ proc start*(pm: PeerManager) =
   asyncSpawn pm.prunePeerStoreLoop()
   asyncSpawn pm.logAndMetrics()
 
+proc redialStaticPeersLoop(pm: PeerManager, peers: seq[string]) {.async.} =
+  while true:
+    await sleepAsync(
+      min(ConnectivityLoopInterval, chronos.seconds(max(pm.initialBackoffInSec, 1)))
+    )
+    let toDial = peers.filterIt(
+      block:
+        let info = parsePeerInfo(it)
+        info.isOk() and not pm.switch.isConnected(info.value.peerId)
+    )
+    if toDial.len > 0:
+      await pm.connectToNodes(toDial, source = "static")
+
+proc startStaticPeersRedial*(pm: PeerManager, peers: seq[string]) =
+  ## For every node with static peers, beside the relay connectivity loop when
+  ## that one runs: dial again the static peers that were down. It retries every interval and
+  ## ignores maxFailedAttempts: a static node has no discovery to replace it.
+  pm.started = true
+  pm.staticRedialLoopHandle = pm.redialStaticPeersLoop(peers)
+
 proc stop*(pm: PeerManager) =
   pm.started = false
+  if not pm.staticRedialLoopHandle.isNil():
+    pm.staticRedialLoopHandle.cancelSoon()
 
 proc new*(
     T: type PeerManager,

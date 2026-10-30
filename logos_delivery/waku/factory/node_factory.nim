@@ -467,6 +467,9 @@ proc startNode*(
   if conf.relay:
     node.peerManager.start()
 
+  if conf.staticNodes.len > 0:
+    node.peerManager.startStaticPeersRedial(conf.staticNodes)
+
   return ok()
 
 proc setupNode*(
