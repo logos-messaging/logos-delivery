@@ -466,7 +466,8 @@ proc startNode*(
   # Maintain relay connections
   if conf.relay:
     node.peerManager.start()
-  elif conf.staticNodes.len > 0:
+
+  if conf.staticNodes.len > 0:
     node.peerManager.startStaticPeersRedial(conf.staticNodes)
 
   return ok()
