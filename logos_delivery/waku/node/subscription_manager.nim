@@ -75,18 +75,23 @@ proc registerRelayHandler(
   proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     MessageSeenEvent.emit(node.brokerCtx, topic, msg)
 
+  proc serveHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    ## What the node does with a message it holds, whether it received or published it.
+    await filterHandler(topic, msg)
+    if await archiveHandler(topic, msg):
+      await syncHandler(topic, msg)
+
   let uniqueTopicHandler = proc(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async, gcsafe.} =
     await traceHandler(topic, msg)
-    await filterHandler(topic, msg)
-    if await archiveHandler(topic, msg):
-      await syncHandler(topic, msg)
+    await serveHandler(topic, msg)
     await internalHandler(topic, msg)
 
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
       await node.legacyAppHandlers[topic](topic, msg)
 
+  node.wakuRelay.ownMessageHandler = serveHandler
   node.wakuRelay.subscribe(shard, uniqueTopicHandler)
   return true
 

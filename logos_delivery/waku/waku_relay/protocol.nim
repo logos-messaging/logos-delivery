@@ -182,21 +182,11 @@ type
     topicHealthCheckAll: bool
       # true if all topics need to have their health status refreshed in the update event
     msgMetricsPerShard*: Table[string, ShardMetrics]
-    triggerOwnHandlers*: bool
-      ## Whether a message this node publishes is also handed to the handlers
-      ## it registered with `subscribe`, as if it had come from the network.
-      ## `publish` does it, at most once per message id, after the gossipsub
-      ## publish and even when there is no relay peer. A message over the max
-      ## size is never handled. A message retried while there is no relay peer
-      ## is not handled twice, and one published again gets `DuplicateMessage`.
-      ## Gossipsub's own `triggerSelf` stays off, because it would hand the
-      ## message to the handlers on every publish, duplicates included.
-      ## Turn it off on a node that must not see its own messages, as the
-      ## chat2 bridge does to avoid echoing them back.
-    selfHandled: TimedCache[MessageId]
-      ## Ids of the messages `publish` already handed to the node's own
-      ## handlers. Entries expire with gossipsub's seen TTL, the same window in
-      ## which `publish` refuses a duplicate.
+    ownMessageHandler*: WakuRelayHandler
+      ## Called once per message id by `publish` with a message this node
+      ## publishes, to serve it (store, filter push, sync). The `subscribe`
+      ## handlers are not called: the message did not come from the network.
+    selfHandled: TimedCache[MessageId] ## Ids already handed to `ownMessageHandler`.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -421,7 +411,6 @@ proc new*(
     w.brokerCtx = globalBrokerContext()
 
     procCall GossipSub(w).initPubSub()
-    w.triggerOwnHandlers = true
     w.selfHandled = TimedCache[MessageId].init(
       GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
     )
@@ -682,7 +671,6 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
       pubsubTopic: string, data: seq[byte]
   ): Future[void] {.gcsafe, raises: [].} =
     let decMsg = WakuMessage.decode(data).valueOr:
-      # fine if triggerOwnHandlers enabled, since validators are bypassed
       debug "Failed to decode WakuMessage, validator passed a wrong message",
         pubsubTopic = pubsubTopic, error = error
       let fut = newFuture[void]()
@@ -794,12 +782,12 @@ proc publish*(
 
   let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)
 
-  # A lone node still hands its own message to its handlers (store, REST cache),
-  # so this does not wait for a peer. The id is consumed only for a topic that
-  # has a handler, and a retry after `NoPeersToPublish` is not handled twice.
-  if w.triggerOwnHandlers and fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and
-      not w.selfHandled.put(msgId):
-    await procCall PubSub(w).handleData(pubsubTopic, data)
+  # A lone node still serves its own message (store, filter push), so this does
+  # not wait for a peer. The id is consumed only for a topic that has a handler,
+  # and a retry after `NoPeersToPublish` is not handled twice.
+  if not w.ownMessageHandler.isNil() and fitsMaxSize and
+      w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(msgId):
+    await w.ownMessageHandler(pubsubTopic, message)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)

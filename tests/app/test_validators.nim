@@ -92,9 +92,10 @@ suite "Node app - Validators":
     # Wait for gossip
     await sleepAsync(2.seconds)
 
-    # 50 messages were sent to 5 peers = 250 messages
+    # 50 messages were each received by the 4 other peers = 200 messages
+    # (a node does not handle its own messages)
     check:
-      msgReceived == 250
+      msgReceived == 200
 
     # No invalid messages were received by any peer
     for i in 0 ..< 5:
@@ -232,7 +233,8 @@ suite "Node app - Validators":
 
     # Since we have a full mesh with 5 nodes and each one publishes 25+25+25+25+25 msgs
     # there are 625 messages being sent.
-    # 125 are received ok in the handler (first hop)
+    # none reaches a handler: a node does not handle its own messages and the
+    # other nodes reject all of them
     # 500 are wrong so rejected (rejected not relayed)
 
     var msgRejected = 0
@@ -244,13 +246,13 @@ suite "Node app - Validators":
         for k, v in nodes[i].wakuRelay.peerStats.mpairs:
           msgRejected += v.topicInfos[spamProtectedShard].invalidMessageDeliveries.int
 
-      if msgReceived == 125 and msgRejected == 500:
+      if msgReceived == 0 and msgRejected == 500:
         break
       else:
         await sleepAsync(100.milliseconds)
 
     check:
-      msgReceived == 125
+      msgReceived == 0
       msgRejected == 500
 
     await allFutures(nodes.mapIt(it.stop()))
@@ -348,7 +350,7 @@ suite "Node app - Validators":
     # only 100 messages are received (50 + 50) which demonstrate
     # nodes[1] doest gossip invalid messages.
     check:
-      msgReceived == 100
+      msgReceived == 0
 
     # peer1 got invalid messages from peer0
     let p0Id = nodes[0].peerInfo.peerId
