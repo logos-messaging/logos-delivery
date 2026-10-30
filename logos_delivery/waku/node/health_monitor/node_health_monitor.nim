@@ -22,6 +22,7 @@ import
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,
+    node/peer_manager/waku_peer_store,
     node/waku_node/ping,
     node/health_monitor/online_monitor,
     node/health_monitor/health_status,
@@ -43,6 +44,8 @@ type ConnectionStatusAdjuster* = proc(
 ): ConnectionStatus {.gcsafe, raises: [].}
   # Allows an upper layer to adjust the computed connection status based on additional criteria.
 
+const MixHealthRefreshInterval = chronos.seconds(5)
+
 type NodeHealthMonitor* = ref object
   nodeHealth: HealthStatus
   node: WakuNode
@@ -51,6 +54,7 @@ type NodeHealthMonitor* = ref object
   healthLoopFut: Future[void]
   eventLoopMonitorFut: Future[void]
   healthUpdateEvent: AsyncEvent
+  mixHealthRefreshInterval*: chronos.Duration
   connectionStatus: ConnectionStatus
   onConnectionStatusChange*: ConnectionStatusChangeHandler
   cachedProtocols: seq[ProtocolHealth]
@@ -568,7 +572,12 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
   info "Health monitor loop start"
   while true:
     try:
-      await hm.healthUpdateEvent.wait()
+      if hm.node.wakuMix.isNil():
+        await hm.healthUpdateEvent.wait()
+      else:
+        # Eligibility also changes when discovery evidence or backoff expires.
+        discard
+          await hm.healthUpdateEvent.wait().withTimeout(hm.mixHealthRefreshInterval)
       hm.healthUpdateEvent.clear()
 
       hm.publishProtocolHealth(await hm.getAllProtocolHealthInfo())
@@ -830,12 +839,17 @@ proc new*(
     nodeHealth: INITIALIZING,
     node: node,
     onlineMonitor: om,
+    mixHealthRefreshInterval: MixHealthRefreshInterval,
     connectionStatus: ConnectionStatus.Disconnected,
     strength: initTable[WakuProtocol, int](),
   )
   # Mix peers are learnt from discovery without any peer event, so without this
   # a filled (or drained) pool would wait for an unrelated trigger to show up.
   node.switch.peerStore[MixPubKeyBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      hm.onMixPoolChange()
+  )
+  node.switch.peerStore[MixExcludedBook].addHandler(
     proc(peerId: PeerId) {.gcsafe, raises: [].} =
       hm.onMixPoolChange()
   )

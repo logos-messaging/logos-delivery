@@ -12,6 +12,7 @@ import
     common/waku_protocol,
     node/waku_node,
     node/peer_manager,
+    node/peer_manager/waku_peer_store,
     node/health_monitor/health_status,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
@@ -1199,3 +1200,52 @@ suite "Health Monitor - mix readiness":
 
     await monitorA.stopHealthMonitor()
     await nodeA.stop()
+
+  asyncTest "mix health follows expiry without peer events and applies host vetoes":
+    var node: WakuNode
+    lockNewGlobalBrokerContext:
+      node =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      await node.mountTestMix()
+    await node.start()
+    let monitor = NodeHealthMonitor.new(node)
+    monitor.mixHealthRefreshInterval = chronos.milliseconds(50)
+    monitor.setOverallHealth(HealthStatus.READY)
+    var peers: seq[PeerId]
+    for i in 0 ..< MinMixPoolSize:
+      let peer = mixPeerInfo(64000 + i)
+      peer.protocols = @[WakuLightPushCodec]
+      node.peerManager.addPeer(peer, Kademlia)
+      peers.add(peer.peerId)
+    updatePoolSize(-1)
+    monitor.startHealthMonitor().get()
+    defer:
+      await monitor.stopHealthMonitor()
+      await node.stop()
+    proc cachedMixHealth(): HealthStatus =
+      for protocol in monitor.getSyncNodeHealthReport().protocolsHealth:
+        if protocol.protocol == $WakuProtocol.MixProtocol:
+          return protocol.health
+      HealthStatus.NOT_MOUNTED
+
+    checkUntilTimeout:
+      mix_pool_size.value() == MinMixPoolSize.float64
+    check cachedMixHealth() == HealthStatus.READY
+    for peerId in peers:
+      node.switch.peerStore[MixAliveBook][peerId] =
+        Moment.now() - DiscoveredEnrTtl - chronos.seconds(1)
+    checkUntilTimeout:
+      mix_pool_size.value() == 0
+    check cachedMixHealth() == HealthStatus.NOT_READY
+    for peerId in peers:
+      node.switch.peerStore[MixAliveBook][peerId] = Moment.now()
+    checkUntilTimeout:
+      mix_pool_size.value() == MinMixPoolSize.float64
+    await monitor.stopHealthMonitor()
+    monitor.mixHealthRefreshInterval = chronos.minutes(1)
+    monitor.startHealthMonitor().get()
+    checkUntilTimeout:
+      mix_pool_size.value() == MinMixPoolSize.float64
+    node.switch.peerStore.excludeFromMix(peers[0])
+    checkUntilTimeout:
+      mix_pool_size.value() == (MinMixPoolSize - 1).float64
