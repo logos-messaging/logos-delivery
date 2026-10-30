@@ -586,6 +586,11 @@ proc mixDialBackoffElapsed(pm: PeerManager, peerId: PeerId): bool =
     calculateBackoff(pm.initialBackoffInSec, pm.backoffFactor, pm.maxFailedAttempts)
   return now >= store[LastFailedConnBook][peerId] + backoff
 
+proc acceptsMixAddress*(pm: PeerManager, address: MultiAddress): bool =
+  ## True when the address policy of this node accepts a mix hop address. The
+  ## policy also decides whether this node advertises its own hop.
+  address.acceptsMixAddress(pm.mixAllowAllAddresses)
+
 proc isMixCandidate(pm: PeerManager, peerId: PeerId): bool =
   peerId != pm.switch.peerInfo.peerId and pm.switch.peerStore.isMixCandidate(peerId) and
     (pm.switch.isConnected(peerId) or pm.mixDialBackoffElapsed(peerId))
