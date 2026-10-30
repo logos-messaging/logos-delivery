@@ -173,3 +173,48 @@ suite "LogosDelivery - broker lifecycle":
       check:
         SetServiceDiscoveryPlugin.getCurrentProvider(ctx).present
         ClearServiceDiscoveryPlugin.getCurrentProviderNoArgs(ctx).present
+
+  asyncTest "a failed start leaves the node stopped":
+    ## External service discovery is configured but no plugin is installed, so
+    ## start fails after the transport is up.
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf(plugin = true))).valueOr:
+        raiseAssert error
+      let started = await node.start()
+      check:
+        started.isErr()
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+        RequestConnectionStatus.getCurrentProviderNoArgs(ctx).isNone()
+
+  asyncTest "a failed messaging start stops the transport":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      # Another owner holds MessagingSubscribe, so the messaging layer cannot start.
+      let foreign = MessagingSubscribe.setProvider(
+        ctx,
+        proc(contentTopic: ContentTopic): Result[void, string] =
+          ok(),
+      )
+      require foreign.isOk()
+
+      let started = await node.start()
+      check:
+        started.isErr()
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+        MessagingSend.getCurrentProvider(ctx).isNone()
+        MessagingUnsubscribe.getCurrentProvider(ctx).isNone()
+        # The provider of the other owner stays.
+        MessagingSubscribe.getCurrentProvider(ctx).present
+
+      # With the other provider gone, the same node starts.
+      MessagingSubscribe.clearProvider(ctx)
+      (await node.start()).isOkOr:
+        raiseAssert "start after the failed one: " & error
+      check node.isRunning()
+      (await node.stop()).isOkOr:
+        raiseAssert error
