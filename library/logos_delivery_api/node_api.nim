@@ -238,8 +238,13 @@ proc logosdelivery_start_node(
     return err("failed to start: " & errMsg)
 
   rest.mount(self).isOkOr:
-    chronicles.error "START_NODE failed to mount REST", err = error
-    return err("failed to mount REST: " & error)
+    let mountErr = error
+    chronicles.error "START_NODE failed to mount REST", err = mountErr
+    await rest.stop(self)
+    (await self.stop()).isOkOr:
+      chronicles.error "START_NODE failed to stop after a failed REST mount",
+        err = error
+    return err("failed to mount REST: " & mountErr)
 
   return ok("")
 
