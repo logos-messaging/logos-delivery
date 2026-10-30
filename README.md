@@ -23,7 +23,7 @@ For more details see the [source code](logos_delivery/waku/README.md)
 These instructions are generic. For more detailed instructions, see the source code above.
 
 Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
-- Nim 2.2.6: installed by Nimble from the `nim` entry in `nimble.lock`
+- Nim 2.2.12: installed by Nimble from the `nim` entry in `nimble.lock`
 - Nimble: `make nimble` installs the pin from `logos_delivery.nimble`. Check it with `nimble --version`.
 
 `make` runs the pinned Nimble itself. To use it in a shell:
