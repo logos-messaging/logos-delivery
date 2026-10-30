@@ -116,7 +116,7 @@ suite "Peer manager - pure-libp2p peers":
       node.switch.isConnected(peer.peerInfo.peerId)
       peer.peerInfo.peerId in node.peerManager.pureLibp2pPeers
       # never offered to a waku protocol
-      node.peerManager.switch.peerStore.peers(WakuMetadataCodec).allIt(
+      node.peerManager.switch.peerStore.getPeersByProtocol(WakuMetadataCodec).allIt(
         it.peerId != peer.peerInfo.peerId
       )
 
