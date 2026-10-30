@@ -69,6 +69,9 @@ proc new*(
     mixWindow: mixWindow,
   )
 
+method isPlain*(self: MixSendProcessor): bool {.gcsafe.} =
+  return false
+
 method isValidProcessor*(self: MixSendProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
