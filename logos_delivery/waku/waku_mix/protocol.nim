@@ -13,6 +13,7 @@ import
   libp2p_mix/multiaddr as mix_multiaddr,
   libp2p_mix/delay_strategy,
   libp2p_mix/spam_protection,
+  libp2p_mix/mix_pool,
   libp2p/[multiaddress, peerid],
   eth/common/keys
 
@@ -51,14 +52,14 @@ const RoutableMixTransport = mapOr(
   mapAnd(DNS4, mapEq("tcp")),
   mapAnd(mapAnd(DNS4, mapEq("udp")), mapEq("quic-v1")),
 )
-  ## What `parseMixNode` accepts: the transports `MixNodePool.get` routes, and
-  ## a `dns4` name for one of them. `parseMixNode` matches the base transport, as
-  ## the pool does, so a circuit relay over one of them passes.
+  ## Parse IPv4 TCP and QUIC-v1 transports, including dns4 names resolved later.
+  ## The host applies its candidate address policy before selection.
 
 proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
   ## Parses a `multiaddr:mixPublicKey` entry from `--mixnode` or a preset. It
   ## accepts a `dns4` name, which the node resolves after the mount, and refuses
-  ## an address on a transport that the pool cannot route.
+  ## an address on a transport that mix cannot encode. The host address policy
+  ## then decides whether the stored address is usable.
   # Split on the last colon: an address can hold colons (IPv6), a key cannot.
   let parts = entry.rsplit(':', maxsplit = 1)
   if parts.len != 2:
@@ -82,14 +83,15 @@ proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
       "the peer address parser refused the mix node entry (" & error & "): " & parts[0]
     )
 
-  # Require a transport the pool routes once the name is resolved; the peer
-  # info parser also takes WebSocket, IPv6, dns6, dns and dnsaddr. Match the base
-  # transport, as the pool does, so a relayed entry counts by the relay's address.
+  # Require a transport mix encodes once the name is resolved; the peer info
+  # parser also takes WebSocket, IPv6, dns6, dns and dnsaddr. Match the base
+  # transport, so a relayed entry parses by the relay's address. The default
+  # address policy accepts public direct addresses only.
   let base = mix_multiaddr.getBaseTransport(pInfo.addrs[0]).valueOr:
     return err("mix cannot read the transport of the mix node entry: " & parts[0])
   if not RoutableMixTransport.match(base):
     return err(
-      "mix routes IPv4 TCP or QUIC-v1 only, directly or through a circuit relay (a dns4 name is resolved after the mount), got: " &
+      "mix encodes IPv4 TCP or QUIC-v1 only (a dns4 name is resolved after the mount), got: " &
         parts[0]
     )
 
@@ -100,14 +102,27 @@ proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
   )
 
 proc poolSize*(mix: WakuMix): int =
-  ## The number of pool members a path can use. `nodePool.get` needs an IPv4 TCP
-  ## or QUIC-v1 address and a secp256k1 key; `MixNodePool.len` checks neither.
-  ## Walks the pool; `mixReady` calls it once per send attempt.
-  var routable = 0
-  for peerId in mix.nodePool.peerIds():
-    if mix.nodePool.get(peerId).isSome():
-      routable.inc()
-  return routable
+  ## Count eligible peers with an encodable address and the required keys.
+  ## Walks the candidates; `mixReady` calls it once per send attempt.
+  ## Reports zero while the node is stopped and answers no mix request.
+  if not mix.peerManager.mixPeersProvided():
+    return 0
+  return mix.pool.countUsable([]).valueOr:
+    error "Could not count mix peers", error = error
+    return 0
+
+proc isUsablePeer*(mix: WakuMix, peerId: PeerId): bool =
+  ## True when mix can route through the peer. A pool error counts as unusable.
+  let info = mix.pool.usablePeer(peerId).valueOr:
+    error "Could not read mix peer", peerId = peerId, error = error
+    return false
+  return info.isSome()
+
+proc candidateIds*(mix: WakuMix): seq[PeerId] =
+  ## The mix candidates of this node. A pool error gives no candidates.
+  return mix.pool.listPeerIds().valueOr:
+    error "Could not list mix peers", error = error
+    return @[]
 
 proc updatePoolSize*(size: int) =
   ## Sets `mix_pool_size`; this is its only writer. The mount, `addBootNodes`
@@ -147,16 +162,10 @@ proc processBootNodes(
     # addresses with its transport patterns, and the suffix stops the match.
     let multiAddr = pInfo.addrs[0]
 
-    # The pool entry comes first: `nodePool.add` writes `Infinite` confidence,
-    # and libp2p does not lower a confidence that it holds.
-    let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
-    mix.nodePool.add(mixPubInfo)
     count.inc()
 
-    peermgr.addPeer(
-      RemotePeerInfo.init(
-        peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
-      )
+    peermgr.storeMixPeer(
+      MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey), origin = Static
     )
   # `count` is the accepted entries; the addresses of one peer make one member.
   let routable = mix.poolSize()
@@ -175,6 +184,8 @@ proc new*(
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    allowAllAddresses = false,
+    replyPeerTimeout = DefaultMixReplyPeerTimeout,
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
@@ -185,10 +196,12 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
+  ?peermgr.configureMix(allowAllAddresses, replyPeerTimeout)
   var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
+    pool = peermgr.mixPool,
     spamProtection = spamProtection,
     delayStrategy = Opt.some(
       if spamProtection.isSome():

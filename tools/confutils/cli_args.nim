@@ -703,6 +703,12 @@ hence would have reachability issues.""",
     name: "mix"
   .}: Opt[bool]
 
+  mixAllowAllAddresses* {.
+    desc: "Bypass mix address filtering. Allow all addresses for LANs and simulations.",
+    defaultValue: false,
+    name: "mix-allow-all-addresses"
+  .}: bool
+
   mixkey* {.
     desc:
       "ED25519 private key as 64 char hex string, without 0x. If not provided, a random key will be generated. (requires --mix)",
@@ -1237,6 +1243,7 @@ func ignoredFlagWarnings*(
     ("quic-port", "quic-support", quic, changed(quicPort)),
     ("mixkey", "mix", mix, changed(mixkey)),
     ("mixnode", "mix", mix, n.mixnodes.len > 0),
+    ("mix-allow-all-addresses", "mix", mix, n.mixAllowAllAddresses),
     ("kad-bootstrap-node", kadParent, kad, changed(kadBootstrapNodes)),
     ("kad-random-lookup-interval", kadParent, kad, changed(kadRandomLookupIntervalSec)),
     (
@@ -1446,6 +1453,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       )
     )
   b.mixConf.withMixNodes(n.mixnodes)
+  b.mixConf.withAllowAllAddresses(n.mixAllowAllAddresses)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
 

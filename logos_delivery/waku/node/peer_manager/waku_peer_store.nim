@@ -11,6 +11,7 @@ import
   libp2p/peerid,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
+  libp2p/wire,
   libp2p_mix/pool
 
 import
@@ -49,6 +50,12 @@ type
 
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+  # Excluding a peer from mix does not discard its keys or other protocols.
+  MixExcludedBook* = ref object of PeerBook[bool]
+
+  # A stamp marks a discovered mix key. Configured and application keys have no stamp.
+  MixAliveBook* = ref object of PeerBook[Moment]
 
 const DiscoveredEnrTtl* = chronos.minutes(15)
   ## How long a discovered ENR is trusted without being rediscovered or connected.
@@ -278,6 +285,36 @@ proc hasFreshEnr*(peerStore: PeerStore, peerId: PeerId): bool =
   let alive = peerStore[ENRAliveBook].book.getOrDefault(peerId, Moment())
   ## No stamp means never vouched for. Moment is monotonic, so 0 is not "long ago".
   return alive != Moment() and Moment.now() - alive <= DiscoveredEnrTtl
+
+proc acceptsMixAddress*(address: MultiAddress, allowAllAddresses = false): bool =
+  ## The deployment policy belongs to Delivery. Mix checks wire encodability.
+  ## allowAllAddresses bypasses this filter entirely, without classifying addresses.
+  if allowAllAddresses:
+    return true
+  if not (TCP_IP4.match(address) or QUIC_V1_IP4.match(address)) or
+      not address.isPublicMA():
+    return false
+  let endpoint = initTAddress(address).valueOr:
+    return false
+  if endpoint.isMulticast():
+    return false
+  let transport = address[1].valueOr:
+    return false
+  let port = transport.protoArgument().valueOr:
+    return false
+  return port.len == 2 and (port[0] != 0 or port[1] != 0)
+
+proc isMixCandidate*(peerStore: PeerStore, peerId: PeerId): bool =
+  ## Discovered keys expire unless renewed or connected. Host-supplied keys remain.
+  if peerStore[MixExcludedBook][peerId] or
+      peerStore[MixPubKeyBook][peerId] == default(Curve25519Key):
+    return false
+  let alive = peerStore[MixAliveBook][peerId]
+  alive == Moment() or peerStore.isConnected(peerId) or
+    Moment.now() - alive <= DiscoveredEnrTtl
+
+proc excludeFromMix*(peerStore: PeerStore, peerId: PeerId, excluded = true) =
+  peerStore[MixExcludedBook][peerId] = excluded
 
 proc pruneStaleEnrs*(peerStore: PeerStore): int =
   ## Drops the ENR of discovered peers that were not rediscovered recently.

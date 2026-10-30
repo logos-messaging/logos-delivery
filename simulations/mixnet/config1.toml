@@ -1,6 +1,7 @@
 log-level = "TRACE"
 relay = true
 mix = true
+mix-allow-all-addresses = true
 filter = true
 store = false
 lightpush = true

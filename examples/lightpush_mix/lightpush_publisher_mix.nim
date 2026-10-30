@@ -108,7 +108,14 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
     let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
       error "failed to generate mix key pair", error = error
       return
-    (await node.mountMix(clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
+    (
+      await node.mountMix(
+        clusterId,
+        mixPrivKey,
+        conf.mixnodes,
+        allowAllAddresses = conf.mixAllowAllAddresses,
+      )
+    ).isOkOr:
       error "failed to mount waku mix protocol: ", error = $error
       return
 

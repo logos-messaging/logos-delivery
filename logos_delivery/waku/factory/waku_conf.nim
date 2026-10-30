@@ -94,6 +94,7 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  allowAllAddresses*: bool
   mixRlnConfig*: Opt[ModuleRlnConfig]
 
 type StoreServiceConf* = object

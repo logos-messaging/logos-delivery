@@ -16,6 +16,8 @@ make logosdeliverynode
 make chat2mix
 ```
 
+The supplied configs and chat scripts explicitly enable `--mix-allow-all-addresses` because they use loopback addresses. The default mix policy accepts public direct addresses only.
+
 The simulation uses cluster 66, which has no network preset. Do not change it to 2. Cluster 2 applies the logos.dev preset. With this preset, the nodes connect to the public logos.dev fleet. The nodes then advertise their loopback addresses to the fleet.
 
 Simulation includes scripts for:

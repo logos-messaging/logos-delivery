@@ -21,6 +21,7 @@ type MixConfBuilder* = object
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
   mixRlnConfig: Opt[ModuleRlnConfig]
+  allowAllAddresses: bool
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -39,6 +40,9 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
 proc withMixRln*(b: var MixConfBuilder, config: ModuleRlnConfig) =
   b.mixRlnConfig = Opt.some(config)
 
+proc withAllowAllAddresses*(b: var MixConfBuilder, enabled: bool) =
+  b.allowAllAddresses = enabled
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     if b.mixRlnConfig.isSome():
@@ -55,6 +59,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
             mixRlnConfig: b.mixRlnConfig,
+            allowAllAddresses: b.allowAllAddresses,
           )
         )
       )
@@ -68,6 +73,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
             mixRlnConfig: b.mixRlnConfig,
+            allowAllAddresses: b.allowAllAddresses,
           )
         )
       )

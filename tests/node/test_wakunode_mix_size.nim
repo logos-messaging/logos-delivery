@@ -67,7 +67,11 @@ suite "Waku Mix - the size of a mix send":
     lockNewGlobalBrokerContext:
       waku = (await Waku.new(senderConf())).expect("Waku.new")
       let keys = generateKeyPair().expect("mix key pair")
-      (await waku.node.mountMix(DefaultClusterId, keys.privateKey, net.infos)).isOkOr:
+      (
+        await waku.node.mountMix(
+          DefaultClusterId, keys.privateKey, net.infos, allowAllAddresses = true
+        )
+      ).isOkOr:
         raiseAssert "mountMix: " & $error
       (await waku.start()).expect("start")
     defer:

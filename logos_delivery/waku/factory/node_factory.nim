@@ -179,7 +179,15 @@ proc setupProtocols(
       node.wakuMixRln = ModuleRlnProtection.new(mixConf.mixRlnConfig.get(), rlnMixCall).valueOr:
         return err("failed to create Mix RLN adapter: " & error)
       protection = Opt.some(SpamProtection(node.wakuMixRln))
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes, protection)).isOkOr:
+    (
+      await node.mountMix(
+        conf.clusterId,
+        mixConf.mixKey,
+        mixConf.mixnodes,
+        protection,
+        allowAllAddresses = mixConf.allowAllAddresses,
+      )
+    ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
   # Setup service discovery

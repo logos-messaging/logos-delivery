@@ -685,8 +685,8 @@
       }
     },
     "libp2p_mix": {
-      "version": "#3f256aa03d2d36fea0b5206b41a6328da4f5c412",
-      "vcsRevision": "3f256aa03d2d36fea0b5206b41a6328da4f5c412",
+      "version": "#bd5e5c4da1f5ef1e0a67499ec2469ded4d4dfbdd",
+      "vcsRevision": "bd5e5c4da1f5ef1e0a67499ec2469ded4d4dfbdd",
       "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
@@ -698,10 +698,11 @@
         "nimcrypto",
         "stew",
         "results",
-        "unittest2"
+        "unittest2",
+        "brokers"
       ],
       "checksums": {
-        "sha1": "a084ffe241acf33ad918525ad7de568e4f6d488a"
+        "sha1": "00703610aa9d61bee42758f321e8fe2f37631816"
       }
     },
     "mix_rln_spam_protection": {

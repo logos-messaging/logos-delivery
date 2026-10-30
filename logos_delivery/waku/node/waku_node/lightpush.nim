@@ -39,9 +39,17 @@ logScope:
 
 const MountWithoutRelayError* = "cannot mount lightpush because relay is not mounted"
 
-const MixReplyTimeout* = chronos.seconds(5)
+const MixPathTimeout* = chronos.seconds(10)
+  ## The time for one mix round trip after the reply peer is ready. It holds
+  ## the first-hop dial (a QUIC dial gives up after 3 s), six hops with their
+  ## delays (100 ms mean) across continents, and the lightpush answer of the
+  ## exit.
+
+proc mixReplyTimeout*(node: WakuNode): Duration =
   ## Time limit for one mix-routed lightpush, so a broken path costs one
-  ## attempt.
+  ## attempt. Before the request leaves, the reply peer preparation can take the
+  ## reply peer timeout of `PeerManager`. Then the path has `MixPathTimeout`.
+  node.peerManager.mixReplyPeerTimeout + MixPathTimeout
 
 const MixLightpushSurbs* = 1'u8
   ## The number of SURBs in a lightpush request over mix. One SURB, so the reply
@@ -71,7 +79,7 @@ proc publishOverMix*(
     conn: Connection,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
-    replyTimeout: Duration = MixReplyTimeout,
+    replyTimeout: Duration = node.mixReplyTimeout(),
 ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
   ## Publishes on a mix connection and returns within `replyTimeout`. The mix
   ## connection limits its wait for the reply, but not the first-hop dial.

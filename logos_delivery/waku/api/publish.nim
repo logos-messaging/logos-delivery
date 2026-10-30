@@ -7,8 +7,8 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/[tables, strutils]
-import results, chronos, libp2p/crypto/rng, libp2p_mix/pool
+import std/[sequtils, tables, strutils]
+import results, chronos, libp2p/crypto/rng
 
 import logos_delivery/waku/waku
 import
@@ -98,28 +98,24 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
 
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
-  ## Selects a lightpush service peer for `shard` that mix can route to. With
-  ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
-  ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
-  ## first, then draws one usable pool member uniformly.
+  ## Select an eligible lightpush exit for the shard.
+  ## Try the service slot first, then select a usable candidate at random.
+  if self.node.wakuMix.isNil():
+    return Opt.none(RemotePeerInfo)
+  let mix = self.node.wakuMix
   let peerStore = self.node.peerManager.switch.peerStore
-  let pool = MixNodePool.new(peerStore)
-
   let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
-  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
+  if not slotted.isNil() and mix.isUsablePeer(slotted.peerId):
     return Opt.some(peerStore.getPeer(slotted.peerId))
 
   let shardInfo = RelayShard.parse(shard).valueOr:
     return Opt.none(RemotePeerInfo)
 
-  var exits: seq[PeerId]
-  for peerId in pool.peerIds():
-    if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
-      continue
-    if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
-      continue
-    if pool.get(peerId).isSome():
-      exits.add(peerId)
+  let exits = mix.candidateIds().filterIt(
+      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and
+        peerStore.hasShard(it, shardInfo.clusterId, shardInfo.shardId) and
+        mix.isUsablePeer(it)
+    )
 
   # The exit choice must not be predictable, so draw it from the node's CSPRNG,
   # as the mix delay strategy and the mix library's hop selection do. `pickOne`

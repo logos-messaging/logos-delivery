@@ -85,6 +85,13 @@ type
       defaultValue: @[]
     .}: seq[string]
 
+    mixAllowAllAddresses* {.
+      desc:
+        "Bypass mix address filtering. Allow all addresses for LANs and simulations.",
+      defaultValue: false,
+      name: "mix-allow-all-addresses"
+    .}: bool
+
     mixnodes* {.
       desc:
         "Multiaddress and mix-key of mix node to be statically specified in format multiaddr:mixPubKey. Argument may be repeated.",

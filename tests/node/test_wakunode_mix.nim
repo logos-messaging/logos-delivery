@@ -1,6 +1,7 @@
 {.used.}
 
 import std/[sequtils, strutils]
+import brokers/broker_context
 import testutils/unittests, chronos, results, metrics
 import libp2p/[crypto/crypto, peerid, multiaddress]
 import libp2p/nameresolving/nameresolver
@@ -34,7 +35,11 @@ proc boundTcpPort(node: WakuNode): Port =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let mixKeys = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+  (
+    await node.mountMix(
+      DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+    )
+  ).isOkOr:
     raiseAssert "Failed to mount mix: " & $error
 
 proc mixHealth(node: WakuNode): ProtocolHealth =
@@ -328,7 +333,11 @@ suite "Waku Mix - pool size":
     # Mount before start, as the node factory does: a switch that runs cannot
     # mount a new protocol.
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
 
     await node.start()
@@ -395,29 +404,31 @@ suite "Waku Mix - pool size":
   asyncTest "the gauge at mount counts routable bootnodes, not parsed ones":
     ## An IPv6 bootnode parses at mount and mix cannot route it. The gauge and
     ## the pool size count only the routable bootnode.
-    proc bootnode(address: string): MixNodePubInfo =
-      let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
-      let keys = generateKeyPair().expect("mix key pair")
-      return
-        MixNodePubInfo(multiAddr: address & "/p2p/" & $peerId, pubKey: keys.publicKey)
+    lockNewGlobalBrokerContext:
+      proc bootnode(address: string): MixNodePubInfo =
+        let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+        let keys = generateKeyPair().expect("mix key pair")
+        return
+          MixNodePubInfo(multiAddr: address & "/p2p/" & $peerId, pubKey: keys.publicKey)
 
-    let other = newTestWakuNode(generateSecp256k1Key())
-    let mixKeys = generateKeyPair().expect("mix key pair")
-    (
-      await other.mountMix(
-        DefaultClusterId,
-        mixKeys.privateKey,
-        @[bootnode("/ip4/127.0.0.1/tcp/60030"), bootnode("/ip6/::1/tcp/60031")],
-      )
-    ).isOkOr:
-      raiseAssert "Failed to mount mix: " & $error
-    await other.start()
+      let other = newTestWakuNode(generateSecp256k1Key())
+      let mixKeys = generateKeyPair().expect("mix key pair")
+      (
+        await other.mountMix(
+          DefaultClusterId,
+          mixKeys.privateKey,
+          @[bootnode("/ip4/127.0.0.1/tcp/60030"), bootnode("/ip6/::1/tcp/60031")],
+          allowAllAddresses = true,
+        )
+      ).isOkOr:
+        raiseAssert "Failed to mount mix: " & $error
+      await other.start()
 
-    check:
-      other.getMixNodePoolSize() == 1
-      mix_pool_size.value() == 1.0
+      check:
+        other.getMixNodePoolSize() == 1
+        mix_pool_size.value() == 1.0
 
-    await other.stop()
+      await other.stop()
 
 suite "Waku Mix - pool size without mix":
   asyncTest "a node that never mounted mix reports an empty pool":
@@ -506,7 +517,11 @@ suite "Waku Mix - bootstrap nodes":
   ): Future[WakuNode] {.async.} =
     let node = newTestWakuNode(generateSecp256k1Key(), nameResolver = nameResolver)
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, bootnodes)).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, bootnodes, allowAllAddresses = true
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
     await node.start()
     await node.mixNodesResolved()
@@ -541,6 +556,7 @@ suite "Waku Mix - bootstrap nodes":
         DefaultClusterId,
         mixKeys.privateKey,
         @[selfEntry, mixBootnode("/ip4/127.0.0.1/tcp/60106")],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
@@ -548,7 +564,7 @@ suite "Waku Mix - bootstrap nodes":
 
     check:
       node.getMixNodePoolSize() == 1
-      node.switch.peerInfo.peerId notin node.wakuMix.nodePool.peerIds()
+      node.switch.peerInfo.peerId notin node.wakuMix.pool.listPeerIds().get()
     await node.stop()
 
   asyncTest "a name the node cannot resolve is dropped, and the rest still mount":
@@ -712,6 +728,7 @@ suite "Waku Mix - name resolution in the background":
           pubKey: keys.publicKey,
         ),
       ],
+      allowAllAddresses = true,
     )
     check await mount.withTimeout(chronos.seconds(1)) # no wait on the names
     if mount.finished():
@@ -751,6 +768,7 @@ suite "Waku Mix - name resolution in the background":
             pubKey: keys.publicKey,
           ),
         ],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -778,6 +796,7 @@ suite "Waku Mix - name resolution in the background":
           mixBootnode("/dns4/fast-04.invalid/tcp/30303"),
           mixBootnode("/dns4/slow-01.invalid/tcp/30303"),
         ],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -797,6 +816,7 @@ suite "Waku Mix - name resolution in the background":
         DefaultClusterId,
         keys.privateKey,
         @[mixBootnode("/dns4/gated-01.invalid/tcp/30303")],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error

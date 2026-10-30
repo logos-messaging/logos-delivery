@@ -3,7 +3,8 @@
 import
   std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results, metrics
 import brokers/broker_context
-import libp2p_mix/[curve25519, mix_metrics, pool], libp2p/[peerid, multiaddress]
+import
+  libp2p_mix/[curve25519, mix_metrics, pool, mix_pool], libp2p/[peerid, multiaddress]
 
 import
   logos_delivery/waku/[
@@ -825,7 +826,9 @@ proc addMixPeer(node: WakuNode, port: int, lightpush = false) =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let (mixPrivKey, _) = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixPrivKey, @[])).expect("failed to mount mix")
+  (await node.mountMix(DefaultClusterId, mixPrivKey, @[], allowAllAddresses = true)).expect(
+    "failed to mount mix"
+  )
 
 suite "Health Monitor - mix readiness":
   asyncTest "Mix health follows the pool size":
@@ -990,7 +993,7 @@ suite "Health Monitor - mix readiness":
     check await waitForStatus(ConnectionStatus.PartiallyConnected)
 
     # Pruning a single mix peer takes the pool below the minimum again.
-    nodeA.peerManager.switch.peerStore.delete(nodeA.wakuMix.nodePool.peerIds()[0])
+    nodeA.peerManager.switch.peerStore.delete(nodeA.wakuMix.pool.listPeerIds().get()[0])
     check await waitForStatus(ConnectionStatus.Disconnected)
 
     await monitorA.stopHealthMonitor()

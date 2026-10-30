@@ -51,11 +51,8 @@ proc waku_mix_add_peer(
     let publicKey = PublicKey(scheme: Secp256k1, skkey: pubkey)
     if PeerId.init(publicKey).valueOr(default(PeerId)) != peerId:
       return err("Mix peer id does not match public key")
-    mix.nodePool.add(MixPubInfo.init(peerId, address, key, pubkey))
-    self.waku.node.peerManager.addPeer(
-      RemotePeerInfo.init(
-        peerId, @[address], publicKey = publicKey, mixPubKey = Opt.some(key)
-      )
+    self.waku.node.peerManager.storeMixPeer(
+      MixPubInfo.init(peerId, address, key, pubkey)
     )
     return ok("{}")
   except CatchableError as exc:

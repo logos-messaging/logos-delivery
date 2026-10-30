@@ -541,6 +541,16 @@ suite "Waku Conf - mix nodes from a network preset":
   ## A preset that turns mix on seeds at least `MinMixPoolSize` nodes, the fewest
   ## that a path can use.
 
+  test "bypassing mix address filtering requires explicit host configuration":
+    for permissive in [false, true]:
+      var builder = WakuConfBuilder.init()
+      builder.discv5Conf.withUdpPort(9000)
+      builder.mixConf.withEnabled(true)
+      if permissive:
+        builder.mixConf.withAllowAllAddresses(true)
+      let conf = builder.build().expect("build mix config")
+      check conf.mixConf.get().allowAllAddresses == permissive
+
   test "the presets that enable mix ship a pool that can build a path":
     for preset in [NetworkPresetConf.LogosDevConf(), NetworkPresetConf.LogosTestConf()]:
       check:

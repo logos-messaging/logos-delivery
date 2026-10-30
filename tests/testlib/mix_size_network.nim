@@ -1,6 +1,7 @@
 {.used.}
 
 import std/[net, sequtils]
+import brokers/broker_context
 import chronos, results, testutils/unittests
 import libp2p/[crypto/crypto, peerinfo, switch]
 import libp2p_mix/curve25519
@@ -28,23 +29,32 @@ proc startMixNodes*(): Future[MixSizeNetwork] {.async.} =
   ## Starts four connected mix nodes on ephemeral loopback ports.
   var net: MixSizeNetwork
   for i in 0 ..< 4:
-    let node = newTestWakuNode(
-      generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0), quicEnabled = false
-    )
-    (await node.mountRelay()).expect("mount relay")
-    (await node.mountLightpush()).expect("mount lightpush")
-    node.mountMetadata(uint32(DefaultClusterId), @[0'u16]).expect("mount metadata")
-    let keys = generateKeyPair().expect("mix keys")
-    (await node.mountMix(DefaultClusterId, keys.privateKey, @[])).expect("mount mix")
-    await node.start()
-    net.nodes.add(node)
-    net.infos.add(
-      MixNodePubInfo(
-        multiAddr:
-          "/ip4/127.0.0.1/tcp/" & $node.boundTcpPort() & "/p2p/" & $node.peerInfo.peerId,
-        pubKey: keys.publicKey,
+    lockNewGlobalBrokerContext:
+      let node = newTestWakuNode(
+        generateSecp256k1Key(),
+        parseIpAddress("127.0.0.1"),
+        Port(0),
+        quicEnabled = false,
       )
-    )
+      (await node.mountRelay()).expect("mount relay")
+      (await node.mountLightpush()).expect("mount lightpush")
+      node.mountMetadata(uint32(DefaultClusterId), @[0'u16]).expect("mount metadata")
+      let keys = generateKeyPair().expect("mix keys")
+      (
+        await node.mountMix(
+          DefaultClusterId, keys.privateKey, @[], allowAllAddresses = true
+        )
+      ).expect("mount mix")
+      await node.start()
+      net.nodes.add(node)
+      net.infos.add(
+        MixNodePubInfo(
+          multiAddr:
+            "/ip4/127.0.0.1/tcp/" & $node.boundTcpPort() & "/p2p/" &
+            $node.peerInfo.peerId,
+          pubKey: keys.publicKey,
+        )
+      )
   for i, node in net.nodes:
     node.wakuMix.addBootNodes(
       (0 ..< net.nodes.len).toSeq().filterIt(it != i).mapIt(net.infos[it])

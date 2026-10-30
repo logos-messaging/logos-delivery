@@ -301,14 +301,14 @@ proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc hasMixExit(hm: NodeHealthMonitor): bool =
   ## Mirrors `selectMixLightpushPeer`, minus its per-message shard filter.
-  ## Returns true if one node in the mix pool is capable of serving lightpush to exit through.
-  let pool = hm.node.wakuMix.nodePool
+  ## Returns true if one eligible mix peer can serve lightpush as the exit.
+  let mix = hm.node.wakuMix
   let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
-  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
+  if not slotted.isNil() and mix.isUsablePeer(slotted.peerId):
     return true
   let peerStore = hm.node.switch.peerStore
-  return pool.peerIds().anyIt(
-      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
+  return mix.candidateIds().anyIt(
+      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and mix.isUsablePeer(it)
     )
 
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
