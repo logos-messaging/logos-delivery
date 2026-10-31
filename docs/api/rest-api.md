@@ -83,7 +83,7 @@ After a `sent` or `error` event, no more events come for that message.
 * Later versions can add new event types. A client must skip an event type that it does not know.
 * `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 
-The receivers can have the message after an `error` event. The node does not resend a message after its `propagated` event.
+The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again through lightpush each time a Store peer does not report it.
 
 * Each received message comes as a JSON object with:
   * the message hash

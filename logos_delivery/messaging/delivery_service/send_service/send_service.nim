@@ -241,8 +241,30 @@ func storeAnswerPending(task: DeliveryTask): bool =
   ## True while the `deliver` of the task waits for a Store confirmation.
   return not task.storeAnswer.isNil() and not task.storeAnswer.finished()
 
+proc resendViaLightpush(self: SendService, task: DeliveryTask) {.async.} =
+  ## Sends a message that no Store node reported once more through lightpush. A
+  ## service node that has not seen the message, such as a Store node that joined
+  ## the mesh after the first propagation, relays it. Relay is not used, as
+  ## GossipSub drops a message that it already saw.
+  if not self.waku.lightpushPeerAvailable(task.pubsubTopic):
+    return
+  let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
+  if not await publish.withTimeout(StoreValidationQueryTimeout):
+    debug "Lightpush resend timed out",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    return
+  publish.read().isOkOr:
+    debug "Lightpush resend failed",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      error = error.desc.get($error.code)
+    return
+  debug "Message resent via Lightpush after a Store miss",
+    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+
 proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
-  ## Asks a Store peer about one batch and confirms the tasks that it reports.
+  ## Asks a Store peer about one batch, confirms the tasks that it reports, and
+  ## sends the others again through lightpush.
   let now = Moment.now()
   for task in batch:
     task.lastStoreQueryTime = Opt.some(now)
@@ -268,10 +290,16 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   # that this node did not ask about. Only a task whose `deliver` waits for a Store
   # confirmation takes a hash from the answer, so a message sent over mix is never
   # confirmed.
+  var reported: seq[WakuMessageHash]
   for item in storeResp.messages:
+    reported.add(item.messageHash)
     let task = self.deliveryTasks.getOrDefault(item.messageHash)
     if not task.isNil() and task.storeAnswerPending():
       task.storeAnswer.complete()
+
+  for task in batch:
+    if task.msgHash notin reported and task.storeAnswerPending():
+      await self.resendViaLightpush(task)
 
 proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).} =
   ## Confirms propagated tasks against Store, one batch per round, apart from the
