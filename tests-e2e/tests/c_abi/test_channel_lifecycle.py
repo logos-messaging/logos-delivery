@@ -29,12 +29,13 @@ SHARD_UNHEALTHY_EVENT = {
 }
 
 
-def wait_for_shard_health(collector: EventCollector, timeout_s: float = 5.0) -> list[dict]:
-    """Wait until the shard health event of channel_create arrives, and return all events."""
+def assert_only_shard_health_event(collector: EventCollector, timeout_s: float = 5.0) -> None:
+    """Wait for the shard health event of channel_create, and check that it is the only event."""
     deadline = time.monotonic() + timeout_s
     while SHARD_UNHEALTHY_EVENT not in collector.snapshot() and time.monotonic() < deadline:
         time.sleep(0.1)
-    return collector.snapshot()
+    events = collector.snapshot()
+    assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
 
 
 class TestChannelLifecycle:
@@ -62,8 +63,7 @@ class TestChannelLifecycle:
             assert duplicate_result.is_err(), f"duplicate channel_create must fail, got Ok({duplicate_result.ok_value!r})"
             assert f"channel already exists: {channel_id}" in duplicate_result.err(), f"unexpected error message: {duplicate_result.err()!r}"
 
-            events = wait_for_shard_health(collector)
-            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
+            assert_only_shard_health_event(collector)
         finally:
             node.stop_and_destroy()
 
@@ -120,8 +120,7 @@ class TestChannelLifecycle:
             assert unknown_close_result.is_err(), f"channel_close on unknown channel must fail, got Ok({unknown_close_result.ok_value!r})"
             assert f"unknown channel: {unknown_channel_id}" in unknown_close_result.err(), f"unexpected error message: {unknown_close_result.err()!r}"
 
-            events = wait_for_shard_health(collector)
-            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
+            assert_only_shard_health_event(collector)
         finally:
             node.stop_and_destroy()
 
@@ -154,8 +153,7 @@ class TestChannelLifecycle:
             close_result = node.channel_close(channel_id)
             assert close_result.is_ok(), f"open channel_close failed after a bad-id close: {close_result.err()}"
 
-            events = wait_for_shard_health(collector)
-            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
+            assert_only_shard_health_event(collector)
         finally:
             node.stop_and_destroy()
 
@@ -213,8 +211,7 @@ class TestChannelLifecycle:
             assert send_result.is_err(), f"channel_send after close must fail, got Ok({send_result.ok_value!r})"
             assert f"unknown channel: {channel_id}" in send_result.err(), f"unexpected error message: {send_result.err()!r}"
 
-            events = wait_for_shard_health(collector)
-            assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
+            assert_only_shard_health_event(collector)
         finally:
             node.stop_and_destroy()
 

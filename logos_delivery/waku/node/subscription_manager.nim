@@ -256,7 +256,7 @@ proc subscribe*(
     # The stored health can be stale, so the relay calculates it again and
     # reports a change. On an edge, the wake of `edgeFilterSubLoop` does it.
     if not self.node.wakuRelay.isNil():
-      self.node.wakuRelay.markTopicHealthDirty(shard)
+      self.node.wakuRelay.recalculateTopicHealth(shard)
   return ok()
 
 proc unsubscribe*(

@@ -296,26 +296,30 @@ suite "LM API health checking":
     ## again. No peer event gives that state reliably, so the test sets it.
     ## The subscribe must report the stored value that the relay compares with,
     ## and the relay must then report the correction.
-    # The node joins the relay mesh of its configured shards at its start.
-    require client.waku.node.wakuRelay.isSubscribed(DefaultShard)
-    # That join marks the shard dirty, and the relay loop checks it at the
-    # next step. Let that check run first, so that only the subscribe can make
-    # the relay correct the stored health.
-    await stepsAsync(1)
-
-    # The stored health of the shard is stale, as the shard has no mesh peer.
-    client.waku.node.wakuRelay.topicsHealth[DefaultShard] =
-      TopicHealth.SUFFICIENTLY_HEALTHY
-
     let healths = new seq[TopicHealth]
     let handle = listenShardHealth(client.waku.brokerCtx, healths)
     defer:
       await EventShardTopicHealthChange.dropListener(client.waku.brokerCtx, handle)
 
+    # The start marks the configured shard dirty. The health event of the mesh
+    # shows that the relay checked the shard, so after it only the subscribe
+    # can make the relay correct the stored health.
+    await client.waku.node.connectToNodes(@[servicePeerInfo])
+    checkUntilTimeout:
+      healths[] == @[TopicHealth.MINIMALLY_HEALTHY]
+
+    # The stored health of the shard is stale, as the mesh has one peer.
+    client.waku.node.wakuRelay.topicsHealth[DefaultShard] =
+      TopicHealth.SUFFICIENTLY_HEALTHY
+
     client.waku.subscribe(TestContentTopic).isOkOr:
       raiseAssert error
     checkUntilTimeout:
-      healths[] == @[TopicHealth.SUFFICIENTLY_HEALTHY, TopicHealth.UNHEALTHY]
+      healths[] ==
+        @[
+          TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY,
+          TopicHealth.MINIMALLY_HEALTHY,
+        ]
 
   asyncTest "RequestHealthReport, check aggregate report":
     let req = await RequestHealthReport.request(client.waku.brokerCtx)
