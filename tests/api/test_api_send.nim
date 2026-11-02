@@ -958,8 +958,7 @@ suite "Waku API - Send":
       {SendEventOutcome.Propagated, SendEventOutcome.Sent}, laterRequestId
     )
 
-  asyncTest "Edge sender never sends through a static node down at start":
-    # TODO: logos-delivery#4510
+  asyncTest "Edge sender sends through a static node that was down at its start":
     let lightpushNodeAddr =
       $lightpushNodePeerInfo.addrs[0] & "/p2p/" & $lightpushNodePeerId
     await lightpushNode.stop()
@@ -970,56 +969,37 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
+      node.waku.node.peerManager.initialBackoffInSec = 1
       node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
     defer:
       (await node.stop()).expect("Failed to stop node")
 
+    check not node.waku.node.switch.isConnected(lightpushNodePeerId)
+
     await lightpushNode.start()
     await lightpushNode.connectToNodes(@[relayNode2PeerInfo])
 
-    # The retry time window outlasts the backoff.
-    node.waku.node.peerManager.initialBackoffInSec = 1
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    checkUntilTimeout:
+      node.waku.node.switch.isConnected(lightpushNodePeerId)
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
       await eventManager.teardown()
 
-    let envelope = MessageEnvelope.init(
-      ContentTopic("/waku/2/default-content/proto"), "test payload"
-    )
-
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
-
-    check await eventManager.errorFuture.withTimeout(30.seconds)
-
-    eventManager.validate({SendEventOutcome.Error}, requestId)
-    check:
-      eventManager.errorDescs == @["Unable to send within retry time window"]
-      node.waku.node.peerManager.switch.peerStore.connectedness(lightpushNodePeerId) ==
-        CannotConnect
-
-    await node.waku.node.connectToNodes(@[lightpushNodeAddr])
-
-    let laterEventManager = newSendEventListenerManager(node.waku.brokerCtx)
-    defer:
-      await laterEventManager.teardown()
-
-    let laterRequestId = (
+    let requestId = (
       await node.messagingClient.send(
         MessageEnvelope.init(
-          ContentTopic("/waku/2/default-content/proto"), "later test payload"
+          ContentTopic("/waku/2/default-content/proto"), "test payload"
         )
       )
     ).valueOr:
       raiseAssert error
 
-    check await laterEventManager.propagatedFuture.withTimeout(10.seconds)
+    check await eventManager.propagatedFuture.withTimeout(10.seconds)
 
-    laterEventManager.validate({SendEventOutcome.Propagated}, laterRequestId)
+    eventManager.validate({SendEventOutcome.Propagated}, requestId)
 
 ## Checks that the caller gets the request id before any event of the send. The
 ## node has a budget of 0, so each send emits an event with no network call. A
