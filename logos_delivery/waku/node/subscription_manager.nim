@@ -401,7 +401,8 @@ proc sendChunkedFilterRpc(
     kind: SendChunkedFilterRpcKind,
 ): Future[bool] {.async.} =
   ## Send a chunked filter subscribe or unsubscribe RPC. Returns true on
-  ## success. On failure the peer is removed and false is returned.
+  ## success. On failure the peer is removed and false is returned. A cancel
+  ## passes through.
   try:
     var i = 0
     while i < topics.len:
@@ -419,6 +420,10 @@ proc sendChunkedFilterRpc(
         self.removePeer(shard, peer.peerId)
         return false
       i += filter_protocol.MaxContentTopicsPerRequest
+  except CancelledError as exc:
+    # The edge cancels a subscribe at a stop or when it drops the shard, so
+    # the peer did not fail.
+    raise exc
   except CatchableError as exc:
     debug "sendChunkedFilterRpc: failed",
       op = kind, shard = shard, peer = peer.peerId, err = exc.msg
@@ -448,8 +453,8 @@ proc countStaticFilterPeerFailure(
   ## filter peer, and wake `edgeFilterSubLoop` to try it again or to select
   ## another peer.
 
-  # A cancel of the subscribe, at a stop or when the edge drops the shard, is
-  # not a failure of the peer.
+  # A failure after the stop, or for a shard that the edge dropped, needs no
+  # count.
   if self.edgeFilterSubLoopFut.isNil() or
       self.shards.getOrDefault(shard).contentTopics.len == 0:
     return
@@ -834,11 +839,13 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
         await fut.cancelAndWait()
 
   # A stopped edge has no filter peer, so each shard reports UNHEALTHY, as
-  # `WakuRelay.stop` does for the relay.
+  # `WakuRelay.stop` does for the relay. A restart tries the configured filter
+  # peer again.
   for shard, state in self.edgeFilterSubStates.mpairs:
     state.peers.setLen(0)
     state.pending.setLen(0)
     state.pendingPeers.clear()
+    state.staticFilterPeerTries = 0
     self.updateShardHealth(shard, state)
 
   await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)

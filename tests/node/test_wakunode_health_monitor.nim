@@ -708,7 +708,9 @@ suite "Health Monitor - events":
       TopicHealth.MINIMALLY_HEALTHY in healths
 
     # The edge reads its stored health again after a restart, so the stop
-    # must also store UNHEALTHY.
+    # must also store UNHEALTHY. A restart must try the configured filter peer
+    # again, so the stop must also reset its failed tries.
+    nodeA.subscriptionManager.edgeFilterSubStates[shard].staticFilterPeerTries = 1
     let reportedBeforeStop = healths.len
     await nodeA.stop()
     checkUntilTimeout:
@@ -718,6 +720,7 @@ suite "Health Monitor - events":
       nodeA.subscriptionManager.edgeFilterPeerCount(shard) == 0
       nodeA.subscriptionManager.edgeFilterSubStates[shard].currentHealth ==
         TopicHealth.UNHEALTHY
+      nodeA.subscriptionManager.edgeFilterSubStates[shard].staticFilterPeerTries == 0
 
   asyncTest "Edge reports Filter Client READY for a shard no peer serves":
     # TODO: logos-delivery#4590
