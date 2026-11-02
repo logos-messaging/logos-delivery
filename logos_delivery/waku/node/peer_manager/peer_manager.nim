@@ -1297,7 +1297,6 @@ proc startStaticPeersRedial*(pm: PeerManager, peers: seq[string]) =
   ## For every node with static peers, beside the relay connectivity loop when
   ## that one runs: dial again the static peers that were down. It retries every interval and
   ## ignores maxFailedAttempts: a static node has no discovery to replace it.
-  pm.started = true
   pm.staticRedialLoopHandle = pm.redialStaticPeersLoop(peers)
 
 proc stop*(pm: PeerManager) =
