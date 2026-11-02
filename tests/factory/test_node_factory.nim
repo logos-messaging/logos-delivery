@@ -509,7 +509,7 @@ suite "Node Factory":
     let storeNode =
       "/dns4/store-01.example.com/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"
     var confBuilder = defaultTestWakuConfBuilder()
-    confBuilder.withStoreNodes(@[storeNode])
+    confBuilder.withPresetStoreNodes(@[storeNode])
     confBuilder.withConfiguredStoreNodesOnly(true)
     let conf = confBuilder.build().valueOr:
       raiseAssert error
@@ -573,7 +573,7 @@ suite "Node Factory":
     let listenerPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
     var confBuilder = defaultTestWakuConfBuilder()
     confBuilder.withRelay(false)
-    confBuilder.withStoreNodes(
+    confBuilder.withPresetStoreNodes(
       @[
         storeAddress(storeNodes[0].boundTcpPort(), storeNodes[0].peerInfo.peerId),
         storeAddress(listener.localAddress().port, listenerPeerId),

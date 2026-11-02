@@ -169,10 +169,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: could probably make it a `PeerRemoteInfo`
   staticNodes*: seq[string]
-  storeNodes*: seq[string]
-    ## The network's store nodes as multiaddrs, from the preset by default.
+  presetStoreNodes*: seq[string]
+    ## The multiaddrs of the store nodes of the network preset.
   configuredStoreNodesOnly*: bool
-    ## Query only `storeNodes` and `remoteStoreNode`, never discovered store peers.
+    ## Query only `presetStoreNodes` and `remoteStoreNode`, never discovered store peers.
   remoteStoreNode*: Opt[string]
   remoteLightPushNode*: Opt[string]
   remoteFilterNode*: Opt[string]
@@ -208,11 +208,14 @@ type WakuConf* {.requiresInit.} = ref object
   localStoragePath*: string
 
 func configuredStoreNodes*(conf: WakuConf): seq[string] =
-  ## The multiaddrs of `storeNodes`, and then `remoteStoreNode` if it is not
-  ## one of them.
-  if conf.remoteStoreNode.isNone() or conf.remoteStoreNode.get() in conf.storeNodes:
-    return conf.storeNodes
-  return conf.storeNodes & conf.remoteStoreNode.get()
+  ## The preset store nodes, and then the `--storenode` node.
+  ## The `--storenode` node can also be a preset store node. Then the list
+  ## has it one time only.
+  let storenode = conf.remoteStoreNode.valueOr:
+    return conf.presetStoreNodes
+  if storenode in conf.presetStoreNodes:
+    return conf.presetStoreNodes
+  return conf.presetStoreNodes & storenode
 
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",

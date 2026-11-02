@@ -248,7 +248,7 @@ proc setupProtocols(
 
   if conf.configuredStoreNodesOnly:
     var storePeers: seq[RemotePeerInfo]
-    for storeNode in conf.storeNodes:
+    for storeNode in conf.presetStoreNodes:
       let storePeer = parsePeerInfo(storeNode).valueOr:
         return err("failed to parse store node " & storeNode & ": " & error)
       storePeers.add(storePeer)
