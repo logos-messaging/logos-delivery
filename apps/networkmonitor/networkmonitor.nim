@@ -11,13 +11,14 @@ import
   eth/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
-  libp2p/nameresolving/dnsresolver,
+  libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
   metrics,
   metrics/chronos_httpserver,
   presto/[route, server, client]
 import
   logos_delivery/waku/[
+    common/system_resolver,
     waku_core,
     node/peer_manager,
     waku_node,
@@ -368,11 +369,7 @@ proc retrieveDynamicBootstrapNodes(
     # DNS discovery
     info "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
 
-    var nameServers: seq[TransportAddress]
-    for ip in dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(dnsAddrsNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain
@@ -391,7 +388,7 @@ proc getBootstrapFromDiscDns(
     conf: NetworkMonitorConf
 ): Future[Result[seq[enr.Record], string]] {.async.} =
   try:
-    let dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
+    let dnsNameServers: seq[IpAddress] = @[]
     let dynamicBootstrapNodes = (
       await retrieveDynamicBootstrapNodes(conf.dnsDiscoveryUrl, dnsNameServers)
     ).valueOr:

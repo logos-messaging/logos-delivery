@@ -168,8 +168,8 @@ class TestLogosDeliveryLifecycle:
             with self._create_start_node({**node_config, "staticnodes": [get_node_multiaddr(node)]}, peer_collector.event_callback):
                 assert wait_for_mesh(peer_collector), "peer never meshed with the node"
 
-    def test_peer_never_meshes_with_node_at_dns4_localhost(self, node_config):
-        # TODO: logos-delivery#1490
+    def test_peer_meshes_with_node_at_dns4_localhost(self, node_config):
+        # The name goes through the host's resolver when no DNS server is configured.
         node_config.update({"numShardsInNetwork": 1})
         with self._create_start_node(node_config) as node:
             peer_id_result = node.get_node_info("MyPeerId")
@@ -177,7 +177,7 @@ class TestLogosDeliveryLifecycle:
             dns4_multiaddr = f"/dns4/localhost/tcp/{get_node_tcp_port(node)}/p2p/{peer_id_result.ok_value.strip()}"
             peer_collector = EventCollector()
             with self._create_start_node({**node_config, "staticnodes": [dns4_multiaddr]}, peer_collector.event_callback):
-                assert not wait_for_mesh(peer_collector), "peer meshed with the node at a /dns4/localhost address"
+                assert wait_for_mesh(peer_collector), "peer never meshed with the node at a /dns4/localhost address"
 
     def test_peer_meshes_with_restarted_node(self, node_config):
         # A restarted node accepts the peers that connect after the restart.

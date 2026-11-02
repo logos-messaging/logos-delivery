@@ -787,3 +787,10 @@ suite "Waku Conf - max message size range":
     check:
       res.isErr()
       "too large" in res.error
+
+suite "Waku Conf - DNS name servers":
+  test "DNS name servers default to none, meaning the host's resolver":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    let conf = builder.build().get()
+    check conf.dnsAddrsNameServers.len == 0

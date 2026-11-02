@@ -64,8 +64,6 @@ const
   DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
   DefaultPortsShift: uint16 = 0
   DefaultExtMultiAddrsOnly: bool = false
-  DefaultDnsAddrsNameServers: seq[IpAddress] =
-    @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
   DefaultPeerPersistence: bool = false
   DefaultAgentString*: string = "logos-delivery-" & git_version
   DefaultRelayShardedPeerManagement: bool = false
@@ -861,12 +859,8 @@ proc build*(
       debug "Whether to only announce external multiaddresses is not specified, defaulting to false"
       DefaultExtMultiAddrsOnly
 
-  let dnsAddrsNameServers =
-    if builder.dnsAddrsNameServers.len != 0:
-      builder.dnsAddrsNameServers
-    else:
-      debug "DNS name servers IPs not provided, defaulting to Cloudflare's."
-      DefaultDnsAddrsNameServers
+  ## Empty means the host's resolver.
+  let dnsAddrsNameServers = builder.dnsAddrsNameServers
 
   let peerPersistence =
     if builder.peerPersistence.isSome():

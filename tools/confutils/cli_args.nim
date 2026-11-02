@@ -286,11 +286,8 @@ type WakuNodeConf* = object
   ## DNS addrs config
   dnsAddrsNameServers* {.
     desc:
-      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
-    defaultValue: @[
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 1, 1, 1]),
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 0, 0, 1]),
-    ],
+      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated. Defaults to the host's resolver.",
+    defaultValue: @[],
     name: "dns-addrs-name-server"
   .}: seq[IpAddress]
 

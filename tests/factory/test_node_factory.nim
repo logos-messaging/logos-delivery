@@ -30,6 +30,7 @@ import
     waku_metadata,
     waku_filter_v2,
     common/rate_limit/setting,
+    common/system_resolver,
   ],
   logos_delivery/waku/node/subscription_manager,
   logos_delivery/waku/rln/rln_lez/transport,
@@ -75,6 +76,35 @@ suite "Node Factory":
       node.wakuFilter.isNil()
       not node.wakuStoreClient.isNil()
       not node.wakuRendezvous.isNil()
+
+  asynctest "A node given no DNS servers resolves names through the host":
+    var conf = defaultTestWakuConf()
+    conf.dnsAddrsNameServers = @[]
+
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    check node.switch.nameResolver of SystemResolver
+
+  asynctest "A node given no DNS servers connects to a peer at a dns4 localhost address":
+    var conf = defaultTestWakuConf()
+    conf.dnsAddrsNameServers = @[]
+
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+    let peer = (await setupNode(defaultTestWakuConf(), relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    await allFutures(node.start(), peer.start())
+    defer:
+      await allFutures(node.stop(), peer.stop())
+
+    let peerDns4Addr =
+      "/dns4/localhost/tcp/" & $peer.boundTcpPort() & "/p2p/" &
+      $peer.switch.peerInfo.peerId
+    await node.connectToNodes(@[peerDns4Addr])
+
+    check node.switch.connManager.connCount(peer.switch.peerInfo.peerId) == 1
 
   asynctest "The store client reads a full page of the configured message size":
     var conf = defaultTestWakuConf()

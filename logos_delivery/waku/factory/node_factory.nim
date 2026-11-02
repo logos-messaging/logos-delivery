@@ -6,7 +6,6 @@ import
   libp2p/peerid,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
-  libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
@@ -45,7 +44,8 @@ import
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
-  ../common/rate_limit/setting
+  ../common/rate_limit/setting,
+  ../common/system_resolver
 
 ## Peer persistence
 
@@ -88,8 +88,7 @@ proc initNode(
     else:
       (Opt.none(string), Opt.none(string))
 
-  let nameResolver =
-    DnsResolver.new(conf.dnsAddrsNameServers.mapIt(initTAddress(it, Port(53))))
+  let nameResolver = newNameResolver(conf.dnsAddrsNameServers)
 
   # Build waku node instance
   var builder = WakuNodeBuilder.init()
