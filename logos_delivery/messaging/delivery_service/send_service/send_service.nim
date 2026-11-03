@@ -85,6 +85,10 @@ type SendService* = ref object of RootObj
   checkStoreForMessages: bool
   storeValidationHandle: Future[void]
     ## The Store validation loop. Nil when Store-based reliability is off.
+  resends: Table[WakuMessageHash, Future[void]]
+    ## The lightpush resend of each task, by message hash, while it runs. The
+    ## Store validation loop does not wait for them, and `stopSendService`
+    ## cancels them.
   maxDeliveryTime*: timer.Duration
     ## How long an admitted task may keep trying before it is failed.
   maxParkedAge*: timer.Duration
@@ -236,26 +240,55 @@ func storeAnswerPending(task: DeliveryTask): bool =
   ## True while the `deliver` of the task waits for a Store confirmation.
   return not task.storeAnswer.isNil() and not task.storeAnswer.finished()
 
-proc resendViaLightpush(self: SendService, task: DeliveryTask) {.async.} =
+proc resendViaLightpush(
+    self: SendService, task: DeliveryTask
+) {.async: (raises: [CancelledError]).} =
   ## Sends a message that no Store node reported once more through lightpush. A
   ## service node that has not seen the message, such as a Store node that joined
   ## the mesh after the first propagation, relays it. Relay is not used, as
   ## GossipSub drops a message that it already saw.
+  ##
+  ## No caller waits for this proc, so it logs each error and does not raise it.
+  ## It raises only `CancelledError`, so that `stopSendService` can stop it.
   if not self.waku.lightpushPeerAvailable(task.pubsubTopic):
     return
-  let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
-  if not await publish.withTimeout(StoreValidationQueryTimeout):
-    debug "Lightpush resend timed out",
+  try:
+    let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
+    if not await publish.withTimeout(StoreValidationQueryTimeout):
+      debug "Lightpush resend timed out",
+        requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+      return
+    publish.read().isOkOr:
+      debug "Lightpush resend failed",
+        requestId = task.requestId,
+        msgHash = task.msgHash.to0xHex(),
+        error = error.desc.get($error.code)
+      return
+    debug "Message resent via Lightpush after a Store miss",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-    return
-  publish.read().isOkOr:
+  except CancelledError as exc:
+    raise exc
+  except CatchableError as exc:
     debug "Lightpush resend failed",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      error = error.desc.get($error.code)
-    return
-  debug "Message resent via Lightpush after a Store miss",
-    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = exc.msg
+
+proc startResend(self: SendService, task: DeliveryTask) =
+  ## Starts the lightpush resend of `task` and does not wait for it. A task gets
+  ## no second resend while its last resend runs, so a lightpush peer that does
+  ## not answer holds a maximum of one resend for each task.
+  self.resends.withValue(task.msgHash, resend):
+    if not resend[].finished():
+      return
+  self.resends[task.msgHash] = self.resendViaLightpush(task)
+
+proc dropFinishedResends(self: SendService) =
+  ## Removes the resends that ended.
+  var ended: seq[WakuMessageHash]
+  for msgHash, resend in self.resends:
+    if resend.finished():
+      ended.add(msgHash)
+  for msgHash in ended:
+    self.resends.del(msgHash)
 
 proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   ## Asks a Store peer about one batch, confirms the tasks that it reports, and
@@ -292,9 +325,13 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
     if not task.isNil() and task.storeAnswerPending():
       task.storeAnswer.complete()
 
+  # A resend can wait for `StoreValidationQueryTimeout` on a lightpush peer that
+  # does not answer. The loop does not wait for the resends, so that a slow
+  # lightpush peer does not stop the Store rounds of the other tasks.
+  self.dropFinishedResends()
   for task in batch:
     if task.msgHash notin reported and task.storeAnswerPending():
-      await self.resendViaLightpush(task)
+      self.startResend(task)
 
 proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).} =
   ## Confirms propagated tasks against Store, one batch per round, apart from the
@@ -611,9 +648,9 @@ proc startSendService*(self: SendService) =
     self.storeValidationHandle = self.storeValidationLoop()
 
 proc stopSendService*(self: SendService) {.async: (raises: []).} =
-  ## Cancels each `deliver`, `retryLoop` and the Store validation loop. The tasks
-  ## stay in the send queue with no event, and `startSendService` starts them
-  ## again.
+  ## Cancels each `deliver`, `retryLoop`, the Store validation loop and each
+  ## lightpush resend. The tasks stay in the send queue with no event, and
+  ## `startSendService` starts them again.
   self.running = false
   var handles: seq[Future[void]]
   for handle in [self.retryLoopHandle, self.storeValidationHandle]:
@@ -621,6 +658,10 @@ proc stopSendService*(self: SendService) {.async: (raises: []).} =
       handles.add(handle)
   self.retryLoopHandle = nil
   self.storeValidationHandle = nil
+  for resend in self.resends.values:
+    if not resend.finished():
+      handles.add(resend)
+  self.resends.clear()
   for task in self.deliveryTasks.values:
     if task.isRunning():
       handles.add(task.deliverHandle)

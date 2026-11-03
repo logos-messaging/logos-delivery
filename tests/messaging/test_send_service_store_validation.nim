@@ -555,3 +555,43 @@ suite "SendService - Store validation loop":
     storedHashes.add(task.msgHash)
     task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
     check await log.waitEvent(SendEvent.Sent, task)
+
+  asyncTest "a lightpush resend that does not answer does not stop the Store rounds":
+    ## A resend waits for a lightpush peer that does not answer. A second task that
+    ## the Store reports must get `Sent` in the next round, not after the resend
+    ## timeout of 15 s.
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    let pushStarted = newFuture[void]("push started")
+    let releasePush = newFuture[void]("release push")
+    proc stalledHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      if not pushStarted.finished():
+        pushStarted.complete()
+      await releasePush
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, stalledHandler)
+    await lightpushNode.start()
+    defer:
+      # The handler must end before the stop, or the stop of the node waits for it.
+      if not releasePush.finished():
+        releasePush.complete()
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(ScriptedProc())
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    discard await service.sendAged("missed", stored = false)
+    check await pushStarted.withTimeout(chronos.seconds(5))
+
+    let stored = await service.sendAged("stored-after-stalled-resend")
+    check await log.waitEvent(SendEvent.Sent, stored)
