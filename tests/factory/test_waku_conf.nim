@@ -794,3 +794,18 @@ suite "Waku Conf - DNS name servers":
     builder.withClusterId(1)
     let conf = builder.build().get()
     check conf.dnsAddrsNameServers.len == 0
+
+suite "Network presets":
+  test "every preset lists its store nodes as multiaddrs with a peer id":
+    for preset in [
+      NetworkPresetConf.TheWakuNetworkConf(),
+      NetworkPresetConf.LogosDevConf(),
+      NetworkPresetConf.LogosTestConf(),
+      NetworkPresetConf.StatusProdConf(),
+      NetworkPresetConf.StatusStagingConf(),
+    ]:
+      check preset.storeNodes.len > 0
+      for storeNode in preset.storeNodes:
+        check:
+          MultiAddress.init(storeNode).isOk()
+          "/p2p/16Uiu2" in storeNode
