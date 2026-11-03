@@ -24,11 +24,27 @@ nameserver
     defer:
       removeFile(path)
 
-    check hostNameServers(path) ==
-      @[initTAddress("127.0.0.53:53"), initTAddress("[2606:4700:4700::1111]:53")]
+    let conf = readResolvConf(path)
+    check:
+      conf.servers ==
+        @[initTAddress("127.0.0.53:53"), initTAddress("[2606:4700:4700::1111]:53")]
+      conf.skippedEntries == 1
 
   test "a missing file gives no servers":
-    check hostNameServers(getTempDir() / "no-such-resolv.conf").len == 0
+    let conf = readResolvConf(getTempDir() / "no-such-resolv.conf")
+    check:
+      conf.servers.len == 0
+      conf.skippedEntries == 0
+
+  test "a zone-scoped entry is skipped and counted":
+    let path = getTempDir() / "resolv-zone-" & $getCurrentProcessId() & ".conf"
+    writeFile(path, "nameserver fe80::1%eth0\n")
+    defer:
+      removeFile(path)
+    let conf = readResolvConf(path)
+    check:
+      conf.servers.len == 0
+      conf.skippedEntries == 1
 
 suite "SystemResolver - resolution":
   asyncTest "resolveIp honours the family":
@@ -54,6 +70,17 @@ suite "SystemResolver - TXT name servers":
       resolvConfPath = getTempDir() / "no-such-resolv.conf",
       txtFallback = @[initTAddress("10.0.0.2:53")],
     )
+    check resolver.txtNameServers() == @[initTAddress("10.0.0.2:53")]
+
+  test "a host whose every entry is unusable falls back, and keeps falling back":
+    let path = getTempDir() / "resolv-unusable-" & $getCurrentProcessId() & ".conf"
+    writeFile(path, "nameserver fe80::1%eth0\n")
+    defer:
+      removeFile(path)
+    let resolver = SystemResolver.new(
+      resolvConfPath = path, txtFallback = @[initTAddress("10.0.0.2:53")]
+    )
+    check resolver.txtNameServers() == @[initTAddress("10.0.0.2:53")]
     check resolver.txtNameServers() == @[initTAddress("10.0.0.2:53")]
 
   test "the host's name servers are read at lookup time":
