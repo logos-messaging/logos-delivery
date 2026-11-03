@@ -33,6 +33,18 @@ nameserver
   test "a missing file gives no servers":
     let conf = readResolvConf(getTempDir() / "no-such-resolv.conf")
     check:
+      not conf.present
+      conf.servers.len == 0
+      conf.skippedEntries == 0
+
+  test "an empty file is present and gives no servers":
+    let path = getTempDir() / "resolv-empty-" & $getCurrentProcessId() & ".conf"
+    writeFile(path, "# managed by the container runtime\n")
+    defer:
+      removeFile(path)
+    let conf = readResolvConf(path)
+    check:
+      conf.present
       conf.servers.len == 0
       conf.skippedEntries == 0
 
@@ -69,6 +81,16 @@ suite "SystemResolver - TXT name servers":
     let resolver = SystemResolver.new(
       resolvConfPath = getTempDir() / "no-such-resolv.conf",
       txtFallback = @[initTAddress("10.0.0.2:53")],
+    )
+    check resolver.txtNameServers() == @[initTAddress("10.0.0.2:53")]
+
+  test "a host with an empty resolv.conf falls back":
+    let path = getTempDir() / "resolv-empty-fb-" & $getCurrentProcessId() & ".conf"
+    writeFile(path, "")
+    defer:
+      removeFile(path)
+    let resolver = SystemResolver.new(
+      resolvConfPath = path, txtFallback = @[initTAddress("10.0.0.2:53")]
     )
     check resolver.txtNameServers() == @[initTAddress("10.0.0.2:53")]
 

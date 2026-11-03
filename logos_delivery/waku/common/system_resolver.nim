@@ -20,6 +20,7 @@ type
     servers*: seq[TransportAddress]
       ## the usable `nameserver` entries, port 53, in file order
     skippedEntries*: int ## `nameserver` lines whose value is not an IP address
+    present*: bool ## the file was read; false when it is missing or unreadable
 
   SystemResolver* = ref object of NameResolver
     ## A and AAAA go through the OS resolver. TXT needs a DNS client, since the
@@ -37,7 +38,7 @@ proc readResolvConf*(resolvConfPath = DefaultResolvConfPath): ResolvConf =
       path = resolvConfPath, error = ioErrorMsg(error)
     return ResolvConf()
 
-  var conf: ResolvConf
+  var conf = ResolvConf(present: true)
   for rawLine in content.splitLines():
     let line = rawLine.strip()
     if line.len == 0 or line[0] in {'#', ';'}:
@@ -77,9 +78,10 @@ proc txtNameServers*(self: SystemResolver): seq[TransportAddress] =
     self.fallbackWarned = false
     return conf.servers
 
-  if conf.skippedEntries > 0 and not self.fallbackWarned:
-    ## The host does configure name servers, but none can be used, so TXT
-    ## lookups leave the host's DNS without the operator knowing.
+  if conf.present and not self.fallbackWarned:
+    ## The host has a resolv.conf but it yields no usable server (empty, or
+    ## every entry skipped), so TXT lookups leave the host's DNS without the
+    ## operator knowing. A missing file stays quiet: Windows has none.
     warn "No usable name server in resolv.conf, TXT lookups use the fallback",
       path = self.resolvConfPath,
       skipped = conf.skippedEntries,
