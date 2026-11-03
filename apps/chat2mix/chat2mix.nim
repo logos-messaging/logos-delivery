@@ -29,12 +29,13 @@ import
     peerid, # Implement how peers interact
     protocols/kademlia/types,
     protocols/service_discovery/types as sd_types,
-    nameresolving/dnsresolver,
+    nameresolving/nameresolver,
   ] # define DNS resolution
 import libp2p_mix/[curve25519, mix_protocol]
 import
   logos_delivery/waku/[
     common/protobuf,
+    common/system_resolver,
     waku_core,
     waku_core/peers,
     waku_lightpush/common,
@@ -523,11 +524,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   var discoveredNodes: seq[RemotePeerInfo]
 
   if dnsDiscoveryUrl.isSome:
-    var nameServers: seq[TransportAddress]
-    for ip in conf.dnsDiscoveryNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(conf.dnsDiscoveryNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain

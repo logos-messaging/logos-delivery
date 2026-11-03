@@ -61,7 +61,7 @@ Similarly, for `chat2`:
 
 The node will discover and attempt connection to all `waku.test` nodes during setup procedures.
 
-To use specific DNS name servers, one or more `--dns-addrs-name-server` arguments can be added:
+By default the node resolves names through the host's resolver. To use specific DNS name servers instead, one or more `--dns-addrs-name-server` arguments can be added:
 
 ```
 ./build/logosdeliverynode --dns-discovery:true --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im --dns-addrs-name-server:8.8.8.8 --dns-addrs-name-server:8.8.4.4

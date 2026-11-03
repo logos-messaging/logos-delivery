@@ -85,7 +85,6 @@ proc withNetworkConfigurationDetails*(
     wssEnabled: bool = false,
     wakuFlags = Opt.none(CapabilitiesBitfield),
     dns4DomainName = Opt.none(string),
-    dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): WakuNodeBuilderResult {.
     deprecated: "use 'builder.withNetworkConfiguration()' instead"
 .} =
@@ -100,7 +99,6 @@ proc withNetworkConfigurationDetails*(
     wssEnabled = wssEnabled,
     wakuFlags = wakuFlags,
     dns4DomainName = dns4DomainName,
-    dnsNameServers = dnsNameServers,
   )
   builder.withNetworkConfiguration(netConfig)
   ok()
@@ -180,8 +178,6 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     return err("network configuration is required")
 
   let netConfig = builder.netConfig.get()
-  if netConfig.dnsNameServers.len == 0:
-    return err("DNS name servers are required for WakuNode")
 
   if builder.record.isNone():
     return err("node record is required")

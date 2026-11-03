@@ -39,9 +39,6 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.discv5Conf.withUdpPort(Port(0))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
   builder.restServerConf.withPort(Port(0))
-  builder.withDnsAddrsNameServers(
-    @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
-  )
   # The "none" strategy keeps tests off real UPnP/NAT-PMP gateway discovery.
   builder.withNatStrategy("none")
   builder.withLocalStoragePath(InMemoryStoragePath)

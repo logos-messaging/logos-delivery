@@ -819,9 +819,7 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
     hm.node.wakuRelay.removeObserver(hm.relayObserver)
 
 proc new*(
-    T: type NodeHealthMonitor,
-    node: WakuNode,
-    dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+    T: type NodeHealthMonitor, node: WakuNode, dnsNameServers: seq[IpAddress] = @[]
 ): T =
   let om = OnlineMonitor.init(dnsNameServers)
   om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
