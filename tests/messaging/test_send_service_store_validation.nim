@@ -14,7 +14,7 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
-    [send_service, send_processor, delivery_task],
+    [send_service, send_processor, lightpush_processor, delivery_task],
   logos_delivery/api/events/messaging_client_events
 import ../testlib/[futures, testasync, wakunodeconf, wakucore, wakunode]
 import ../waku_store/store_utils
@@ -115,6 +115,15 @@ type ScriptedProc = ref object of BaseSendProcessor
   overMix: bool
   calls: int
   retryCalls: seq[int] ## Calls, counted from 1, that leave the task for a retry.
+  resender: BaseSendProcessor ## Sends a task again after a Store miss, nil for none.
+
+method canResend(self: ScriptedProc, task: DeliveryTask): bool {.gcsafe.} =
+  return not self.resender.isNil() and self.resender.canResend(task)
+
+method resendImpl(
+    self: ScriptedProc, task: DeliveryTask
+): Future[void] {.async: (raises: [CancelledError]).} =
+  await self.resender.resendImpl(task)
 
 method process(self: ScriptedProc, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
@@ -541,7 +550,7 @@ suite "SendService - Store validation loop":
       lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
     )
 
-    let processor = ScriptedProc()
+    let processor = ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
     let service = startedService(processor)
     defer:
       await service.stopSendService()
@@ -585,7 +594,9 @@ suite "SendService - Store validation loop":
       lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
     )
 
-    let service = startedService(ScriptedProc())
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
     defer:
       await service.stopSendService()
     allowAnswer.complete()
@@ -595,3 +606,69 @@ suite "SendService - Store validation loop":
 
     let stored = await service.sendAged("stored-after-stalled-resend")
     check await log.waitEvent(SendEvent.Sent, stored)
+
+  asyncTest "a message the Store reports is not sent again":
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    var pushed: seq[WakuMessageHash]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      pushed.add(computeMessageHash(pubsubTopic, message))
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
+    await lightpushNode.start()
+    defer:
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let task = await service.sendAged("reported")
+    check await log.waitEvent(SendEvent.Sent, task)
+    check pushed.len == 0
+
+  asyncTest "a message the Store never reports is sent again at most MaxStoreMissResends times":
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    var pushed: seq[WakuMessageHash]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      pushed.add(computeMessageHash(pubsubTopic, message))
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
+    await lightpushNode.start()
+    defer:
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let task = await service.sendAged("never-reported", stored = false)
+    for _ in 0 ..< MaxStoreMissResends + 3:
+      task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
+      await sleepAsync(chronos.milliseconds(100))
+    check:
+      pushed.len == MaxStoreMissResends
+      task.resendCount == MaxStoreMissResends
