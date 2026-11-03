@@ -1,5 +1,4 @@
-import time
-
+from src.libs.common import wait_until
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import EVENT_TOPIC_HEALTH_CHANGE, EventCollector, create_message_bindings, unique_channel_id
 from src.test_data import DEFAULT_CLUSTER_ID
@@ -29,11 +28,14 @@ SHARD_UNHEALTHY_EVENT = {
 }
 
 
-def assert_only_shard_health_event(collector: EventCollector, timeout_s: float = 5.0) -> None:
+def assert_only_shard_health_event(collector: EventCollector) -> None:
     """Wait for the shard health event of channel_create, and check that it is the only event."""
-    deadline = time.monotonic() + timeout_s
-    while SHARD_UNHEALTHY_EVENT not in collector.snapshot() and time.monotonic() < deadline:
-        time.sleep(0.1)
+    wait_until(
+        lambda: SHARD_UNHEALTHY_EVENT in collector.snapshot(),
+        timeout_duration=5,
+        time_between_retries=0.1,
+        message="expected the shard health event of channel_create",
+    )
     events = collector.snapshot()
     assert events == [SHARD_UNHEALTHY_EVENT], f"expected only the shard health event, got: {events}"
 
