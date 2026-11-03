@@ -3,22 +3,35 @@
 {.push raises: [].}
 
 import std/[nativesockets, net, strutils, typedthreads]
-import chronos, chronos/threadsync, results
+import chronos, chronos/threadsync, chronicles, results
+
+logScope:
+  topics = "waku host resolver"
 
 const
   MaxHostLen = 256
   MaxResolvedLen = 512
+  MaxErrorLen = 256
 
 type ResolveJob = object
   host: array[MaxHostLen, char]
   domain: Domain
   resolved: array[MaxResolvedLen, char] ## NUL terminated, comma separated addresses
   found: bool
+  error: array[MaxErrorLen, char] ## NUL terminated reason when `found` is false
   signal: ThreadSignalPtr
 
 type ResolveThread = Thread[ptr ResolveJob]
 
+proc recordError(job: ptr ResolveJob, text: string) =
+  for i in 0 ..< min(text.len, job.error.len - 1):
+    job.error[i] = text[i]
+
 proc resolveWorker(job: ptr ResolveJob) {.thread, nimcall.} =
+  ## Runs on a bare OS thread, where chronicles is not safe and no string can
+  ## cross to the event loop. A failure is therefore recorded in the job's
+  ## fixed buffer and reported by `reapResolver`, as the persistency backend
+  ## thread does with its `errBuf`.
   try:
     ## Hints are built here rather than through the `domain` overload, which
     ## adds AI_V4MAPPED for AF_INET6 and would answer an IPv6 lookup of an
@@ -54,8 +67,8 @@ proc resolveWorker(job: ptr ResolveJob) {.thread, nimcall.} =
         job.resolved[i] = joined[i]
       job.found = joined.len > 0
       freeAddrInfo(addrInfo)
-  except Exception:
-    discard
+  except Exception as e:
+    job.recordError(e.msg)
 
   discard job.signal.fireSync()
 
@@ -78,7 +91,11 @@ proc reapResolver(
     if job.found:
       Result[seq[string], string].ok(($cast[cstring](addr job.resolved[0])).split(','))
     else:
-      Result[seq[string], string].err("could not resolve the host: " & host)
+      let reason = $cast[cstring](addr job.error[0])
+      Result[seq[string], string].err(
+        "could not resolve the host " & host & ": " &
+          (if reason.len > 0: reason else: "no address")
+      )
 
   discard job.signal.close()
   deallocShared(thread)
@@ -96,6 +113,7 @@ proc getAddrInfoAsync*(
     return err("the host name length is out of range: " & $host.len)
 
   let signal = ThreadSignalPtr.new().valueOr:
+    warn "Could not create the host resolver signal", host, error = error
     return err("could not create the resolver signal: " & error)
 
   let job = cast[ptr ResolveJob](allocShared0(sizeof(ResolveJob)))
@@ -107,11 +125,12 @@ proc getAddrInfoAsync*(
   let thread = cast[ptr ResolveThread](allocShared0(sizeof(ResolveThread)))
   try:
     createThread(thread[], resolveWorker, job)
-  except CatchableError:
+  except CatchableError as e:
     discard signal.close()
     deallocShared(thread)
     deallocShared(job)
-    return err("could not start the resolver thread")
+    warn "Could not start the host resolver thread", host, error = e.msg
+    return err("could not start the resolver thread: " & e.msg)
 
   let res = Future[Result[seq[string], string]].Raising([CancelledError]).init(
       "getAddrInfoAsync"

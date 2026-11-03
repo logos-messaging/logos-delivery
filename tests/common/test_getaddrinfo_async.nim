@@ -22,8 +22,13 @@ suite "getAddrInfoAsync":
         "127.0.0.1" notin res.get()
         res.get().allIt(':' in it)
 
-  asyncTest "an unknown host is an error":
-    check (await getAddrInfoAsync("host.invalid")).isErr()
+  asyncTest "an unknown host is an error that carries the resolver's reason":
+    let res = await getAddrInfoAsync("host.invalid")
+    check res.isErr()
+    const prefix = "could not resolve the host host.invalid: "
+    check:
+      res.error.startsWith(prefix)
+      res.error.len > prefix.len
 
   asyncTest "an empty name is an error":
     check (await getAddrInfoAsync("")).isErr()
