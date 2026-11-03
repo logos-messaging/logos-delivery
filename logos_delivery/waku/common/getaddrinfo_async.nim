@@ -73,10 +73,8 @@ proc resolveWorker(job: ptr ResolveJob) {.thread, nimcall.} =
   discard job.signal.fireSync()
 
 proc reapResolver(
-    job: ptr ResolveJob,
-    thread: ptr ResolveThread,
-    res: Future[Result[seq[string], string]].Raising([CancelledError]),
-) {.async: (raises: []).} =
+    job: ptr ResolveJob, thread: ptr ResolveThread
+): Future[Result[seq[string], string]] {.async: (raises: []).} =
   ## Owns the job and the thread until the worker is done, even when the caller
   ## was cancelled, so that nothing is freed under a running thread.
   try:
@@ -101,8 +99,7 @@ proc reapResolver(
   deallocShared(thread)
   deallocShared(job)
 
-  if not res.finished():
-    res.complete(outcome)
+  return outcome
 
 proc getAddrInfoAsync*(
     host: string, domain: Domain = Domain.AF_UNSPEC
@@ -132,9 +129,9 @@ proc getAddrInfoAsync*(
     warn "Could not start the host resolver thread", host, error = e.msg
     return err("could not start the resolver thread: " & e.msg)
 
-  let res = Future[Result[seq[string], string]].Raising([CancelledError]).init(
-      "getAddrInfoAsync"
-    )
-  asyncSpawn reapResolver(job, thread, res)
-
-  return await res
+  ## The reaper must outlive a cancelled caller, so it is joined rather than
+  ## awaited: `join` waits for it without cancelling it. After the join the
+  ## future is finished and cannot fail (`raises: []`), so `value` is safe.
+  let reaped = reapResolver(job, thread)
+  await reaped.join()
+  return reaped.value()
