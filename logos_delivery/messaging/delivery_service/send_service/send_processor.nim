@@ -29,9 +29,10 @@ method canResend*(self: BaseSendProcessor, task: DeliveryTask): bool {.base, gcs
 method resendImpl*(
     self: BaseSendProcessor, task: DeliveryTask
 ): Future[void] {.async: (raises: [CancelledError]), base.} =
-  ## Sends the task again. It logs each error and raises only `CancelledError`,
-  ## as no caller reads a result.
-  discard
+  ## Sends the task again. A processor that returns true from `canResend` must
+  ## override it, and it must log each error and raise only `CancelledError`, as
+  ## no caller reads a result.
+  assert false, "Not implemented"
 
 proc resend*(
     self: BaseSendProcessor, task: DeliveryTask
