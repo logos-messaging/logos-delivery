@@ -523,6 +523,13 @@ suite "MessagingClientConf - store override":
         # MessagingClientConf has no relay field (per spec); only the mode
         # sets relay on the library API path
 
+  test "configured-store-nodes-only reaches the kernel":
+    let kc = MessagingClientConf(configuredStoreNodesOnly: Opt.some(true)).toWakuNodeConf(
+      LogosDeliveryMode.Edge
+    ).valueOr:
+      raiseAssert error
+    check kc.configuredStoreNodesOnly
+
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
   let conf = LogosDeliveryConf.init(

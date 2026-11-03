@@ -41,6 +41,37 @@ suite "Node app - Waku":
     check:
       maxMessageSize == $conf.maxMessageSizeBytes
 
+  test "store nodes should be reported from node info":
+    ## Given
+    let conf = defaultTestWakuConf()
+    conf.storeNodes = @[
+      "/dns4/store-01.example.com/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT"
+    ]
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let storeNodes = waku.stateInfo.getNodeInfoItem(NodeInfoId.StoreNodes)
+
+    ## Then
+    check:
+      parseJson(storeNodes).to(seq[string]) == conf.storeNodes
+
+  test "store nodes should be an empty list without a preset":
+    ## Given
+    let conf = defaultTestWakuConf()
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let storeNodes = waku.stateInfo.getNodeInfoItem(NodeInfoId.StoreNodes)
+
+    ## Then
+    check:
+      storeNodes == "[]"
+
   test "is running should follow start and stop":
     ## Given
     let conf = defaultTestWakuConf()

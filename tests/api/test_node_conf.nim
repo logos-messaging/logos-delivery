@@ -130,6 +130,7 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.shards == @[32'u16]
       wakuConf.subscribeShards == @[32'u16]
       wakuConf.extraListenShards == @[64'u16]
+      wakuConf.storeNodes == NetworkPresetConf.StatusProdConf().storeNodes
       wakuConf.rlnEvmConf.isNone()
 
   test "StatusStaging preset applies StatusStagingConf":
@@ -150,7 +151,26 @@ suite "WakuNodeConf - preset integration":
       wakuConf.shardingConf.shards == @[32'u16]
       wakuConf.subscribeShards == @[32'u16]
       wakuConf.extraListenShards == @[64'u16]
+      wakuConf.storeNodes == NetworkPresetConf.StatusStagingConf().storeNodes
       wakuConf.rlnEvmConf.isNone()
+
+  test "configured-store-nodes-only keeps the preset's store nodes":
+    ## Given
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+    conf.configuredStoreNodesOnly = true
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    check:
+      wakuConf.validate().isOk()
+      wakuConf.configuredStoreNodesOnly
+      wakuConf.storeNodes == NetworkPresetConf.StatusProdConf().storeNodes
 
   test "num-shards-in-network replaces a preset's shards":
     ## Given
