@@ -248,7 +248,7 @@ proc setupProtocols(
 
   if conf.configuredStoreNodesOnly:
     var storePeers: seq[RemotePeerInfo]
-    for storeNode in conf.storeNodes:
+    for storeNode in conf.presetStoreNodes:
       let storePeer = parsePeerInfo(storeNode).valueOr:
         return err("failed to parse store node " & storeNode & ": " & error)
       storePeers.add(storePeer)
@@ -446,6 +446,13 @@ proc startNode*(
       await connectToNodes(node, conf.staticNodes, "static")
     except CatchableError:
       return err("failed to connect to static nodes: " & getCurrentExceptionMsg())
+
+  # With `configuredStoreNodesOnly`, the store client health counts only the
+  # configured store nodes that are connected. Do not wait for the dials, so
+  # an unreachable store node does not make the start slow. `stop` cancels them.
+  if conf.configuredStoreNodesOnly:
+    node.storeNodesConnectFut =
+      node.connectToNodes(conf.configuredStoreNodes(), "store")
 
   if dynamicBootstrapNodes.len > 0:
     info "Connecting to dynamic bootstrap peers"
