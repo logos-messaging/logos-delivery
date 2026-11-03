@@ -15,6 +15,6 @@ proc resolveHostAddr*(host: string): Future[Result[string, string]] {.async.} =
   ## Every address is kept, in the resolver's order, so that libpq still
   ## falls back from one to the next as it does when it resolves itself.
   let addrs = (await getAddrInfoAsync(host)).valueOr:
-    return err(error)
+    return err("could not resolve postgres host address: " & error)
 
   return ok(addrs.join(","))

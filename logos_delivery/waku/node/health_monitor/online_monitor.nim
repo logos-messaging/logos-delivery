@@ -31,7 +31,7 @@ proc checkInternetConnectivity(
     if nameServerIps.len > 0:
       nameServerIps.mapIt(initTAddress(it, Port(53)))
     else:
-      DefaultTxtFallbackServers
+      DefaultFallbackServers
   let dnsResolver = DnsResolver.new(nameServers)
 
   # Resolve domain IP

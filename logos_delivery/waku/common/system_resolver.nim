@@ -12,7 +12,7 @@ logScope:
 
 const
   DefaultResolvConfPath = "/etc/resolv.conf"
-  DefaultTxtFallbackServers* = @[initTAddress("1.1.1.1:53"), initTAddress("1.0.0.1:53")]
+  DefaultFallbackServers* = @[initTAddress("1.1.1.1:53"), initTAddress("1.0.0.1:53")]
     ## Asked for TXT records when the host lists no name server of its own.
 
 type SystemResolver* = ref object of NameResolver
@@ -53,7 +53,7 @@ proc hostNameServers*(resolvConfPath = DefaultResolvConfPath): seq[TransportAddr
 proc new*(
     T: typedesc[SystemResolver],
     resolvConfPath = DefaultResolvConfPath,
-    txtFallback: seq[TransportAddress] = DefaultTxtFallbackServers,
+    txtFallback: seq[TransportAddress] = DefaultFallbackServers,
 ): T =
   T(resolvConfPath: resolvConfPath, txtFallback: txtFallback, rng: newRng())
 
