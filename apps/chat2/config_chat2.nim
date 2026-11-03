@@ -174,7 +174,7 @@ type
 
     dnsAddrsNameServers* {.
       desc:
-        "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
+        "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated. Defaults to the host's resolver.",
       defaultValue: @[],
       name: "dns-addrs-name-server"
     .}: seq[IpAddress]

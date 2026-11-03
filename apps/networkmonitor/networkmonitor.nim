@@ -361,15 +361,15 @@ proc crawlNetwork(
     await sleepAsync(crawlInterval.millis - elapsed.millis)
 
 proc retrieveDynamicBootstrapNodes(
-    dnsDiscoveryUrl: string, dnsAddrsNameServers: seq[IpAddress]
+    dnsDiscoveryUrl: string
 ): Future[Result[seq[RemotePeerInfo], string]] {.async.} =
-  ## Retrieve dynamic bootstrap nodes (DNS discovery)
+  ## Retrieve dynamic bootstrap nodes (DNS discovery) through the host's resolver
 
   if dnsDiscoveryUrl != "":
     # DNS discovery
     info "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
 
-    let dnsResolver = newNameResolver(dnsAddrsNameServers)
+    let dnsResolver = newNameResolver(@[])
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain
@@ -388,9 +388,8 @@ proc getBootstrapFromDiscDns(
     conf: NetworkMonitorConf
 ): Future[Result[seq[enr.Record], string]] {.async.} =
   try:
-    let dnsNameServers: seq[IpAddress] = @[]
     let dynamicBootstrapNodes = (
-      await retrieveDynamicBootstrapNodes(conf.dnsDiscoveryUrl, dnsNameServers)
+      await retrieveDynamicBootstrapNodes(conf.dnsDiscoveryUrl)
     ).valueOr:
       return err("Failed retrieving dynamic bootstrap nodes: " & $error)
 

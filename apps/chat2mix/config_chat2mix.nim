@@ -194,7 +194,8 @@ type
     .}: string
 
     dnsDiscoveryNameServers* {.
-      desc: "DNS name server IPs to query. Argument may be repeated.",
+      desc:
+        "DNS name server IPs to query. Argument may be repeated. Defaults to the host's resolver.",
       defaultValue: @[],
       name: "dns-discovery-name-server"
     .}: seq[IpAddress]
