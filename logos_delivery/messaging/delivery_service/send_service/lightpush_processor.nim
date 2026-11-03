@@ -7,7 +7,7 @@ import ./[delivery_task, send_processor]
 logScope:
   topics = "send service lightpush processor"
 
-const ResendTimeout = chronos.seconds(15)
+const ResendTimeout = chronos.seconds(5)
   ## Bounds one resend, as `sendPushRequest` has no timeout of its own.
 
 type LightpushSendProcessor* = ref object of BaseSendProcessor

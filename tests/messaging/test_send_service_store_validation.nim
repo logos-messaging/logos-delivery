@@ -550,7 +550,8 @@ suite "SendService - Store validation loop":
       lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
     )
 
-    let processor = ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    let processor =
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
     let service = startedService(processor)
     defer:
       await service.stopSendService()
@@ -568,7 +569,7 @@ suite "SendService - Store validation loop":
   asyncTest "a lightpush resend that does not answer does not stop the Store rounds":
     ## A resend waits for a lightpush peer that does not answer. A second task that
     ## the Store reports must get `Sent` in the next round, not after the resend
-    ## timeout of 15 s.
+    ## timeout of 5 s.
     let lightpushNode = newTestWakuNode(generateSecp256k1Key())
     lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
       raiseAssert "mountMetadata: " & error

@@ -22,9 +22,7 @@ method sendImpl*(
 ): Future[void] {.async, base.} =
   assert false, "Not implemented"
 
-method canResend*(
-    self: BaseSendProcessor, task: DeliveryTask
-): bool {.base, gcsafe.} =
+method canResend*(self: BaseSendProcessor, task: DeliveryTask): bool {.base, gcsafe.} =
   ## True when this processor can send the task again after a Store miss.
   return false
 

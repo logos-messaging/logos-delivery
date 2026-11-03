@@ -51,8 +51,7 @@ const StoreValidationQueryTimeout = chronos.seconds(15)
   ## Bounds one Store validation query with its dials. It exceeds one
   ## `DefaultDialTimeout`, so a dead Store peer leaves time for another.
 
-const MaxStoreMissResends* = 3
-  ## The most resends of one message after a Store miss.
+const MaxStoreMissResends* = 3 ## The most resends of one message after a Store miss.
 
 const MaxSendsInFlight* = 50
   ## The number of sends that run at the same time. It bounds the open streams
@@ -299,7 +298,7 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
     if not task.isNil() and task.storeAnswerPending():
       task.storeAnswer.complete()
 
-  # A resend can wait for `StoreValidationQueryTimeout` on a lightpush peer that
+  # A resend can wait for its timeout on a lightpush peer that
   # does not answer. The loop does not wait for the resends, so that a slow
   # lightpush peer does not stop the Store rounds of the other tasks.
   self.dropFinishedResends()
