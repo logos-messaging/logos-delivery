@@ -88,7 +88,7 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#fd97eb355eee5d14594
 
 requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
 
-requires "https://github.com/status-im/nim-leopard#2e8de41205ea44b6f33b5cad676bab215b36c987"
+requires "https://github.com/status-im/nim-leopard#b1868c6f2e794666e6cc43ac9aefe8828f4a78b4"
 
 # v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
 # libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
