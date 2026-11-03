@@ -117,16 +117,14 @@ suite "Health Monitor - health state calculation":
       protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
       protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
       protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
-    strength[StoreClientProtocol] = HealthyThreshold
     let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.Connected
 
-  test "Disconnected, edge missing store":
+  test "Connected, edge without store peers":
     let protocols = @[
       protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
       protoHealthMock(FilterClientProtocol, HealthStatus.READY),
@@ -137,6 +135,28 @@ suite "Health Monitor - health state calculation":
     strength[FilterClientProtocol] = HealthyThreshold
     strength[StoreClientProtocol] = 0
     let state = calculateConnectionState(protocols, strength, Opt.none(int))
+    check state == ConnectionStatus.Connected
+
+  test "PartiallyConnected, edge with a single filter peer":
+    let protocols = @[
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[LightpushClientProtocol] = HealthyThreshold
+    strength[FilterClientProtocol] = 1
+    let state = calculateConnectionState(protocols, strength, Opt.none(int))
+    check state == ConnectionStatus.PartiallyConnected
+
+  test "Disconnected, edge without lightpush peers":
+    let protocols = @[
+      protoHealthMock(LightpushClientProtocol, HealthStatus.NOT_READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[LightpushClientProtocol] = 0
+    strength[FilterClientProtocol] = HealthyThreshold
+    let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, edge meets minimum failover requirement":
@@ -144,12 +164,10 @@ suite "Health Monitor - health state calculation":
     let protocols = @[
       protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
       protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = weakCount
     strength[FilterClientProtocol] = weakCount
-    strength[StoreClientProtocol] = weakCount
     let state = calculateConnectionState(protocols, strength, Opt.none(int))
     check state == ConnectionStatus.PartiallyConnected
 
@@ -229,13 +247,11 @@ suite "Health Monitor - health state calculation":
       protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
       protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
       protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
       protoHealthMock(MixProtocol, HealthStatus.NOT_READY),
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
-    strength[StoreClientProtocol] = HealthyThreshold
     let state = requireMixReady(
       calculateConnectionState(protocols, strength, Opt.none(int)), protocols
     )

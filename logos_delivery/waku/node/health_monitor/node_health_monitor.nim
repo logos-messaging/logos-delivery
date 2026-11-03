@@ -429,7 +429,6 @@ proc calculateConnectionState*(
     relayCount = 0
     lightpushCount = 0
     filterCount = 0
-    storeClientCount = 0
 
   for p in protocols:
     let kind =
@@ -445,15 +444,12 @@ proc calculateConnectionState*(
 
     if kind in RelayProtocols:
       relayCount = max(relayCount, strength)
-    elif kind in StoreClientProtocols:
-      storeClientCount = max(storeClientCount, strength)
     elif kind in LightpushClientProtocols:
       lightpushCount = max(lightpushCount, strength)
     elif kind in FilterClientProtocols:
       filterCount = max(filterCount, strength)
 
-  debug "calculateConnectionState",
-    relayCount, storeClientCount, lightpushCount, filterCount
+  debug "calculateConnectionState", relayCount, lightpushCount, filterCount
 
   # Relay connectivity should be a sufficient check in Core mode.
   # "Store peers" are relay peers because incoming messages in
@@ -473,16 +469,14 @@ proc calculateConnectionState*(
 
   let canSend = lightpushCount > 0
   let canReceive = filterCount > 0
-  let canStore = storeClientCount > 0
 
-  let meetsMinimum = canSend and canReceive and canStore
+  let meetsMinimum = canSend and canReceive
 
   if not meetsMinimum:
     return ConnectionStatus.Disconnected
 
   let isEdgeRobust =
-    (lightpushCount >= HealthyThreshold) and (filterCount >= HealthyThreshold) and
-    (storeClientCount >= HealthyThreshold)
+    (lightpushCount >= HealthyThreshold) and (filterCount >= HealthyThreshold)
 
   if isEdgeRobust:
     return ConnectionStatus.Connected
