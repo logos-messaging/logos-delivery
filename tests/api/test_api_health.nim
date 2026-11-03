@@ -1,6 +1,6 @@
 {.used.}
 
-import results, std/[sequtils, times]
+import results, std/[sequtils, tables, times]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
@@ -18,7 +18,6 @@ import
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)
-const NegativeTestTimeout = chronos.seconds(1)
 const DefaultShard = PubsubTopic("/waku/2/rs/3/0")
 const TestContentTopic = ContentTopic("/waku/2/default-content/proto")
 
@@ -261,25 +260,66 @@ suite "LM API health checking":
       client.waku.node.wakuRelay.getNumPeersInMesh(DefaultShard) ==
         Result[int, string].ok(0)
 
-  asyncTest "EventShardTopicHealthChange, no health reported before a peer meshes":
-    # TODO: logos-delivery#4544
-    client.waku.node.wakuRelay.subscribe(DefaultShard, dummyHandler)
-
+  asyncTest "EventShardTopicHealthChange, a subscribe reports the shard health":
+    ## A listener that comes late gets no health event until the health of a
+    ## shard changes. So each new content topic reports the health of its shard.
     let healths = new seq[TopicHealth]
     let handle = listenShardHealth(client.waku.brokerCtx, healths)
     defer:
       await EventShardTopicHealthChange.dropListener(client.waku.brokerCtx, handle)
 
-    # The node reports no UNHEALTHY although its mesh is empty.
-    await sleepAsync(NegativeTestTimeout)
-    check:
-      client.waku.node.wakuRelay.getNumPeersInMesh(DefaultShard) ==
-        Result[int, string].ok(0)
-      healths[].len == 0
+    # The shard has no mesh peer, so the subscribe reports UNHEALTHY.
+    client.waku.subscribe(TestContentTopic).isOkOr:
+      raiseAssert error
+    checkUntilTimeout:
+      healths[] == @[TopicHealth.UNHEALTHY]
 
     await client.waku.node.connectToNodes(@[servicePeerInfo])
     checkUntilTimeout:
+      healths[] == @[TopicHealth.UNHEALTHY, TopicHealth.MINIMALLY_HEALTHY]
+
+    # A module that shares the node can subscribe its own content topic on the
+    # same shard, and it must also get the health.
+    let otherContentTopic = ContentTopic("/waku/2/other-content/proto")
+    client.waku.subscribe(otherContentTopic).isOkOr:
+      raiseAssert error
+    checkUntilTimeout:
+      healths[] ==
+        @[
+          TopicHealth.UNHEALTHY, TopicHealth.MINIMALLY_HEALTHY,
+          TopicHealth.MINIMALLY_HEALTHY,
+        ]
+    check client.waku.isContentSubscribed(DefaultShard, otherContentTopic)
+
+  asyncTest "EventShardTopicHealthChange, a subscribe reports the stored health and its correction":
+    ## The stored relay health can be stale until the relay checks the shard
+    ## again. No peer event gives that state reliably, so the test sets it.
+    ## The subscribe must report the stored value that the relay compares with,
+    ## and the relay must then report the correction.
+    let healths = new seq[TopicHealth]
+    let handle = listenShardHealth(client.waku.brokerCtx, healths)
+    defer:
+      await EventShardTopicHealthChange.dropListener(client.waku.brokerCtx, handle)
+
+    # The start marks the configured shard dirty. The health event of the mesh
+    # shows that the relay checked the shard, so after it only the subscribe
+    # can make the relay correct the stored health.
+    await client.waku.node.connectToNodes(@[servicePeerInfo])
+    checkUntilTimeout:
       healths[] == @[TopicHealth.MINIMALLY_HEALTHY]
+
+    # The stored health of the shard is stale, as the mesh has one peer.
+    client.waku.node.wakuRelay.topicsHealth[DefaultShard] =
+      TopicHealth.SUFFICIENTLY_HEALTHY
+
+    client.waku.subscribe(TestContentTopic).isOkOr:
+      raiseAssert error
+    checkUntilTimeout:
+      healths[] ==
+        @[
+          TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY,
+          TopicHealth.MINIMALLY_HEALTHY,
+        ]
 
   asyncTest "RequestHealthReport, check aggregate report":
     let req = await RequestHealthReport.request(client.waku.brokerCtx)

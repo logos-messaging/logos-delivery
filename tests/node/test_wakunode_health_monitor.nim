@@ -660,6 +660,73 @@ suite "Health Monitor - events":
     await nodeB.stop()
     await nodeA.stop()
 
+  asyncTest "Edge reports the shard health at each content topic subscribe":
+    ## A listener that comes late gets no health event until the health of a
+    ## shard changes. So each new content topic reports the health of its shard.
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
+      nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+      await nodeA.mountFilterClient()
+      check nodeA.mountAutoSharding(1, 1).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      nodeA.subscriptionManager.edgeFilterSubLoopDebounce = 50.milliseconds
+      await nodeA.start()
+    defer:
+      await nodeA.stop()
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
+      nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.mountFilter()
+      check nodeB.mountAutoSharding(1, 1).isOk
+      nodeB.mountMetadata(1, @[0'u16]).expect("Node B failed to mount metadata")
+      await nodeB.start()
+    defer:
+      await nodeB.stop()
+
+    var healths: seq[TopicHealth]
+    let shardHealthLis = EventShardTopicHealthChange
+      .listen(
+        nodeA.brokerCtx,
+        proc(
+            evt: EventShardTopicHealthChange
+        ): Future[void] {.async: (raises: []), gcsafe.} =
+          healths.add(evt.health),
+      )
+      .expect("Failed to listen for shard health")
+    defer:
+      await EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+
+    let peerB = nodeB.switch.peerInfo.toRemotePeerInfo()
+    await nodeA.connectToNodes(@[peerB])
+    checkUntilTimeout:
+      nodeA.switch.peerStore.hasShard(peerB.peerId, 1, 0)
+
+    # The edge has no filter peer for the shard yet, so the subscribe reports
+    # UNHEALTHY. Node B then confirms the subscription.
+    nodeA.subscriptionManager
+      .subscribe(ContentTopic("/waku/2/default-content/proto"))
+      .expect("Failed to subscribe")
+    checkUntilTimeout:
+      healths == @[TopicHealth.UNHEALTHY, TopicHealth.MINIMALLY_HEALTHY]
+
+    # A module that shares the node can subscribe its own content topic on the
+    # same shard, and it must also get the health.
+    nodeA.subscriptionManager
+      .subscribe(ContentTopic("/waku/2/other-content/proto"))
+      .expect("Failed to subscribe")
+    checkUntilTimeout:
+      healths ==
+        @[
+          TopicHealth.UNHEALTHY, TopicHealth.MINIMALLY_HEALTHY,
+          TopicHealth.MINIMALLY_HEALTHY,
+        ]
+    check nodeA.subscriptionManager.edgeFilterPeerCount(PubsubTopic("/waku/2/rs/1/0")) ==
+      1
+
   asyncTest "Edge reports UNHEALTHY for its shard at stop":
     ## A stopped edge has no filter peer. The relay reports UNHEALTHY for each
     ## shard at its stop, and the edge must do the same.
