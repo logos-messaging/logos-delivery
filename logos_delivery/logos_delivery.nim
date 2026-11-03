@@ -219,27 +219,32 @@ proc new*(
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each present layer bottom-up: transport, then messaging, then channels.
-  ## A start that fails stops the layers that this call started. The channel
-  ## layer cannot fail, and its `stop` closes the channels made before `start`,
-  ## so the rollback does not stop it.
+  ## Only a stopped node starts: a stop in progress, or one layer up and the
+  ## other down, is refused before anything is touched. A start that fails
+  ## stops the transport and messaging layers. The channel layer cannot fail,
+  ## and its `stop` closes the channels made before `start`, so the rollback
+  ## does not stop it.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
-  let transportWasUp = self.waku.node.started
+  if not self.messagingClient.isNil():
+    if self.messagingClient.stopping:
+      return err("cannot start while a stop is in progress")
+    if self.waku.node.started != self.messagingClient.started:
+      return err("cannot start a node with one layer already up")
+
   # Waku.start stops the node when it fails after the node started.
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
-  let messagingWasUp = self.messagingClient.isNil() or self.messagingClient.started
   var startSucceeded = false
   defer:
     if not startSucceeded:
       # noCancel: a cancelled rollback leaves the node half stopped.
-      if not messagingWasUp:
+      if not self.messagingClient.isNil():
         await noCancel self.messagingClient.stop()
-      if not transportWasUp:
-        (await noCancel self.waku.stop()).isOkOr:
-          error "Failed to stop after a failed start", error = error
+      (await noCancel self.waku.stop()).isOkOr:
+        error "Failed to stop after a failed start", error = error
 
   if not self.messagingClient.isNil():
     self.messagingClient.start().isOkOr:

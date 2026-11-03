@@ -260,20 +260,32 @@ suite "LogosDelivery - broker lifecycle":
       (await node.stop()).isOkOr:
         raiseAssert error
 
-  asyncTest "a failed start keeps a transport that was already up":
+  asyncTest "start refuses a node with the transport already up":
     lockNewGlobalBrokerContext:
       let ctx = globalBrokerContext()
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
       (await node.waku.start()).isOkOr:
         raiseAssert "transport start: " & error
-      holdMessagingSubscribe(ctx)
 
       check:
         (await node.start()).isErr()
         node.waku.node.started
         MessagingSend.getCurrentProvider(ctx).isNone()
 
-      MessagingSubscribe.clearProvider(ctx)
       (await node.stop()).isOkOr:
         raiseAssert error
+
+  asyncTest "start refuses a node that is stopping":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      node.messagingClient.stopping = true
+
+      check:
+        (await node.start()).isErr()
+        not node.waku.node.started
+        MessagingSend.getCurrentProvider(ctx).isNone()
+
+      node.messagingClient.stopping = false
