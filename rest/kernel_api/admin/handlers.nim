@@ -76,7 +76,9 @@ proc populateAdminPeerInfo(
   if codec.isNone():
     peers = node.peerManager.switch.peerStore.peers().mapIt(WakuPeer.init(it))
   else:
-    let peersTuples = node.peerManager.switch.peerStore.peers(codec.get()).mapIt(
+    let peersTuples = node.peerManager.switch.peerStore
+      .getPeersByProtocol(codec.get())
+      .mapIt(
         (
           multiaddr: constructMultiaddrStr(it),
           protocol: codec.get(),

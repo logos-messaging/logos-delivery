@@ -46,14 +46,10 @@ proc updateOnlineState(self: OnlineMonitor) {.async.} =
     trace "No online state observers registered, cannot notify about online state change"
     return
 
-  let numConnectedPeers =
-    if self.peerStore.isNil():
-      0
-    else:
-      self.peerStore.peers().countIt(it.connectedness == Connected)
+  let peerConnected = not self.peerStore.isNil() and self.peerStore.hasConnectedPeers()
 
   let online =
-    if numConnectedPeers > 0:
+    if peerConnected:
       true
     else:
       await checkInternetConnectivity(self.dnsNameServers)
