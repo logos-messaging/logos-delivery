@@ -300,3 +300,41 @@ suite "Persistency lifecycle":
     let aw9 = await KvExists.request(t.context, "msg", k)
     let r3 = aw9.get()
     check r3.value == false
+
+  test "closeJob wakes the worker without a wait":
+    # `stopStorageThread` fires the stop signal of the worker. Without the
+    # signal, the worker never wakes and `closeJob` hangs in `joinThread`.
+    let root = tmpRoot("wake")
+    defer:
+      removeDir(root)
+    let p = Persistency.new(root).get()
+    defer:
+      p.close()
+    for i in 0 ..< 5:
+      let id = "wake" & $i
+      discard p.openJob(id).get()
+      let startedAt = Moment.now()
+      p.closeJob(id)
+      check Moment.now() - startedAt < chronos.seconds(2)
+
+  asyncTest "closeJob stops only the worker of its own job":
+    let root = tmpRoot("own")
+    defer:
+      removeDir(root)
+    let p = Persistency.new(root).get()
+    defer:
+      p.close()
+    let kept = p.openJob("kept").get()
+    discard p.openJob("closed").get()
+    # A signal to the wrong worker leaves this `closeJob` in `joinThread`.
+    let startedAt = Moment.now()
+    p.closeJob("closed")
+    check Moment.now() - startedAt < chronos.seconds(2)
+
+    let k = key("own", 1'i64)
+    let put = await KvPut.request(kept.context, "msg", k, payloadBytes("v"))
+    check put.isOk()
+    let exists = await KvExists.request(kept.context, "msg", k)
+    check:
+      exists.isOk()
+      exists.get().value
