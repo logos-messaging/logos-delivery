@@ -302,8 +302,8 @@ suite "Persistency lifecycle":
     check r3.value == false
 
   test "closeJob wakes the worker without a wait":
-    # The `StorageThreadShutdown` signal wakes the worker. Without the signal, the
-    # worker reads `shutdownFlag` only after `ShutdownCheckInterval` (10 s).
+    # `stopStorageThread` fires the stop signal of the worker. Without the
+    # signal, the worker never wakes and `closeJob` hangs in `joinThread`.
     let root = tmpRoot("wake")
     defer:
       removeDir(root)
@@ -326,8 +326,7 @@ suite "Persistency lifecycle":
       p.close()
     let kept = p.openJob("kept").get()
     discard p.openJob("closed").get()
-    # A signal to the wrong worker makes this `closeJob` wait
-    # `ShutdownCheckInterval` (10 s).
+    # A signal to the wrong worker leaves this `closeJob` in `joinThread`.
     let startedAt = Moment.now()
     p.closeJob("closed")
     check Moment.now() - startedAt < chronos.seconds(2)
