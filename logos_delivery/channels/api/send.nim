@@ -11,13 +11,11 @@ proc send*(
     channelId: ChannelId,
     appPayload: seq[byte],
     ephemeral: bool = false,
-    priority: MessagePriority = MessagePriority.Medium,
 ): Future[Result[RequestId, string]] {.async: (raises: []).} =
-  ## `priority` is currently ignored.
   ## Spec-level entry point. Looks the channel up by id and delegates
   ## to `ReliableChannel.send`, which exposes the visible pipeline
   ## segmentation -> sds -> encryption -> dispatch.
   let chn = self.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)
-  return await chn.send(appPayload, ephemeral, priority)
+  return await chn.send(appPayload, ephemeral)
