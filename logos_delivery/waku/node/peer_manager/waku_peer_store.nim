@@ -179,13 +179,6 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
 proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
   peerStore[ShardBook][peerId] = shards
 
-proc exactProtocolMatcher(proto: string): Matcher =
-  ## Returns a matcher for exactly `proto`. `protocolMatcher` also matches a postfix.
-  proc match(it: string): bool {.gcsafe.} =
-    return it == proto
-
-  return match
-
 proc peers*(peerStore: PeerStore, protocolMatcher: Matcher): seq[RemotePeerInfo] =
   var matching: seq[RemotePeerInfo]
   for peerId, protocols in peerStore[ProtoBook].book.pairs():
@@ -230,8 +223,11 @@ proc hasPeers*(peerStore: PeerStore, protocolMatcher: Matcher): bool =
   return false
 
 proc hasPeers*(peerStore: PeerStore, proto: string): bool =
-  # Returns `true` if the peerstore has any peer for the specified protocol
-  return peerStore.hasPeers(exactProtocolMatcher(proto))
+  # Returns `true` if the peerstore has any peer for exactly the specified protocol
+  for protocols in peerStore[ProtoBook].book.values():
+    if protocols.contains(proto):
+      return true
+  return false
 
 proc getCapacity*(peerStore: PeerStore): int =
   peerStore.capacity
@@ -256,7 +252,12 @@ proc getConnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(it.connectedness == Connected)
 
 proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  return peerStore.peers(exactProtocolMatcher(proto))
+  # Returns the peers that support exactly the specified protocol
+  var matching: seq[RemotePeerInfo]
+  for peerId, protocols in peerStore[ProtoBook].book.pairs():
+    if protocols.contains(proto):
+      matching.add(peerStore.getPeer(peerId))
+  return matching
 
 proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(it.connectedness != CannotConnect)
