@@ -14,10 +14,13 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
-    [send_service, send_processor, delivery_task],
+    [send_service, send_processor, lightpush_processor, delivery_task],
   logos_delivery/api/events/messaging_client_events
 import ../testlib/[futures, testasync, wakunodeconf, wakucore, wakunode]
 import ../waku_store/store_utils
+import ../waku_lightpush/lightpush_utils
+import logos_delivery/waku/waku_lightpush/[common, rpc]
+import logos_delivery/waku/node/waku_node/lightpush
 
 ## Store-based reliability asks a store node for a propagated message's hash, in
 ## clear from this node's own address. It must never ask for a mixed message.
@@ -112,6 +115,15 @@ type ScriptedProc = ref object of BaseSendProcessor
   overMix: bool
   calls: int
   retryCalls: seq[int] ## Calls, counted from 1, that leave the task for a retry.
+  resender: BaseSendProcessor ## Sends a task again after a Store miss, nil for none.
+
+method canResend(self: ScriptedProc, task: DeliveryTask): bool {.gcsafe.} =
+  return not self.resender.isNil() and self.resender.canResend(task)
+
+method resendImpl(
+    self: ScriptedProc, task: DeliveryTask
+): Future[void] {.async: (raises: [CancelledError]).} =
+  await self.resender.resendImpl(task)
 
 method process(self: ScriptedProc, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
@@ -499,7 +511,7 @@ suite "SendService - Store validation loop":
       processor.calls == 1
       log.ids[SendEvent.Propagated].countIt(it == task.requestId) == 1
 
-  asyncTest "a message the Store does not report yet is asked again, never sent again":
+  asyncTest "a message the Store does not report yet is asked again, and the send processor does not run again":
     let processor = ScriptedProc()
     let service = startedService(processor)
     defer:
@@ -517,3 +529,147 @@ suite "SendService - Store validation loop":
       await log.waitEvent(SendEvent.Sent, task)
       task.state == DeliveryState.SuccessfullyValidated
       processor.calls == 1
+
+  asyncTest "a message the Store does not report is sent again through lightpush":
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    var pushed: seq[WakuMessageHash]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      pushed.add(computeMessageHash(pubsubTopic, message))
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
+    await lightpushNode.start()
+    defer:
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let processor =
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    let service = startedService(processor)
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let task = await service.sendAged("resent-after-miss", stored = false)
+    checkUntilTimeout:
+      task.msgHash in pushed
+    check processor.calls == 1
+
+    storedHashes.add(task.msgHash)
+    task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
+    check await log.waitEvent(SendEvent.Sent, task)
+
+  asyncTest "a lightpush resend that does not answer does not stop the Store rounds":
+    ## A resend waits for a lightpush peer that does not answer. A second task that
+    ## the Store reports must get `Sent` in the next round, not after the resend
+    ## timeout of 5 s.
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    let pushStarted = newFuture[void]("push started")
+    let releasePush = newFuture[void]("release push")
+    proc stalledHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      if not pushStarted.finished():
+        pushStarted.complete()
+      await releasePush
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, stalledHandler)
+    await lightpushNode.start()
+    defer:
+      # The handler must end before the stop, or the stop of the node waits for it.
+      if not releasePush.finished():
+        releasePush.complete()
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    discard await service.sendAged("missed", stored = false)
+    check await pushStarted.withTimeout(chronos.seconds(5))
+
+    let stored = await service.sendAged("stored-after-stalled-resend")
+    check await log.waitEvent(SendEvent.Sent, stored)
+
+  asyncTest "a message the Store reports is not sent again":
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    var pushed: seq[WakuMessageHash]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      pushed.add(computeMessageHash(pubsubTopic, message))
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
+    await lightpushNode.start()
+    defer:
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let task = await service.sendAged("reported")
+    check await log.waitEvent(SendEvent.Sent, task)
+    check pushed.len == 0
+
+  asyncTest "a message the Store never reports is sent again at most MaxStoreMissResends times":
+    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
+    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    var pushed: seq[WakuMessageHash]
+    proc pushHandler(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      pushed.add(computeMessageHash(pubsubTopic, message))
+      return lightpushSuccessResult(1)
+
+    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
+    await lightpushNode.start()
+    defer:
+      await lightpushNode.stop()
+    waku.node.mountLightPushClient()
+    waku.node.peerManager.addServicePeer(
+      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+
+    let service = startedService(
+      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
+    )
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let task = await service.sendAged("never-reported", stored = false)
+    for _ in 0 ..< MaxStoreMissResends + 3:
+      task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
+      await sleepAsync(chronos.milliseconds(100))
+    check:
+      pushed.len == MaxStoreMissResends
+      task.resendCount == MaxStoreMissResends

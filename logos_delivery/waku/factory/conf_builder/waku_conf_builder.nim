@@ -64,8 +64,6 @@ const
   DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
   DefaultPortsShift: uint16 = 0
   DefaultExtMultiAddrsOnly: bool = false
-  DefaultDnsAddrsNameServers: seq[IpAddress] =
-    @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
   DefaultPeerPersistence: bool = false
   DefaultAgentString*: string = "logos-delivery-" & git_version
   DefaultRelayShardedPeerManagement: bool = false
@@ -142,6 +140,8 @@ type WakuConfBuilder* = object
   networkPresetConf: Opt[NetworkPresetConf]
 
   staticNodes: seq[string]
+  presetStoreNodes: seq[string]
+  configuredStoreNodesOnly: Opt[bool]
 
   remoteStoreNode: Opt[string]
   remoteLightPushNode: Opt[string]
@@ -250,6 +250,12 @@ proc withRlnDisableValidation*(b: var WakuConfBuilder, rlnDisableValidation: boo
 
 proc withMix*(builder: var WakuConfBuilder, mix: bool) =
   builder.mix = Opt.some(mix)
+
+proc withPresetStoreNodes*(b: var WakuConfBuilder, presetStoreNodes: seq[string]) =
+  b.presetStoreNodes = presetStoreNodes
+
+proc withConfiguredStoreNodesOnly*(b: var WakuConfBuilder, only: bool) =
+  b.configuredStoreNodesOnly = Opt.some(only)
 
 proc withRemoteStoreNode*(b: var WakuConfBuilder, remoteStoreNode: string) =
   b.remoteStoreNode = Opt.some(remoteStoreNode)
@@ -509,6 +515,9 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
 
   if builder.extraListenShards.isNone() and networkPresetConf.extraListenShards.len > 0:
     builder.extraListenShards = Opt.some(networkPresetConf.extraListenShards)
+
+  if builder.presetStoreNodes.len == 0:
+    builder.presetStoreNodes = networkPresetConf.storeNodes
 
   checkSetPresetValueToField(
     builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
@@ -861,12 +870,8 @@ proc build*(
       debug "Whether to only announce external multiaddresses is not specified, defaulting to false"
       DefaultExtMultiAddrsOnly
 
-  let dnsAddrsNameServers =
-    if builder.dnsAddrsNameServers.len != 0:
-      builder.dnsAddrsNameServers
-    else:
-      debug "DNS name servers IPs not provided, defaulting to Cloudflare's."
-      DefaultDnsAddrsNameServers
+  ## Empty means the host's resolver.
+  let dnsAddrsNameServers = builder.dnsAddrsNameServers
 
   let peerPersistence =
     if builder.peerPersistence.isSome():
@@ -960,6 +965,8 @@ proc build*(
     rendezvous: rendezvous,
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
+    presetStoreNodes: builder.presetStoreNodes,
+    configuredStoreNodesOnly: builder.configuredStoreNodesOnly.get(false),
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,
     remoteFilterNode: builder.remoteFilterNode,

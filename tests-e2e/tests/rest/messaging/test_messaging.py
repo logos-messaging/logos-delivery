@@ -78,7 +78,7 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         with pytest.raises(Exception, match=r"^Error: 404 .*--entry-layer"):
             node.messaging_subscribe([self.test_content_topic])
 
-    def test_store_validation_timeout_error_is_logged_at_debug_only(self):
+    def test_store_validation_timeout_error_is_logged_at_info_only(self):
         # TODO: logos-delivery#4564
         # node1 is the relay peer of node2 and runs no Store service.
         self.node1 = WakuNode(NODE_1, f"node1_{self.test_id}")
@@ -93,9 +93,9 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         ]
         wait_until(
             lambda: self.node2.search_log_for_keywords(
-                [rf"^DBG .*Message propagated but not validated by a store node within time window; stop trying\..*requestId={request_id}"],
+                [rf"^INF .*Message propagated but not validated by a store node within time window; stop trying\..*requestId={request_id}"],
                 use_regex=True,
             ),
-            message=f"Expected the DEBUG line of the store validation timeout of {request_id}",
+            message=f"Expected the INFO line of the store validation timeout of {request_id}",
         )
         assert self.node2.search_log_for_keywords([rf"^(WRN|ERR) .*requestId={request_id}"], use_regex=True) is None

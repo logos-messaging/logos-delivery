@@ -194,8 +194,8 @@ suite "Postgres driver":
       archive = newWakuArchive(driver)
       message = fakeWakuMessage(ts = now())
 
-    await archive.handleMessage(DefaultPubsubTopic, message)
-    await archive.handleMessage(DefaultPubsubTopic, message)
+    check (await archive.handleMessage(DefaultPubsubTopic, message)).isOk()
+    check (await archive.handleMessage(DefaultPubsubTopic, message)).isOk()
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)
@@ -213,8 +213,8 @@ suite "Postgres driver":
       failuresBefore = errorCount(insertFailure)
       message = fakeWakuMessage(ts = now())
 
-    await newWakuArchive(driver).handleMessage(DefaultPubsubTopic, message)
-    await newWakuArchive(otherDriver).handleMessage(DefaultPubsubTopic, message)
+    check (await newWakuArchive(driver).handleMessage(DefaultPubsubTopic, message)).isOk()
+    check (await newWakuArchive(otherDriver).handleMessage(DefaultPubsubTopic, message)).isOk()
 
     check:
       (await driver.getMessagesCount()) == ArchiveDriverResult[int64].ok(1)

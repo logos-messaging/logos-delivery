@@ -7,6 +7,9 @@ import ./[delivery_task, send_processor]
 logScope:
   topics = "send service lightpush processor"
 
+const ResendTimeout = chronos.seconds(5)
+  ## Bounds one resend, as `sendPushRequest` has no timeout of its own.
+
 type LightpushSendProcessor* = ref object of BaseSendProcessor
   waku: Waku
 
@@ -20,6 +23,39 @@ method isValidProcessor*(
 ): bool {.gcsafe.} =
   return self.waku.lightpushPeerAvailable(task.pubsubTopic)
 
+method canResend*(self: LightpushSendProcessor, task: DeliveryTask): bool {.gcsafe.} =
+  return self.waku.lightpushPeerAvailable(task.pubsubTopic)
+
+method resendImpl*(
+    self: LightpushSendProcessor, task: DeliveryTask
+) {.async: (raises: [CancelledError]).} =
+  ## Sends a message that no Store node reported once more. A service node that
+  ## has not seen the message, such as a Store node that joined the mesh after the
+  ## first propagation, relays it. Relay is not used, as GossipSub drops a message
+  ## that it already saw.
+  task.resendCount.inc()
+  try:
+    let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
+    if not await publish.withTimeout(ResendTimeout):
+      debug "Lightpush resend timed out",
+        requestId = task.requestId, msgHash = task.loggedHash()
+      return
+    publish.read().isOkOr:
+      debug "Lightpush resend failed",
+        requestId = task.requestId,
+        msgHash = task.loggedHash(),
+        error = error.desc.get($error.code)
+      return
+    debug "Message resent via Lightpush after a Store miss",
+      requestId = task.requestId,
+      msgHash = task.loggedHash(),
+      resendCount = task.resendCount
+  except CancelledError as exc:
+    raise exc
+  except CatchableError as exc:
+    debug "Lightpush resend failed",
+      requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
+
 method sendImpl*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): Future[void] {.async.} =
@@ -32,7 +68,10 @@ method sendImpl*(
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
-    debug "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+    error "LightpushSendProcessor.sendImpl failed",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      error = error.desc.get($error.code)
 
     if error.isRlnRejection():
       task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))

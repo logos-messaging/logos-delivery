@@ -13,6 +13,7 @@ type EdgeFilterSubState* = object
     ## The number of failed tries to filter-subscribe through the configured
     ## filter peer, for the shard that is the key of this state in
     ## `edgeFilterSubStates`. Each tick of `edgeFilterConnectionLoop` that finds
-    ## that shard with fewer than `HealthyThreshold` peers resets it.
+    ## that shard with fewer than `HealthyThreshold` peers resets it, and so
+    ## does `stopEdgeFilterLoops`.
 
 {.pop.}

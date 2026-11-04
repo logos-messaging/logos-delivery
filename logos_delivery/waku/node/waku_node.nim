@@ -96,8 +96,10 @@ const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
 const MixNodeResolveTimeout = chronos.seconds(10)
   ## The time the background lookup may spend on all mix node names at once.
-  ## `DnsResolver` gives each query 5 s per name server, and a node has two by
-  ## default, so one name can take 10 s.
+  ## `DnsResolver` gives each query 5 s per name server and a node given two
+  ## servers tries both, so one name can take 10 s. The host resolver, the
+  ## default, is bounded by libc's own retry schedule, which is of the same
+  ## order (glibc: 5 s times 2 attempts per server).
 
 type
   MixNodeName = tuple[entry: MixNodePubInfo, address: MultiAddress]
@@ -178,6 +180,8 @@ type
       ## stopped on node teardown.
     ports*: BoundPorts
     relayReconnectFut*: Future[void]
+    storeNodesConnectFut*: Future[void]
+      ## The background dial of the configured store nodes, or `nil`.
 
   SubscriptionManager* = ref object of RootObj
     node*: WakuNode
@@ -917,6 +921,10 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel the background relay reconnection (may still be in its backoff wait).
   if not node.relayReconnectFut.isNil():
     await node.relayReconnectFut.cancelAndWait()
+
+  # Cancel the background dial of the configured store nodes.
+  if not node.storeNodesConnectFut.isNil():
+    await node.storeNodesConnectFut.cancelAndWait()
 
   # Cancel a mix node name lookup that is still pending.
   if not node.mixNodeResolution.isNil():

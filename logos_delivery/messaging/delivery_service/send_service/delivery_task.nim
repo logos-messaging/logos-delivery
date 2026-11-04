@@ -56,6 +56,8 @@ type DeliveryTask* = ref object
   storeAnswer*: Future[void]
     ## Completes when a Store node reports the message. Nil while the send service
     ## does not wait for a Store confirmation of this task.
+  resendCount*: int
+    ## How many times the send service sent the message again after a Store miss.
   errorDesc*: string
 
 proc new*(
@@ -84,6 +86,13 @@ proc new*(
       priority: envelop.priority,
     )
   )
+
+proc loggedHash*(task: DeliveryTask): string =
+  ## The hash for INFO and ERROR records, withheld once the task is anonymized.
+  if task.anonymized:
+    "withheld"
+  else:
+    task.msgHash.to0xHex()
 
 proc messageAge*(self: DeliveryTask): timer.Duration =
   let actual = getNanosecondTime(getTime().toUnixFloat())

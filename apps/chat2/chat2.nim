@@ -27,11 +27,12 @@ import
     peerinfo,
       # manage the information of a peer, such as peer ID and public / private key
     peerid, # Implement how peers interact
-    nameresolving/dnsresolver,
+    nameresolving/nameresolver,
   ] # define DNS resolution
 import
   logos_delivery/waku/[
     common/protobuf,
+    common/system_resolver,
     waku_core,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/rpc,
@@ -398,11 +399,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   var discoveredNodes: seq[RemotePeerInfo]
 
   if dnsDiscoveryUrl.isSome:
-    var nameServers: seq[TransportAddress]
-    for ip in conf.dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(conf.dnsAddrsNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain

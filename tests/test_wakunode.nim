@@ -331,6 +331,8 @@ suite "WakuNode":
       await dnsResolve(domainName, defaultTestWakuConf().dnsAddrsNameServers)
     ).valueOr:
       raiseAssert "DNS resolution failed: " & error
+    # A dns4 name must give an IPv4 answer whatever the host's address ordering.
+    check parseIpAddress(resolvedIp).family == IpAddressFamily.IPv4
     let node = newTestWakuNode(
       nodeKey,
       bindIp,
@@ -352,12 +354,14 @@ suite "WakuNode":
       not ipStr.contains("0.0.0.0")
       not ipStr.contains("127.0.0.1")
 
-  asyncTest "dns4 resolution fails for inexistent and invalid domains":
+  asyncTest "dns4 resolution through name servers fails for inexistent and invalid domains":
     let
-      inexistentDomain = "thisdomain.doesnot.exist"
+      inexistentDomain = "thisdomain.invalid"
       invalidDomain = ""
       expectedError = "Could not resolve IP from DNS: empty response"
-      nameServers = defaultTestWakuConf().dnsAddrsNameServers
+      # Explicit servers keep this case on the `DnsResolver` path now that the
+      # default is the host's resolver.
+      nameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
 
     let inexistentRes = await dnsResolve(inexistentDomain, nameServers)
     let invalidRes = await dnsResolve(invalidDomain, nameServers)
@@ -367,6 +371,21 @@ suite "WakuNode":
       inexistentRes.error == expectedError
       invalidRes.isErr()
       invalidRes.error == expectedError
+
+  asyncTest "dns4 resolution through the host resolver answers like a name server":
+    let noNameServers: seq[IpAddress] = @[]
+
+    let resolvedIp = (await dnsResolve("localhost", noNameServers)).valueOr:
+      raiseAssert "DNS resolution failed: " & error
+    let inexistentRes = await dnsResolve("thisdomain.invalid", noNameServers)
+    let invalidRes = await dnsResolve("", noNameServers)
+
+    check:
+      resolvedIp in ["127.0.0.1", "::1"]
+      inexistentRes.isErr()
+      inexistentRes.error == "Could not resolve IP from DNS: empty response"
+      invalidRes.isErr()
+      invalidRes.error == "Could not resolve IP from DNS: empty response"
 
   asyncTest "Agent string is set and advertised correctly":
     let

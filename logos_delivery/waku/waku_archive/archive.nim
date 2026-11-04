@@ -51,11 +51,7 @@ type WakuArchive* = ref object
   retentionPolicyHandle: Future[void]
   metricsHandle: Future[void]
 
-proc validate*(msg: WakuMessage): Result[void, string] =
-  if msg.ephemeral:
-    # Ephemeral message, do not store
-    return
-
+proc validate(msg: WakuMessage): Result[void, string] =
   let
     now = getNanosecondTime(getTime().toUnixFloat())
     lowerBound = now - MaxMessageTimestampVariance
@@ -113,7 +109,12 @@ func getShortestTimeRetention*(self: WakuArchive): Opt[chronos.Duration] =
 
 proc handleMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
-) {.async.} =
+): Future[Result[void, string]] {.async.} =
+  ## Archives a relayed message. Succeeds when the archive holds the message after the
+  ## call, a duplicate included, and fails when the message is refused or not written.
+  if msg.ephemeral:
+    return err("ephemeral message, will not store")
+
   let msgHash = computeMessageHash(pubsubTopic, msg)
   let msgHashHex = msgHash.to0xHex()
 
@@ -131,7 +132,7 @@ proc handleMessage*(
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp,
       error = error
-    return
+    return err("message validation failed: " & error)
 
   let insertStartTime = getTime().toUnixFloat()
 
@@ -143,7 +144,7 @@ proc handleMessage*(
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp,
       error = error
-    return
+    return err("could not insert message in the archive: " & error)
 
   if not written:
     logos_delivery_archive_duplicates.inc(labelValues = [relayIngress])
@@ -152,7 +153,7 @@ proc handleMessage*(
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp
-    return
+    return ok()
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
   logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
@@ -169,6 +170,8 @@ proc handleMessage*(
     contentTopic = msg.contentTopic,
     timestamp = msg.timestamp,
     insertDuration = insertDuration
+
+  return ok()
 
 proc syncMessageIngress*(
     self: WakuArchive,

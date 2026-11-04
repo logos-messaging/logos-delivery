@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, sets],
+  std/[deques, sequtils, sets, tables],
   stew/byteutils,
   results,
   chronicles,
@@ -65,10 +65,66 @@ type SyncReconciliation* = ref object of LPProtocol
   relayJitter: Duration # Amount of time since the present to ignore when syncing
   clock: proc(): Timestamp {.gcsafe, raises: [].} # Source of the present time
 
+  # Elements a peer promised in a round. They are in the storage under
+  # PendingPubsubTopic until they arrive or their deadline passes.
+  pendingTimeout: Duration
+  pendingSet: HashSet[WakuMessageHash]
+  pendingQueue: Deque[(SyncID, Moment)] # with their deadline, in order
+  # Peers that asked for a pending element. They get it when it arrives.
+  deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
+
   # futures
   periodicSyncFut: Future[void]
   periodicPruneFut: Future[void]
   idsReceiverFut: Future[void]
+
+proc queueTransfer(self: SyncReconciliation, peer: PeerId, hash: WakuMessageHash) =
+  ## Queues `hash` to be sent to `peer`. A full queue drops the transfer, and the
+  ## next round finds the same difference again.
+  try:
+    self.remoteNeedsTx.addLastNoWait((peer, hash))
+  except AsyncQueueFullError as exc:
+    error "failed to queue message for transfer",
+      msg_hash = byteutils.toHex(hash), peer_id = peer, error = exc.msg
+
+proc insertConfirmed(
+    self: SyncReconciliation,
+    id: SyncID,
+    pubsubTopic: PubsubTopic,
+    contentTopic: ContentTopic,
+) =
+  if self.pendingSet.contains(id.hash):
+    self.pendingSet.excl(id.hash)
+    # The pending entry has no real topic, so it is replaced rather than kept.
+    self.storage.remove(id).isOkOr:
+      error "failed to remove pending message",
+        msg_hash = byteutils.toHex(id.hash), error = $error
+    var peers: HashSet[PeerId]
+    if self.deferredTx.pop(id.hash, peers):
+      for peer in peers:
+        self.queueTransfer(peer, id.hash)
+
+  self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
+    error "failed to insert new message",
+      msg_hash = byteutils.toHex(id.hash), error = $error
+
+proc expirePending(self: SyncReconciliation) =
+  ## Drops the promised elements that did not arrive by their deadline, so that
+  ## the next round asks for them again.
+  let now = Moment.now()
+  while self.pendingQueue.len > 0:
+    let (id, deadline) = self.pendingQueue.peekFirst()
+    if deadline > now:
+      break
+    discard self.pendingQueue.popFirst()
+    if not self.pendingSet.contains(id.hash):
+      continue
+
+    self.pendingSet.excl(id.hash)
+    self.deferredTx.del(id.hash)
+    self.storage.remove(id).isOkOr:
+      error "failed to remove pending message",
+        msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation, pubsubTopic: PubsubTopic, msg: WakuMessage
@@ -82,9 +138,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -99,9 +153,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -109,9 +161,7 @@ proc messageIngress*(
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
 ) =
-  self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
-    error "failed to insert new message",
-      msg_hash = byteutils.toHex(id.hash), error = $error
+  self.insertConfirmed(id, pubsubTopic, contentTopic)
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
@@ -145,8 +195,11 @@ proc preProcessPayload*(
     if rangeType == RangeType.Skip:
       continue
 
-    let upperBound = payload.ranges[i][0].b.time
-    if lowerBound > upperBound:
+    let
+      bounds = payload.ranges[i][0]
+      split = SyncID(time: lowerBound, hash: EmptyFingerprint)
+    # The upper bound is exclusive, so a range ending at the split is all older.
+    if not (split < bounds.b):
       payload.ranges[i][1] = RangeType.Skip
 
       if rangeType == RangeType.Fingerprint:
@@ -154,9 +207,7 @@ proc preProcessPayload*(
       elif rangeType == RangeType.ItemSet:
         payload.itemSets.delete(0)
     else:
-      let bounds = payload.ranges[i][0]
       if bounds.a.time < lowerBound:
-        let split = SyncID(time: lowerBound, hash: EmptyFingerprint)
         payload.ranges[i] = (split .. bounds.b, rangeType)
         payload.ranges.insert((bounds.a .. split, RangeType.Skip), i)
 
@@ -166,6 +217,133 @@ proc preProcessPayload*(
       break
 
   return Opt.some(payload)
+
+func isFinished(payload: RangesData): bool =
+  ## A payload with no range left to reconcile ends the session.
+  payload.ranges.len == 0 or payload.ranges.allIt(it[1] == RangeType.Skip)
+
+func isOutOfScope(self: SyncReconciliation, payload: RangesData): bool =
+  ## A peer on another cluster or with no shared shard answers with its header
+  ## alone, which would otherwise end the session like one that is in sync.
+  payload.ranges.len == 0 and (
+    payload.cluster != self.cluster or (
+      self.shards.len > 0 and payload.shards.len > 0 and
+      (self.shards * payload.shards.toHashSet()).len == 0
+    )
+  )
+
+proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.} =
+  ## Closes the connection on error.
+  let buffer =
+    try:
+      await conn.readLp(DefaultMaxPayloadSize)
+    except LPStreamError as exc:
+      await conn.close()
+      return err("remote " & $conn.peerId & " connection read error: " & exc.msg)
+
+  logos_delivery_total_bytes_exchanged.inc(
+    buffer.len, labelValues = [Reconciliation, Receiving]
+  )
+
+  let payload = RangesData.deltaDecode(buffer).valueOr:
+    await conn.close()
+    return err("remote " & $conn.peerId & " payload decoding error: " & error)
+
+  return ok(payload)
+
+proc writePayload(
+    conn: Connection, payload: RangesData
+): Future[Result[void, string]] {.async.} =
+  ## Closes the connection on error.
+  let rawPayload = payload.deltaEncode()
+
+  logos_delivery_total_bytes_exchanged.inc(
+    rawPayload.len, labelValues = [Reconciliation, Sending]
+  )
+
+  try:
+    await conn.writeLP(rawPayload)
+  except LPStreamError as exc:
+    await conn.close()
+    return err("remote " & $conn.peerId & " connection write error: " & exc.msg)
+
+  return ok()
+
+proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
+  ## Promised elements count as present from here on, so that a round that
+  ## overlaps their transfer does not ask for them again.
+  let deadline = Moment.now() + self.pendingTimeout
+  for id in idsToRecv:
+    self.storage.insert(id, PendingPubsubTopic, "").isOkOr:
+      error "failed to insert pending message",
+        msg_hash = byteutils.toHex(id.hash), error = $error
+      continue
+    self.pendingSet.incl(id.hash)
+    self.pendingQueue.addLast((id, deadline))
+
+proc scheduleTransfers(
+    self: SyncReconciliation, peerId: PeerId, hashToSend: seq[WakuMessageHash]
+): int =
+  ## Returns the number of hashes queued now. A deferred hash is not counted.
+  var queued = 0
+  for hash in hashToSend:
+    # A pending element is not in the archive yet, so it is sent on arrival.
+    if self.pendingSet.contains(hash):
+      self.deferredTx.mgetOrPut(hash, initHashSet[PeerId]()).incl(peerId)
+      continue
+    self.queueTransfer(peerId, hash)
+    queued.inc()
+  return queued
+
+proc reconcileRound(
+    self: SyncReconciliation,
+    recvPayload: RangesData,
+    lowerBound: Timestamp,
+    peerId: PeerId,
+): (RangesData, int) =
+  ## Returns the reply and the number of differences in this round.
+  ## It must not become async: nothing may await between processPayload and
+  ## trackPromised, so that none of the promised elements is here yet.
+  var
+    idsToRecv: seq[SyncID]
+    hashToSend: seq[WakuMessageHash]
+    sendPayload: RangesData
+    diffs = 0
+    # the scope the reply's ranges cover; ours when there is none
+    replyShards = self.shards.toSeq()
+
+  let preProcessedPayloadRes = self.preProcessPayload(recvPayload, lowerBound)
+  if preProcessedPayloadRes.isSome():
+    let preProcessedPayload = preProcessedPayloadRes.get()
+    replyShards = preProcessedPayload.shards
+
+    trace "pre-processed payload",
+      local = self.peerManager.switch.peerInfo.peerId,
+      remote = peerId,
+      payload = preProcessedPayload
+
+    sendPayload =
+      self.storage.processPayload(preProcessedPayload, hashToSend, idsToRecv)
+
+    trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
+
+    self.trackPromised(idsToRecv)
+    # A promise counts as a difference even if its placeholder insert fails.
+    diffs = idsToRecv.len + self.scheduleTransfers(peerId, hashToSend)
+  else:
+    debug "Sync scope mismatch",
+      remote = peerId,
+      remote_cluster = recvPayload.cluster,
+      remote_shards = recvPayload.shards,
+      local_cluster = self.cluster,
+      local_shards = self.shards
+
+  # On another cluster or with no shared shard, the reply has no ranges: the
+  # header alone is the empty payload of WAKU-SYNC.
+  sendPayload.cluster = self.cluster
+  sendPayload.shards = replyShards
+
+  return (sendPayload, diffs)
 
 proc processRequest(
     self: SyncReconciliation, conn: Connection
@@ -177,25 +355,15 @@ proc processRequest(
   # Signal to transfer protocol that this reconciliation is starting
   await self.localWantsTx.addLast(conn.peerId)
 
+  self.expirePending()
+
   # Fixed for the session, so that a range the peer sends back in a later
   # round never crosses a bound that moved by the round-trip time.
   let lowerBound = calculateTimeRange(self.clock(), self.relayJitter, self.syncRange).a
 
   while true:
-    let buffer =
-      try:
-        await conn.readLp(DefaultMaxPayloadSize)
-      except LPStreamError as exc:
-        await conn.close()
-        return err("remote " & $conn.peerId & " connection read error: " & exc.msg)
-
-    logos_delivery_total_bytes_exchanged.inc(
-      buffer.len, labelValues = [Reconciliation, Receiving]
-    )
-
-    let recvPayload = RangesData.deltaDecode(buffer).valueOr:
-      await conn.close()
-      return err("remote " & $conn.peerId & " payload decoding error: " & error)
+    let recvPayload = (await readPayload(conn)).valueOr:
+      return err(error)
 
     roundTrips.inc()
 
@@ -204,85 +372,30 @@ proc processRequest(
       remote = conn.peerId,
       payload = recvPayload
 
-    # A peer on another cluster or with no shared shard answers with its header
-    # alone, which would otherwise end the session like one that is in sync.
-    if recvPayload.ranges.len == 0 and (
-      recvPayload.cluster != self.cluster or (
-        self.shards.len > 0 and recvPayload.shards.len > 0 and
-        (self.shards * recvPayload.shards.toHashSet()).len == 0
-      )
-    ):
+    if self.isOutOfScope(recvPayload):
       await conn.close()
       return err(
         "remote " & $conn.peerId & " is outside the sync scope: cluster " &
           $recvPayload.cluster & ", shards " & $recvPayload.shards
       )
 
-    if recvPayload.ranges.len == 0 or recvPayload.ranges.allIt(it[1] == RangeType.Skip):
+    if recvPayload.isFinished():
       break
 
-    var
-      hashToRecv: seq[WakuMessageHash]
-      hashToSend: seq[WakuMessageHash]
-      sendPayload: RangesData
-      # the scope the reply's ranges cover; ours when there is none
-      replyShards = self.shards.toSeq()
+    let (sendPayload, roundDiffs) =
+      self.reconcileRound(recvPayload, lowerBound, conn.peerId)
+    diffs += roundDiffs
 
-    let preProcessedPayloadRes = self.preProcessPayload(recvPayload, lowerBound)
-    if preProcessedPayloadRes.isSome():
-      let preProcessedPayload = preProcessedPayloadRes.get()
-      replyShards = preProcessedPayload.shards
-
-      trace "pre-processed payload",
-        local = self.peerManager.switch.peerInfo.peerId,
-        remote = conn.peerId,
-        payload = preProcessedPayload
-
-      sendPayload =
-        self.storage.processPayload(preProcessedPayload, hashToSend, hashToRecv)
-
-      trace "sync payload processed",
-        hash_to_send = hashToSend, hash_to_recv = hashToRecv
-
-      for hash in hashToSend:
-        self.remoteNeedsTx.addLastNoWait((conn.peerId, hash))
-        diffs.inc()
-
-      for hash in hashToRecv:
-        diffs.inc()
-    else:
-      debug "Sync scope mismatch",
-        remote = conn.peerId,
-        remote_cluster = recvPayload.cluster,
-        remote_shards = recvPayload.shards,
-        local_cluster = self.cluster,
-        local_shards = self.shards
-
-    # On another cluster or with no shared shard, the reply has no ranges: the
-    # header alone is the empty payload of WAKU-SYNC.
-    sendPayload.cluster = self.cluster
-    sendPayload.shards = replyShards
-    let rawPayload = sendPayload.deltaEncode()
-
-    logos_delivery_total_bytes_exchanged.inc(
-      rawPayload.len, labelValues = [Reconciliation, Sending]
-    )
-
-    try:
-      await conn.writeLP(rawPayload)
-    except LPStreamError as exc:
-      await conn.close()
-      return err("remote " & $conn.peerId & " connection write error: " & exc.msg)
+    (await writePayload(conn, sendPayload)).isOkOr:
+      return err(error)
 
     trace "sync payload sent",
       local = self.peerManager.switch.peerInfo.peerId,
       remote = conn.peerId,
       payload = sendPayload
 
-    if sendPayload.ranges.len == 0 or sendPayload.ranges.allIt(it[1] == RangeType.Skip):
+    if sendPayload.isFinished():
       break
-
-    continue
 
   # Signal to transfer protocol that this reconciliation is done
   await self.localWantsTx.addLast(conn.peerId)
@@ -301,6 +414,8 @@ proc initiate(
     syncRange: Duration,
     shards: seq[uint16],
 ): Future[Result[void, string]] {.async.} =
+  self.expirePending()
+
   let
     timeRange = calculateTimeRange(self.clock(), offset, syncRange)
     lower = SyncID(time: timeRange.a, hash: EmptyFingerprint)
@@ -426,6 +541,7 @@ proc new*(
     localWantsTx: AsyncQueue[PeerId],
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
+    pendingTimeout: timer.Duration = DefaultSyncInterval,
 ): Future[Result[T, string]] {.async.} =
   let timeRetention =
     if wakuArchive.isNil():
@@ -458,6 +574,7 @@ proc new*(
     syncInterval: syncInterval,
     relayJitter: relayJitter,
     clock: clock,
+    pendingTimeout: pendingTimeout,
     idsRx: idsRx,
     localWantsTx: localWantsTx,
     remoteNeedsTx: remoteNeedsTx,

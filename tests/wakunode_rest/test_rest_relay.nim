@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[json, sequtils, strformat, strutils, tempfiles, osproc, uri],
+  std/[json, sequtils, strformat, strutils, tempfiles, uri],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -98,15 +98,11 @@ proc mountStubRln(node: WakuNode, validProof: seq[byte]): StubRlnCalls =
   return calls
 
 suite "Waku v2 Rest API - Relay":
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    waitFor runSharedAnvil()
     manager = waitFor setupRlnEvm(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
 
   asyncTest "Subscribe a node to an array of pubsub topics - POST /relay/v1/subscriptions":
     # Given

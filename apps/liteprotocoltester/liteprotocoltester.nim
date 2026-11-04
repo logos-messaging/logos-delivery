@@ -91,9 +91,6 @@ when isMainModule:
   wakuNodeConf.restPort = conf.restPort
   wakuNodeConf.restAllowOrigin = conf.restAllowOrigin
 
-  wakuNodeConf.dnsAddrsNameServers =
-    @[parseIpAddress("8.8.8.8"), parseIpAddress("1.1.1.1")]
-
   wakuNodeConf.shards = @[conf.shard]
   wakuNodeConf.contentTopics = conf.contentTopics
   wakuNodeConf.clusterId = Opt.some(conf.clusterId)
