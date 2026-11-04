@@ -304,7 +304,11 @@ proc slotPeer(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
 
 proc hasPeers*(pm: PeerManager, proto: string): bool =
   ## True when `selectPeer(proto)` finds a peer.
-  return pm.slotPeer(proto).isSome() or pm.switch.peerStore.hasPeers(proto)
+  if pm.slotPeer(proto).isSome():
+    return true
+  pm.exclusivePeers.withValue(proto, exclusive):
+    return exclusive[].len > 0
+  return pm.switch.peerStore.hasPeers(proto)
 
 proc selectPeer*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)

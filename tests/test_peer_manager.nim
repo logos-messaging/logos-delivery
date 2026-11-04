@@ -525,6 +525,30 @@ procSuite "Peer Manager":
 
     check node.peerManager.hasPeers(WakuStoreCodec)
 
+  asyncTest "hasPeers() follows the exclusive peers of a protocol":
+    let
+      node = newTestWakuNode(generateSecp256k1Key())
+      loc = MultiAddress.init("/ip4/127.0.0.1/tcp/0").tryGet()
+      discovered = PeerInfo.new(generateEcdsaKey(), @[loc]).toRemotePeerInfo()
+      # A configured Store peer has no protocols until a connection learns them.
+      exclusive = PeerInfo.new(generateEcdsaKey(), @[loc]).toRemotePeerInfo()
+    node.peerManager.switch.peerStore[ProtoBook][discovered.peerId] = @[WakuStoreCodec]
+
+    check node.peerManager.hasPeers(WakuStoreCodec)
+
+    # With an empty exclusive list, selectPeer() skips the discovered peer.
+    node.peerManager.setExclusivePeers(WakuStoreCodec, @[])
+
+    check:
+      node.peerManager.selectPeer(WakuStoreCodec).isNone()
+      not node.peerManager.hasPeers(WakuStoreCodec)
+
+    node.peerManager.setExclusivePeers(WakuStoreCodec, @[exclusive])
+
+    check:
+      node.peerManager.selectPeer(WakuStoreCodec).get().peerId == exclusive.peerId
+      node.peerManager.hasPeers(WakuStoreCodec)
+
   asyncTest "total unique peers metric counts each peer once":
     let
       node = newTestWakuNode(generateSecp256k1Key())
