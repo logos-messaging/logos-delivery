@@ -23,9 +23,6 @@ type MessagingJsonEnvelope* = object
   payload*: Base64String
   contentTopic*: ContentTopic
   ephemeral*: Opt[bool]
-  priority*: Opt[string]
-    ## "low" | "medium" | "high"; "medium" when omitted.
-    ## Currently ignored.
   meta*: Opt[Base64String]
 
 type MessagingPostMessageRequest* = MessagingJsonEnvelope
@@ -41,18 +38,12 @@ proc toMessageEnvelope*(msg: MessagingJsonEnvelope): Result[MessageEnvelope, str
   let
     payload = ?msg.payload.decode()
     meta = ?msg.meta.get(Base64String("")).decode()
-    priority =
-      if msg.priority.isSome():
-        ?parseMessagePriority(msg.priority.get())
-      else:
-        MessagePriority.Medium
 
   return ok(
     MessageEnvelope(
       contentTopic: msg.contentTopic,
       payload: payload,
       ephemeral: msg.ephemeral.get(false),
-      priority: priority,
       meta: meta,
     )
   )
@@ -67,8 +58,6 @@ proc writeValue*(
   writer.writeField("contentTopic", value.contentTopic)
   if value.ephemeral.isSome():
     writer.writeField("ephemeral", value.ephemeral.get())
-  if value.priority.isSome():
-    writer.writeField("priority", value.priority.get())
   if value.meta.isSome():
     writer.writeField("meta", value.meta.get())
   writer.endRecord()
@@ -80,7 +69,6 @@ proc readValue*(
     payload = Opt.none(Base64String)
     contentTopic = Opt.none(ContentTopic)
     ephemeral = Opt.none(bool)
-    priority = Opt.none(string)
     meta = Opt.none(Base64String)
 
   var keys = initHashSet[string]()
@@ -101,8 +89,6 @@ proc readValue*(
       contentTopic = Opt.some(reader.readValue(ContentTopic))
     of "ephemeral":
       ephemeral = Opt.some(reader.readValue(bool))
-    of "priority":
-      priority = Opt.some(reader.readValue(string))
     of "meta":
       meta = Opt.some(reader.readValue(Base64String))
     else:
@@ -118,7 +104,6 @@ proc readValue*(
     payload: payload.get(),
     contentTopic: contentTopic.get(),
     ephemeral: ephemeral,
-    priority: priority,
     meta: meta,
   )
 
