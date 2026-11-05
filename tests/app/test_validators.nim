@@ -347,8 +347,8 @@ suite "Node app - Validators":
     # Wait for gossip
     await sleepAsync(2.seconds)
 
-    # only 100 messages are received (50 + 50) which demonstrate
-    # nodes[1] doest gossip invalid messages.
+    # no message is received: nodes[0] does not handle its own messages and
+    # nodes[1] rejects the invalid ones, so it does not gossip them.
     check:
       msgReceived == 0
 
