@@ -265,9 +265,10 @@ jobs:
       - name: Check liblogosdelivery exports no OpenSSL symbols
         run: scripts/check_lib_exports.sh build/liblogosdelivery.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
 
+  # The slowest job: nightly only.
   build-windows:
     needs: changes
-    if: ${{ needs.changes.outputs.all == 'true' }}
+    if: ${{ inputs.full }}
     uses: ./.github/workflows/windows-build.yml
 
   build-android:
@@ -362,6 +363,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true' }}
     uses: ./.github/workflows/tests.yml
+    with:
+      full: ${{ inputs.full == true }}
 
   build-docker-image:
     needs: changes
