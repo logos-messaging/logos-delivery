@@ -473,6 +473,9 @@ proc mountMetadata*(
 proc mountAutoSharding*(
     node: WakuNode, clusterId: uint16, shards: seq[uint16]
 ): Result[void, string] =
+  if shards.len == 0:
+    return err("could not mount auto sharding: no shards")
+
   info "Mounting auto sharding", clusterId = clusterId, shards = shards
   node.wakuAutoSharding = Opt.some(Sharding.init(clusterId, shards))
 
