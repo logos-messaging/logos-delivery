@@ -5,8 +5,7 @@
 # at your option. This file may not be copied, modified, or distributed except
 # according to those terms.
 
-# Determine the OS. Nat.mk reads detected_OS, so this comes before the
-# includes. The MINGW and MSYS shells both report a Windows kernel name here.
+# Determine the OS. The includes read detected_OS, so this comes before them. The MINGW and MSYS shells both report a Windows kernel name here.
 # The OS environment variable is not consulted: the MSYS2 runtime drops it,
 # along with most of the environment, when a program is started from Git Bash.
 detected_OS := $(shell uname -s)
@@ -14,9 +13,7 @@ ifneq (,$(filter MINGW% MSYS%,$(detected_OS)))
   detected_OS := Windows
 endif
 
-include Nat.mk
 include BearSSL.mk
-include Leopard.mk
 include TinyCbor.mk
 
 LINK_PCRE := 0
@@ -72,14 +69,11 @@ endif
 export NIM_PARAMS_CALLER
 NIM_PARAMS := $(NIM_PARAMS_CALLER)
 
-# V selects verbosity. Callers pass V=1. Nat.mk uses HANDLE_OUTPUT to
-# silence the sub-makes.
+# V selects verbosity. Callers pass V=1.
 V := 0
 NIM_PARAMS := $(NIM_PARAMS) --verbosity:$(V)
-HANDLE_OUTPUT :=
 ifeq ($(V), 0)
   NIM_PARAMS := $(NIM_PARAMS) --hints:off
-  HANDLE_OUTPUT := >/dev/null
 endif
 
 # The Jenkins jobs expose LOG_LEVEL as a build parameter.
@@ -161,11 +155,11 @@ audit-deps:
 	$(NIMBLE) auditdeps $(NIMBLE_TASK_FLAGS)
 
 # Must be phony so the recipe always runs and the sub-make re-evaluates
-# BEARSSL_NIMBLEDEPS_DIR / NAT_TRAVERSAL_NIMBLEDEPS_DIR (parse-time variables)
+# BEARSSL_NIMBLEDEPS_DIR (a parse-time variable)
 # after nimble setup has populated nimbledeps/.
 .PHONY: build-deps
 build-deps: | $(NIMBLEDEPS_STAMP)
-	$(MAKE) rebuild-bearssl-nimbledeps rebuild-nat-libs-nimbledeps rebuild-leopard-nimbledeps
+	$(MAKE) rebuild-bearssl-nimbledeps
 
 	$(MAKE) audit-deps
 
@@ -538,23 +532,30 @@ docker-liteprotocoltester-push:
 ################
 .PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
 
-BUILD_COMMAND ?= Dynamic
-STATIC ?= 0
-ifeq ($(STATIC), 1)
-	BUILD_COMMAND = Static
-endif
+# The library builds with plain `nim c`, as an embedder builds it: the build's
+# own flags first, then NIM_PARAMS, so the caller wins. No --skipParentCfg, so
+# the repository's config.nims applies too: the CPU baseline, LeopardCmakeFlags
+# and nimble.paths.
+# $(1): output directory, $(2): flags, the output file included.
+define compile_liblogosdelivery
+mkdir -p "$(1)"
+"$(NIM)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(2) $(NIM_PARAMS) library/liblogosdelivery.nim
+cp library/*.h "$(1)/"
+endef
 
+LIB_DIR := $(CURDIR)/build
 ifeq ($(detected_OS),Windows)
-	BUILD_COMMAND := $(BUILD_COMMAND)Windows
+  LIB_SHARED := liblogosdelivery.dll
+  LIB_STATIC := liblogosdelivery.lib
 else ifeq ($(detected_OS),Darwin)
-	BUILD_COMMAND := $(BUILD_COMMAND)Mac
-else ifeq ($(detected_OS),Linux)
-	BUILD_COMMAND := $(BUILD_COMMAND)Linux
+  LIB_SHARED := liblogosdelivery.dylib
+  LIB_STATIC := liblogosdelivery.a
+else
+  LIB_SHARED := liblogosdelivery.so
+  LIB_STATIC := liblogosdelivery.a
 endif
+LIB_NIM_PARAMS := --mm:refc -d:chronicles_line_numbers $(if $(LOG_LEVEL),,-d:chronicles_log_level=TRACE)
 
-# Windows: build with nim directly (see logosdeliverynode) — `nimble <task>` re-clones
-# git deps every build and they intermittently hang on the MSYS2 runner. Flags
-# mirror logos_delivery.nimble's dynamic-windows task.
 # DISABLE_RLN=true links liblogosdelivery without zerokit: no librln, no Rust,
 # no submodule. A node whose config enables RLN then fails to start.
 DISABLE_RLN ?= false
@@ -567,11 +568,13 @@ else
     LIBLOGOSDELIVERY_RLN_DEP := librln
 endif
 
+liblogosdelivery: NIM_PARAMS += $(LIB_NIM_PARAMS)
 liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
-ifeq ($(detected_OS),Windows)
-	$(NIM) c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
+ifneq ($(STATIC),1)
+	$(call compile_liblogosdelivery,$(LIB_DIR),--app:lib --out:$(LIB_DIR)/$(LIB_SHARED))
 else
-	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble $(NIMBLE_TASK_FLAGS)
+	rm -f "$(LIB_DIR)/$(LIB_STATIC)"
+	$(call compile_liblogosdelivery,$(LIB_DIR),--app:staticlib --out:$(LIB_DIR)/$(LIB_STATIC))
 endif
 
 logosdelivery_example: | build liblogosdelivery tinycbor
@@ -580,7 +583,7 @@ ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
-		-I./library \
+		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
@@ -590,7 +593,7 @@ else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
-		-I./library \
+		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
@@ -600,7 +603,7 @@ else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
-		-I./library \
+		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
@@ -613,6 +616,7 @@ cwaku_example: | build liblogosdelivery tinycbor
 		cc -o "build/$@" \
 		./examples/cbindings/waku_example.c \
 		./examples/cbindings/base64.c \
+		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
@@ -622,6 +626,7 @@ cppwaku_example: | build liblogosdelivery tinycbor
 		g++ -o "build/$@" \
 		./examples/cpp/waku.cpp \
 		./examples/cpp/base64.cpp \
+		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
@@ -652,14 +657,31 @@ ifndef ANDROID_NDK_HOME
 	$(error ANDROID_NDK_HOME is not set)
 endif
 
-# librln and the NDK-built nat-libs must exist before the nim link consumes
-# them. PORTABLE_NAT_MARCH is host-derived and invalid for the arm targets.
+# cmake runs on the build host, so left alone it hands Leopard-RS the host's
+# toolchain. Point it at the NDK's, and define ANDROID so Leopard-RS takes its
+# LEO_TARGET_MOBILE path instead of including <tmmintrin.h>. OpenMP is off: the
+# NDK's libomp.so would have to ship with the library.
+ANDROID_LIB_DIR = $(CURDIR)/build/android/$(ABIDIR)
+ANDROID_CC = $(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER)
+ANDROID_SYSROOT = $(ANDROID_TOOLCHAIN_DIR)/sysroot
+ANDROID_NIM_PARAMS = --os:android --cpu:$(CPU) --cc:clang \
+	--clang.path:"$(ANDROID_TOOLCHAIN_DIR)/bin" --clang.exe:$(ANDROID_COMPILER) --clang.linkerexe:$(ANDROID_COMPILER) \
+	--passC:--sysroot="$(ANDROID_SYSROOT)" --passL:--sysroot="$(ANDROID_SYSROOT)" \
+	-d:"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off \
+	-DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE -DCMAKE_SYSTEM_NAME=Linux \
+	-DCMAKE_C_COMPILER=$(ANDROID_CC) -DCMAKE_CXX_COMPILER=$(ANDROID_CC)++ -DCMAKE_CXX_FLAGS=-DANDROID \
+	-DCMAKE_AR=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ar -DCMAKE_RANLIB=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ranlib" \
+	-d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp \
+	$(if $(filter true,$(DISABLE_RLN)),,--passL:-L"$(ANDROID_LIB_DIR)" --passL:-lrln) \
+	--mm:refc -d:chronicles_log_level=ERROR
+
+# librln must exist before the nim link consumes it.
+build-liblogosdelivery-for-android-arch: NIM_PARAMS += $(ANDROID_NIM_PARAMS)
 build-liblogosdelivery-for-android-arch:
-	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
+	mkdir -p $(ANDROID_LIB_DIR)/
 	git submodule update --init vendor/zerokit
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
-	$(MAKE) rebuild-nat-libs-nimbledeps CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER) PORTABLE_NAT_MARCH=
-	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(NIMBLE) libLogosDeliveryAndroid $(NIMBLE_TASK_FLAGS)
+	$(call compile_liblogosdelivery,$(ANDROID_LIB_DIR),--app:lib --out:$(ANDROID_LIB_DIR)/liblogosdelivery.so)
 
 liblogosdelivery-android-arm64: ANDROID_ARCH=aarch64-linux-android
 liblogosdelivery-android-arm64: CPU=arm64
@@ -711,8 +733,20 @@ else
 	$(error iOS builds are only supported on macOS)
 endif
 
+# Simulator objects need the simulator flag, or Xcode refuses to link them.
+IOS_TARGET_FLAGS = -arch $(IOS_ARCH) -isysroot $(IOS_SDK_PATH) \
+	$(if $(filter iphonesimulator,$(IOS_SDK)),-mios-simulator-version-min,-mios-version-min)=$(IOS_DEPLOYMENT_TARGET)
+IOS_NIM_PARAMS = --os:ios --cpu:$(if $(filter arm64,$(IOS_ARCH)),arm64,amd64) --cc:clang \
+	--passC:"$(IOS_TARGET_FLAGS)" --passL:"$(IOS_TARGET_FLAGS)" \
+	-d:"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE \
+	-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$(IOS_SDK_PATH) -DCMAKE_OSX_ARCHITECTURES=$(IOS_ARCH) \
+	-DCMAKE_OSX_DEPLOYMENT_TARGET=$(IOS_DEPLOYMENT_TARGET)" \
+	--mm:refc --opt:size -d:chronicles_log_level=ERROR
+
+build-liblogosdelivery-for-ios-arch: NIM_PARAMS += $(IOS_NIM_PARAMS)
 build-liblogosdelivery-for-ios-arch:
-	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) IOS_DEPLOYMENT_TARGET=$(IOS_DEPLOYMENT_TARGET) $(NIMBLE) libLogosDeliveryIOS $(NIMBLE_TASK_FLAGS)
+	rm -f "$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH)/liblogosdelivery.a"
+	$(call compile_liblogosdelivery,$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH),--app:staticlib --out:$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH)/liblogosdelivery.a)
 
 liblogosdelivery-ios-device: IOS_ARCH=arm64
 liblogosdelivery-ios-device: IOS_SDK=iphoneos

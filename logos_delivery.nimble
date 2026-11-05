@@ -12,8 +12,6 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "rest", "tools"]
-# A dependent's `nimble liblogosdelivery` needs the same build configuration.
-installFiles = @["config.nims", "liblogosdelivery.nims"]
 
 const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
@@ -39,8 +37,8 @@ requires "nim >= 2.2.6",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
-  # nat_traversal stays in the graph through libp2p, which links
-  # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
+  # nat_traversal is in the graph only through eth: its eth/net/nat imports it,
+  # and nothing here imports that.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
@@ -88,7 +86,7 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#fd97eb355eee5d14594
 
 requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
 
-requires "https://github.com/status-im/nim-leopard#b1868c6f2e794666e6cc43ac9aefe8828f4a78b4"
+requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae241cf6b478d"
 
 # v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
 # libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
@@ -117,28 +115,6 @@ proc getMyCPU(): string =
 proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
-proc copyToLibOut(built: string) =
-  ## Copies a built library into LIB_OUT_DIR, when that is set.
-  let outDir = getEnv("LIB_OUT_DIR", getEnv("LIBLOGOSDELIVERY_OUT"))
-  if outDir.len == 0:
-    return
-  mkDir outDir
-  cpFile built, outDir / extractFilename(built)
-
-const pkgDir = currentSourcePath().parentDir
-
-proc prepareLibraryBuild() =
-  ## nim-leopard's CMakeLists.txt declares test executables from `tests/`, which
-  ## Nimble strips on install, so cmake fails before building libleopard.
-  for line in gorgeEx("nimble path leopard").output.splitLines():
-    let leopard = line.strip()
-    if leopard.isAbsolute() and dirExists(leopard / "vendor" / "leopard"):
-      let testsDir = leopard / "vendor" / "leopard" / "tests"
-      mkDir testsDir
-      for stub in ["benchmark.cpp", "experiments.cpp"]:
-        if not fileExists(testsDir / stub):
-          writeFile(testsDir / stub, "int main() { return 0; }\n")
-
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
@@ -159,301 +135,6 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
     mkDir "build"
   selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
-
-## Emitted by `genBindings()` during the library build, so the header can never
-## drift from the Nim signatures. Not checked in: it is a build artifact.
-const cBindingsDir = "library/generated"
-
-## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
-## `relativePath`, which needs `getcwd` at compile time and fails to build.
-const cBindingsFlags =
-  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=generated" &
-  " -d:ffiSrcPath=../liblogosdelivery.nim "
-
-## The Makefile does not export NIM_PARAMS, so its defines never reach here.
-##
-## `chronicles_runtime_filtering` makes the `logLevel` the host passes in the
-## create config take effect. Without it the library logs everything the
-## compile-time level (TRACE by default) allows, whatever the host asked for.
-const libFeatureFlags =
-  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support " &
-  " -d:chronicles_runtime_filtering=on "
-
-proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
-  if not dirExists "build":
-    mkDir "build"
-  mkDir cBindingsDir
-
-  if `type` == "static":
-    selfExec "c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
-  else:
-    selfExec "c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
-
-proc buildLibDynamicWindows(libName: string, folderName: string) =
-  buildLibrary libName & ".dll", folderName,
-    """-d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "dynamic", libName & ".nim", libname
-
-proc buildLibDynamicLinux(libName: string, folderName: string) =
-  buildLibrary libName & ".so", folderName,
-    """-d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "dynamic", libName & ".nim", libname
-
-proc buildLibDynamicMac(libName: string, folderName: string) =
-  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  when defined(arm64):
-    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-  elif defined(amd64):
-    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-  else:
-    {.error: "Unsupported macOS architecture".}
-  buildLibrary libName & ".dylib", folderName,
-    archFlags & " -d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
-    "dynamic", libName & ".nim", libname
-
-proc buildLibStaticWindows(libName: string, folderName: string) =
-  buildLibrary libName & ".lib", folderName,
-    """-d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static", libName & ".nim", libname
-
-proc buildLibStaticLinux(libName: string, folderName: string) =
-  buildLibrary libName & ".a", folderName,
-    """-d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static", libName & ".nim", libname
-
-proc buildLibStaticMac(libName: string, folderName: string) =
-  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  when defined(arm64):
-    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-  elif defined(amd64):
-    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-  else:
-    {.error: "Unsupported macOS architecture".}
-  buildLibrary libName & ".a", folderName,
-    archFlags & " -d:chronicles_line_numbers --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
-    "static", libName & ".nim", libname
-
-### Mobile
-
-proc nimblePkgPath(pkg: string): string =
-  ## Package root from nimble.paths, the `--path` entries in NIM_PARAMS, or
-  ## `nimble path`. The last mixes Info and lock-validation noise into stdout, so
-  ## only a line holding the package's nimble file counts.
-  var lines: seq[string]
-  if fileExists("nimble.paths"):
-    lines = readFile("nimble.paths").splitLines()
-  else:
-    lines = getNimParams().split(' ')
-  for rawLine in lines:
-    let line = rawLine.strip().replace("\"", "")
-    if line.startsWith("--path:") and ("/pkgs2/" & pkg & "-") in line:
-      return line[7 .. ^1]
-  for line in gorgeEx("nimble path " & pkg).output.splitLines():
-    let candidate = line.strip()
-    if candidate.isAbsolute() and fileExists(candidate / (pkg & ".nimble")):
-      return candidate
-  quit "Package " & pkg & " not found in nimble.paths, NIM_PARAMS or nimble path"
-
-### Mobile Android
-
-proc androidTarget(cpu: string): tuple[triple, abi: string] =
-  ## Maps a Nim CPU name to its NDK target triple and Android ABI name.
-  case cpu
-  of "arm64": ("aarch64-linux-android", "arm64-v8a")
-  of "amd64": ("x86_64-linux-android", "x86_64")
-  of "i386": ("i686-linux-android", "x86")
-  of "arm": ("armv7a-linux-androideabi", "armeabi-v7a")
-  else: quit "Error: CPU must be one of arm64, amd64, i386, arm, got '" & cpu & "'"
-
-proc androidToolchain() =
-  ## Fills in the ANDROID_* toolchain variables from ANDROID_NDK_ROOT (or
-  ## ANDROID_NDK_HOME) and CPU, unless the Makefile already set them.
-  if getEnv("ANDROID_TOOLCHAIN_DIR").len > 0:
-    return
-  let ndk = getEnv("ANDROID_NDK_ROOT", getEnv("ANDROID_NDK_HOME"))
-  if ndk.len == 0:
-    quit "Error: set ANDROID_NDK_ROOT or ANDROID_NDK_HOME"
-  let hostTag = when defined(macosx): "darwin-x86_64" else: "linux-x86_64"
-  let arch = androidTarget(getEnv("CPU")).triple
-  putEnv("ANDROID_TOOLCHAIN_DIR", ndk / "toolchains/llvm/prebuilt" / hostTag)
-  putEnv("ANDROID_ARCH", arch)
-  putEnv("ANDROID_COMPILER", arch & getEnv("ANDROID_TARGET", "30") & "-clang")
-
-proc rebuildNatLibs(cc: string) =
-  ## Same as Nat.mk's rebuild-nat-libs-nimbledeps, for builds without the
-  ## Makefile: nat_traversal links archives its install hook built for the host.
-  let natDir = nimblePkgPath("nat_traversal")
-  let stamp = natDir / ".nat-libs-cc"
-  if fileExists(stamp) and readFile(stamp).strip() == cc:
-    return
-  exec "find \"" & natDir & "/vendor\" \\( -name '*.o' -o -name '*.a' \\) -delete"
-  exec "make -C \"" & natDir & "/vendor/miniupnp/miniupnpc\" CC=\"" & cc &
-    "\" CFLAGS=\"-Os -fPIC\" build/libminiupnpc.a"
-  exec "make -C \"" & natDir & "/vendor/libnatpmp-upstream\" CC=\"" & cc &
-    "\" CFLAGS=\"-Wall -Wno-cpp -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4\" libnatpmp.a"
-  writeFile(stamp, cc & "\n")
-
-proc buildMobileAndroid(srcDir = ".", params = "") =
-  androidToolchain()
-  rebuildNatLibs(getEnv("ANDROID_TOOLCHAIN_DIR") / "bin" / getEnv("ANDROID_COMPILER"))
-
-  let cpu = getEnv("CPU")
-  let abiDir = getEnv("ABIDIR", androidTarget(cpu).abi)
-
-  let outDir = "build/android/" & abiDir
-  if not dirExists outDir:
-    mkDir outDir
-
-  # cmake runs on the build host, so left alone it hands Leopard-RS the host's
-  # compiler. Point it at the NDK clang, and define ANDROID so Leopard-RS takes
-  # its LEO_TARGET_MOBILE path instead of including <tmmintrin.h>. OpenMP is off:
-  # the NDK's libomp.so would have to ship with the library. Leopard-RS is C++,
-  # and the NDK's C driver links no C++ runtime by itself, so link it statically.
-  let toolchainDir = getEnv("ANDROID_TOOLCHAIN_DIR")
-  let compiler = getEnv("ANDROID_COMPILER")
-  let ndkClang = toolchainDir / "bin" / compiler
-  let sysroot = toolchainDir / "sysroot"
-  let toolchainParams =
-    " --clang.path:\"" & toolchainDir / "bin" & "\"" &
-    " --clang.exe:" & compiler & " --clang.linkerexe:" & compiler &
-    " --passC:--sysroot=" & sysroot & " --passL:--sysroot=" & sysroot &
-    " --cincludes:" & sysroot & "/usr/include/" &
-    " -d:\"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
-    " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
-    " -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_C_COMPILER=" & ndkClang &
-    " -DCMAKE_CXX_COMPILER=" & ndkClang & "++ -DCMAKE_CXX_FLAGS=-DANDROID\"" &
-    " -d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp" &
-    " --passL:-lc++_static --passL:-lc++abi"
-
-  let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
-  selfExec "c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
-    outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimcache:" & outDir & "/nimcache --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
-    getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
-  copyToLibOut outDir / "liblogosdelivery.so"
-
-task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
-  prepareLibraryBuild()
-  withDir pkgDir:
-    buildMobileAndroid "./library", "-d:chronicles_log_level=ERROR"
-
-### Mobile iOS
-
-import std/sequtils
-
-proc buildMobileIOS(srcDir = ".", params = "") =
-  echo "Building iOS liblogosdelivery library"
-
-  let iosArch = getEnv("IOS_ARCH")
-  let iosSdk = getEnv("IOS_SDK")
-  var sdkPath = getEnv("IOS_SDK_PATH")
-  let minVersion = getEnv("IOS_DEPLOYMENT_TARGET", "18.0")
-
-  if sdkPath.len == 0:
-    let (output, code) = gorgeEx("xcrun --sdk " & iosSdk & " --show-sdk-path")
-    if code != 0:
-      quit "Error: IOS_SDK_PATH not set and xcrun could not find the '" & iosSdk &
-        "' SDK: " & output
-    sdkPath = output.strip()
-
-  let natTraversalPath = nimblePkgPath("nat_traversal")
-
-  # Use SDK name in path to differentiate device vs simulator
-  let outDir = "build/ios/" & iosSdk & "-" & iosArch
-  let nimcacheDir = outDir & "/nimcache"
-  let vendorObjDir = outDir & "/vendor_obj"
-  let nimLib = outDir & "/liblogosdelivery_nim.a"
-  let aFile = outDir & "/liblogosdelivery.a"
-  if not dirExists vendorObjDir:
-    mkDir vendorObjDir
-
-  let cpu = if iosArch == "arm64": "arm64" else: "amd64"
-
-  # Simulator objects need the simulator flag, or Xcode refuses to link them.
-  let minVersionFlag =
-    if iosSdk == "iphonesimulator": "-mios-simulator-version-min=" & minVersion
-    else: "-mios-version-min=" & minVersion
-  let targetFlags = "-arch " & iosArch & " -isysroot " & sdkPath & " " & minVersionFlag
-
-  # nim compiles and archives every C source it owns (generated code and the
-  # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
-  selfExec "c" &
-      " --nimcache:" & nimcacheDir &
-      " --os:ios --cpu:" & cpu &
-      " --app:staticlib --out:" & nimLib &
-      " --noMain --mm:refc" &
-      " --threads:on --opt:size --header" &
-      " -d:metrics -d:discv5_protocol_id=d5waku" & libFeatureFlags &
-      " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
-      " --cc:clang" &
-      " --passC:\"" & targetFlags & "\" --passL:\"" & targetFlags & "\"" &
-      " " & params & getNimParams() &
-      " " & srcDir & "/liblogosdelivery.nim"
-
-  # nat_traversal links prebuilt archives instead of compiling its sources
-  # through nim, so miniupnpc and libnatpmp are compiled here.
-  let vendorClang = "clang " & targetFlags & " -fPIC -O2"
-
-  echo "Compiling miniupnpc for iOS..."
-  let miniupnpcSrcDir = natTraversalPath / "vendor/miniupnp/miniupnpc/src"
-  let miniupnpcIncDir = natTraversalPath / "vendor/miniupnp/miniupnpc/include"
-  let miniupnpcBuildDir = natTraversalPath / "vendor/miniupnp/miniupnpc/build"
-  let miniupnpcFiles = @[
-    "addr_is_reserved.c", "connecthostport.c", "igd_desc_parse.c",
-    "minisoap.c", "minissdpc.c", "miniupnpc.c", "miniwget.c",
-    "minixml.c", "portlistingparse.c", "receivedata.c", "upnpcommands.c",
-    "upnpdev.c", "upnperrors.c", "upnpreplyparse.c"
-  ]
-  for fileName in miniupnpcFiles:
-    let srcPath = miniupnpcSrcDir / fileName
-    let oFile = vendorObjDir / ("miniupnpc_" & fileName.changeFileExt("o"))
-    if fileExists(srcPath) and not fileExists(oFile):
-      exec vendorClang &
-          " -I" & miniupnpcIncDir &
-          " -I" & miniupnpcSrcDir &
-          " -I" & miniupnpcBuildDir &
-          " -DMINIUPNPC_SET_SOCKET_TIMEOUT" &
-          " -D_BSD_SOURCE -D_DEFAULT_SOURCE" &
-          " -c " & srcPath & " -o " & oFile
-
-  echo "Compiling libnatpmp for iOS..."
-  let natpmpSrcDir = natTraversalPath / "vendor/libnatpmp-upstream"
-  # Only compile natpmp.c - getgateway.c uses net/route.h which is not available on iOS
-  let natpmpObj = vendorObjDir / "natpmp_natpmp.o"
-  if not fileExists(natpmpObj):
-    exec vendorClang &
-        " -I" & natpmpSrcDir &
-        " -DENABLE_STRNATPMPERR" &
-        " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
-
-  # Use iOS-specific stub for getgateway
-  let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
-  let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
-  if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
-    exec vendorClang & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
-
-  echo "Creating static library..."
-  var inputs = @[nimLib]
-  for kind, path in walkDir(vendorObjDir):
-    if kind == pcFile and path.endsWith(".o"):
-      inputs.add(path)
-  exec "libtool -static -o " & aFile & " " & inputs.join(" ")
-
-  let header = nimcacheDir & "/liblogosdelivery.h"
-  if fileExists(header):
-    cpFile(header, outDir & "/liblogosdelivery.h")
-
-  echo "iOS library created: " & aFile
-  copyToLibOut aFile
-
-task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
-  prepareLibraryBuild()
-  withDir pkgDir:
-    buildMobileIOS "./library", "-d:chronicles_log_level=ERROR"
 
 proc test(name: string, params = "-d:chronicles_log_level=INFO") =
   buildBinary name, "tests/", params
@@ -566,46 +247,6 @@ task execTest, "Run test":
   if testSuite != "":
     testSuite = " \"" & testSuite & "\""
   exec "build/" & filepath & ".bin " & testSuite
-
-### C Bindings
-let chroniclesParams =
-  "-d:chronicles_line_numbers " & "-d:chronicles_runtime_filtering=on " &
-  """-d:chronicles_sinks="textlines,json" """ &
-  "-d:chronicles_default_output_device=Dynamic " &
-  """-d:chronicles_disabled_topics="eth,dnsdisc.client" """ & "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
-
-## Liblogosdelivery build tasks
-
-task liblogosdelivery, "Build liblogosdelivery for the host platform":
-  prepareLibraryBuild()
-  withDir pkgDir:
-    when defined(windows):
-      buildLibDynamicWindows("liblogosdelivery", "library")
-    elif defined(macosx):
-      buildLibDynamicMac("liblogosdelivery", "library")
-    else:
-      buildLibDynamicLinux("liblogosdelivery", "library")
-    copyToLibOut "build" / (
-      when defined(windows): "liblogosdelivery.dll" else: DynlibFormat % "logosdelivery"
-    )
-
-task liblogosdeliveryDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("liblogosdelivery", "library")
-
-task liblogosdeliveryDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("liblogosdelivery", "library")
-
-task liblogosdeliveryDynamicMac, "Generate bindings":
-  buildLibDynamicMac("liblogosdelivery", "library")
-
-task liblogosdeliveryStaticWindows, "Generate bindings":
-  buildLibStaticWindows("liblogosdelivery", "library")
-
-task liblogosdeliveryStaticLinux, "Generate bindings":
-  buildLibStaticLinux("liblogosdelivery", "library")
-
-task liblogosdeliveryStaticMac, "Generate bindings":
-  buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
 
