@@ -91,7 +91,8 @@ proc registerRelayHandler(
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
       await node.legacyAppHandlers[topic](topic, msg)
 
-  node.wakuRelay.ownMessageHandler = serveHandler
+  if node.wakuRelay.ownMessageHandler.isNil():
+    node.wakuRelay.ownMessageHandler = serveHandler
   node.wakuRelay.subscribe(shard, uniqueTopicHandler)
   return true
 
