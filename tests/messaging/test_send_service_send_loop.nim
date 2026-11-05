@@ -477,14 +477,14 @@ suite "SendService - deliver":
 
   asyncTest "parked tasks get the epoch budget in the order that they parked":
     ## With a budget of one per epoch, `spent` takes the budget, and `first` then
-    ## `second` park. The quota read after the first read of `second` rolls the
-    ## epoch. That read is the retry of `first`. If each task waited on its own
-    ## timer, the roll would come before the retry of `second`, and `second`
-    ## would get the budget. With the shared tick, both read in the same tick,
-    ## both park again, and the next tick gives the budget to `first`.
+    ## `second` park. The test drives the ticks itself: a timer tick between the
+    ## park of `first` and the park of `second` would park `first` again behind
+    ## `second`. At the first tick the retry read of `first` rolls the epoch, but
+    ## the roll lands only after both read, so both park again. The next tick
+    ## wakes them in park order, and `first` gets the budget.
+    privateAccess(SendService)
     let epoch = new uint64
     epoch[] = 1'u64
-    let armAtNextRead = new bool
     let rollAtNextRead = new bool
     let quota = proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
       if rollAtNextRead[]:
@@ -493,16 +493,15 @@ suite "SendService - deliver":
           proc(udata: pointer) {.gcsafe, raises: [].} =
             epoch[] = epoch[] + 1
         )
-      elif armAtNextRead[]:
-        armAtNextRead[] = false
-        rollAtNextRead[] = true
       return Opt.some(EpochQuota(epochIndex: epoch[], rateLimit: 100, remaining: 100))
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1), quota
       )
       .expect("RateLimitManager.new")
-    let service = newService(FakePropagatingProcessor(), manager = manager)
+    let service = newService(
+      FakePropagatingProcessor(), interval = chronos.minutes(10), manager = manager
+    )
     let spent = buildTask("spent")
     let first = buildTask("first")
     let second = buildTask("second")
@@ -515,8 +514,19 @@ suite "SendService - deliver":
     check service.enqueue(first).isOk()
     checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
       first.state == DeliveryState.NextRoundRetry
-    armAtNextRead[] = true
     check service.enqueue(second).isOk()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      second.state == DeliveryState.NextRoundRetry
+    check service.attempts == 3
+
+    rollAtNextRead[] = true
+    service.retryNow()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      service.attempts == 5 # both read in epoch 1 and parked again
+      epoch[] == 2'u64 # the roll landed after their reads
+    check log.propagated == @[spent.requestId]
+
+    service.retryNow()
     check await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
       log.propagated == @[spent.requestId, first.requestId]
