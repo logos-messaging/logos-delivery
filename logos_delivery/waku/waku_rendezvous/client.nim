@@ -151,6 +151,9 @@ proc start*(self: WakuRendezVousClient) {.async: (raises: []).} =
   self.periodicRequestFut = self.periodicRequests()
   info "Waku rendezvous client started"
 
+proc isRunning*(self: WakuRendezVousClient): bool =
+  not self.periodicRequestFut.isNil() and not self.periodicRequestFut.finished()
+
 proc stopWait*(self: WakuRendezVousClient) {.async: (raises: []).} =
   if not self.periodicRequestFut.isNil():
     await self.periodicRequestFut.cancelAndWait()

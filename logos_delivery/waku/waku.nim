@@ -89,6 +89,7 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
     ## library layer installs its host transport.
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
+  stopped: bool ## Set by `stop`, cleared by `start`, so a second `stop` does nothing.
   networkConnLoopHandle: Future[void]
   enrReconcileLoopHandle*: Future[void]
   enrReconcileInterval*: Duration = DefaultEnrReconcileInterval
@@ -466,6 +467,8 @@ proc closePersistency(waku: Waku) =
     waku.persistency = nil
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
+  if waku.stopped:
+    return ok()
   if not waku.node.started:
     debug "stop: attempting to stop node that isn't running"
 
@@ -504,6 +507,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     ## node.stop() because discovery backends read them while stopping.
     ## GetDiscoveryRequirements stays (see new): it is config-only.
     waku.clearNodeState()
+    waku.stopped = true
   except Exception:
     error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())
@@ -515,6 +519,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     debug "start: waku node already started"
     return ok()
 
+  waku.stopped = false
   waku.provideNodeState() # cleared by a previous stop()
 
   info "Retrieve dynamic bootstrap nodes"
@@ -538,9 +543,13 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
         (await waku.stop()).isOkOr:
           error "Failed to stop after a failed start", error = error
       else:
-        # The node did not start, but mix RLN and the persistency can run.
+        # The node did not start, but mix RLN, the DNS retry loop and the
+        # persistency can run, and the node state is provided.
         await waku.node.stopMixRln()
+        if not waku.dnsRetryLoopHandle.isNil():
+          await waku.dnsRetryLoopHandle.cancelAndWait()
         waku.closePersistency()
+        waku.clearNodeState()
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
