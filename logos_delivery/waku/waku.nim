@@ -518,7 +518,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     return ok()
 
   waku.stopped = false
-  waku.provideNodeState() # cleared by a previous stop()
 
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
@@ -548,6 +547,10 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
           await waku.dnsRetryLoopHandle.cancelAndWait()
         waku.closePersistency()
         waku.clearNodeState()
+
+  # Cleared by a previous stop(). Provided after the defer, so that every
+  # failed start clears it again.
+  waku.provideNodeState()
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
