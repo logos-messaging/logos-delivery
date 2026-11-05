@@ -16,7 +16,8 @@ import
   logos_delivery/waku/[waku_core, waku_node],
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
-  logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery]
+  logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery],
+  logos_delivery/waku/waku_rendezvous/client
 import tests/testlib/[testasync, wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
@@ -289,3 +290,39 @@ suite "LogosDelivery - broker lifecycle":
         MessagingSend.getCurrentProvider(ctx).isNone()
 
       node.messagingClient.stopping = false
+
+  asyncTest "a start on a TCP port in use leaves nothing running":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let held = newSocket()
+      held.bindAddr()
+      held.listen()
+      var kernel = defaultTestWakuNodeConf()
+      kernel.tcpPort = held.getLocalAddr()[1]
+      kernel.rendezvous = Opt.some(true)
+      let node = (await LogosDelivery.new(testNodeConf(kernel, EntryLayer.messaging))).valueOr:
+        raiseAssert error
+      let rendezvous = node.waku.node.wakuRendezvousClient
+      require not rendezvous.isNil()
+
+      check:
+        (await node.start()).isErr()
+        not node.isRunning()
+        not rendezvous.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+
+      (await node.stop()).isOkOr:
+        raiseAssert "stop after the failed start: " & error
+      held.close()
+
+  asyncTest "a second stop returns ok":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      (await node.stop()).isOkOr:
+        raiseAssert "first stop: " & error
+      (await node.stop()).isOkOr:
+        raiseAssert "second stop: " & error
+      check not node.isRunning()
