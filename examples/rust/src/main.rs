@@ -4,7 +4,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{slice, thread, time};
 
 // These declarations are hand-written rather than generated from
-// library/generated/logosdelivery.h, so nothing checks them against it: a stale
+// build/generated/logosdelivery.h, so nothing checks them against it: a stale
 // one compiles and links cleanly and only misbehaves at run time. Keep them in
 // step with the header by hand.
 

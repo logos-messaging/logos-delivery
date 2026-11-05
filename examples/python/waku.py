@@ -67,7 +67,7 @@ json_config = "{ \
                   args.key)
 
 # ctypes binds by name, so nothing here is checked against
-# library/generated/logosdelivery.h: a stale signature imports and runs, and
+# build/generated/logosdelivery.h: a stale signature imports and runs, and
 # only misbehaves once it is called. Keep these in step with the header by hand.
 
 # LogosDeliveryScalarRawFn, and the FFICallback event-listener shape.
