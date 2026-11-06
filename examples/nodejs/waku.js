@@ -18,12 +18,10 @@ var wakuMod = require('bindings')('waku');
 
 var cfg = `{
     "mode": "Core",
-    "messagingOverrides": {
-        "listen-address": "0.0.0.0",
-        "tcp-port": 60001,
-        "nodekey": "364d111d729a6eb6d3e6113e163f017b5ef03a6f94c9b5b7bb1bb36fa5cb07a9",
-        "log-level": "DEBUG"
-    }
+    "listen-address": "0.0.0.0",
+    "tcp-port": 60001,
+    "nodekey": "364d111d729a6eb6d3e6113e163f017b5ef03a6f94c9b5b7bb1bb36fa5cb07a9",
+    "log-level": "DEBUG"
 }`
 
 function event_handler(event) {

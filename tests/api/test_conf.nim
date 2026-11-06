@@ -1,6 +1,7 @@
 {.used.}
 
-import std/[net, strutils], results, chronos, testutils/unittests
+import std/[macros, net, strutils], results, chronos, testutils/unittests
+import confutils/defs
 import brokers/broker_context
 import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
@@ -9,10 +10,31 @@ import tools/confutils/cli_args
 import logos_delivery/waku/common/logging
 import ../testlib/wakunodeconf
 
-suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
+proc kernelOf(
+    mode = LogosDeliveryMode.Core,
+    preset = "",
+    kernelConf = Opt.none(KernelConf),
+    entryLayer = EntryLayer.channels,
+): WakuNodeConf =
+  ## The kernel config the structured entry builds.
+  let lc = LogosDeliveryConf.init(
+    entryLayer = entryLayer,
+    mode = mode,
+    preset = preset,
+    messagingOverrides = MessagingClientConf(),
+    channelsOverrides = ReliableChannelManagerConf(),
+    kernelConfArg = kernelConf,
+  ).valueOr:
+    raiseAssert error
+  return WakuNodeConf(lc.kernelConf)
+
+proc libraryKernel(): WakuNodeConf =
+  return libraryKernelConf().valueOr:
+    raiseAssert error
+
+suite "LogosDeliveryConf - mode expansion":
   test "Core mode enables relay + service protocols":
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
+    let kc = kernelOf(LogosDeliveryMode.Core)
     check:
       kc.relay == Opt.some(true)
       kc.filter == Opt.some(true)
@@ -22,8 +44,7 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
       kc.rendezvous == Opt.some(true)
 
   test "Edge mode is client-only (no relay/filter/lightpush/store)":
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Edge).valueOr:
-        raiseAssert error
+    let kc = kernelOf(LogosDeliveryMode.Edge)
     check:
       kc.relay == Opt.some(false)
       kc.filter == Opt.some(false)
@@ -40,23 +61,17 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
     applyMode(kc, LogosDeliveryMode.Core)
     check kc.discv5Discovery == Opt.some(false)
 
-suite "MessagingClientConf - field mapping + transport policy":
-  test "set fields are written to their kernel counterparts":
-    let mc = MessagingClientConf(
-      clusterId: Opt.some(3'u16),
-      numShardsInCluster: Opt.some(4'u16),
-      maxMessageSize: Opt.some("150KiB"),
-    )
-    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
+  test "an explicit kernel field wins over the mode":
+    var kernel = libraryKernel()
+    kernel.store = Opt.some(true)
+    let kc = kernelOf(LogosDeliveryMode.Edge, kernelConf = Opt.some(KernelConf(kernel)))
     check:
-      kc.clusterId == Opt.some(3'u16)
-      kc.numShardsInNetwork == 4
-      kc.maxMessageSize == "150KiB"
+      kc.store == Opt.some(true) # Edge defaults store off; the explicit opt-in wins
+      kc.relay == Opt.some(false) # unset, so the mode decides
 
-  test "messaging transport defaults: ephemeral ports, websocket off, quic on":
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
+suite "LogosDeliveryConf - library kernel defaults":
+  test "ephemeral ports, websocket off, quic on":
+    let kc = kernelOf()
     check:
       kc.tcpPort == Port(0)
       kc.discv5UdpPort == Port(0)
@@ -64,78 +79,75 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.quicSupport == true
 
   test "nat and storage defaults are the CLI defaults":
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
+    let kc = kernelOf()
     let cli = defaultKernelConf().valueOr:
       raiseAssert error
     check:
       kc.nat == cli.nat
       kc.localStoragePath == cli.localStoragePath
 
-  test "an explicit nat overrides the default":
-    let kc = MessagingClientConf(nat: Opt.some("none")).toWakuNodeConf(
-      LogosDeliveryMode.Core
+  test "an unset pure-libp2p peers budget stays unset":
+    # The kernel default (0) and any network preset (50) are decided further
+    # down the chain.
+    check kernelOf().maxPureLibp2pPeers.isNone()
+
+  test "choosing the plugin-hosted kademlia turns the in-process one off":
+    var kernel = libraryKernel()
+    kernel.pluginKadDiscovery = Opt.some(true)
+    check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).enableKadDiscovery ==
+      Opt.some(false)
+
+  test "an RLN contract alone leaves rlnRelay unset, as on the CLI":
+    var kernel = libraryKernel()
+    kernel.rlnRelayEthContractAddress = "0x0000000000000000000000000000000000000001"
+    check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).rlnRelay.isNone()
+
+  test "the kernel conf's preset applies to messaging when preset is empty":
+    var kernel = libraryKernel()
+    kernel.preset = "twn"
+    let lc = LogosDeliveryConf.init(
+      mode = LogosDeliveryMode.Core,
+      preset = "",
+      messagingOverrides = MessagingClientConf(),
+      channelsOverrides = ReliableChannelManagerConf(),
+      kernelConfArg = Opt.some(KernelConf(kernel)),
     ).valueOr:
       raiseAssert error
-    check kc.nat == "none"
-
-  test "explicit transport overrides win":
-    let mc = MessagingClientConf(
-      p2pTcpPort: Opt.some(Port(1234)),
-      websocketSupport: Opt.some(true),
-      quicSupport: Opt.some(false),
-    )
-    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-    check:
-      kc.tcpPort == Port(1234)
-      kc.websocketSupport == true
-      kc.quicSupport == false
+    check lc.messagingConf.get() ==
+      merge(resolvePreset("twn").get(), MessagingClientConf())
 
 suite "MessagingClientConf - preset resolution":
-  test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":
+  test "resolvePreset lifts the messaging fields":
     let mc = resolvePreset("twn").valueOr:
       raiseAssert error
-    check:
-      mc.reliabilityEnabled.isSome()
-      mc.clusterId.isNone()
-      mc.maxMessageSize.isNone()
-
-  test "resolvePreset does not lift entryNodes":
-    let mc = resolvePreset("logostest").valueOr:
-      raiseAssert error
-    check mc.entryNodes.isNone()
+    check mc.reliabilityEnabled.isSome()
 
   test "empty preset resolves to an empty config":
     let mc = resolvePreset("").valueOr:
       raiseAssert error
-    check:
-      mc.clusterId.isNone()
-      mc.maxMessageSize.isNone()
+    check mc == MessagingClientConf()
 
-  test "a messaging override of a kernel-mirrored field wins over the preset":
-    let presetConf = resolvePreset("logos.dev").valueOr:
+  test "a kernel field wins over the preset":
+    let lc = parseLogosDeliveryConf(
+      """{"preset": "logos.dev", "num-shards-in-network": 1}"""
+    ).valueOr:
       raiseAssert error
-    let merged =
-      merge(presetConf, MessagingClientConf(numShardsInCluster: Opt.some(1'u16)))
-    var kernelConf = toWakuNodeConf(merged, LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-    kernelConf.preset = "logos.dev"
-    let wakuConf = kernelConf.toWakuConf().valueOr:
-      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
     check:
       wakuConf.shardingConf.kind == AutoSharding
       wakuConf.shardingConf.numShards == 1
 
 suite "MessagingClientConf - merge (override wins)":
   test "a set override field wins; unset keeps the base":
-    let base =
-      MessagingClientConf(clusterId: Opt.some(1'u16), maxMessageSize: Opt.some("1MB"))
-    let overrides = MessagingClientConf(clusterId: Opt.some(2'u16))
+    let base = MessagingClientConf(
+      reliabilityEnabled: Opt.some(true), backfillEnabled: Opt.some(true)
+    )
+    let overrides = MessagingClientConf(reliabilityEnabled: Opt.some(false))
     let mc = merge(base, overrides)
     check:
-      mc.clusterId == Opt.some(2'u16) # override wins
-      mc.maxMessageSize == Opt.some("1MB") # base preserved
+      mc.reliabilityEnabled == Opt.some(false) # override wins
+      mc.backfillEnabled == Opt.some(true) # base preserved
 
   test "rate-limit fields override independently through merge":
     let base = MessagingClientConf(
@@ -186,9 +198,9 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.preset == "logostest"
       kc.relay == Opt.some(false) # Edge disables relay
 
-  test "messaging overrides split: kernel fields to the kernel, reliability to the record":
+  test "kernel fields go to the kernel, messaging fields to the messaging conf":
     let lc = parseLogosDeliveryConf(
-      """{"mode": "Core", "messagingOverrides": {"clusterId": 7, "reliabilityEnabled": true}}"""
+      """{"mode": "Core", "clusterId": 7, "reliabilityEnabled": true}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
@@ -198,28 +210,24 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "localStoragePath override maps to the kernel":
     let lc = parseLogosDeliveryConf(
-      """{"mode": "Core", "messagingOverrides": {"localStoragePath": "/tmp/inst-1/data"}}"""
+      """{"mode": "Core", "localStoragePath": "/tmp/inst-1/data"}"""
     ).valueOr:
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).localStoragePath == "/tmp/inst-1/data"
 
   test "nat override maps to the kernel":
-    ## The structured shape is what the FFI and the JSON config use; without
-    ## this the only way to reach `nat` was the legacy flat blob.
-    let lc = parseLogosDeliveryConf(
-      """{"mode": "Core", "messagingOverrides": {"nat": "none"}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"mode": "Core", "nat": "none"}""").valueOr:
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).nat == "none"
 
-  test "messaging overrides are recorded verbatim, unset fields left none":
-    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"clusterId": 7}}""").valueOr:
+  test "messaging fields are recorded verbatim, unset fields left none":
+    let lc = parseLogosDeliveryConf("""{"reliability": true}""").valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
-    let overrides = lc.messagingConf.get()
+    let mc = lc.messagingConf.get()
     check:
-      overrides.clusterId == Opt.some(7'u16) # the user's override, kept as given
-      overrides.reliabilityEnabled.isNone() # user didn't set it, so it stays none
+      mc.reliabilityEnabled == Opt.some(true) # the user's value, kept as given
+      mc.anonymityLevel.isNone() # user didn't set it, so it stays none
 
   test "a preset resolves reliability into the messaging record":
     let lc = parseLogosDeliveryConf("""{"preset": "twn"}""").valueOr:
@@ -229,9 +237,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check lc.messagingConf.get().reliabilityEnabled.isSome()
 
   test "a clusterId override of 2 keeps the logos.test preset":
-    let lc = parseLogosDeliveryConf(
-      """{"preset": "logos.test", "messagingOverrides": {"clusterId": 2}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"preset": "logos.test", "clusterId": 2}""").valueOr:
       raiseAssert error
     let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
         raiseAssert error
@@ -240,43 +246,32 @@ suite "parseLogosDeliveryConf - JSON parsing":
       wakuConf.staticNodes == NetworkPresetConf.LogosTestConf().entryNodes
 
   test "an anonymity override reaches the messaging record and mounts mix":
-    let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"anonymityLevel": "Required"}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"anonymityLevel": "Required"}""").valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
     check:
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
-  test "a flat blob's anonymity level is lifted to the messaging record":
-    let lc = parseLogosDeliveryConf("""{"anonymityLevel": "Preferred"}""").valueOr:
-      raiseAssert error
-    require lc.messagingConf.isSome()
-    check:
-      lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Preferred)
-      WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
-
-  test "a flat blob asking for anonymity while disabling mix is rejected":
+  test "an anonymity level with mix disabled is rejected":
     check parseLogosDeliveryConf("""{"anonymityLevel": "Required", "mix": false}""")
       .isErr()
 
-  test "channelsOverrides fold into the channel conf":
+  test "channel fields go to the channel conf":
     let lc = parseLogosDeliveryConf(
-      """{"channelsOverrides": {"rateLimitEnabled": true, "sdsMaxRetransmissions": 9}}"""
+      """{"rateLimitEnabled": true, "sdsMaxRetransmissions": 9}"""
     ).valueOr:
       raiseAssert error
-    require lc.channelsConf.isSome()
-    let channels = lc.channelsConf.get()
+    require:
+      lc.channelsConf.isSome()
+      lc.messagingConf.isSome()
     check:
-      channels.rateLimitEnabled == Opt.some(true)
-      channels.sdsMaxRetransmissions == Opt.some(9)
+      lc.channelsConf.get().sdsMaxRetransmissions == Opt.some(9)
+      lc.messagingConf.get().rateLimitEnabled == Opt.some(true) # a messaging field
 
   test "rate-limit overrides are settable by field name":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rateLimitEnabled": true,
-           "rateLimitEpochPeriodSec": 30, "rateLimitMessagesPerEpoch": 5,
-           "rateLimitApproachedThresholdPercent": 60}}"""
+      """{"rateLimitEnabled": true, "rateLimitEpochPeriodSec": 30, "rateLimitMessagesPerEpoch": 5, "rateLimitApproachedThresholdPercent": 60}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
@@ -290,9 +285,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "rate-limit overrides are settable by CLI switch name":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rate-limit-enabled": true,
-           "rate-limit-epoch-sec": 30, "rate-limit-messages-per-epoch": 5,
-           "rate-limit-approached-threshold-percent": 60}}"""
+      """{"rate-limit-enabled": true, "rate-limit-epoch-sec": 30, "rate-limit-messages-per-epoch": 5, "rate-limit-approached-threshold-percent": 60}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
@@ -304,9 +297,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       mc.rateLimitApproachedThresholdPercent == Opt.some(60'u64)
 
   test "a partial rate-limit override leaves the rest at the defaults":
-    let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rate-limit-messages-per-epoch": 5}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"rate-limit-messages-per-epoch": 5}""").valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
     let rl = lc.messagingConf.get().rateLimitConfig()
@@ -317,10 +308,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       rl.approachedThresholdPercent == DefaultRateLimitConfig.approachedThresholdPercent
 
   test "an invalid rate-limit value is rejected":
-    check parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rate-limit-epoch-sec": "soon"}}"""
-    )
-      .isErr()
+    check parseLogosDeliveryConf("""{"rate-limit-epoch-sec": "soon"}""").isErr()
 
   test "invalid mode is rejected (Core or Edge only)":
     check parseLogosDeliveryConf("""{"mode": "bogus"}""").isErr()
@@ -337,7 +325,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "override keys accept CLI switch names":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"cluster-id": 7, "reliability": true, "tcp-port": 1234}}"""
+      """{"cluster-id": 7, "reliability": true, "tcp-port": 1234}"""
     ).valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
@@ -348,43 +336,31 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.tcpPort == Port(1234)
 
   test "the anonymity-level switch name is accepted as an override key":
-    let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"anonymity-level": "Required"}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"anonymity-level": "Required"}""").valueOr:
       raiseAssert error
     check:
       lc.messagingConf.get(MessagingClientConf()).anonymityLevel ==
         Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
-  test "the anonymity-level switch name in a flat blob is lifted to the messaging record":
-    let lc = parseLogosDeliveryConf("""{"anonymity-level": "Preferred"}""").valueOr:
-      raiseAssert error
-    check:
-      lc.messagingConf.get(MessagingClientConf()).anonymityLevel ==
-        Opt.some(AnonymityLevel.Preferred)
-      WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
-
   test "anonymityLevel set via both its name and its switch name is rejected":
     check "was set twice" in
       parseLogosDeliveryConf(
-        """{"messagingOverrides": {"anonymityLevel": "Required", "anonymity-level": "Required"}}"""
+        """{"anonymityLevel": "Required", "anonymity-level": "Required"}"""
       )
       .errorOr("accepted")
 
-  test "unknown keys inside an overrides body are rejected":
-    check parseLogosDeliveryConf("""{"messagingOverrides": {"bogusKey": 1}}""").isErr()
-    check parseLogosDeliveryConf("""{"channelsOverrides": {"bogusKey": 1}}""").isErr()
+  test "the per-layer sections of the old shape are rejected":
+    check parseLogosDeliveryConf("""{"messagingOverrides": {}}""").isErr()
+    check parseLogosDeliveryConf("""{"channelsOverrides": {}}""").isErr()
+    check parseLogosDeliveryConf("""{"kernelConf": {}}""").isErr()
 
   test "a field set via both its name and its switch name is rejected":
-    check parseLogosDeliveryConf(
-      """{"messagingOverrides": {"clusterId": 5, "cluster-id": 5}}"""
-    )
-      .isErr()
+    check parseLogosDeliveryConf("""{"clusterId": 5, "cluster-id": 5}""").isErr()
 
   test "logLevel and nodeKey parse via switch names and map to the kernel":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"log-level": "DEBUG", "log-format": "JSON", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}}"""
+      """{"log-level": "DEBUG", "log-format": "JSON", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}"""
     ).valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
@@ -394,9 +370,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.nodekey.isSome()
 
   test "a null value leaves the field unset":
-    let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"store": null, "clusterId": 7}}"""
-    ).valueOr:
+    let lc = parseLogosDeliveryConf("""{"store": null, "clusterId": 7}""").valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
     check:
@@ -405,11 +379,11 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "an invalid Ethereum RPC URL is rejected at parse time":
     check parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rln-relay-eth-client-address": ["ws://node:8546"]}}"""
+      """{"rln-relay-eth-client-address": ["ws://node:8546"]}"""
     )
       .isErr()
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"rln-relay-eth-client-address": ["http://localhost:8540/"]}}"""
+      """{"rln-relay-eth-client-address": ["http://localhost:8540/"]}"""
     ).valueOr:
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).ethClientUrls.len == 1
@@ -417,12 +391,11 @@ suite "parseLogosDeliveryConf - JSON parsing":
   test "the LEZ RLN options are not accepted from configuration":
     # The RLN plugin is installed over FFI and carries its own configuration.
     for key in ["rln-lez", "rln-registry-id", "rln-identifier", "rln-registry-options"]:
-      check parseLogosDeliveryConf("{\"messagingOverrides\": {\"" & key & "\": \"x\"}}")
-        .isErr()
+      check parseLogosDeliveryConf("{\"" & key & "\": \"x\"}").isErr()
 
   test "store backend fields fold into the kernel conf":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}}"""
+      """{"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}"""
     ).valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
@@ -432,9 +405,9 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.storeMessageRetentionPolicy == "time:3600"
       kc.storeMaxNumDbConnections == 7
 
-  test "kernel entry layer parses a raw kernelConf":
+  test "kernel entry layer takes kernel fields alone":
     let lc = parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {"relay": false, "maxMessageSize": "150KiB"}}"""
+      """{"entrylayer": "kernel", "relay": false, "maxMessageSize": "150KiB"}"""
     ).valueOr:
       raiseAssert error
     check:
@@ -445,26 +418,29 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.relay == Opt.some(false)
       kc.maxMessageSize == "150KiB"
 
-  test "kernel entry layer requires a kernelConf":
-    check parseLogosDeliveryConf("""{"entrylayer": "kernel"}""").isErr()
+  test "kernel entry layer accepts a preset, as the CLI does":
+    let lc = parseLogosDeliveryConf("""{"entrylayer": "kernel", "preset": "twn"}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(lc.kernelConf).preset == "twn"
 
-  test "kernel entry layer rejects anything besides kernelConf":
+  test "kernel entry layer rejects mode, messaging and channel options":
+    check parseLogosDeliveryConf("""{"entrylayer": "kernel", "mode": "Edge"}""").isErr()
+    check parseLogosDeliveryConf("""{"entrylayer": "kernel", "reliability": true}""")
+      .isErr()
     check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {}, "messagingOverrides": {"clusterId": 1}}"""
+      """{"entrylayer": "kernel", "sdsMaxRetransmissions": 9}"""
     )
       .isErr()
-    # a preset for a kernel node goes inside kernelConf (WakuNodeConf.preset); the
-    # kernel entry layer treats kernelConf as a finished object and overlays nothing
-    check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {}, "preset": "twn"}"""
-    )
-      .isErr()
 
-  test "kernelConf is rejected outside the kernel entry layer":
-    # kernelConf is a kernel-entry-layer wrapper. Under messaging/channels it is
-    # neither consumed by the structured path nor a flat kernel field, so it must
-    # surface as an unknown key.
-    check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
+  test "a wrong-layer option is named, and rejected before its value is parsed":
+    let res = parseLogosDeliveryConf("""{"entrylayer": "kernel", "reliability": "x"}""")
+    check res.isErr() and res.error.endsWith(": reliability")
+
+  test "messaging entry layer rejects channel options":
+    let res = parseLogosDeliveryConf(
+      """{"entrylayer": "messaging", "sdsMaxRetransmissions": 9}"""
+    )
+    check res.isErr() and res.error.endsWith(": sdsMaxRetransmissions")
 
   test "an empty config warns about the websocket port":
     # TODO: logos-delivery#4553
@@ -475,18 +451,18 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
 suite "LogosDelivery.new - construction (the app-dev entry)":
   asyncTest "builds the full messaging stack from mode + overrides":
+    var kernel = libraryKernel()
+    kernel.clusterId = Opt.some(3'u16)
+    kernel.numShardsInNetwork = 1
+    kernel.listenAddress = parseIpAddress("0.0.0.0")
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
           mode = LogosDeliveryMode.Core,
           preset = "",
-          messagingOverrides = MessagingClientConf(
-            clusterId: Opt.some(3'u16),
-            numShardsInCluster: Opt.some(1'u16),
-            listenIpv4: Opt.some(parseIpAddress("0.0.0.0")),
-            reliabilityEnabled: Opt.some(true),
-          ),
+          messagingOverrides = MessagingClientConf(reliabilityEnabled: Opt.some(true)),
+          kernelConf = Opt.some(KernelConf(kernel)),
         )
       ).valueOr:
         raiseAssert error
@@ -497,38 +473,20 @@ suite "LogosDelivery.new - construction (the app-dev entry)":
     (await node.stop()).expect("stop")
 
   asyncTest "builds from a network preset":
+    var kernel = libraryKernel()
+    kernel.listenAddress = parseIpAddress("0.0.0.0")
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
           mode = LogosDeliveryMode.Core,
           preset = "logostest",
-          messagingOverrides =
-            MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))),
+          kernelConf = Opt.some(KernelConf(kernel)),
         )
       ).valueOr:
         raiseAssert error
     check not node.waku.isNil()
     (await node.stop()).expect("stop")
-
-suite "MessagingClientConf - store override":
-  test "store opt-in overrides the mode default; protocol flags follow the mode":
-    let kc = MessagingClientConf(store: Opt.some(true)).toWakuNodeConf(
-      LogosDeliveryMode.Edge
-    ).valueOr:
-      raiseAssert error
-    check:
-      kc.store == Opt.some(true) # Edge defaults store off; the explicit opt-in wins
-      kc.relay == Opt.some(false)
-        # MessagingClientConf has no relay field (per spec); only the mode
-        # sets relay on the library API path
-
-  test "configured-store-nodes-only reaches the kernel":
-    let kc = MessagingClientConf(configuredStoreNodesOnly: Opt.some(true)).toWakuNodeConf(
-      LogosDeliveryMode.Edge
-    ).valueOr:
-      raiseAssert error
-    check kc.configuredStoreNodesOnly
 
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
@@ -582,10 +540,8 @@ suite "LogosDelivery.new - raw kernel construction":
     (await node.start()).expect("start")
     (await node.stop()).expect("stop")
 
-# [Legacy flat JSON config] These suites cover the legacy flat shape; delete them
-# together with parseFlatConf when flat-shape support is dropped.
-suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)":
-  test "a flat blob of kernel fields is detected and parsed as a full stack":
+suite "parseLogosDeliveryConf - flat shape":
+  test "kernel fields parse into a full stack":
     let lc = parseLogosDeliveryConf(
       """{"relay": true, "clusterId": 7, "store": true, "filter": false}"""
     ).valueOr:
@@ -596,7 +552,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
       lc.messagingConf.isSome() # full stack
       lc.channelsConf.isSome()
 
-  test "a flat blob carries the messaging REST cache capacity by switch or field name":
+  test "the messaging REST cache capacity parses by switch or field name":
     let bySwitch = parseLogosDeliveryConf(
       """{"rest": true, "rest-messaging-cache-capacity": 7}"""
     ).valueOr:
@@ -608,7 +564,7 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
       raiseAssert error
     check WakuNodeConf(byField.kernelConf).restMessagingCacheCapacity == 9'u32
 
-  test "flat blob carrying mode: mode expands to flags, explicit flags override":
+  test "mode expands to flags, explicit flags override":
     let lc = parseLogosDeliveryConf(
       """{"mode": "Edge", "relay": true, "clusterId": 7}"""
     ).valueOr:
@@ -620,25 +576,24 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
         # Edge default, not set explicitly
       WakuNodeConf(lc.kernelConf).clusterId == Opt.some(7'u16)
 
-  test "flat blob's reliabilityEnabled routes to the messaging conf, not the kernel":
+  test "reliabilityEnabled routes to the messaging conf, not the kernel":
     let lc = parseLogosDeliveryConf("""{"relay": true, "reliabilityEnabled": true}""").valueOr:
       raiseAssert error
     check:
       lc.messagingConf.get().reliabilityEnabled == Opt.some(true)
 
-  test "an unknown key in a flat blob is rejected":
+  test "an unknown key is rejected":
     check parseLogosDeliveryConf("""{"relay": true, "bogusKey": 1}""").isErr()
 
-  test "a flat blob's preset lifts reliability into the messaging record":
-    # twn defines a p2pReliability; the flat path must resolve it into the messaging
-    # conf (the kernel no longer carries reliability), matching master.
+  test "a preset lifts reliability into the messaging record":
+    # twn defines a p2pReliability; the kernel no longer carries reliability.
     let lc = parseLogosDeliveryConf("""{"preset": "twn", "relay": true}""").valueOr:
       raiseAssert error
     let fromPreset = resolvePreset("twn").valueOr:
       raiseAssert error
     check lc.messagingConf.get().reliabilityEnabled == fromPreset.reliabilityEnabled
 
-  test "port 0 (auto-allocate) is accepted in a flat blob":
+  test "port 0 (auto-allocate) is accepted":
     let lc = parseLogosDeliveryConf(
       """{"relay": true, "tcpPort": 0, "discv5UdpPort": 0}"""
     ).valueOr:
@@ -647,47 +602,37 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
       WakuNodeConf(lc.kernelConf).tcpPort == Port(0)
       WakuNodeConf(lc.kernelConf).discv5UdpPort == Port(0)
 
-  test "port 0 is accepted in structured messagingOverrides":
-    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"tcp-port": 0}}""").valueOr:
+  test "port 0 is accepted by switch name":
+    let lc = parseLogosDeliveryConf("""{"tcp-port": 0}""").valueOr:
       raiseAssert error
-    check lc.messagingConf.get().p2pTcpPort == Opt.some(Port(0))
+    check WakuNodeConf(lc.kernelConf).tcpPort == Port(0)
 
-  test "mode/preset with no bare field stays structured; a bare field flips it to flat":
-    # No bare kernel field -> structured: mode owns relay, no per-flag override.
-    let structured = parseLogosDeliveryConf(
-      """{"mode": "Edge", "preset": "logostest"}"""
-    ).valueOr:
+  test "a set pure-libp2p peers budget reaches the kernel conf":
+    let lc = parseLogosDeliveryConf("""{"max-pure-libp2p-peers": 7}""").valueOr:
       raiseAssert error
-    check WakuNodeConf(structured.kernelConf).relay == Opt.some(false) # Edge, structured
-    # Adding a bare kernel field (relay) flips to flat, where the explicit flag wins;
-    # relay == true is only reachable via the flat path, so it proves the routing.
-    let flat = parseLogosDeliveryConf(
-      """{"mode": "Edge", "preset": "logostest", "relay": true}"""
-    ).valueOr:
-      raiseAssert error
-    check:
-      WakuNodeConf(flat.kernelConf).relay == Opt.some(true)
-      WakuNodeConf(flat.kernelConf).preset == "logostest"
+    check WakuNodeConf(lc.kernelConf).maxPureLibp2pPeers == Opt.some(7)
 
-  test "a wrapper key alongside a bare kernel field is rejected, not split":
-    # A wrapper key (messagingOverrides) marks the structured shape, so the blob does
-    # not flip to flat; the leftover bare field (relay) then has no structured home and
-    # is rejected. Guards against the discriminator silently splitting a mixed object.
-    check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
+proc optionNames[T](conf: T): seq[string] =
+  ## Every JSON key that sets a field of `conf`: field names and switch names.
+  var names: seq[string]
+  for field, value in fieldPairs(conf):
+    names.add(field.toLowerAscii())
+    when value.hasCustomPragma(defs.name):
+      names.add(value.getCustomPragmaVal(defs.name).toLowerAscii())
+  return names
 
-suite "MessagingClientConf - pure-libp2p peers budget":
-  test "unset stays unset through mode expansion":
-    # applyMode must not touch it: the kernel default (0) and any network
-    # preset (50) are decided further down the chain.
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
-    check kc.maxPureLibp2pPeers.isNone()
-
-  test "set value reaches the kernel conf":
-    let mc = MessagingClientConf(maxPureLibp2pPeers: Opt.some(7))
-    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-    check kc.maxPureLibp2pPeers == Opt.some(7)
+suite "parseLogosDeliveryConf - one key, one layer":
+  test "messaging, channel and kernel option names do not overlap":
+    let kernel = optionNames(libraryKernel())
+    let messaging = optionNames(MessagingClientConf())
+    let channels = optionNames(ReliableChannelManagerConf())
+    for name in messaging:
+      check name notin kernel
+      check name notin channels
+    for name in channels:
+      check name notin kernel
+    for name in messaging & channels:
+      check name notin ["entrylayer", "mode", "preset"]
 
 suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
   proc cliConf(

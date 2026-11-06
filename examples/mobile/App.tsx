@@ -163,12 +163,10 @@ function App(): React.JSX.Element {
   const onClickNew = async () => {
     const config = {
       mode: 'Core',
-      messagingOverrides: {
-        'listen-address': '0.0.0.0',
-        'tcp-port': 42342,
-        nodekey:
-          '1122334455667788990011223344556677889900112233445566778899000022',
-      },
+      'listen-address': '0.0.0.0',
+      'tcp-port': 42342,
+      nodekey:
+        '1122334455667788990011223344556677889900112233445566778899000022',
     };
     waku = await WakuFactory.createInstance(config);
   };
