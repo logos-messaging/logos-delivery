@@ -287,20 +287,18 @@ proc handleMessage*(
         target_peer_ids = subscribedPeers.mapIt(shortLog(it))
       logos_delivery_filter_errors.inc(labelValues = [pushTimeoutFailure])
     else:
+      ## Only successful pushes are observed, so one stalled subscriber
+      ## does not fill the +Inf bucket. Timeouts are in the errors metric.
+      let handleMessageDuration = Moment.now() - handleMessageStartTime
+      logos_delivery_filter_handle_message_duration_seconds.observe(
+        handleMessageDuration.milliseconds.float / 1000
+      )
       trace "Pushed message successfully to all subscribers",
         pubsubTopic = pubsubTopic,
         contentTopic = message.contentTopic,
         msg_hash = msgHash,
         numPeers = subscribedPeers.len,
         target_peer_ids = subscribedPeers.mapIt(shortLog(it))
-
-  let
-    handleMessageDuration = Moment.now() - handleMessageStartTime
-    handleMessageDurationSec = handleMessageDuration.milliseconds.float / 1000
-      # Duration in seconds with millisecond precision floating point
-  logos_delivery_filter_handle_message_duration_seconds.observe(
-    handleMessageDurationSec
-  )
 
 proc initProtocolHandler(wf: WakuFilter) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
