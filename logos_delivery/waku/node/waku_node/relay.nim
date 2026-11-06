@@ -55,8 +55,6 @@ proc getTopicOfSubscriptionEvent(
         err("Static sharding is used, relay subscriptions must specify a pubsub topic")
   of PubsubSub, PubsubUnsub:
     return ok((subscription.topic, Opt.none(ContentTopic)))
-  else:
-    return err("Unsupported subscription type in relay getTopicOfSubscriptionEvent")
 
 proc validateShardOfNode*(
     node: WakuNode, pubsubTopic: PubsubTopic

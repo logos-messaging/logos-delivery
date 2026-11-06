@@ -34,7 +34,12 @@ const capabilityToCodec = {
 
 func init*(
     T: type CapabilitiesBitfield,
-    lightpush, filter, store, relay, sync, mix: bool = false,
+    lightpush = false,
+    filter = false,
+    store = false,
+    relay = false,
+    sync = false,
+    mix = false,
 ): T =
   ## Creates an waku2 ENR flag bit field according to RFC 31 (https://rfc.vac.dev/spec/31/)
   var bitfield: uint8

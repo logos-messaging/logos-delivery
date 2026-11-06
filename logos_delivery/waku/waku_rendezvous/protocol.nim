@@ -38,7 +38,7 @@ type WakuRendezVous* = ref object of GenericRendezVous[WakuPeerRecord]
 
 const MaximumNamespaceLen = 255
 
-method discover*(
+proc discover*(
     self: WakuRendezVous, conn: Connection, d: Discover
 ) {.async: (raises: [CancelledError, LPStreamError]).} =
   # Override discover method to avoid collect macro generic instantiation issues

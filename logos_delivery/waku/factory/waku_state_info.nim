@@ -72,8 +72,6 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.StoreNodes:
     ## The preset's store nodes and `storenode`, as a JSON array of multiaddrs.
     return $(%self.conf.configuredStoreNodes())
-  else:
-    return "unknown info item id"
 
 proc init*(T: typedesc[WakuStateInfo], node: WakuNode, conf: WakuConf): T =
   return WakuStateInfo(node: node, conf: conf)
