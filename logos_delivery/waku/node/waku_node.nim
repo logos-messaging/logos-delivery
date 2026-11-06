@@ -459,9 +459,13 @@ proc mountMetadata*(
 
   let relayShards = node.getShardsGetter(shards)
   let advertisedShards: GetShards = proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
-    ## The metadata spec says only relay nodes advertise shards: an edge node
-    ## would otherwise leak its interests.
-    if node.wakuRelay.isNil():
+    ## The metadata spec says edge nodes do not advertise shards: it would
+    ## leak their interests. Service nodes do, so edges can pick them by shard.
+    let servesShards =
+      not node.wakuRelay.isNil() or not node.wakuStore.isNil() or
+      not node.wakuFilter.isNil() or not node.wakuLightPush.isNil() or
+      not node.wakuLegacyLightPush.isNil()
+    if not servesShards:
       return @[]
     return relayShards()
   let metadata = WakuMetadata.new(clusterId, advertisedShards)
