@@ -64,10 +64,11 @@ proc init*(
 ): ConfResult[LogosDeliveryConf] =
   ## Structured (preset + overrides) entry: `mode` and `preset` shape the kernel
   ## conf for every layer, `kernel` included - it just yields no upper layers.
-  ## A field already set in `kernelConfArg` (default: `libraryKernelConf()`) keeps
-  ## its value, mode flags included: build it from `libraryKernelConf()`, whose
-  ## flags are unset, for `mode` to apply. Its `preset` is used when `preset` is
-  ## empty. `init(kernelConf)` is the raw entry that takes a config as-is.
+  ## Without `kernelConfArg`, the kernel conf is `libraryKernelConf()`. A field
+  ## already set in `kernelConfArg` keeps its value, mode flags included: build
+  ## it from `libraryKernelConf()`, whose flags are unset, for `mode` to apply.
+  ## Its `preset` is used when `preset` is empty. `init(kernelConf)` is the raw
+  ## entry that takes a config as-is.
   var kernelConf =
     if kernelConfArg.isSome():
       WakuNodeConf(kernelConfArg.get())
