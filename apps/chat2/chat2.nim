@@ -205,6 +205,9 @@ proc publish(c: Chat, line: string) {.async.} =
       else:
         (await c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish message", error = error
+          return
+        # A node does not receive its own relay messages: echo it locally.
+        c.printReceivedMessage(message)
     except CatchableError:
       error "caught error publishing message: ", error = getCurrentExceptionMsg()
 

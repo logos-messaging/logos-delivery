@@ -51,7 +51,8 @@ class StepsSharding(StepsRelay):
         if not sender:
             sender = self.node1
         if not peer_list:
-            peer_list = self.main_nodes + self.optional_nodes
+            # A node does not receive its own relay messages.
+            peer_list = [p for p in self.main_nodes + self.optional_nodes if p is not sender]
 
         self.relay_message(sender, message, pubsub_topic)
         for index, peer in enumerate(peer_list):

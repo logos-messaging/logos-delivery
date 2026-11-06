@@ -97,7 +97,9 @@ class StepsLightPush(StepsCommon):
         if not sender:
             sender = self.light_push_node1
         if not peer_list:
-            peer_list = self.main_receiving_nodes + self.optional_nodes
+            # Neither the sender nor the service node that publishes for it receives the message back from relay.
+            own_nodes = (sender, getattr(self, "receiving_node1", None))
+            peer_list = [p for p in self.main_receiving_nodes + self.optional_nodes if p not in own_nodes]
         if message_propagation_delay is None:
             message_propagation_delay = self.default_message_propagation_delay
         payload = self.create_payload(pubsub_topic, message)
