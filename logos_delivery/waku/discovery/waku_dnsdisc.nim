@@ -10,7 +10,7 @@ import
   chronicles,
   chronos,
   metrics,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,

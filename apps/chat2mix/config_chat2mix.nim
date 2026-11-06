@@ -1,7 +1,7 @@
 import results, chronicles, chronos, std/strutils, regex
 
 import
-  eth/keys,
+  eth/common/keys,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,
   libp2p/crypto/curve25519,

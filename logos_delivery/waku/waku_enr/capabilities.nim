@@ -1,6 +1,7 @@
 {.push raises: [].}
 
-import std/[bitops, sequtils, net, tables], results, eth/keys, libp2p/crypto/crypto
+import
+  std/[bitops, sequtils, net, tables], results, eth/common/keys, libp2p/crypto/crypto
 import ../common/enr, ../waku_core/codecs
 import libp2p_mix
 

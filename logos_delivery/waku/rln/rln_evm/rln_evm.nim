@@ -8,7 +8,7 @@ import
   web3,
   json,
   web3/eth_api_types,
-  eth/keys,
+  eth/common/keys,
   results,
   stew/[byteutils, arrayops],
   brokers/broker_context

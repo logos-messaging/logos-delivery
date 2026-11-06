@@ -11,7 +11,7 @@ import
   confutils/defs,
   confutils/std/net,
   confutils/toml/defs as confTomlDefs,
-  confutils/toml/std/net as confTomlNet,
+  toml_serialization/std/net as confTomlNet,
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,

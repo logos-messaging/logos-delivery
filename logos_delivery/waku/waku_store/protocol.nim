@@ -8,7 +8,6 @@ import
   results,
   chronicles,
   chronos,
-  bearssl/rand,
   libp2p/crypto/crypto,
   libp2p/protocols/protocol,
   libp2p/stream/connection,

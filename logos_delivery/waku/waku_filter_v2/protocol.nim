@@ -5,7 +5,6 @@
 import
   results,
   std/[sequtils, sets, tables],
-  stew/byteutils,
   chronicles,
   chronos,
   libp2p/peerid,

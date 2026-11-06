@@ -5,7 +5,7 @@ import
   chronicles,
   metrics,
   results,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/protocols/ping,

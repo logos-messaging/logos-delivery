@@ -11,7 +11,7 @@ import
   confutils,
   chronicles,
   chronos,
-  eth/keys,
+  eth/common/keys,
   bearssl,
   results,
   stew/[byteutils],

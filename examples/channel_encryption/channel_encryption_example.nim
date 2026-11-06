@@ -6,7 +6,7 @@
 ##
 ## Build: make example2   ->   ./build/channel_encryption_example
 
-import std/[sequtils, strutils]
+import std/strutils
 import std/net
 import chronos, results, confutils, confutils/defs
 import nimcrypto/[bcmode, rijndael, sysrand]

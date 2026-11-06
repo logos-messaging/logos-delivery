@@ -7,7 +7,7 @@ import
   metrics,
   results,
   stew/byteutils,
-  eth/keys,
+  eth/common/keys,
   nimcrypto,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,

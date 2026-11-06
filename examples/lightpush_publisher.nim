@@ -1,12 +1,12 @@
 import
-  std/[tables, times, sequtils],
+  std/times,
   stew/byteutils,
   chronicles,
   results,
   chronos,
   confutils,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr
 
 import

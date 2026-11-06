@@ -7,7 +7,7 @@ import
   chronos,
   chronos/transports/osnet,
   chronicles,
-  eth/keys,
+  eth/common/keys,
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/rendezvous,

@@ -6,7 +6,7 @@ import
   chronicles,
   metrics,
   results,
-  eth/keys,
+  eth/common/keys,
   nimcrypto,
   bearssl/rand,
   stew/byteutils,
