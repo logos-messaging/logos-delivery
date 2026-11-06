@@ -719,6 +719,13 @@ hence would have reachability issues.""",
     name: "mixnode"
   .}: seq[MixNodePubInfo]
 
+  mixAllowAllAddresses* {.
+    desc:
+      "Let mix paths use a mix node at a private or a loopback address. Without it, mix uses a mix node only at a public address or through a circuit relay. Set it on a node of a local simulation, a test or a private network. (requires --mix)",
+    defaultValue: false,
+    name: "mix-allow-all-addresses"
+  .}: bool
+
   mixRlnRegistryId* {.
     desc:
       "Shared RLN module registry for Mix per-hop proofs; empty disables the adapter.",
@@ -1241,6 +1248,7 @@ func ignoredFlagWarnings*(
     ("quic-port", "quic-support", quic, changed(quicPort)),
     ("mixkey", "mix", mix, changed(mixkey)),
     ("mixnode", "mix", mix, n.mixnodes.len > 0),
+    ("mix-allow-all-addresses", "mix", mix, changed(mixAllowAllAddresses)),
     ("kad-bootstrap-node", kadParent, kad, changed(kadBootstrapNodes)),
     ("kad-random-lookup-interval", kadParent, kad, changed(kadRandomLookupIntervalSec)),
     (
@@ -1453,6 +1461,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.mixConf.withMixNodes(n.mixnodes)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
+  b.mixConf.withAllowAllAddresses(n.mixAllowAllAddresses)
 
   if n.filter.isSome():
     b.filterServiceConf.withEnabled(n.filter.get())

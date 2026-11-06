@@ -606,7 +606,10 @@ proc mountMix*(
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    allowAllAddresses: bool = false,
 ): Future[Result[void, string]] {.async.} =
+  ## With `allowAllAddresses`, a path can use a mix node at a private or a
+  ## loopback address. See `WakuMix.new`.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
@@ -619,7 +622,8 @@ proc mountMix*(
   let (literals, names, dropped) = node.splitMixNodes(mixnodes)
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection,
+    allowAllAddresses,
   ).valueOr:
     return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?

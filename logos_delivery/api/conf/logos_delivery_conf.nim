@@ -33,6 +33,8 @@ proc init*(
       return
         err("anonymityLevel=" & $anonymityLevel & " needs mix, but mix=false was set")
     kernel.mix = Opt.some(true)
+  if messagingConf.mixAllowAllAddresses.isSome():
+    kernel.mixAllowAllAddresses = messagingConf.mixAllowAllAddresses.get()
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernel),

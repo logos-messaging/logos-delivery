@@ -249,6 +249,34 @@ suite "parseLogosDeliveryConf - JSON parsing":
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
+  test "a flat blob sets the mix option to allow all addresses":
+    let lc = parseLogosDeliveryConf(
+      """{"mix": true, "mix-allow-all-addresses": true}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().allowAllAddresses
+
+  test "a messaging override sets the mix option to allow all addresses":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"anonymityLevel": "Required", "mix-allow-all-addresses": true}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().allowAllAddresses
+
+  test "a mix conf does not allow all addresses by default":
+    let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check not wakuConf.mixConf.get().allowAllAddresses
+
   test "a flat blob's anonymity level is lifted to the messaging record":
     let lc = parseLogosDeliveryConf("""{"anonymityLevel": "Preferred"}""").valueOr:
       raiseAssert error
@@ -530,6 +558,14 @@ suite "MessagingClientConf - store override":
       raiseAssert error
     check kc.configuredStoreNodesOnly
 
+suite "MessagingClientConf - mix hop addresses":
+  test "the mix option to allow all addresses reaches the kernel":
+    let kc = MessagingClientConf(mixAllowAllAddresses: Opt.some(true)).toWakuNodeConf(
+      LogosDeliveryMode.Core
+    ).valueOr:
+      raiseAssert error
+    check kc.mixAllowAllAddresses
+
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
   let conf = LogosDeliveryConf.init(
@@ -560,6 +596,18 @@ suite "LogosDeliveryConf - anonymity level":
         Opt.none(ReliableChannelManagerConf),
       )
       .isErr()
+
+  test "a raw kernel config takes the mix option to allow all addresses from the messaging config":
+    let conf = LogosDeliveryConf.init(
+      KernelConf(defaultTestWakuNodeConf()),
+      MessagingClientConf(
+        anonymityLevel: Opt.some(AnonymityLevel.Required),
+        mixAllowAllAddresses: Opt.some(true),
+      ),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(conf.kernelConf).mixAllowAllAddresses
 
   test "the mix protocol config is built, not just the ENR capability bit":
     let wakuConf = kernelWithAnonymity(Opt.some(AnonymityLevel.Preferred))
