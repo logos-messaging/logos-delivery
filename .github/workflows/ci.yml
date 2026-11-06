@@ -438,7 +438,7 @@ jobs:
         with:
           name: e2e
           report-title: e2e
-          path: test-reports/*/junit.xml
+          path: test-reports/*/junit*.xml
           reporter: python-xunit
           list-suites: failed
           list-tests: failed
