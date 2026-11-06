@@ -24,7 +24,7 @@ jobs:
           - system: x86_64-linux
             runs_on: [self-hosted, Linux, X64]
 
-    name: '${{ matrix.system }} / ${{ matrix.nixpkg }}'
+    name: build-${{ matrix.nixpkg }}-${{ matrix.system }}
     runs-on: ${{ matrix.runs_on }}
     steps:
       - uses: actions/checkout@v4
