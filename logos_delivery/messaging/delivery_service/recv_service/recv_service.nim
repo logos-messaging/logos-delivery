@@ -316,9 +316,6 @@ proc backfillFetchTopic(
     self.backfill.delayExtra.nanos,
     self.backfill.timestampVariance.nanos,
   )
-  let archived = archivedBefore(
-    now, self.backfill.archiveTime.nanos, self.backfill.timestampVariance.nanos
-  )
   # The time when the archive has every message before `stop`.
   let restArchivedAt =
     stop + self.backfill.timestampVariance.nanos + self.backfill.archiveTime.nanos
@@ -333,7 +330,7 @@ proc backfillFetchTopic(
   if record.timestamp >= lastPartStart and now < restArchivedAt:
     # Only the last part is left, and the archive may not have it yet.
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
-  let fetchStop = min(stop, archived)
+  let fetchStop = if now >= restArchivedAt: stop else: lastPartStart
   let next = ?await fetchPage(
     topic, record.timestamp, fetchStop, self.backfill.queryTimeout, query, deliver
   )
