@@ -192,6 +192,9 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
 
+      - name: Cache librln
+        uses: ./.github/actions/librln-cache
+
       # Nim recompiles only the C files that changed, but nim-leopard reuses any
       # Leopard-RS archive already in nimcache, so the key hashes the files its
       # build depends on. Only master saves.
