@@ -102,10 +102,9 @@ suite "Waku Peer Exchange":
       await allFutures([node.mountPeerExchangeClient(), node2.mountPeerExchange()])
       check node.peerManager.switch.peerStore.peers.len == 0
 
-      # Simulate node2 discovering node3 via Discv5
-      var rpInfo = node3.peerInfo.toRemotePeerInfo()
-      rpInfo.enr = Opt.some(node3.enr)
-      node2.peerManager.addPeer(rpInfo, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node2 finding node3
+      let rpInfo = node3.peerInfo.toRemotePeerInfo()
+      node2.wakuPeerExchange.addToCache(@[node3.enr])
 
       # Set node2 as service peer (default one) for px protocol
       node.peerManager.addServicePeer(
@@ -120,32 +119,21 @@ suite "Waku Peer Exchange":
       check:
         node.peerManager.switch.peerStore.peers.anyIt(it.peerId == rpInfo.peerId)
 
-    asyncTest "PX does not serve an ENR that was not rediscovered recently":
+    asyncTest "PX does not serve an ENR whose cache entry expired":
       await allFutures([node.mountPeerExchangeClient(), node2.mountPeerExchange()])
-
-      var rpInfo = node3.peerInfo.toRemotePeerInfo()
-      rpInfo.enr = Opt.some(node3.enr)
-      node2.peerManager.addPeer(rpInfo, PeerOrigin.Discv5)
-      await node3.stop()
+      node2.wakuPeerExchange.cacheTtl = 200.milliseconds
+      node2.wakuPeerExchange.addToCache(@[node3.enr])
 
       node.peerManager.addServicePeer(
         node2.peerInfo.toRemotePeerInfo(), WakuPeerExchangeCodec
       )
 
-      # Rediscovery refreshes the ENR, so it is served while fresh
+      # Served while the entry is fresh
       check (await node.fetchPeerExchangePeers(1)).tryGet() == 1
 
       # Not rediscovered within the TTL: no longer served
-      let node2Store = node2.peerManager.switch.peerStore
-      node2Store[ENRAliveBook][rpInfo.peerId] =
-        Moment.now() - DiscoveredEnrTtl - 1.seconds
+      await sleepAsync(300.milliseconds)
       check (await node.fetchPeerExchangePeers(1)).tryGet() == 0
-
-      # Pruning drops the ENR but keeps the peer
-      check:
-        node2Store.pruneStaleEnrs() == 1
-        node2Store[ENRBook][rpInfo.peerId] == default(enr.Record)
-        node2Store[AddressBook][rpInfo.peerId].len > 0
 
   suite "setPeerExchangePeer":
     var node2 {.threadvar.}: WakuNode
@@ -245,15 +233,14 @@ suite "Waku Peer Exchange with discv5":
         await sleepAsync(1.seconds)
         attempts -= 1
 
-      # node2 can be connected, so will be returned by peer exchange
-      require (
-        await node1.peerManager.connectPeer(node2.switch.peerInfo.toRemotePeerInfo())
-      )
-
-      # Mount peer exchange
+      # Mount peer exchange; node1 fills its cache with its own discv5 walks
       await node1.mountPeerExchange()
+      node1.wakuPeerExchange.startCacheRefresh(disc1.randomWalk())
       await node3.mountPeerExchange()
       await node3.mountPeerExchangeClient()
+
+      checkUntilTimeout:
+        node1.wakuPeerExchange.cacheLen() >= 1
 
       let dialResponse =
         await node3.dialForPeerExchange(node1.switch.peerInfo.toRemotePeerInfo())
@@ -270,6 +257,7 @@ suite "Waku Peer Exchange with discv5":
       check:
         node3.peerManager.switch.peerStore.peers.len == currentPeers + requestPeers
 
+      await node1.wakuPeerExchange.stopCacheRefresh()
       await allFutures(
         [node1.stop(), node2.stop(), node3.stop(), disc1.stop(), disc2.stop()]
       )
