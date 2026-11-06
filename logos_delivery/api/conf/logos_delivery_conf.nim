@@ -60,35 +60,35 @@ proc init*(
     preset: string,
     messagingOverrides: MessagingClientConf,
     channelsOverrides: ReliableChannelManagerConf,
-    kernelConf: Opt[KernelConf] = Opt.none(KernelConf),
+    kernelConfArg: Opt[KernelConf] = Opt.none(KernelConf),
 ): ConfResult[LogosDeliveryConf] =
   ## Structured (preset + overrides) entry: `mode` and `preset` shape the kernel
   ## conf for every layer, `kernel` included - it just yields no upper layers.
-  ## A field already set in `kernelConf` (default: `libraryKernelConf()`) keeps
+  ## A field already set in `kernelConfArg` (default: `libraryKernelConf()`) keeps
   ## its value. `init(kernelConf)` is the raw entry that takes a config as-is.
-  var kernel =
-    if kernelConf.isSome():
-      WakuNodeConf(kernelConf.get())
+  var kernelConf =
+    if kernelConfArg.isSome():
+      WakuNodeConf(kernelConfArg.get())
     else:
       ?libraryKernelConf()
-  applyMode(kernel, mode)
+  applyMode(kernelConf, mode)
   if preset.len > 0:
-    kernel.preset = preset
+    kernelConf.preset = preset
   # The plugin-hosted kademlia and the in-process one are two hosts of one
   # protocol, and the node refuses to run both. Choosing the plugin turns the
   # in-process one off, explicitly, so that a preset enabling it cannot put it
   # back: `checkSetPresetValueToField` leaves an already-set field alone.
-  if kernel.pluginKadDiscovery == Opt.some(true):
-    kernel.enableKadDiscovery = Opt.some(false)
+  if kernelConf.pluginKadDiscovery == Opt.some(true):
+    kernelConf.enableKadDiscovery = Opt.some(false)
   # An RLN contract means RLN validation, unless rlnRelay was set explicitly.
-  if kernel.rlnRelayEthContractAddress.len > 0 and kernel.rlnRelay.isNone():
-    kernel.rlnRelay = Opt.some(true)
-  applyModeFlags(kernel, DefaultKernelModeFlags)
+  if kernelConf.rlnRelayEthContractAddress.len > 0 and kernelConf.rlnRelay.isNone():
+    kernelConf.rlnRelay = Opt.some(true)
+  applyModeFlags(kernelConf, DefaultKernelModeFlags)
 
   if entryLayer == EntryLayer.kernel:
-    return ok(LogosDeliveryConf.init(KernelConf(kernel)))
+    return ok(LogosDeliveryConf.init(KernelConf(kernelConf)))
   return LogosDeliveryConf.init(
-    KernelConf(kernel),
+    KernelConf(kernelConf),
     merge(?resolvePreset(preset), messagingOverrides),
     if entryLayer == EntryLayer.channels:
       Opt.some(channelsOverrides)

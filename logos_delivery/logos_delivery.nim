@@ -215,7 +215,7 @@ proc new*(
     preset = preset,
     messagingOverrides = messagingOverrides,
     channelsOverrides = channelsOverrides,
-    kernelConf = kernelConf,
+    kernelConfArg = kernelConf,
   ).valueOr:
     return err("failed to synthesize configuration: " & error)
   return await LogosDelivery.new(conf, appCallbacks)

@@ -108,7 +108,7 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     preset = preset,
     messagingOverrides = messaging,
     channelsOverrides = channels,
-    kernelConf = Opt.some(KernelConf(kernel)),
+    kernelConfArg = Opt.some(KernelConf(kernel)),
   )
 
 {.pop.}

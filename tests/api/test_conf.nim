@@ -23,7 +23,7 @@ proc kernelOf(
     preset = preset,
     messagingOverrides = MessagingClientConf(),
     channelsOverrides = ReliableChannelManagerConf(),
-    kernelConf = kernelConf,
+    kernelConfArg = kernelConf,
   ).valueOr:
     raiseAssert error
   return WakuNodeConf(lc.kernelConf)
