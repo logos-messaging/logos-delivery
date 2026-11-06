@@ -304,10 +304,16 @@ proc backfillFetchTopic(
     query: BackfillQuery,
     deliver: BackfillDeliver,
 ): Future[Result[BackfillFetchOutcome, string]] {.async.} =
-  ## One Store query for `topic`. The gap ends where live delivery covers the
-  ## topic again. The worker fetches at once the part of the gap that the
-  ## archive has for sure. The last part waits until the archive has it. A
-  ## wake of the worker in that wait sends no query.
+  ## One Store query for `topic`. The gap of the topic has two parts.
+  ##
+  ##   record.timestamp ── part 1 ── lastPartFrom ── part 2 ── stop
+  ##                      (at once)             (at restArchivedAt)
+  ##
+  ## The gap ends at `stop`, where live delivery covers the topic again. The
+  ## archive has part 1 for sure, so the worker fetches it at once. Part 2
+  ## waits until `restArchivedAt`, because the archive can lack a message that
+  ## a node sent a short time before live delivery came back. A wake of the
+  ## worker in that wait sends no query.
   let record = self.backfill.records.getOrDefault(topic)
   let now = getNowInNanosecondTime()
   let stop = coveredFrom(
