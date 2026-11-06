@@ -76,18 +76,16 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
       LogosDeliveryMode.Core
   let preset = (?takeString(fields, KeyPreset)).get("")
 
-  let fieldCount = fields.len
-  var messaging = MessagingClientConf()
-  ?takeJsonFieldsIntoConf(messaging, fields, "Failed to parse messaging field")
-  var channels = ReliableChannelManagerConf()
-  ?takeJsonFieldsIntoConf(channels, fields, "Failed to parse channels field")
-
-  if entryLayer == EntryLayer.kernel:
+  let messagingKeys = jsonKeysOf(MessagingClientConf, fields)
+  let channelKeys = jsonKeysOf(ReliableChannelManagerConf, fields)
+  case entryLayer
+  of EntryLayer.kernel:
     if modeStr.isSome():
       return err("kernel entry layer takes no mode: mode is a messaging option")
-    if fields.len != fieldCount:
+    if messagingKeys.len + channelKeys.len > 0:
       return err(
-        "messaging and channel options need the 'messaging' or 'channels' entry layer"
+        "messaging and channel options need the 'messaging' or 'channels' entry layer: " &
+          (messagingKeys & channelKeys).join(", ")
       )
     var kernel = ?defaultKernelConf()
     kernel.preset = preset
@@ -96,6 +94,18 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
       "Unrecognized configuration option(s) found",
     )
     return ok(LogosDeliveryConf.init(KernelConf(kernel)))
+  of EntryLayer.messaging:
+    if channelKeys.len > 0:
+      return err(
+        "channel options need the 'channels' entry layer: " & channelKeys.join(", ")
+      )
+  of EntryLayer.channels:
+    discard
+
+  var messaging = MessagingClientConf()
+  ?takeJsonFieldsIntoConf(messaging, fields, "Failed to parse messaging field")
+  var channels = ReliableChannelManagerConf()
+  ?takeJsonFieldsIntoConf(channels, fields, "Failed to parse channels field")
 
   var kernel = ?libraryKernelConf()
   ?applyJsonFieldsToConf(

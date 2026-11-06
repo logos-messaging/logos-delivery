@@ -65,7 +65,9 @@ proc init*(
   ## Structured (preset + overrides) entry: `mode` and `preset` shape the kernel
   ## conf for every layer, `kernel` included - it just yields no upper layers.
   ## A field already set in `kernelConfArg` (default: `libraryKernelConf()`) keeps
-  ## its value. `init(kernelConf)` is the raw entry that takes a config as-is.
+  ## its value, mode flags included: build it from `libraryKernelConf()`, whose
+  ## flags are unset, for `mode` to apply. Its `preset` is used when `preset` is
+  ## empty. `init(kernelConf)` is the raw entry that takes a config as-is.
   var kernelConf =
     if kernelConfArg.isSome():
       WakuNodeConf(kernelConfArg.get())
@@ -74,22 +76,20 @@ proc init*(
   applyMode(kernelConf, mode)
   if preset.len > 0:
     kernelConf.preset = preset
+  let effectivePreset = kernelConf.preset
   # The plugin-hosted kademlia and the in-process one are two hosts of one
   # protocol, and the node refuses to run both. Choosing the plugin turns the
   # in-process one off, explicitly, so that a preset enabling it cannot put it
   # back: `checkSetPresetValueToField` leaves an already-set field alone.
   if kernelConf.pluginKadDiscovery == Opt.some(true):
     kernelConf.enableKadDiscovery = Opt.some(false)
-  # An RLN contract means RLN validation, unless rlnRelay was set explicitly.
-  if kernelConf.rlnRelayEthContractAddress.len > 0 and kernelConf.rlnRelay.isNone():
-    kernelConf.rlnRelay = Opt.some(true)
   applyModeFlags(kernelConf, DefaultKernelModeFlags)
 
   if entryLayer == EntryLayer.kernel:
     return ok(LogosDeliveryConf.init(KernelConf(kernelConf)))
   return LogosDeliveryConf.init(
     KernelConf(kernelConf),
-    merge(?resolvePreset(preset), messagingOverrides),
+    merge(?resolvePreset(effectivePreset), messagingOverrides),
     if entryLayer == EntryLayer.channels:
       Opt.some(channelsOverrides)
     else:

@@ -91,6 +91,22 @@ proc parseSeqInto[U](
       )
   ok(res)
 
+proc jsonKeysOf*[T](
+    _: typedesc[T], jsonFields: Table[string, (string, JsonNode)]
+): seq[string] =
+  ## The JSON keys, as written, that match a field of `T` by name or CLI `name:`
+  ## pragma; nothing is parsed.
+  var keys: seq[string]
+  for confField, confValue in fieldPairs(default(T)):
+    let lowerField = confField.toLowerAscii()
+    if jsonFields.hasKey(lowerField):
+      keys.add(jsonFields.getOrDefault(lowerField)[0])
+    when confValue.hasCustomPragma(defs.name):
+      let lowerCliName = confValue.getCustomPragmaVal(defs.name).toLowerAscii()
+      if lowerCliName != lowerField and jsonFields.hasKey(lowerCliName):
+        keys.add(jsonFields.getOrDefault(lowerCliName)[0])
+  return keys
+
 proc takeJsonFieldsIntoConf*[T](
     conf: var T,
     jsonFields: var Table[string, (string, JsonNode)],

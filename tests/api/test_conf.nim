@@ -97,14 +97,24 @@ suite "LogosDeliveryConf - library kernel defaults":
     check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).enableKadDiscovery ==
       Opt.some(false)
 
-  test "an RLN contract enables RLN unless rlnRelay is set":
+  test "an RLN contract alone leaves rlnRelay unset, as on the CLI":
     var kernel = libraryKernel()
     kernel.rlnRelayEthContractAddress = "0x0000000000000000000000000000000000000001"
-    check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).rlnRelay == Opt.some(true)
-    kernel.rlnRelay = Opt.some(false)
-    check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).rlnRelay == Opt.some(
-      false
-    )
+    check kernelOf(kernelConf = Opt.some(KernelConf(kernel))).rlnRelay.isNone()
+
+  test "the kernel conf's preset applies to messaging when preset is empty":
+    var kernel = libraryKernel()
+    kernel.preset = "twn"
+    let lc = LogosDeliveryConf.init(
+      mode = LogosDeliveryMode.Core,
+      preset = "",
+      messagingOverrides = MessagingClientConf(),
+      channelsOverrides = ReliableChannelManagerConf(),
+      kernelConfArg = Opt.some(KernelConf(kernel)),
+    ).valueOr:
+      raiseAssert error
+    check lc.messagingConf.get() ==
+      merge(resolvePreset("twn").get(), MessagingClientConf())
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts the messaging fields":
@@ -421,6 +431,16 @@ suite "parseLogosDeliveryConf - JSON parsing":
       """{"entrylayer": "kernel", "sdsMaxRetransmissions": 9}"""
     )
       .isErr()
+
+  test "a wrong-layer option is named, and rejected before its value is parsed":
+    let res = parseLogosDeliveryConf("""{"entrylayer": "kernel", "reliability": "x"}""")
+    check res.isErr() and res.error.endsWith(": reliability")
+
+  test "messaging entry layer rejects channel options":
+    let res = parseLogosDeliveryConf(
+      """{"entrylayer": "messaging", "sdsMaxRetransmissions": 9}"""
+    )
+    check res.isErr() and res.error.endsWith(": sdsMaxRetransmissions")
 
   test "an empty config warns about the websocket port":
     # TODO: logos-delivery#4553
