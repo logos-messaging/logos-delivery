@@ -26,8 +26,7 @@ import
   ../common/rate_limit/setting,
   ../waku_enr/capabilities,
   ./networks_config,
-  ../waku_mix,
-  ./conf_builder/kademlia_discovery_conf_builder
+  ../waku_mix
 
 export RlnConf, RlnCreds, RlnCommonConf, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.

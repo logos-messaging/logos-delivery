@@ -5,12 +5,11 @@ import
   libp2p/crypto/curve25519,
   libp2p/multiaddress,
   libp2p/nameresolving/nameresolver,
-  std/[sequtils, net],
+  std/net,
   results
 
 import
-  logos_delivery/waku/[net/net_config, waku_enr, waku_core, common/system_resolver],
-  ./waku_conf
+  logos_delivery/waku/[net/net_config, waku_enr, common/system_resolver], ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress], seqNum: uint64

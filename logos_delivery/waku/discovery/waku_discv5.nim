@@ -9,7 +9,7 @@ import
   chronicles,
   metrics,
   libp2p/multiaddress,
-  eth/keys as eth_keys,
+  eth/common/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
 import brokers/[event_broker, broker_context]

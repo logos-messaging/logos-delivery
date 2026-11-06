@@ -1,13 +1,13 @@
 {.push raises: [].}
 
 import
-  std/[hashes, strutils, tables, net],
+  std/[strutils, tables, net],
   chronos,
   chronicles,
   metrics,
   results,
   stew/byteutils,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/protocols/ping,

@@ -1,5 +1,4 @@
 import brokers/event_broker
-import logos_delivery/waku/waku_core/[message/message, message/digest]
 
 EventBroker:
   type OnFilterSubscribeEvent* = object

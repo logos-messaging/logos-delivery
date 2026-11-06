@@ -9,7 +9,7 @@
 ## which spawn a full service Waku node
 ## that could be used also as a lightpush client, helping testing and development.
 
-import results, chronos, chronicles, metrics, stew/byteutils
+import results, chronos, chronicles, metrics
 import
   ../waku_core,
   ./protocol,

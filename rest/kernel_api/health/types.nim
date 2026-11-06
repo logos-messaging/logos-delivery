@@ -3,7 +3,7 @@
 import results, chronicles, json_serialization, json_serialization/pkg/results
 import rest/serdes
 import logos_delivery/api/types
-import logos_delivery/waku/[waku_node, node/health_monitor]
+import logos_delivery/waku/node/health_monitor
 
 #### Serialization and deserialization
 

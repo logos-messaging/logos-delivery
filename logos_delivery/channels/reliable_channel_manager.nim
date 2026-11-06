@@ -13,7 +13,6 @@ import stew/byteutils
 
 import brokers/broker_context
 
-import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
 import logos_delivery/api/messaging_client_api
 import logos_delivery/api/conf/channels_conf

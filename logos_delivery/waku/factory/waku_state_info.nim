@@ -4,7 +4,7 @@
 ## this information, but any other module can populate the information it needs to be
 ## accessible through the debug API.
 
-import std/[json, tables, sequtils, strutils]
+import std/[json, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
 import logos_delivery/waku/factory/waku_conf

@@ -19,11 +19,9 @@ import
     rln/rln_plugin,
     node/waku_node/lightpush,
     node/peer_manager,
-    waku_relay/protocol,
     rln,
     waku_lightpush/common,
     waku_lightpush/rpc,
-    waku_lightpush/client,
     waku_lightpush/callbacks,
     waku_mix,
   ]

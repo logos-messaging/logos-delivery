@@ -16,7 +16,6 @@ import
     waku_core,
     waku_relay,
     waku_metadata,
-    waku_core/topics/sharding,
     waku_relay/protocol,
     waku_enr/sharding,
     waku_enr/capabilities,

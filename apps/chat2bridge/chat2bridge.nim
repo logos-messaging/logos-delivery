@@ -24,7 +24,6 @@ import
     factory/builder,
     net/nat_config,
     common/utils/matterbridge_client,
-    common/rate_limit/setting,
   ],
   # Chat 2 imports
   ../chat2/chat2,
@@ -243,8 +242,6 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [CancelledError]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import rest/message_cache
-
   let
     rng = newRng()
     conf = Chat2MatterbridgeConf.load()
