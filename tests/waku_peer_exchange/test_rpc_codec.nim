@@ -31,17 +31,17 @@ suite "Peer Exchange RPC":
       resReq.isOk
       resReq.get().request.get().numPeers == 2
 
-    var
-      enr1 = enr.Record(seqNum: 0, raw: @[])
-      enr2 = enr.Record(seqNum: 0, raw: @[])
-
-    check:
-      enr1.fromUri(
-        "enr:-JK4QPmO-sE2ELiWr8qVFs1kaY4jQZQpNaHvSPRmKiKcaDoqYRdki2c1BKSliImsxFeOD_UHnkddNL2l0XT9wlsP0WEBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIMwKqlOl3zpwnrsKRKHuWPSuFzit1Cl6IZvL2uzBRe8oN0Y3CC6mKDdWRwgiMqhXdha3UyDw"
-      )
-      enr2.fromUri(
-        "enr:-Iu4QK_T7kzAmewG92u1pr7o6St3sBqXaiIaWIsFNW53_maJEaOtGLSN2FUbm6LmVxSfb1WfC7Eyk-nFYI7Gs3SlchwBgmlkgnY0gmlwhI5d6VKJc2VjcDI1NmsxoQLPYQDvrrFdCrhqw3JuFaGD71I8PtPfk6e7TJ3pg_vFQYN0Y3CC6mKDdWRwgiMq"
-      )
+    let
+      enr1 = enr.Record
+        .fromURI(
+          "enr:-JK4QPmO-sE2ELiWr8qVFs1kaY4jQZQpNaHvSPRmKiKcaDoqYRdki2c1BKSliImsxFeOD_UHnkddNL2l0XT9wlsP0WEBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIMwKqlOl3zpwnrsKRKHuWPSuFzit1Cl6IZvL2uzBRe8oN0Y3CC6mKDdWRwgiMqhXdha3UyDw"
+        )
+        .tryGet()
+      enr2 = enr.Record
+        .fromURI(
+          "enr:-Iu4QK_T7kzAmewG92u1pr7o6St3sBqXaiIaWIsFNW53_maJEaOtGLSN2FUbm6LmVxSfb1WfC7Eyk-nFYI7Gs3SlchwBgmlkgnY0gmlwhI5d6VKJc2VjcDI1NmsxoQLPYQDvrrFdCrhqw3JuFaGD71I8PtPfk6e7TJ3pg_vFQYN0Y3CC6mKDdWRwgiMq"
+        )
+        .tryGet()
 
     let peerInfos =
       @[PeerExchangePeerInfo(enr: enr1.raw), PeerExchangePeerInfo(enr: enr2.raw)]
@@ -58,15 +58,12 @@ suite "Peer Exchange RPC":
       res.get().response.peerInfos == peerInfos
 
     # When using the decoded responses to create new enrs
-    var
-      resEnr1 = enr.Record(seqNum: 0, raw: @[])
-      resEnr2 = enr.Record(seqNum: 0, raw: @[])
-
     check:
       res.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
 
-    discard resEnr1.fromBytes(res.get().response.peerInfos[0].enr)
-    discard resEnr2.fromBytes(res.get().response.peerInfos[1].enr)
+    let
+      resEnr1 = enr.Record.fromBytes(res.get().response.peerInfos[0].enr).tryGet()
+      resEnr2 = enr.Record.fromBytes(res.get().response.peerInfos[1].enr).tryGet()
 
     # Then they match the original enrs
     check:

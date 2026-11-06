@@ -127,14 +127,23 @@ suite "Waku Discovery v5":
 
     asyncTest "filter peer per bootnode":
       let
-        enrRelay = initRecord(
+        enrRelay = Record
+          .init(
             1,
             pk2,
-            {"waku2": @[1.byte], "rs": @[0.byte, 1.byte, 1.byte, 0.byte, 1.byte]},
+            extraFields = [
+              toFieldPair("waku2", @[1.byte]),
+              toFieldPair("rs", @[0.byte, 1.byte, 1.byte, 0.byte, 1.byte]),
+            ],
           )
           .value()
-        enrNoCapabilities =
-          initRecord(1, pk1, {"rs": @[0.byte, 0.byte, 1.byte, 0.byte, 0.byte]}).value()
+        enrNoCapabilities = Record
+          .init(
+            1,
+            pk1,
+            extraFields = [toFieldPair("rs", @[0.byte, 0.byte, 1.byte, 0.byte, 0.byte])],
+          )
+          .value()
         predicateNoCapabilities =
           shardingPredicate(enrNoCapabilities, @[enrNoCapabilities]).get()
         predicateNoCapabilitiesWithBoth =
@@ -167,7 +176,8 @@ suite "Waku Discovery v5":
 
     asyncTest "no relay sharding info":
       let
-        enrNoShardingInfo = initRecord(1, pk1, {"waku2": @[1.byte]}).value()
+        enrNoShardingInfo =
+          Record.init(1, pk1, extraFields = [toFieldPair("waku2", @[1.byte])]).value()
         predicateNoShardingInfo =
           shardingPredicate(enrNoShardingInfo, @[enrNoShardingInfo])
 
@@ -234,7 +244,7 @@ suite "Waku Discovery v5":
       ## When we find random peers
       let res = await node3.findRandomPeers()
 
-      var tcpPortList = res.mapIt(it.toTypedRecord().value().tcp.get())
+      var tcpPortList = res.mapIt(TypedRecord.fromRecord(it).tcp.get())
       tcpPortList.sort()
 
       ## Then
@@ -366,9 +376,6 @@ suite "Waku Discovery v5":
 
       # When adding a valid enr
       addBootstrapNode(validEnr, enrs)
-      var r: Record
-      echo r.fromURI(validEnr)
-      echo r
 
       # Then the enr is added to the list
       check:

@@ -128,10 +128,7 @@ proc reserveDurably(
   ## returns the id and is `Transient`.
   await rlnEvm.reserveLock.acquire()
   defer:
-    try:
-      rlnEvm.reserveLock.release()
-    except AsyncLockError as e:
-      error "RLN reserveLock released while not held", error = e.msg
+    rlnEvm.reserveLock.release2()
 
   ?(await rlnEvm.ensureMessageIdsLoaded())
   let id = ?rlnEvm.nonceManager.reserve(epochIndex)
@@ -152,10 +149,7 @@ proc releaseDurably(
   ## stored count is safe, and at worst a restart skips the id.
   await rlnEvm.reserveLock.acquire()
   defer:
-    try:
-      rlnEvm.reserveLock.release()
-    except AsyncLockError as e:
-      error "RLN reserveLock released while not held", error = e.msg
+    rlnEvm.reserveLock.release2()
 
   let before = rlnEvm.nonceManager.nextId
   rlnEvm.nonceManager.release(epochIndex, id)

@@ -18,6 +18,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
+    net/net_config,
   ]
 
 proc now*(): Timestamp =
@@ -61,7 +62,7 @@ proc setupAndPublish(rng: crypto.Rng) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(wakuPort)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(wakuPort)).tryGet())
   let node = builder.build().tryGet()
 
   node.mountMetadata(clusterId, shardId).expect(
@@ -99,7 +100,7 @@ proc setupAndPublish(rng: crypto.Rng) {.async.} =
     else:
       error "failed to publish message", error = res.error
 
-    await sleepAsync(5000)
+    await sleepAsync(5000.millis)
 
 when isMainModule:
   let rng = crypto.newRng()

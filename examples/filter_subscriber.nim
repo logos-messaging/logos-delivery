@@ -16,7 +16,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
-    waku_relay,
+    net/net_config,
     waku_filter_v2/client,
   ]
 
@@ -68,7 +68,7 @@ proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(wakuPort)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(wakuPort)).tryGet())
   let node = builder.build().tryGet()
 
   node.mountMetadata(clusterId, shardId).expect(

@@ -18,6 +18,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
+    net/net_config,
     waku_relay,
   ]
 
@@ -55,11 +56,10 @@ proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(wakuPort)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(wakuPort)).tryGet())
   let node = builder.build().tryGet()
 
-  var bootstrapNodeEnr: enr.Record
-  discard bootstrapNodeEnr.fromURI(bootstrapNode)
+  let bootstrapNodeEnr = enr.Record.fromURI(bootstrapNode).tryGet()
 
   let discv5Conf = WakuDiscoveryV5Config(
     discv5Config: Opt.none(DiscoveryConfig),
@@ -94,7 +94,7 @@ proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
       notice "subscriber is ready", connectedPeers = numConnectedPeers, required = 6
       break
     notice "waiting to be ready", connectedPeers = numConnectedPeers, required = 6
-    await sleepAsync(5000)
+    await sleepAsync(5000.millis)
 
   # Make sure it matches the publisher. Use default value
   # see spec: https://rfc.vac.dev/spec/23/

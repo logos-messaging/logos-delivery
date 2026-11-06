@@ -177,7 +177,7 @@ proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
 
     let nextEpochTime = rlnEvm.nextEpoch(epochTime())
     let sleepDuration = int((nextEpochTime - epochTime()) * 1000)
-    await sleepAsync(sleepDuration)
+    await sleepAsync(chronos.milliseconds(sleepDuration))
 
 proc mount(
     conf: WakuRlnConfig,
@@ -324,10 +324,7 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
 
     await rlnEvm.reserveLock.acquire()
     defer:
-      try:
-        rlnEvm.reserveLock.release()
-      except AsyncLockError as e:
-        error "RLN reserveLock released while not held", error = e.msg
+      rlnEvm.reserveLock.release2()
     ?(await rlnEvm.ensureMessageIdsLoaded())
 
     let rateLimit = uint64(limit)
