@@ -286,11 +286,8 @@ type WakuNodeConf* = object
   ## DNS addrs config
   dnsAddrsNameServers* {.
     desc:
-      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
-    defaultValue: @[
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 1, 1, 1]),
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 0, 0, 1]),
-    ],
+      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated. Defaults to the host's resolver.",
+    defaultValue: @[],
     name: "dns-addrs-name-server"
   .}: seq[IpAddress]
 
@@ -417,6 +414,13 @@ hence would have reachability issues.""",
   storenode* {.
     desc: "Peer multiaddress to query for storage", defaultValue: "", name: "storenode"
   .}: string
+
+  configuredStoreNodesOnly* {.
+    desc:
+      "Query only the preset's store nodes and --storenode, never discovered store peers.",
+    defaultValue: false,
+    name: "configured-store-nodes-only"
+  .}: bool
 
   storeMessageRetentionPolicy* {.
     desc:
@@ -1418,6 +1422,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   # TODO: can we just use `Opt` on the CLI?
   if n.storenode != "":
     b.withRemoteStoreNode(n.storenode)
+  b.withConfiguredStoreNodesOnly(n.configuredStoreNodesOnly)
   if n.filternode != "":
     b.withRemoteFilterNode(n.filternode)
   if n.lightpushnode != "":

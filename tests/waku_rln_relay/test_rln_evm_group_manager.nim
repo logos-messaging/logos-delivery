@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, deques, random, locks, osproc, algorithm, exitprocs],
+  std/[sequtils, deques, random, locks, algorithm],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -29,15 +29,11 @@ import
   ../testlib/wakucore,
   ./utils_onchain
 
-# Anvil is started once for the whole suite. The first test runs the full
-# `setupRlnEvm` flow (fund a fresh account + mint tokens + approve
-# allowance) and then takes a baseline snapshot capturing that post-setup chain
-# state. Subsequent tests revert to the baseline (restoring the funded account)
-# and build a bare manager pointing at the same key. evm_revert consumes the snapshot
-# ID, so we re-snapshot after every revert. Cleanup is registered via
-# addExitProc so anvil is terminated when the test binary exits.
-var sharedAnvilProc: Process
-var anvilStarted: bool = false
+# The first test runs the full `setupRlnEvm` flow (fund a fresh account + mint
+# tokens + approve allowance) and then takes a baseline snapshot capturing that
+# post-setup chain state. Subsequent tests revert to the baseline (restoring the
+# funded account) and build a bare manager pointing at the same key. evm_revert
+# consumes the snapshot ID, so we re-snapshot after every revert.
 var baselineSnapshotId: string
 var fundedPrivateKey: string
 
@@ -45,14 +41,8 @@ procSuite "Onchain group manager":
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
-    if not anvilStarted:
-      sharedAnvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-      anvilStarted = true
-      addExitProc(
-        proc() =
-          if not sharedAnvilProc.isNil:
-            stopAnvil(sharedAnvilProc)
-      )
+    if fundedPrivateKey.len == 0:
+      waitFor runSharedAnvil()
       manager = waitFor setupRlnEvm(deployContracts = false)
       fundedPrivateKey = manager.ethPrivateKey.get()
       baselineSnapshotId = waitFor takeEvmSnapshot()

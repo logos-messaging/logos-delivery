@@ -132,8 +132,7 @@ suite "Waku v2 Rest API - Admin":
           it.multiaddr == constructMultiaddrStr(peerInfo3)
       )
 
-  asyncTest "get peers lists an inbound peer at a port it does not listen on":
-    # TODO: logos-delivery#4480
+  asyncTest "get peers lists an inbound peer at its listen address":
     let
       primaryIp = $getPrimaryIPAddr()
       node1TcpAddr =
@@ -153,16 +152,11 @@ suite "Waku v2 Rest API - Admin":
     let peersResponse = await client.getPeers()
     let listedAddrs = peersResponse.data.mapIt(it.multiaddr)
 
-    # An inbound peer is listed at the address its connection came from, which nothing listens on.
+    # The source port of the inbound connection is not listed: nothing listens on it.
     check:
       connected
       peersResponse.status == 200
-      listedAddrs.len == 1
-      listedAddrs.allIt(
-        it.startsWith("/ip4/" & primaryIp & "/tcp/") and
-          it.endsWith("/p2p/" & $peerInfo2.peerId)
-      )
-      node2ListenAddr notin listedAddrs
+      listedAddrs == @[node2ListenAddr]
 
   asyncTest "Set wrong peer":
     let nonExistentPeer =

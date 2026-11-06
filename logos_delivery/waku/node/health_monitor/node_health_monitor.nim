@@ -102,6 +102,12 @@ proc countCapablePeers(hm: NodeHealthMonitor, codec: string): int =
 
   return hm.node.peerManager.getCapablePeersCount(codec)
 
+proc countSelectablePeers(hm: NodeHealthMonitor, codec: string): int =
+  if isNil(hm.node.peerManager):
+    return 0
+
+  return hm.node.peerManager.getSelectablePeersCount(codec)
+
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.RelayProtocol)
 
@@ -113,9 +119,8 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  let count = relayPeers.len
-  hm.strength[WakuProtocol.RelayProtocol] = count
-  if count == 0:
+  hm.strength[WakuProtocol.RelayProtocol] = hm.node.wakuRelay.getMinMeshSize()
+  if relayPeers.len == 0:
     return p.notReady("No connected peers")
 
   return p.ready()
@@ -264,7 +269,7 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.StoreClientProtocol] = 0
     return p.notMounted()
 
-  let peerCount = countCapablePeers(hm, WakuStoreCodec)
+  let peerCount = countSelectablePeers(hm, WakuStoreCodec)
   hm.strength[WakuProtocol.StoreClientProtocol] = peerCount
 
   if peerCount > 0 or not isNil(hm.node.wakuStore):
@@ -430,7 +435,6 @@ proc calculateConnectionState*(
     relayCount = 0
     lightpushCount = 0
     filterCount = 0
-    storeClientCount = 0
 
   for p in protocols:
     let kind =
@@ -446,15 +450,12 @@ proc calculateConnectionState*(
 
     if kind in RelayProtocols:
       relayCount = max(relayCount, strength)
-    elif kind in StoreClientProtocols:
-      storeClientCount = max(storeClientCount, strength)
     elif kind in LightpushClientProtocols:
       lightpushCount = max(lightpushCount, strength)
     elif kind in FilterClientProtocols:
       filterCount = max(filterCount, strength)
 
-  debug "calculateConnectionState",
-    relayCount, storeClientCount, lightpushCount, filterCount
+  debug "calculateConnectionState", relayCount, lightpushCount, filterCount
 
   # Relay connectivity should be a sufficient check in Core mode.
   # "Store peers" are relay peers because incoming messages in
@@ -465,25 +466,23 @@ proc calculateConnectionState*(
   if dLowOpt.isSome():
     if relayCount >= dLowOpt.get():
       return ConnectionStatus.Connected
+    if relayCount > 0:
+      return ConnectionStatus.PartiallyConnected
+    # A Core node receives only through Relay, so its edge peers don't count.
+    return ConnectionStatus.Disconnected
 
-  if relayCount > 0:
-    return ConnectionStatus.PartiallyConnected
-
-  # No relay connectivity. Relay might not be mounted, or may just have zero peers.
-  # Fall back to Edge check in any case to be sure.
+  # Relay is not mounted, so check Edge connectivity.
 
   let canSend = lightpushCount > 0
   let canReceive = filterCount > 0
-  let canStore = storeClientCount > 0
 
-  let meetsMinimum = canSend and canReceive and canStore
+  let meetsMinimum = canSend and canReceive
 
   if not meetsMinimum:
     return ConnectionStatus.Disconnected
 
   let isEdgeRobust =
-    (lightpushCount >= HealthyThreshold) and (filterCount >= HealthyThreshold) and
-    (storeClientCount >= HealthyThreshold)
+    (lightpushCount >= HealthyThreshold) and (filterCount >= HealthyThreshold)
 
   if isEdgeRobust:
     return ConnectionStatus.Connected
@@ -757,8 +756,12 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
 
   if not isNil(hm.node.wakuRelay):
     hm.relayObserver = PubSubObserver(
+      # onRecv runs when other peers graft or prune this node
       onRecv: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
-        hm.onRelayMsg(peer, msgs)
+        hm.onRelayMsg(peer, msgs),
+      # onSend runs when this node grafts or prunes other peers
+      onSend: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
+        hm.onRelayMsg(peer, msgs),
     )
     hm.node.wakuRelay.addObserver(hm.relayObserver)
 
@@ -816,9 +819,7 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
     hm.node.wakuRelay.removeObserver(hm.relayObserver)
 
 proc new*(
-    T: type NodeHealthMonitor,
-    node: WakuNode,
-    dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+    T: type NodeHealthMonitor, node: WakuNode, dnsNameServers: seq[IpAddress] = @[]
 ): T =
   let om = OnlineMonitor.init(dnsNameServers)
   om.setPeerStoreToOnlineMonitor(node.switch.peerStore)

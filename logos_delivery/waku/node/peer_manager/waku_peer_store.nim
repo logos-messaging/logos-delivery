@@ -57,9 +57,12 @@ func isDiscoveryOrigin(origin: PeerOrigin): bool =
   return origin in [Discv5, Kademlia]
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
+  # LastSeenOutboundBook holds the address we dialled, so it comes first; the
+  # address of an inbound connection is the peer's source port, which nothing
+  # listens on, and stays out of the dial list.
   let addresses =
-    if peerStore[LastSeenBook][peerId].isSome():
-      @[peerStore[LastSeenBook][peerId].get()] & peerStore[AddressBook][peerId]
+    if peerStore[LastSeenOutboundBook][peerId].isSome():
+      @[peerStore[LastSeenOutboundBook][peerId].get()] & peerStore[AddressBook][peerId]
     else:
       peerStore[AddressBook][peerId]
 

@@ -9,7 +9,6 @@ import
   libp2p/protocols/ping,
   libp2p/protocols/protocol,
   libp2p/crypto/[crypto, secp],
-  libp2p/nameresolving/dnsresolver,
   libp2p/multicodec
 import
   ./certsgenerator,
@@ -17,7 +16,8 @@ import
     [waku_enr, node/peer_manager, waku_core, waku_node, factory/builder],
   logos_delivery/waku/net/net_config,
   logos_delivery/waku/waku_metadata/protocol,
-  logos_delivery/waku/common/callbacks
+  logos_delivery/waku/common/callbacks,
+  logos_delivery/waku/common/system_resolver
 
 # protocols and their tag
 const ProtocolsTable = {
@@ -165,13 +165,7 @@ proc pingNode(
 proc main(rng: Rng): Future[int] {.async.} =
   let conf: WakuCanaryConf = WakuCanaryConf.load()
 
-  # create dns resolver
-  let
-    nameServers = @[
-      initTAddress(parseIpAddress("1.1.1.1"), Port(53)),
-      initTAddress(parseIpAddress("1.0.0.1"), Port(53)),
-    ]
-    resolver: DnsResolver = DnsResolver.new(nameServers)
+  let resolver = newNameResolver(@[])
 
   if conf.logLevel != LogLevel.NONE:
     setLogLevel(conf.logLevel)

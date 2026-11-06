@@ -4,7 +4,7 @@ import libp2p/crypto/rng
 {.push raises: [].}
 
 import
-  std/[net, os, osproc, streams, strutils, strformat],
+  std/[exitprocs, net, os, osproc, streams, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -514,6 +514,17 @@ proc compressGzipFile*(sourcePath: string, targetPath: string): Result[void, str
 
   ok()
 
+proc isPortInUse(port: int): bool =
+  try:
+    let sock = newSocket()
+    try:
+      sock.connect("127.0.0.1", Port(port), timeout = 500)
+      return true
+    finally:
+      close(sock)
+  except CatchableError:
+    return false
+
 proc runAnvil*(
     port: int = 8540,
     chainId: string = "1234",
@@ -523,6 +534,9 @@ proc runAnvil*(
 ): Process =
   # Gas/fee values mirror Linea Sepolia testnet.
   # See https://book.getfoundry.sh/reference/anvil/ for option details.
+
+  # Make sure the port is free.
+  doAssert not isPortInUse(port), "port " & $port & " is already in use"
   try:
     let anvilPath = getAnvilPath()
     debug "Anvil path", anvilPath
@@ -602,17 +616,9 @@ proc runAnvil*(
       if not runAnvil.running:
         error "Anvil daemon exited before becoming ready", pid = anvilPID
         return
-      try:
-        let sock = newSocket()
-        try:
-          sock.connect("127.0.0.1", Port(port), timeout = 500)
-          ready = true
-        finally:
-          close(sock)
-        if ready:
-          break
-      except CatchableError:
-        discard
+      if isPortInUse(port):
+        ready = true
+        break
       sleep(pollIntervalMs)
       elapsed += pollIntervalMs
 
@@ -684,6 +690,26 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
     debug "Anvil daemon stopped", anvilPID = anvilPID
   except Exception as e:
     error "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
+
+var sharedAnvil {.threadvar.}: Process
+var sharedAnvilBaseline {.threadvar.}: string
+
+addExitProc(
+  proc() =
+    if not sharedAnvil.isNil:
+      stopAnvil(sharedAnvil)
+)
+
+proc runSharedAnvil*() {.async.} =
+  ## Gives the caller the chain loaded from DEFAULT_ANVIL_STATE_PATH, on one
+  ## Anvil per binary that every call after the first rolls back.
+  if sharedAnvil.isNil:
+    sharedAnvil = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    doAssert not sharedAnvil.isNil, "Anvil did not start"
+  else:
+    let reverted = await revertEvmSnapshot(sharedAnvilBaseline)
+    doAssert reverted, "Anvil did not roll back to the loaded state"
+  sharedAnvilBaseline = await takeEvmSnapshot()
 
 proc setupRlnEvm*(
     ethClientUrl: string = EthClient,

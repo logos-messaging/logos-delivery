@@ -17,8 +17,8 @@ import
   libp2p/multiaddress,
   libp2p/peerid,
   dnsdisc/client
-import libp2p/nameresolving/dnsresolver
-import ../waku_core
+import libp2p/nameresolving/nameresolver
+import ../waku_core, ../common/system_resolver
 
 export client
 
@@ -103,11 +103,7 @@ proc retrieveDynamicBootstrapNodes*(
     # DNS discovery
     debug "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
 
-    var nameServers: seq[TransportAddress]
-    for ip in dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(dnsAddrsNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain

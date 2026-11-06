@@ -396,7 +396,7 @@ proc archiveInOutage(
   await offline
   let msg =
     WakuMessage(payload: OutagePayload.toBytes(), contentTopic: topic, timestamp: now())
-  await net.storeNode.wakuArchive.handleMessage(TestShard, msg)
+  check (await net.storeNode.wakuArchive.handleMessage(TestShard, msg)).isOk()
   await net.waitForArchived(topic, 2)
   return msg
 

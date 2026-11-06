@@ -9,6 +9,10 @@ const
   DefaultSyncRange*: Duration = 1.hours
   DefaultGossipSubJitter*: Duration = 20.seconds
 
+# Placeholder topic for SyncIDs a peer promised us whose messages haven't arrived yet.
+# Local only: never sent on the wire; the entry is replaced by the real topics on message arrival.
+const PendingPubsubTopic* = "/waku/2/sync/pending"
+
 type
   Fingerprint* = array[32, byte]
 
