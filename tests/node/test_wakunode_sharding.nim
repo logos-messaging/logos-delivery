@@ -27,7 +27,7 @@ import
   ../waku_archive/archive_utils,
   ../testlib/[assertions, common, wakucore, wakunode, testasync, futures, testutils]
 
-import logos_delivery/waku/waku_relay/protocol
+import logos_delivery/waku/waku_relay
 
 const
   listenIp = parseIpAddress("0.0.0.0")
@@ -54,7 +54,7 @@ proc waitForTopicPeer(
   ## Waits until node's gossipsub has learnt that peer subscribes to topic.
   let deadline = Moment.now() + timeout
   while Moment.now() < deadline:
-    for p in GossipSub(node.wakuRelay).gossipsub.getOrDefault(topic):
+    for p in node.wakuRelay.pubsub.gossip.gossipsub.getOrDefault(topic):
       if p.peerId == peer:
         return
     await sleepAsync(10.milliseconds)

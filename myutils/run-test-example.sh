@@ -1,0 +1,1 @@
+nim c -r --out:build/all_tests_common --mm:refc -d:chronicles_log_level=DEBUG -d:chronosStrictException --verbosity:0 --hints:off -d:git_version="v0.36.0-72-g8c2bbe" -d:debug --passL:librln_v0.9.0.a --passL:-lm tests/test_waku_keepalive.nim test "handle ping keepalives"

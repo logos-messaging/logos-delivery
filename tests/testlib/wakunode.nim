@@ -14,7 +14,7 @@ import
     waku_relay,
     net/net_config,
     waku_core/topics,
-    node/waku_switch,
+    libp2p_backend/waku_switch,
     node/peer_manager,
     waku_enr,
     discovery/waku_discv5,
@@ -182,13 +182,13 @@ proc boundTcpPort*(node: WakuNode): Port =
   ports.tcpPort.get()
 
 proc hasMeshPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
-  for p in relay.mesh.getOrDefault(topic):
+  for p in relay.pubsub.gossip.mesh.getOrDefault(topic):
     if p.peerId == peer:
       return true
   false
 
 proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
-  for p in relay.gossipsub.getOrDefault(topic):
+  for p in relay.pubsub.gossip.gossipsub.getOrDefault(topic):
     if p.peerId == peer:
       return true
   false

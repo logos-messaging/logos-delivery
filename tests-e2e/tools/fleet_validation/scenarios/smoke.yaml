@@ -1,0 +1,57 @@
+# 2 senders (Edge+Core) and 2 receivers (Edge+Core) per case: the fleet prunes
+# beyond 5 connections per source IP, so cases run one after another.
+# Same-DC send/receive, 1 msg/s per sender for 60s.
+name: smoke
+transports:
+- tcp
+- quic
+settle: 20
+cases:
+- id: ams-to-ams
+  receivers:
+  - mode: Edge
+    dc: ams
+  - mode: Core
+    dc: ams
+  steps:
+  - id: 1
+    duration: 60
+    senders:
+    - mode: Edge
+      dc: ams
+      rate: 1
+    - mode: Core
+      dc: ams
+      rate: 1
+- id: us-to-us
+  receivers:
+  - mode: Edge
+    dc: us
+  - mode: Core
+    dc: us
+  steps:
+  - id: 1
+    duration: 60
+    senders:
+    - mode: Edge
+      dc: us
+      rate: 1
+    - mode: Core
+      dc: us
+      rate: 1
+- id: hk-to-hk
+  receivers:
+  - mode: Edge
+    dc: hk
+  - mode: Core
+    dc: hk
+  steps:
+  - id: 1
+    duration: 60
+    senders:
+    - mode: Edge
+      dc: hk
+      rate: 1
+    - mode: Core
+      dc: hk
+      rate: 1

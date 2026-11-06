@@ -9,6 +9,7 @@ import
   logos_delivery/waku/waku_lightpush,
   logos_delivery/waku/waku_lightpush/[client, common],
   logos_delivery/waku/common/rate_limit/setting,
+  logos_delivery/waku/libp2p_backend/host,
   ../testlib/[common, wakucore]
 
 proc newTestWakuLightpushNode*(
@@ -29,8 +30,7 @@ proc newTestWakuLightpushNode*(
       maxMessageSize,
     )
 
-  await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuLightPushCodec, proto)
 
   return proto
 

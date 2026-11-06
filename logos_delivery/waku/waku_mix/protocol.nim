@@ -128,7 +128,7 @@ proc processBootNodes(
 
     # A fleet node finds itself in its own preset. Skip that entry, or mix could
     # draw this node as a hop or an exit and route a packet to itself.
-    if peerId == peermgr.switch.peerInfo.peerId:
+    if peerId == peermgr.selfPeerId():
       debug "Skipping a mix bootstrap node that is this node itself", peerId = peerId
       continue
 
@@ -179,8 +179,12 @@ proc new*(
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
   let localMixNodeInfo = initMixNodeInfo(
-    peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
-    peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
+    peermgr.selfPeerId(),
+    nodeMultiAddr,
+    mixPubKey,
+    mixPrivKey,
+    peermgr.switch.peerInfo.publicKey.skkey,
+    peermgr.switch.peerInfo.privateKey.skkey,
   )
 
   var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)

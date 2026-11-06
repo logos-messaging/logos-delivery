@@ -9,7 +9,12 @@ import
   metrics,
   bearssl/rand
 import
-  ../node/peer_manager, ../utils/requests, ./protocol_metrics, ./common, ./rpc_codec
+  ../node/peer_manager,
+  ../libp2p_iface/stream,
+  ../utils/requests,
+  ./protocol_metrics,
+  ./common,
+  ./rpc_codec
 
 logScope:
   topics = "waku store client"
@@ -29,8 +34,8 @@ proc new*(
 ): T {.gcsafe.} =
   WakuStoreClient(peerManager: peerManager, rng: rng)
 
-proc sendStoreRequest(
-    self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
+proc sendStoreRequest[S: IStream](
+    self: WakuStoreClient, request: StoreQueryRequest, connection: S
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
 
@@ -44,13 +49,17 @@ proc sendStoreRequest(
 
   try:
     await connection.writeLP(req.encode().buffer)
-  except LPStreamError as exc:
+  except CancelledError as exc:
+    raise exc
+  except CatchableError as exc:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: exc.msg))
 
   let buf =
     try:
       await connection.readLp(DefaultMaxRpcSize.int)
-    except LPStreamError as exc:
+    except CancelledError as exc:
+      raise exc
+    except CatchableError as exc:
       return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
 
   let res = StoreQueryResponse.decode(buf).valueOr:
@@ -97,7 +106,7 @@ proc queryToAny*(
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
   # Get all available store peers
-  var peers = self.peerManager.switch.peerStore.getPeersByProtocol(WakuStoreCodec)
+  var peers = self.peerManager.peerStore.peers(WakuStoreCodec)
   # A configured Store peer sits in its service slot with no protocols recorded
   # until a connection learns them; dial it too.
   self.peerManager.serviceSlots.withValue(WakuStoreCodec, slot):

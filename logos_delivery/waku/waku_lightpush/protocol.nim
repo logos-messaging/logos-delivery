@@ -5,6 +5,7 @@ import std/strutils, results, stew/byteutils, chronicles, chronos, metrics, bear
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
+  ../libp2p_iface/stream,
   ../waku_core/topics/sharding,
   ./common,
   ./rpc,
@@ -15,7 +16,7 @@ import
 logScope:
   topics = "waku lightpush"
 
-type WakuLightPush* = ref object of LPProtocol
+type WakuLightPush* = ref object
   rng*: crypto.Rng
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
@@ -60,7 +61,7 @@ proc handleRequest(
 
   let msg_hash = pubsubTopic.computeMessageHash(pushRequest.message).to0xHex()
   debug "Handling lightpush request",
-    my_peer_id = wl.peerManager.switch.peerInfo.peerId,
+    my_peer_id = wl.peerManager.selfPeerId(),
     peer_id = peerId,
     requestId = pushRequest.requestId,
     pubsubTopic = pushRequest.pubsubTopic,
@@ -79,7 +80,7 @@ proc handleRequest*(
     let desc = decodeRpcFailure & ": " & $error
     debug "Failed to decode Lightpush request", error = desc
     let errorCode = LightPushErrorCode.BAD_REQUEST
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode]) # bounded-label: LightPushErrorCode enum
     return LightPushResponse(
       requestId: "N/A", # due to decode failure we don't know requestId
       statusCode: errorCode,
@@ -88,7 +89,7 @@ proc handleRequest*(
 
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code]) # bounded-label: LightPushErrorCode enum
     debug "Failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc
@@ -101,64 +102,62 @@ proc handleRequest*(
     relayPeerCount: Opt.some(relayPeerCount),
   )
 
-proc initProtocolHandler(wl: WakuLightPush) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    var rpc: LightPushResponse
-    defer:
-      await conn.closeWithEOF()
+proc handleStream*[S: IStream](
+    wl: WakuLightPush, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  var rpc: LightPushResponse
+  defer:
+    await conn.closeWithEOF()
 
-    wl.requestRateLimiter.checkUsageLimit(WakuLightPushCodec, conn):
-      block readAndHandle:
-        var buffer: seq[byte]
-        try:
-          buffer = await conn.readLp(wl.maxRpcSize)
-        except MaxSizeError:
-          # Only the length prefix was read, so the requestId is unknown.
-          debug "Lightpush request too large",
-            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
-          rpc = LightPushResponse(
-            requestId: "N/A",
-            statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
-            statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
-          )
-          break readAndHandle
-        except LPStreamError:
-          debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
-          return
-
-        logos_delivery_service_network_bytes.inc(
-          amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
-        )
-
-        try:
-          rpc = await wl.handleRequest(conn.peerId, buffer)
-        except CatchableError:
-          error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
-    do:
-      debug "Lightpush request rejected due rate limit exceeded",
-        peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
-
-      rpc = static(
-        LightPushResponse(
-          ## We will not copy and decode RPC buffer from stream only for requestId
-          ## in reject case as it is comparably too expensive and opens possible
-          ## attack surface
+  wl.requestRateLimiter.checkUsageLimit(WakuLightPushCodec, conn):
+    block readAndHandle:
+      var buffer: seq[byte]
+      try:
+        buffer = await conn.readLp(wl.maxRpcSize)
+      except MaxSizeError:
+        # Only the length prefix was read, so the requestId is unknown.
+        debug "Lightpush request too large",
+          peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+        rpc = LightPushResponse(
           requestId: "N/A",
-          statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
-          statusDesc: Opt.some(TooManyRequestsMessage),
+          statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
+          statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
         )
+        break readAndHandle
+      except LPStreamError:
+        debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
+        return
+
+      logos_delivery_service_network_bytes.inc(
+        amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
       )
 
-    try:
-      await conn.writeLp(rpc.encode().buffer)
-    except LPStreamError:
-      debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
+      try:
+        rpc = await wl.handleRequest(conn.peerId, buffer)
+      except CatchableError:
+        error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
+  do:
+    debug "Lightpush request rejected due rate limit exceeded",
+      peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
 
-    ## For lightpush might not worth to measure outgoing traffic as it is only
-    ## small response about success/failure
+    rpc = static(
+      LightPushResponse(
+        ## We will not copy and decode RPC buffer from stream only for requestId
+        ## in reject case as it is comparably too expensive and opens possible
+        ## attack surface
+        requestId: "N/A",
+        statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
+        statusDesc: Opt.some(TooManyRequestsMessage),
+      )
+    )
 
-  wl.handler = handler
-  wl.codec = WakuLightPushCodec
+  try:
+    await conn.writeLp(rpc.encode().buffer)
+  except LPStreamError:
+    debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
+
+  ## For lightpush might not worth to measure outgoing traffic as it is only
+  ## small response about success/failure
 
 proc new*(
     T: type WakuLightPush,
@@ -177,6 +176,5 @@ proc new*(
     autoSharding: autoSharding,
     maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
   )
-  wl.initProtocolHandler()
   setServiceLimitMetric(WakuLightpushCodec, rateLimitSetting)
   return wl

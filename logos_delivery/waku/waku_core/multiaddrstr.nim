@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import libp2p/[peerinfo, switch]
+import libp2p/[peerinfo]
 
 import ./peers
 

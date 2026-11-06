@@ -30,7 +30,7 @@ proc mountLibp2pPing*(node: WakuNode) {.async: (raises: []).} =
       error "failed to start libp2pPing", error = getCurrentExceptionMsg()
 
   try:
-    node.switch.mount(node.libp2pPing)
+    node.mountProtocol(node.libp2pPing)
   except LPError:
     error "failed to mount libp2pPing", error = getCurrentExceptionMsg()
 

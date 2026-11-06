@@ -10,12 +10,11 @@ import
   chronos,
   bearssl/rand,
   libp2p/crypto/crypto,
-  libp2p/protocols/protocol,
   libp2p/protobuf/minprotobuf,
-  libp2p/stream/connection,
   metrics
 import
   ../waku_core,
+  ../libp2p_iface/stream,
   ../node/peer_manager,
   ./common,
   ./rpc_codec,
@@ -28,7 +27,7 @@ logScope:
 type StoreQueryRequestHandler* =
   proc(req: StoreQueryRequest): Future[StoreQueryResult] {.async, gcsafe.}
 
-type WakuStore* = ref object of LPProtocol
+type WakuStore* = ref object
   peerManager: PeerManager
   rng: crypto.Rng
   requestHandler*: StoreQueryRequestHandler
@@ -84,80 +83,79 @@ proc handleQueryRequest(
 
   return (res.encode().buffer, requestId)
 
-proc initProtocolHandler(self: WakuStore) =
-  let rejectReposnseBuffer = StoreQueryResponse(
-    ## We will not copy and decode RPC buffer from stream only for requestId
-    ## in reject case as it is comparably too expensive and opens possible
-    ## attack surface
+proc rejectResponseBuffer(): seq[byte] =
+  ## We will not copy and decode RPC buffer from stream only for requestId
+  ## in reject case as it is comparably too expensive and opens possible
+  ## attack surface
+  return StoreQueryResponse(
     requestId: "N/A",
     statusCode: uint32(ErrorCode.TOO_MANY_REQUESTS),
     statusDesc: $ErrorCode.TOO_MANY_REQUESTS,
   ).encode().buffer
 
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    var successfulQuery = false ## only consider the correct queries in metrics
-    var resBuf: StoreResp
-    var queryDuration: float
+proc handleStream*[S: IStream](
+    self: WakuStore, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  var successfulQuery = false ## only consider the correct queries in metrics
+  var resBuf: StoreResp
+  var queryDuration: float
 
-    self.peerManager.addActiveStoreRequest(conn.peerId)
-    defer:
-      self.peerManager.removeActiveStoreRequest(conn.peerId)
-      await conn.closeWithEof()
+  self.peerManager.addActiveStoreRequest(conn.peerId)
+  defer:
+    self.peerManager.removeActiveStoreRequest(conn.peerId)
+    await conn.closeWithEof()
 
-    self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
-      let readRes = catch:
-        await conn.readLp(DefaultMaxRpcSize.int)
+  self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
+    let readRes = catch:
+      await conn.readLp(DefaultMaxRpcSize.int)
 
-      let reqBuf = readRes.valueOr:
-        debug "Connection read error", error = error.msg
-        return
-
-      logos_delivery_service_network_bytes.inc(
-        amount = reqBuf.len().int64, labelValues = [WakuStoreCodec, "in"]
-      )
-
-      let queryStartTime = getTime().toUnixFloat()
-
-      try:
-        resBuf = await self.handleQueryRequest(conn.peerId, reqBuf)
-      except CatchableError:
-        error "store query failed in handler",
-          remote_peer_id = conn.peerId,
-          requestId = resBuf.requestId,
-          error = getCurrentExceptionMsg()
-        return
-
-      queryDuration = getTime().toUnixFloat() - queryStartTime
-      logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
-      successfulQuery = true
-    do:
-      debug "Store query request rejected due rate limit exceeded",
-        peerId = conn.peerId, limit = $self.requestRateLimiter.setting
-      resBuf = (rejectReposnseBuffer, "rejected")
-
-    let writeRespStartTime = getTime().toUnixFloat()
-
-    let writeRes = catch:
-      await conn.writeLp(resBuf.resp)
-
-    writeRes.isOkOr:
-      debug "Connection write error", error = error.msg
+    let reqBuf = readRes.valueOr:
+      debug "Connection read error", error = error.msg
       return
 
-    if successfulQuery:
-      let writeDuration = getTime().toUnixFloat() - writeRespStartTime
-      logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
-      debug "After sending response",
-        requestId = resBuf.requestId,
-        queryDurationSecs = queryDuration,
-        writeStreamDurationSecs = writeDuration
-
     logos_delivery_service_network_bytes.inc(
-      amount = resBuf.resp.len().int64, labelValues = [WakuStoreCodec, "out"]
+      amount = reqBuf.len().int64, labelValues = [WakuStoreCodec, "in"]
     )
 
-  self.handler = handler
-  self.codec = WakuStoreCodec
+    let queryStartTime = getTime().toUnixFloat()
+
+    try:
+      resBuf = await self.handleQueryRequest(conn.peerId, reqBuf)
+    except CatchableError:
+      error "store query failed in handler",
+        remote_peer_id = conn.peerId,
+        requestId = resBuf.requestId,
+        error = getCurrentExceptionMsg()
+      return
+
+    queryDuration = getTime().toUnixFloat() - queryStartTime
+    logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
+    successfulQuery = true
+  do:
+    debug "Store query request rejected due rate limit exceeded",
+      peerId = conn.peerId, limit = $self.requestRateLimiter.setting
+    resBuf = (rejectResponseBuffer(), "rejected")
+
+  let writeRespStartTime = getTime().toUnixFloat()
+
+  let writeRes = catch:
+    await conn.writeLp(resBuf.resp)
+
+  writeRes.isOkOr:
+    debug "Connection write error", error = error.msg
+    return
+
+  if successfulQuery:
+    let writeDuration = getTime().toUnixFloat() - writeRespStartTime
+    logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
+    debug "After sending response",
+      requestId = resBuf.requestId,
+      queryDurationSecs = queryDuration,
+      writeStreamDurationSecs = writeDuration
+
+  logos_delivery_service_network_bytes.inc(
+    amount = resBuf.resp.len().int64, labelValues = [WakuStoreCodec, "out"]
+  )
 
 proc new*(
     T: type WakuStore,
@@ -176,6 +174,5 @@ proc new*(
     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
   )
 
-  store.initProtocolHandler()
   setServiceLimitMetric(WakuStoreCodec, rateLimitSetting)
   return store

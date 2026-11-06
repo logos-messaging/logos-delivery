@@ -42,7 +42,6 @@ suite "Waku Peer Exchange":
       # Then peer exchange is mounted
       check:
         node.wakuPeerExchange != nil
-        node.wakuPeerExchange.started == true
 
       # Cleanup
       await node.stop()
@@ -58,7 +57,6 @@ suite "Waku Peer Exchange":
       # Then peer exchange is mounted
       check:
         node.wakuPeerExchange != nil
-        node.wakuPeerExchange.started == false
 
   suite "fetchPeerExchangePeers":
     var node2 {.threadvar.}: WakuNode

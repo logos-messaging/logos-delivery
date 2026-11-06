@@ -7,6 +7,7 @@ import
     waku_filter_v2/client,
     waku_filter_v2/subscriptions,
     waku_core,
+    libp2p_backend/host,
     common/rate_limit/setting,
   ],
   ../testlib/[common, wakucore]
@@ -29,7 +30,7 @@ proc newTestWakuFilter*(
     )
 
   await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuFilterSubscribeCodec, proto)
 
   return proto
 
@@ -39,7 +40,7 @@ proc newTestWakuFilterClient*(switch: Switch): Future[WakuFilterClient] {.async.
     proto = WakuFilterClient.new(peerManager, common.rng())
 
   await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuFilterPushCodec, proto)
 
   return proto
 

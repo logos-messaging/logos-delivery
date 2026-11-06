@@ -1,0 +1,1101 @@
+diff --git a/library/events/json_connection_change_event.nim b/library/events/json_connection_change_event.nim
+index f78dcbe..3f171ed 100644
+--- a/library/events/json_connection_change_event.nim
++++ b/library/events/json_connection_change_event.nim
+@@ -1,13 +1,16 @@
+-import system, std/json, libp2p/[connmanager, peerid]
++import system, std/json, libp2p/peerid
+ 
+-import ../../logos_delivery/waku/common/base64, ./json_base_event
++import
++  ../../logos_delivery/waku/common/base64,
++  ../../logos_delivery/waku/libp2p_iface/host,
++  ./json_base_event
+ 
+ type JsonConnectionChangeEvent* = ref object of JsonEvent
+   peerId*: string
+-  peerEvent*: PeerEventKind
++  peerEvent*: HostPeerEventKind
+ 
+ proc new*(
+-    T: type JsonConnectionChangeEvent, peerId: string, peerEvent: PeerEventKind
++    T: type JsonConnectionChangeEvent, peerId: string, peerEvent: HostPeerEventKind
+ ): T =
+   return JsonConnectionChangeEvent(
+     eventType: "connection_change", peerId: peerId, peerEvent: peerEvent
+diff --git a/logos_delivery/waku/factory/builder.nim b/logos_delivery/waku/factory/builder.nim
+index f270c2f..06e88bb 100644
+--- a/logos_delivery/waku/factory/builder.nim
++++ b/logos_delivery/waku/factory/builder.nim
+@@ -15,7 +15,7 @@ import
+   ../waku_enr,
+   ../discovery/waku_discv5,
+   ../waku_node,
+-  ../node/waku_switch,
++  ../libp2p_backend/waku_switch,
+   ../net/net_config,
+   ../node/peer_manager,
+   ../common/rate_limit/setting,
+diff --git a/logos_delivery/waku/node/delivery_dialer.nim b/logos_delivery/waku/libp2p_backend/delivery_dialer.nim
+similarity index 100%
+rename from logos_delivery/waku/node/delivery_dialer.nim
+rename to logos_delivery/waku/libp2p_backend/delivery_dialer.nim
+diff --git a/logos_delivery/waku/node/peer_manager/peer_manager.nim b/logos_delivery/waku/node/peer_manager/peer_manager.nim
+index 9603c39..a728670 100644
+--- a/logos_delivery/waku/node/peer_manager/peer_manager.nim
++++ b/logos_delivery/waku/node/peer_manager/peer_manager.nim
+@@ -6,7 +6,7 @@ import
+   chronos,
+   chronicles,
+   metrics,
+-  libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
++  libp2p/[nameresolving/nameresolver, peerstore],
+   libp2p/protocols/service_discovery/types,
+   libp2p_mix/mix_protocol,
+   brokers/broker_context
+@@ -26,7 +26,8 @@ import
+     common/callbacks,
+     common/utils/parse_size_units,
+     node/health_monitor/online_monitor,
+-    node/waku_switch,
++    libp2p_backend/waku_switch,
++    libp2p_backend/host,
+   ],
+   ./peer_store/peer_storage,
+   ./waku_peer_store
+@@ -92,12 +93,12 @@ const
+   DefaultColocationLimit* = 5
+ 
+ type ConnectionChangeHandler* = proc(
+-  peerId: PeerId, peerEvent: PeerEventKind
++  peerId: PeerId, peerEvent: HostPeerEventKind
+ ): Future[void] {.gcsafe, raises: [Defect].}
+ 
+ type PeerManager* = ref object
+   brokerCtx: BrokerContext
+-  switch*: Switch
++  host*: Libp2pHost
+   wakuMetadata*: WakuMetadata
+   initialBackoffInSec*: int
+   backoffFactor*: int
+@@ -127,6 +128,16 @@ type PeerManager* = ref object
+ # Helper Functions  #
+ #~~~~~~~~~~~~~~~~~~~#
+ 
++proc switch*(pm: PeerManager): Switch =
++  ## The libp2p switch behind the host; backend specific.
++  return pm.host.switch
++
++proc peerStore*(pm: PeerManager): PeerStore =
++  return pm.host.peerStore()
++
++proc selfPeerId*(pm: PeerManager): PeerId =
++  return pm.host.peerId()
++
+ proc calculateBackoff(
+     initialBackoffInSec: int, backoffFactor: int, failedAttempts: int
+ ): timer.Duration =
+@@ -160,13 +171,13 @@ proc addPeer*(
+ ) {.gcsafe.} =
+   ## Adds peer to manager for the specified protocol
+ 
+-  if remotePeerInfo.peerId == pm.switch.peerInfo.peerId:
++  if remotePeerInfo.peerId == pm.selfPeerId():
+     trace "skipping to manage our unmanageable self"
+     return
+ 
+-  let isNewPeer = not pm.switch.peerStore.peerExists(remotePeerInfo.peerId)
++  let isNewPeer = not pm.peerStore.peerExists(remotePeerInfo.peerId)
+ 
+-  pm.switch.peerStore.addPeer(remotePeerInfo, origin)
++  pm.peerStore.addPeer(remotePeerInfo, origin)
+ 
+   trace "Adding peer to manager",
+     peerId = remotePeerInfo.peerId, addresses = remotePeerInfo.addrs, origin
+@@ -185,7 +196,7 @@ proc addPeer*(
+     pm.storage.insertOrReplace(remotePeerInfo)
+ 
+ proc getPeer*(pm: PeerManager, peerId: PeerId): RemotePeerInfo =
+-  return pm.switch.peerStore.getPeer(peerId)
++  return pm.peerStore.getPeer(peerId)
+ 
+ proc addActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
+   pm.activeStoreRequests.mgetOrPut(peerId, 0).inc()
+@@ -214,7 +225,7 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
+   proc onData(remotePeerInfo: RemotePeerInfo) =
+     let peerId = remotePeerInfo.peerId
+ 
+-    if pm.switch.peerInfo.peerId == peerId:
++    if pm.selfPeerId() == peerId:
+       # Do not manage self
+       return
+ 
+@@ -226,23 +237,22 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
+       version = remotePeerInfo.protoVersion
+ 
+     # nim-libp2p books
+-    pm.switch.peerStore[AddressBook][peerId] = remotePeerInfo.addrs
+-    pm.switch.peerStore[ProtoBook][peerId] = remotePeerInfo.protocols
+-    pm.switch.peerStore[KeyBook][peerId] = remotePeerInfo.publicKey
+-    pm.switch.peerStore[AgentBook][peerId] = remotePeerInfo.agent
+-    pm.switch.peerStore[ProtoVersionBook][peerId] = remotePeerInfo.protoVersion
++    pm.peerStore[AddressBook][peerId] = remotePeerInfo.addrs
++    pm.peerStore[ProtoBook][peerId] = remotePeerInfo.protocols
++    pm.peerStore[KeyBook][peerId] = remotePeerInfo.publicKey
++    pm.peerStore[AgentBook][peerId] = remotePeerInfo.agent
++    pm.peerStore[ProtoVersionBook][peerId] = remotePeerInfo.protoVersion
+ 
+     # custom books
+-    pm.switch.peerStore[ConnectionBook][peerId] = NotConnected
+-      # Reset connectedness state
+-    pm.switch.peerStore[DisconnectBook][peerId] = remotePeerInfo.disconnectTime
++    pm.peerStore[ConnectionBook][peerId] = NotConnected # Reset connectedness state
++    pm.peerStore[DisconnectBook][peerId] = remotePeerInfo.disconnectTime
+     # Mark as Cache so it is distinguishable from live-discovered peers. If the
+     # same peer is later rediscovered, addPeer overrides this with the live
+     # origin, and reconnect backoff no longer applies to it.
+-    pm.switch.peerStore[SourceBook][peerId] = Cache
++    pm.peerStore[SourceBook][peerId] = Cache
+ 
+     if remotePeerInfo.enr.isSome():
+-      pm.switch.peerStore[ENRBook][peerId] = remotePeerInfo.enr.get()
++      pm.peerStore[ENRBook][peerId] = remotePeerInfo.enr.get()
+ 
+     amount.inc()
+ 
+@@ -258,9 +268,9 @@ proc selectPeers*(
+ ): seq[RemotePeerInfo] =
+   ## Returns all peers that support the given protocol (and optionally shard),
+   ## shuffled randomly. Callers can further filter or pick from this list.
+-  var peers = pm.switch.peerStore.getPeersByProtocol(proto)
++  var peers = pm.peerStore.peers(proto)
+   trace "Selecting peers from peerstore",
+-    protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
++    protocol = proto, num_peers = peers.len, address = cast[uint](pm.peerStore)
+ 
+   if shard.isSome():
+     let shardInfo = RelayShard.parse(shard.get()).valueOr:
+@@ -333,10 +343,10 @@ proc connectPeer*(
+ ): Future[bool] {.async.} =
+   let peerId = peer.peerId
+ 
+-  var peerStore = pm.switch.peerStore
++  var peerStore = pm.peerStore
+ 
+   # Do not attempt to dial self
+-  if peerId == pm.switch.peerInfo.peerId:
++  if peerId == pm.selfPeerId():
+     return false
+ 
+   if not peerStore.peerExists(peerId):
+@@ -347,7 +357,7 @@ proc connectPeer*(
+     wireAddr = peer.addrs, peerId = peerId, failedAttempts = failedAttempts
+ 
+   var deadline = sleepAsync(dialTimeout)
+-  let workfut = pm.switch.connect(peerId, peer.addrs)
++  let workfut = pm.host.connect(peerId, peer.addrs)
+ 
+   # Can't use catch: with .withTimeout() in this case
+   let res = catch:
+@@ -423,7 +433,7 @@ proc connectToNodes*(
+     successfulConns = connectedPeers.len, attempted = nodes.len
+ 
+ proc disconnectNode*(pm: PeerManager, peerId: PeerId) {.async.} =
+-  await pm.switch.disconnect(peerId)
++  await pm.host.disconnect(peerId)
+ 
+ proc disconnectNode*(pm: PeerManager, peer: RemotePeerInfo) {.async.} =
+   let peerId = peer.peerId
+@@ -440,7 +450,7 @@ proc dialPeer(
+     dialTimeout = DefaultDialTimeout,
+     source = "api",
+ ): Future[Opt[Connection]] {.async.} =
+-  if peerId == pm.switch.peerInfo.peerId:
++  if peerId == pm.selfPeerId():
+     error "could not dial self"
+     return Opt.none(Connection)
+ 
+@@ -451,7 +461,7 @@ proc dialPeer(
+   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
+ 
+   # Dial Peer
+-  let dialFut = pm.switch.dial(peerId, addrs, proto)
++  let dialFut = pm.host.dial(peerId, addrs, proto)
+ 
+   let res = catch:
+     if await dialFut.withTimeout(dialTimeout):
+@@ -480,7 +490,7 @@ proc dialPeer*(
+ 
+   # First add dialed peer info to peer store, if it does not exist yet..
+   # TODO: nim libp2p peerstore already adds them
+-  if not pm.switch.peerStore.hasPeer(remotePeerInfo.peerId, proto):
++  if not pm.peerStore.hasPeer(remotePeerInfo.peerId, proto):
+     trace "Adding newly dialed peer to manager",
+       peerId = $remotePeerInfo.peerId, address = $remotePeerInfo.addrs[0], proto = proto
+     pm.addPeer(remotePeerInfo)
+@@ -499,14 +509,14 @@ proc dialPeer*(
+   # Dial an existing peer by looking up it's existing addrs in the switch's peerStore
+   # TODO: check peer validity and score before continuing. Limit number of peers to be managed.
+ 
+-  let addrs = pm.switch.peerStore[AddressBook][peerId]
++  let addrs = pm.peerStore[AddressBook][peerId]
+   return await pm.dialPeer(peerId, addrs, proto, dialTimeout, source)
+ 
+ proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
+   # Returns if we can try to connect to this peer, based on past failed attempts
+   # It uses an exponential backoff. Each connection attempt makes us
+   # wait more before trying again.
+-  let peerStore = pm.switch.peerStore
++  let peerStore = pm.peerStore
+   let failedAttempts = peerStore[NumberFailedConnBook][peerId]
+ 
+   # if it never errored, we can try to connect
+@@ -536,14 +546,12 @@ proc connectedPeers*(
+   var inPeers: seq[PeerId]
+   var outPeers: seq[PeerId]
+ 
+-  for peerId, muxers in pm.switch.connManager.getConnections():
+-    for peerConn in muxers:
+-      let streams = peerConn.getStreams()
+-      if protocol.len == 0 or streams.anyIt(it.protocol == protocol):
+-        if peerConn.connection.transportDir == Direction.In:
+-          inPeers.add(peerId)
+-        elif peerConn.connection.transportDir == Direction.Out:
+-          outPeers.add(peerId)
++  for conn in pm.host.connections():
++    if protocol.len == 0 or conn.streams.anyIt(it.protocol == protocol):
++      if conn.inbound:
++        inPeers.add(conn.peerId)
++      else:
++        outPeers.add(conn.peerId)
+ 
+   return (inPeers, outPeers)
+ 
+@@ -554,7 +562,7 @@ proc evictPeer*(pm: PeerManager, peerId: PeerId) {.async.} =
+   if pm.hasActiveStoreRequest(peerId):
+     trace "skipping peer eviction: active store request", peerId = peerId
+     return
+-  await pm.switch.disconnect(peerId)
++  await pm.host.disconnect(peerId)
+ 
+ proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]) =
+   ## Returns the PeerIds of peers with an active socket connection.
+@@ -564,14 +572,13 @@ proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]
+   var inPeers: seq[PeerId]
+   var outPeers: seq[PeerId]
+ 
+-  for peerId, muxers in pm.switch.connManager.getConnections():
++  for conn in pm.host.connections():
+     # filter out peers that don't have the capability registered in the peer store
+-    if pm.switch.peerStore.hasPeer(peerId, protocol):
+-      for peerConn in muxers:
+-        if peerConn.connection.transportDir == Direction.In:
+-          inPeers.add(peerId)
+-        elif peerConn.connection.transportDir == Direction.Out:
+-          outPeers.add(peerId)
++    if pm.peerStore.hasPeer(conn.peerId, protocol):
++      if conn.inbound:
++        inPeers.add(conn.peerId)
++      else:
++        outPeers.add(conn.peerId)
+ 
+   return (inPeers, outPeers)
+ 
+@@ -602,7 +609,7 @@ proc getPeersForShard*(pm: PeerManager, protocolId: string, shard: PubsubTopic):
+ 
+   var shardPeers = 0
+   for peerId in connectedProtocolPeers:
+-    if pm.switch.peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
++    if pm.peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
+       shardPeers.inc()
+ 
+   return shardPeers
+@@ -621,27 +628,10 @@ proc getStreamByPeerIdAndProtocol*(
+   ## Notice that the "Connection" type represents a stream within a transport connection
+   ## (we will need to adapt this term.)
+ 
+-  let peerIdsMuxers: Table[PeerId, seq[Muxer]] = pm.switch.connManager.getConnections()
+-  if not peerIdsMuxers.contains(peerId):
+-    return err("peerId not found in connManager: " & $peerId)
+-
+-  let muxers = peerIdsMuxers[peerId]
+-
+-  var streams = newSeq[Connection](0)
+-  for m in muxers:
+-    for s in m.getStreams():
+-      ## getStreams is defined in nim-libp2p
+-      streams.add(s)
+-
+-  ## Try to get the opened streams for the given protocol
+-  let streamsOfInterest = streams.filterIt(
+-    it.protocol == protocol and not LPStream(it).isClosed and
+-      not LPStream(it).isClosedRemotely
+-  )
+-
+-  if streamsOfInterest.len > 0:
++  let existing = ?pm.host.findOpenStream(peerId, protocol)
++  if existing.isSome():
+     ## In theory there should be one stream per protocol. Then we just pick up the 1st
+-    return ok(streamsOfInterest[0])
++    return ok(existing.get())
+ 
+   ## There isn't still a stream. Let's dial to create one
+   let streamRes = await pm.dialPeer(peerId, protocol)
+@@ -665,7 +655,7 @@ proc connectToRelayPeers*(pm: PeerManager) {.async.} =
+   if outRelayPeers.len >= pm.outRelayPeersTarget:
+     return
+ 
+-  let notConnectedPeers = pm.switch.peerStore.getDisconnectedPeers()
++  let notConnectedPeers = pm.peerStore.peers().filterIt(it.connectedness != Connected)
+ 
+   var outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
+ 
+@@ -697,7 +687,7 @@ proc reconnectPeers*(
+   # discovered peers must not be delayed by the reconnect backoff: they are
+   # connected right away by the relay connectivity loop. Rediscovered peers get
+   # their origin overridden by addPeer, so they naturally drop out of this set.
+-  let peersToReconnect = pm.switch.peerStore.peers(protocolMatcher(proto)).filterIt(
++  let peersToReconnect = pm.peerStore.peers(protocolMatcher(proto)).filterIt(
+       it.origin == Cache and it.connectedness != CannotConnect
+     )
+ 
+@@ -720,25 +710,21 @@ proc getNumStreams*(pm: PeerManager, protocol: string): (int, int) =
+   var
+     numStreamsIn = 0
+     numStreamsOut = 0
+-  for peerId, muxers in pm.switch.connManager.getConnections():
+-    for peerConn in muxers:
+-      for stream in peerConn.getStreams():
+-        if stream.protocol == protocol:
+-          if stream.dir == Direction.In:
+-            numStreamsIn += 1
+-          elif stream.dir == Direction.Out:
+-            numStreamsOut += 1
++  for conn in pm.host.connections():
++    for stream in conn.streams:
++      if stream.protocol == protocol:
++        if stream.inbound:
++          numStreamsIn += 1
++        else:
++          numStreamsOut += 1
+   return (numStreamsIn, numStreamsOut)
+ 
+ proc getPeerIp(pm: PeerManager, peerId: PeerId): Opt[string] =
+-  if not pm.switch.connManager.getConnections().hasKey(peerId):
+-    return Opt.none(string)
+-
+-  let conns = pm.switch.connManager.getConnections().getOrDefault(peerId)
++  let conns = pm.host.connections().filterIt(it.peerId == peerId)
+   if conns.len == 0:
+     return Opt.none(string)
+ 
+-  let obAddr = conns[0].connection.observedAddr.valueOr:
++  let obAddr = conns[0].observedAddr.valueOr:
+     return Opt.none(string)
+ 
+   # TODO: think if circuit relay ips should be handled differently
+@@ -751,7 +737,7 @@ proc getPeerIp(pm: PeerManager, peerId: PeerId): Opt[string] =
+ 
+ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+   let res = catch:
+-    await pm.switch.dial(peerId, WakuMetadataCodec)
++    await pm.host.dial(peerId, WakuMetadataCodec)
+ 
+   var reason: string
+   block guardClauses:
+@@ -774,9 +760,9 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+       break guardClauses
+ 
+     # Store the shard information from metadata in the peer store
+-    if pm.switch.peerStore.peerExists(peerId):
++    if pm.peerStore.peerExists(peerId):
+       let shards = metadata.shards.mapIt(it.uint16)
+-      pm.switch.peerStore.setShardInfo(peerId, shards)
++      pm.peerStore.setShardInfo(peerId, shards)
+ 
+     # TODO: should only trigger an event if metadata actually changed
+     #       should include the shard subscription delta in the event when
+@@ -785,8 +771,8 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+     return
+ 
+   debug "Disconnecting from peer", peerId = peerId, reason = reason
+-  asyncSpawn(pm.switch.disconnect(peerId))
+-  pm.switch.peerStore.delete(peerId)
++  asyncSpawn(pm.host.disconnect(peerId))
++  pm.peerStore.del(peerId)
+ 
+ const PureLibp2pProtocols* = [ExtendedServiceDiscoveryCodec, MixProtocolID]
+   ## Protocols a peer can serve us without being a waku node: kademlia service
+@@ -801,7 +787,7 @@ type PeerClass = enum
+   Reject ## Neither.
+ 
+ proc classifyPeer(pm: PeerManager, peerId: PeerId): PeerClass =
+-  let protos = pm.switch.peerStore[ProtoBook][peerId]
++  let protos = pm.peerStore[ProtoBook][peerId]
+   if WakuMetadataCodec in protos:
+     return Member
+   if pm.maxPureLibp2pPeers > 0 and PureLibp2pProtocols.anyIt(it in protos):
+@@ -812,8 +798,8 @@ proc hasInboundConnection(pm: PeerManager, peerId: PeerId): bool =
+   ## Read from the connection itself, not from DirectionBook: libp2p asyncSpawns
+   ## `Joined`, so `Identified` can arrive before the Joined handler has written
+   ## the book.
+-  for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
+-    if muxer.connection.transportDir == Direction.In:
++  for conn in pm.host.connections():
++    if conn.peerId == peerId and conn.inbound:
+       return true
+   false
+ 
+@@ -848,100 +834,103 @@ proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
+     if pm.admitPureLibp2pPeer(peerId):
+       logos_delivery_pure_libp2p_admissions.inc(labelValues = ["admitted"])
+       info "admitted pure-libp2p peer",
+-        peerId = peerId, protocols = pm.switch.peerStore[ProtoBook][peerId]
++        peerId = peerId, protocols = pm.peerStore[ProtoBook][peerId]
+     else:
+       logos_delivery_pure_libp2p_admissions.inc(labelValues = ["over_budget"])
+       debug "Disconnecting from peer",
+         peerId = peerId,
+         reason = "pure-libp2p inbound budget exhausted",
+         budget = pm.maxPureLibp2pPeers
+-      asyncSpawn(pm.switch.disconnect(peerId))
+-      pm.switch.peerStore.delete(peerId)
++      asyncSpawn(pm.host.disconnect(peerId))
++      pm.peerStore.del(peerId)
+   of Reject:
+     logos_delivery_pure_libp2p_admissions.inc(labelValues = ["rejected"])
+     debug "Disconnecting from peer",
+       peerId = peerId,
+       reason = "no waku metadata and no protocol we consume",
+-      protocols = pm.switch.peerStore[ProtoBook][peerId]
+-    asyncSpawn(pm.switch.disconnect(peerId))
+-    pm.switch.peerStore.delete(peerId)
++      protocols = pm.peerStore[ProtoBook][peerId]
++    asyncSpawn(pm.host.disconnect(peerId))
++    pm.peerStore.del(peerId)
+ 
+ # called when a peer i) first connects to us ii) disconnects all connections from us
+-proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
+-  var peerStore = pm.switch.peerStore
++proc onPeerJoined(pm: PeerManager, peerId: PeerId) {.async.} =
++  ## Check max allowed in-relay peers
++  let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
++  if inRelayPeers.len > pm.inRelayPeersTarget and
++      pm.peerStore.hasPeer(peerId, WakuRelayCodec):
++    debug "relay peer limit reached, evicting peer",
++      peerId = peerId,
++      inRelayPeers = inRelayPeers.len,
++      inRelayPeersTarget = pm.inRelayPeersTarget
++    await pm.evictPeer(peerId)
++
++  ## Apply max ip colocation limit
++  if (let ip = pm.getPeerIp(peerId); ip.isSome()):
++    pm.ipTable.mgetOrPut(ip.get, newSeq[PeerId]()).add(peerId)
++
++    # in theory this should always be one, but just in case
++    let peersBehindIp = pm.ipTable[ip.get]
++
++    # pm.colocationLimit == 0 disables the ip colocation limit
++    if pm.colocationLimit != 0 and peersBehindIp.len > pm.colocationLimit:
++      for peerId in peersBehindIp[0 ..< (peersBehindIp.len - pm.colocationLimit)]:
++        debug "Pruning connection due to ip colocation", peerId = peerId, ip = ip
++        asyncSpawn(pm.evictPeer(peerId))
++        pm.peerStore.del(peerId)
++
++  WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
++
++  if not pm.onConnectionChange.isNil():
++    # we don't want to await for the callback to finish
++    asyncSpawn pm.onConnectionChange(peerId, Joined)
++
++proc onPeerLeft(pm: PeerManager, peerId: PeerId) {.async.} =
++  if not pm.pureLibp2pPeers.missingOrExcl(peerId):
++    logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
++
++  # note we cant access the peerId ip here as the connection was already closed
++  for ip, peerIds in pm.ipTable.pairs:
++    if peerIds.contains(peerId):
++      pm.ipTable[ip] = pm.ipTable[ip].filterIt(it != peerId)
++      if pm.ipTable[ip].len == 0:
++        pm.ipTable.del(ip)
++      break
++
++  WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
++
++  if not pm.onConnectionChange.isNil():
++    # we don't want to await for the callback to finish
++    asyncSpawn pm.onConnectionChange(peerId, Left)
++
++proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: HostPeerEvent) {.async.} =
+   var direction: PeerDirection
+   var connectedness: Connectedness
+ 
+   case event.kind
+-  of PeerEventKind.Joined:
++  of HostPeerEventKind.Joined:
+     direction = if event.initiator: Outbound else: Inbound
+     connectedness = Connected
+-
+-    ## Check max allowed in-relay peers
+-    let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
+-    if inRelayPeers.len > pm.inRelayPeersTarget and
+-        peerStore.hasPeer(peerId, WakuRelayCodec):
+-      debug "relay peer limit reached, evicting peer",
+-        peerId = peerId,
+-        inRelayPeers = inRelayPeers.len,
+-        inRelayPeersTarget = pm.inRelayPeersTarget
+-      await pm.evictPeer(peerId)
+-
+-    ## Apply max ip colocation limit
+-    if (let ip = pm.getPeerIp(peerId); ip.isSome()):
+-      pm.ipTable.mgetOrPut(ip.get, newSeq[PeerId]()).add(peerId)
+-
+-      # in theory this should always be one, but just in case
+-      let peersBehindIp = pm.ipTable[ip.get]
+-
+-      # pm.colocationLimit == 0 disables the ip colocation limit
+-      if pm.colocationLimit != 0 and peersBehindIp.len > pm.colocationLimit:
+-        for peerId in peersBehindIp[0 ..< (peersBehindIp.len - pm.colocationLimit)]:
+-          debug "Pruning connection due to ip colocation", peerId = peerId, ip = ip
+-          asyncSpawn(pm.evictPeer(peerId))
+-          peerStore.delete(peerId)
+-
+-    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
+-
+-    if not pm.onConnectionChange.isNil():
+-      # we don't want to await for the callback to finish
+-      asyncSpawn pm.onConnectionChange(peerId, Joined)
+-  of PeerEventKind.Left:
++    await pm.onPeerJoined(peerId)
++  of HostPeerEventKind.Left:
+     direction = UnknownDirection
+     connectedness = CanConnect
+-
+-    if not pm.pureLibp2pPeers.missingOrExcl(peerId):
+-      logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
+-
+-    # note we cant access the peerId ip here as the connection was already closed
+-    for ip, peerIds in pm.ipTable.pairs:
+-      if peerIds.contains(peerId):
+-        pm.ipTable[ip] = pm.ipTable[ip].filterIt(it != peerId)
+-        if pm.ipTable[ip].len == 0:
+-          pm.ipTable.del(ip)
+-        break
+-
+-    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
+-
+-    if not pm.onConnectionChange.isNil():
+-      # we don't want to await for the callback to finish
+-      asyncSpawn pm.onConnectionChange(peerId, Left)
+-  of PeerEventKind.Identified:
++    await pm.onPeerLeft(peerId)
++  of HostPeerEventKind.Identified:
+     debug "Event identified", peerId = peerId
+ 
+     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
+ 
+     await pm.onPeerIdentified(peerId)
+ 
+-  if event.kind != PeerEventKind.Identified:
++  if event.kind != HostPeerEventKind.Identified:
+     # Identified changes the protocol book only.
+-    peerStore[ConnectionBook][peerId] = connectedness
+-    peerStore[DirectionBook][peerId] = direction
++    pm.peerStore[ConnectionBook][peerId] = connectedness
++    pm.peerStore[DirectionBook][peerId] = direction
+ 
+   if not pm.storage.isNil:
+-    var remotePeerInfo = peerStore.getPeer(peerId)
++    var remotePeerInfo = pm.peerStore.getPeer(peerId)
+ 
+-    if event.kind == PeerEventKind.Left:
++    if event.kind == HostPeerEventKind.Left:
+       remotePeerInfo.disconnectTime = getTime().toUnix
+ 
+     pm.storage.insertOrReplace(remotePeerInfo)
+@@ -952,14 +941,16 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
+ 
+ proc logAndMetrics(pm: PeerManager) {.async.} =
+   heartbeat "Scheduling log and metrics run", LogAndMetricsInterval:
+-    var peerStore = pm.switch.peerStore
++    var peerStore = pm.peerStore
+     # log metrics
+     let (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
+-    let notConnectedPeers =
+-      peerStore.getDisconnectedPeers().mapIt(RemotePeerInfo.init(it.peerId, it.addrs))
++    let notConnectedPeers = peerStore
++      .peers()
++      .filterIt(it.connectedness != Connected)
++      .mapIt(RemotePeerInfo.init(it.peerId, it.addrs))
+     let outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
+-    let connections = pm.switch.connManager.getConnections()
+-    let totalConnections = connections.len
++    let connections = pm.host.connections()
++    let totalConnections = connections.mapIt(it.peerId).toHashSet().len
+ 
+     info "Relay peer connections",
+       inRelayConns = $inRelayPeers.len & "/" & $pm.inRelayPeersTarget,
+@@ -987,7 +978,10 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
+ 
+     var agentCounts = initTable[string, int]()
+     var connectedPeerIds: HashSet[PeerId]
+-    for peerId, muxers in connections:
++    for conn in connections:
++      let peerId = conn.peerId
++      if peerId in connectedPeerIds:
++        continue
+       connectedPeerIds.incl(peerId)
+       if peerStore[AgentBook].contains(peerId):
+         let agent = peerStore[AgentBook][peerId]
+@@ -999,8 +993,9 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
+ 
+     for shard in pm.getShards().items:
+       # peers known for this shard
+-      let shardPeers =
+-        peerStore.getPeersByShard(uint16(pm.wakuMetadata.clusterId), shard)
++      let shardPeers = peerStore.peers().filterIt(
++          it.supportsShard(uint16(pm.wakuMetadata.clusterId), shard)
++        )
+ 
+       # keep only those that are physically connected right now
+       let connectedInShard = shardPeers.filterIt(connectedPeerIds.contains(it.peerId))
+@@ -1017,6 +1012,61 @@ proc getOnlineStateObserver*(pm: PeerManager): OnOnlineStateChange =
+ # Pruning and Maintenance (Stale Peers Management)    #
+ #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+ 
++proc selectRelayPeersForShard(
++    pm: PeerManager,
++    shard: uint16,
++    inPeers, outPeers: seq[PeerId],
++    inTarget, outTarget: int,
++): tuple[toConnect: seq[PeerId], excessInPeers: int] =
++  ## Returns the peers to dial for the shard and how many inbound relay
++  ## peers exceed the shard target.
++  let peerStore = pm.peerStore
++  let clusterId = uint16(pm.wakuMetadata.clusterId)
++
++  # Filter out peer not on this shard
++  let connectedInPeers = inPeers.filterIt(peerStore.hasShard(it, clusterId, shard))
++  let connectedOutPeers = outPeers.filterIt(peerStore.hasShard(it, clusterId, shard))
++
++  # Calculate the difference between current values and targets
++  let inPeerDiff = connectedInPeers.len - inTarget
++  let outPeerDiff = outTarget - connectedOutPeers.len
++  let excessInPeers = max(inPeerDiff, 0)
++
++  if outPeerDiff <= 0:
++    return (newSeq[PeerId](), excessInPeers)
++
++  # Get all peers for this shard
++  var connectablePeers = peerStore.peers().filterIt(it.supportsShard(clusterId, shard))
++
++  let shardCount = connectablePeers.len
++
++  connectablePeers.keepItIf(
++    not peerStore.isConnected(it.peerId) and pm.canBeConnected(it.peerId)
++  )
++
++  let connectableCount = connectablePeers.len
++
++  connectablePeers.keepItIf(peerStore.hasCapability(it.peerId, Relay))
++
++  let relayCount = connectablePeers.len
++
++  debug "Sharded Peer Management",
++    shard = shard,
++    connectable = $connectableCount & "/" & $shardCount,
++    relayConnectable = $relayCount & "/" & $shardCount,
++    relayInboundTarget = $connectedInPeers.len & "/" & $inTarget,
++    relayOutboundTarget = $connectedOutPeers.len & "/" & $outTarget
++
++  # Always pick random connectable relay peers
++  shuffle(connectablePeers)
++
++  let length = min(outPeerDiff, connectablePeers.len)
++  let toConnect = connectablePeers[0 ..< length].mapIt(it.peerId)
++  for peerId in toConnect:
++    trace "Peer To Connect To", peerId = $peerId
++
++  return (toConnect, excessInPeers)
++
+ proc manageRelayPeers*(pm: PeerManager) {.async.} =
+   let shardsCount = pm.getShards().len
+   #TODO: this check should not be based on whether shards are present, but rather if relay is mounted
+@@ -1031,70 +1081,24 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
+   var peersToDisconnect: int
+ 
+   # Get all connected peers for Waku Relay
+-  var (inPeers, outPeers) = pm.connectedPeers(WakuRelayCodec)
++  let (inPeers, outPeers) = pm.connectedPeers(WakuRelayCodec)
+ 
+   # Calculate in/out target number of peers for each shards
+   let inTarget = pm.inRelayPeersTarget div shardsCount
+   let outTarget = pm.outRelayPeersTarget div shardsCount
+ 
+-  var peerStore = pm.switch.peerStore
+-
+   for shard in pm.getShards().items:
+-    # Filter out peer not on this shard
+-    let connectedInPeers =
+-      inPeers.filterIt(peerStore.hasShard(it, uint16(pm.wakuMetadata.clusterId), shard))
+-
+-    let connectedOutPeers = outPeers.filterIt(
+-      peerStore.hasShard(it, uint16(pm.wakuMetadata.clusterId), shard)
+-    )
+-
+-    # Calculate the difference between current values and targets
+-    let inPeerDiff = connectedInPeers.len - inTarget
+-    let outPeerDiff = outTarget - connectedOutPeers.len
+-
+-    if inPeerDiff > 0:
+-      peersToDisconnect += inPeerDiff
+-
+-    if outPeerDiff <= 0:
+-      continue
+-
+-    # Get all peers for this shard
+-    var connectablePeers =
+-      peerStore.getPeersByShard(uint16(pm.wakuMetadata.clusterId), uint16(shard))
+-
+-    let shardCount = connectablePeers.len
+-
+-    connectablePeers.keepItIf(
+-      not peerStore.isConnected(it.peerId) and pm.canBeConnected(it.peerId)
+-    )
+-
+-    let connectableCount = connectablePeers.len
+-
+-    connectablePeers.keepItIf(peerStore.hasCapability(it.peerId, Relay))
+-
+-    let relayCount = connectablePeers.len
+-
+-    debug "Sharded Peer Management",
+-      shard = shard,
+-      connectable = $connectableCount & "/" & $shardCount,
+-      relayConnectable = $relayCount & "/" & $shardCount,
+-      relayInboundTarget = $connectedInPeers.len & "/" & $inTarget,
+-      relayOutboundTarget = $connectedOutPeers.len & "/" & $outTarget
+-
+-    # Always pick random connectable relay peers
+-    shuffle(connectablePeers)
+-
+-    let length = min(outPeerDiff, connectablePeers.len)
+-    for peer in connectablePeers[0 ..< length]:
+-      trace "Peer To Connect To", peerId = $peer.peerId
+-      peersToConnect.incl(peer.peerId)
++    let selection =
++      pm.selectRelayPeersForShard(uint16(shard), inPeers, outPeers, inTarget, outTarget)
++    peersToDisconnect += selection.excessInPeers
++    peersToConnect.incl(selection.toConnect.toHashSet())
+ 
+   await pm.pruneInRelayConns(peersToDisconnect)
+ 
+   if peersToConnect.len == 0:
+     return
+ 
+-  let uniquePeers = toSeq(peersToConnect).mapIt(peerStore.getPeer(it))
++  let uniquePeers = toSeq(peersToConnect).mapIt(pm.peerStore.getPeer(it))
+ 
+   # Connect to all nodes
+   for i in countup(0, uniquePeers.len, MaxParallelDials):
+@@ -1103,9 +1107,9 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
+     await pm.connectToNodes(uniquePeers[i ..< stop])
+ 
+ proc prunePeerStore*(pm: PeerManager) =
+-  let peerStore = pm.switch.peerStore
++  let peerStore = pm.peerStore
+   let numPeers = peerStore[AddressBook].book.len
+-  let capacity = peerStore.getCapacity()
++  let capacity = peerStore.capacity
+   if numPeers <= capacity:
+     return
+ 
+@@ -1123,7 +1127,8 @@ proc prunePeerStore*(pm: PeerManager) =
+ 
+     peersToPrune.incl(peerId)
+ 
+-  var notConnected = peerStore.getDisconnectedPeers().mapIt(it.peerId)
++  var notConnected =
++    peerStore.peers().filterIt(it.connectedness != Connected).mapIt(it.peerId)
+ 
+   # Always pick random non-connected peers
+   shuffle(notConnected)
+@@ -1170,7 +1175,7 @@ proc prunePeerStore*(pm: PeerManager) =
+       peersToPrune.incl(peer)
+ 
+   for peer in peersToPrune:
+-    peerStore.delete(peer)
++    peerStore.del(peer)
+ 
+   let afterNumPeers = peerStore[AddressBook].book.len
+ 
+@@ -1185,7 +1190,7 @@ proc prunePeerStoreLoop(pm: PeerManager) {.async.} =
+   trace "Starting prune peerstore loop"
+   while pm.started:
+     pm.prunePeerStore()
+-    let prunedEnrs = pm.switch.peerStore.pruneStaleEnrs()
++    let prunedEnrs = pm.peerStore.pruneStaleEnrs()
+     if prunedEnrs > 0:
+       debug "pruned stale ENRs", count = prunedEnrs
+     await sleepAsync(PrunePeerStoreInterval)
+@@ -1226,9 +1231,9 @@ proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.} =
+     asyncSpawn(pm.evictPeer(p))
+ 
+ proc addExtPeerEventHandler*(
+-    pm: PeerManager, eventHandler: PeerEventHandler, eventKind: PeerEventKind
++    pm: PeerManager, eventHandler: HostPeerEventHandler, eventKind: HostPeerEventKind
+ ) =
+-  pm.switch.addPeerEventHandler(eventHandler, eventKind)
++  pm.host.addPeerEventHandler(eventHandler, eventKind)
+ 
+ #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+ # Initialization and Constructor #
+@@ -1246,6 +1251,30 @@ proc start*(pm: PeerManager) =
+ proc stop*(pm: PeerManager) =
+   pm.started = false
+ 
++proc installPeerHooks(pm: PeerManager) =
++  proc peerHook(
++      peerId: PeerId, event: HostPeerEvent
++  ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
++    try:
++      await onPeerEvent(pm, peerId, event)
++    except CatchableError:
++      error "exception in onPeerEvent", error = getCurrentExceptionMsg()
++
++  let peerStore = pm.peerStore
++
++  proc peerStoreChanged(peerId: PeerId) {.gcsafe.} =
++    logos_delivery_peer_store_size.set(
++      toSeq(peerStore[AddressBook].book.keys).len.int64
++    )
++
++  pm.host.addPeerEventHandler(peerHook, HostPeerEventKind.Joined)
++  pm.host.addPeerEventHandler(peerHook, HostPeerEventKind.Left)
++  # identify writes the protocol book, then libp2p emits `Identified`
++  pm.host.addPeerEventHandler(peerHook, HostPeerEventKind.Identified)
++
++  # called every time the peerstore is updated
++  peerStore[AddressBook].addHandler(peerStoreChanged)
++
+ proc new*(
+     T: type PeerManager,
+     switch: Switch,
+@@ -1300,7 +1329,7 @@ proc new*(
+   let brokerCtx = globalBrokerContext()
+ 
+   let pm = PeerManager(
+-    switch: switch,
++    host: Libp2pHost.new(switch),
+     brokerCtx: brokerCtx,
+     wakuMetadata: wakuMetadata,
+     storage: storage,
+@@ -1318,28 +1347,7 @@ proc new*(
+     maxPureLibp2pPeers: maxPureLibp2pPeers,
+   )
+ 
+-  proc peerHook(
+-      peerId: PeerId, event: PeerEvent
+-  ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
+-    try:
+-      await onPeerEvent(pm, peerId, event)
+-    except CatchableError:
+-      error "exception in onPeerEvent", error = getCurrentExceptionMsg()
+-
+-  var peerStore = pm.switch.peerStore
+-
+-  proc peerStoreChanged(peerId: PeerId) {.gcsafe.} =
+-    logos_delivery_peer_store_size.set(
+-      toSeq(peerStore[AddressBook].book.keys).len.int64
+-    )
+-
+-  pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Joined)
+-  pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Left)
+-  # identify writes the protocol book, then libp2p emits `Identified`
+-  pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Identified)
+-
+-  # called every time the peerstore is updated
+-  peerStore[AddressBook].addHandler(peerStoreChanged)
++  pm.installPeerHooks()
+ 
+   pm.serviceSlots = initTable[string, RemotePeerInfo]()
+   pm.ipTable = initTable[string, seq[PeerId]]()
+diff --git a/logos_delivery/waku/node/waku_switch.nim b/logos_delivery/waku/libp2p_backend/waku_switch.nim
+similarity index 100%
+rename from logos_delivery/waku/node/waku_switch.nim
+rename to logos_delivery/waku/libp2p_backend/waku_switch.nim
+diff --git a/logos_delivery/waku/waku_filter_v2/protocol.nim b/logos_delivery/waku/waku_filter_v2/protocol.nim
+index 946b5d8..e2c6775 100644
+--- a/logos_delivery/waku/waku_filter_v2/protocol.nim
++++ b/logos_delivery/waku/waku_filter_v2/protocol.nim
+@@ -31,7 +31,6 @@ type WakuFilter* = ref object of LPProtocol
+   messageCache: TimedCache[string]
+   peerRequestRateLimiter*: PerPeerRateLimiter
+   subscriptionsManagerFut: Future[void]
+-  peerConnections: Table[PeerId, Connection]
+   messagePushTimeout*: Duration = MessagePushTimeout
+ 
+ proc pingSubscriber(wf: WakuFilter, peerId: PeerID): FilterSubscribeResult =
+@@ -347,15 +346,6 @@ proc initProtocolHandler(wf: WakuFilter) =
+   wf.handler = handler
+   wf.codec = WakuFilterSubscribeCodec
+ 
+-proc onPeerEventHandler(wf: WakuFilter, peerId: PeerId, event: PeerEvent) {.async.} =
+-  ## These events are dispatched nim-libp2p, triggerPeerEvents proc
+-  case event.kind
+-  of Left:
+-    ## Drop the previous known connection reference
+-    wf.peerConnections.del(peerId)
+-  else:
+-    discard
+-
+ proc new*(
+     T: type WakuFilter,
+     peerManager: PeerManager,
+@@ -374,19 +364,6 @@ proc new*(
+     peerRequestRateLimiter: PerPeerRateLimiter(setting: rateLimitSetting),
+   )
+ 
+-  proc peerEventHandler(
+-      peerId: PeerId, event: PeerEvent
+-  ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
+-    try:
+-      await wf.onPeerEventHandler(peerId, event)
+-    except CatchableError:
+-      error "onPeerEventHandler failed",
+-        remote_peer_id = shortLog(peerId),
+-        event = event,
+-        error = getCurrentExceptionMsg()
+-
+-  peerManager.addExtPeerEventHandler(peerEventHandler, PeerEventKind.Left)
+-
+   wf.initProtocolHandler()
+   setServiceLimitMetric(WakuFilterSubscribeCodec, rateLimitSetting)
+   return wf
+diff --git a/logos_delivery/waku/waku_lightpush/self_req_handler.nim b/logos_delivery/waku/waku_lightpush/self_req_handler.nim
+index 141af9a..9f951dc 100644
+--- a/logos_delivery/waku/waku_lightpush/self_req_handler.nim
++++ b/logos_delivery/waku/waku_lightpush/self_req_handler.nim
+@@ -10,7 +10,14 @@
+ ## that could be used also as a lightpush client, helping testing and development.
+ 
+ import results, chronos, metrics
+-import ../waku_core, ./protocol, ./common, ./rpc, ./rpc_codec, ../utils/requests
++import
++  ../waku_core,
++  ../node/peer_manager,
++  ./protocol,
++  ./common,
++  ./rpc,
++  ./rpc_codec,
++  ../utils/requests
+ 
+ proc handleSelfLightPushRequest*(
+     self: WakuLightPush, pubSubTopic: Opt[PubsubTopic], message: WakuMessage
+@@ -21,7 +28,7 @@ proc handleSelfLightPushRequest*(
+ 
+   try:
+     # provide self peerId as now this node is used directly, thus there is no light client sender peer.
+-    let selfPeerId = self.peerManager.switch.peerInfo.peerId
++    let selfPeerId = self.peerManager.selfPeerId()
+ 
+     let req = LightpushRequest(
+       requestId: generateRequestId(self.rng), pubSubTopic: pubSubTopic, message: message
+diff --git a/logos_delivery/waku/waku_lightpush_legacy/self_req_handler.nim b/logos_delivery/waku/waku_lightpush_legacy/self_req_handler.nim
+index 4e73d3f..5d51628 100644
+--- a/logos_delivery/waku/waku_lightpush_legacy/self_req_handler.nim
++++ b/logos_delivery/waku/waku_lightpush_legacy/self_req_handler.nim
+@@ -12,6 +12,7 @@
+ import results, chronos, chronicles, metrics, stew/byteutils
+ import
+   ../waku_core,
++  ../node/peer_manager,
+   ./protocol,
+   ./common,
+   ./rpc,
+@@ -28,7 +29,7 @@ proc handleSelfLightPushRequest*(
+ 
+   try:
+     # provide self peerId as now this node is used directly, thus there is no light client sender peer.
+-    let selfPeerId = self.peerManager.switch.peerInfo.peerId
++    let selfPeerId = self.peerManager.selfPeerId()
+ 
+     let req = PushRequest(pubSubTopic: pubSubTopic, message: message)
+     let rpc = PushRPC(requestId: generateRequestId(self.rng), request: Opt.some(req))
+diff --git a/logos_delivery/waku/waku_node.nim b/logos_delivery/waku/waku_node.nim
+index 674ac96..d8e44a4 100644
+--- a/logos_delivery/waku/waku_node.nim
++++ b/logos_delivery/waku/waku_node.nim
+@@ -1,5 +1,5 @@
+ import
+-  ./node/waku_switch as switch,
++  ./libp2p_backend/waku_switch as switch,
+   ./node/waku_node as node,
+   ./node/waku_node/filter as filter_api,
+   ./node/waku_node/lightpush as lightpush_api,
+diff --git a/tests/test_nat_config.nim b/tests/test_nat_config.nim
+index 0be6152..9dafc5a 100644
+--- a/tests/test_nat_config.nim
++++ b/tests/test_nat_config.nim
+@@ -8,7 +8,7 @@ import libp2p/services/wildcardresolverservice
+ import libp2p/protocols/connectivity/relay/relay
+ import libp2p/services/nat/[portmapper, plum_mapper]
+ import ../logos_delivery/waku/net/nat_config
+-import ../logos_delivery/waku/node/waku_switch
++import ../logos_delivery/waku/libp2p_backend/waku_switch
+ import ./testlib/[common, wakucore]
+ 
+ suite "NAT config - strategy parsing":
+diff --git a/tests/test_peer_manager.nim b/tests/test_peer_manager.nim
+index 6533313..5dfcc5e 100644
+--- a/tests/test_peer_manager.nim
++++ b/tests/test_peer_manager.nim
+@@ -21,7 +21,7 @@ from metrics import value
+ import
+   logos_delivery/waku/[
+     common/databases/db_sqlite,
+-    node/delivery_dialer,
++    libp2p_backend/delivery_dialer,
+     node/peer_manager/peer_manager,
+     node/peer_manager/peer_store/waku_peer_storage,
+     waku_node,
+diff --git a/tests/test_waku_switch.nim b/tests/test_waku_switch.nim
+index 6188936..75514bc 100644
+--- a/tests/test_waku_switch.nim
++++ b/tests/test_waku_switch.nim
+@@ -9,7 +9,8 @@ import
+   libp2p/protocols/connectivity/relay/relay,
+   libp2p/protocols/connectivity/relay/client,
+   stew/byteutils
+-import logos_delivery/waku/node/waku_switch, ./testlib/common, ./testlib/wakucore
++import
++  logos_delivery/waku/libp2p_backend/waku_switch, ./testlib/common, ./testlib/wakucore
+ 
+ proc newCircuitRelayClientSwitch(relayClient: RelayClient): Switch =
+   SwitchBuilder
+diff --git a/tests/testlib/wakucore.nim b/tests/testlib/wakucore.nim
+index 1286749..88ed1f3 100644
+--- a/tests/testlib/wakucore.nim
++++ b/tests/testlib/wakucore.nim
+@@ -39,7 +39,7 @@ proc newStandardSwitch*(
+ ): Switch =
+   ## Bare libp2p switch for tests. Replaces nim-libp2p's `newStandardSwitch`,
+   ## removed in 2.0.0. Mirrors the *substrate* of the production switch
+-  ## (`newWakuSwitch`, waku/node/waku_switch.nim): same transport (TCP only — no
++  ## (`newWakuSwitch`, waku/libp2p_backend/waku_switch.nim): same transport (TCP only — no
+   ## QUIC yet, like prod), security (Noise), and muxers (yamux first so it is the
+   ## one negotiated, then mplex). Tests therefore run on the same kernel peers
+   ## actually use in prod. NB: the removed libp2p `newStandardSwitch` was
+diff --git a/tests/testlib/wakunode.nim b/tests/testlib/wakunode.nim
+index d156da2..f7843c2 100644
+--- a/tests/testlib/wakunode.nim
++++ b/tests/testlib/wakunode.nim
+@@ -14,7 +14,7 @@ import
+     waku_relay,
+     net/net_config,
+     waku_core/topics,
+-    node/waku_switch,
++    libp2p_backend/waku_switch,
+     node/peer_manager,
+     waku_enr,
+     discovery/waku_discv5,

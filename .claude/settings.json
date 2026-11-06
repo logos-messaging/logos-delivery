@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s \"https://api.github.com/repos/vacp2p/nim-lsquic/contents/libs/vac_boringssl?ref=4fb03ee7bfb39aecb3316889fdcb60bec3d0936f\")",
+      "WebFetch(domain:api.github.com)"
+    ]
+  }
+}

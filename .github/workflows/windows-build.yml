@@ -110,6 +110,9 @@ jobs:
       with:
         make-args: CC=gcc
 
+    - name: Cache librln
+      uses: ./.github/actions/librln-cache
+
     - name: Creating tmp directory
       run: mkdir -p tmp
 

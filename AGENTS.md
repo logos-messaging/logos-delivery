@@ -245,14 +245,25 @@ Most files start with `{.push raises: [].}` to disable exception tracking, then 
 proc myProc(): Result[T, E] {.async.} =  # Async proc
 ```
 
-### Protocol Inheritance
-Protocols inherit from libp2p's `LPProtocol`:
+### Protocol Streams
+Request/response protocols do not inherit from libp2p's `LPProtocol`: they are plain
+`ref object`s that serve any stream satisfying the `IStream` concept
+(`logos_delivery/waku/libp2p_iface/stream.nim`), and the node mounts them on the host:
 ```nim
-type WakuLightPush* = ref object of LPProtocol
+type WakuLightPush* = ref object
   rng*: ref rand.HmacDrbgContext
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
+
+proc handleStream*[S: IStream](
+    wl: WakuLightPush, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} = ...
+
+node.host.mountHandler(WakuLightPushCodec, node.wakuLightPush)
 ```
+Only `logos_delivery/waku/libp2p_backend/` imports the behavioural nim-libp2p modules
+(enforced by `scripts/check_libp2p_imports.py`); see
+[docs/contributors/libp2p-backend.md](docs/contributors/libp2p-backend.md).
 
 ### Type Visibility
 - Public exports use `*` suffix: `type WakuFilter* = ...`
@@ -413,12 +424,12 @@ Miscellaneous
    - `common.nim` - Shared types
 3. Define protocol type in `protocol.nim`:
    ```nim
-   type WakuMyProtocol* = ref object of LPProtocol
+   type WakuMyProtocol* = ref object
      peerManager: PeerManager
      # ... fields
    ```
-4. Implement request handler
-5. Mount in WakuNode (`waku/node/waku_node.nim`)
+4. Implement `handleStream*[S: IStream](p: WakuMyProtocol, conn: S, proto: string)`
+5. Mount in WakuNode (`waku/node/waku_node.nim`) with `node.host.mountHandler(Codec, proto)`
 6. Add tests in `tests/waku_myprotocol/`
 7. Export module via `waku/waku_myprotocol.nim`
 

@@ -8,8 +8,8 @@ import
   chronicles,
   chronos,
   libp2p/switch,
-  libp2p/protocols/pubsub/pubsub,
   brokers/broker_context
+from logos_delivery/waku/libp2p_iface/pubsub as pubsub import nil
 
 import
   logos_delivery/waku/rln/types as rln_api_types,

@@ -1,0 +1,27 @@
+# Files that still import behavioural nim-libp2p modules.
+# This list only shrinks, see scripts/check_libp2p_imports.py.
+logos_delivery/waku/api/peer_manager.nim
+logos_delivery/waku/api/ping.nim
+logos_delivery/waku/discovery/autonat_service.nim
+logos_delivery/waku/discovery/service_discovery.nim
+logos_delivery/waku/discovery/signed_service_record.nim
+logos_delivery/waku/discovery/waku_dnsdisc.nim
+logos_delivery/waku/discovery/waku_kademlia.nim
+logos_delivery/waku/factory/builder.nim
+logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder.nim
+logos_delivery/waku/factory/internal_config.nim
+logos_delivery/waku/factory/node_factory.nim
+logos_delivery/waku/factory/waku_conf.nim
+logos_delivery/waku/net/nat_config.nim
+logos_delivery/waku/node/health_monitor/online_monitor.nim
+logos_delivery/waku/node/peer_manager/peer_manager.nim
+logos_delivery/waku/node/peer_manager/waku_peer_store.nim
+logos_delivery/waku/node/waku_node/ping.nim
+logos_delivery/waku/node/waku_node.nim
+logos_delivery/waku/waku.nim
+logos_delivery/waku/waku_rendezvous/client.nim
+logos_delivery/waku/waku_rendezvous/protocol.nim
+apps/chat2/chat2.nim
+apps/chat2mix/chat2mix.nim
+apps/networkmonitor/networkmonitor.nim
+apps/wakucanary/wakucanary.nim

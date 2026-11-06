@@ -2,7 +2,7 @@
 
 {.push raises: [].}
 
-import results, chronos/timer, libp2p/stream/connection
+import results, chronos/timer
 
 import std/times except TimeInterval, Duration
 
@@ -51,7 +51,7 @@ proc checkUsage(
 template checkUsageLimit*(
     t: var Opt[TokenBucket] | var TokenBucket,
     proto: string,
-    conn: Connection,
+    conn: untyped,
     bodyWithinLimit, bodyRejected: untyped,
 ) =
   if t.checkUsage(proto):

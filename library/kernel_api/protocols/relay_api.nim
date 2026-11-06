@@ -4,7 +4,7 @@ import
   logos_delivery,
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_core/message,
-  logos_delivery/waku/waku_relay/protocol,
+  logos_delivery/waku/waku_relay,
   library/events/json_message_event,
   library/declare_lib
 

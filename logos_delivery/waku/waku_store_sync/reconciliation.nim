@@ -7,11 +7,10 @@ import
   chronicles,
   chronos,
   metrics,
-  libp2p/protocols/protocol,
-  libp2p/stream/connection,
   libp2p/crypto/crypto,
   eth/p2p/discoveryv5/enr
 import
+  ../libp2p_iface/stream,
   ../common/nimchronos,
   ../common/protobuf,
   ../common/paging,
@@ -36,7 +35,8 @@ logScope:
 
 const DefaultStorageCap = 50_000
 
-type SyncReconciliation* = ref object of LPProtocol
+type SyncReconciliation* = ref object
+  started: bool
   pubsubTopics: HashSet[PubsubTopic] # Empty set means accept all. See spec.
   contentTopics: HashSet[ContentTopic] # Empty set means accept all. See spec.
 
@@ -159,8 +159,8 @@ proc preProcessPayload(self: SyncReconciliation, payload: RangesData): Opt[Range
 
   return Opt.some(payload)
 
-proc processRequest(
-    self: SyncReconciliation, conn: Connection
+proc processRequest[S: IStream](
+    self: SyncReconciliation, conn: S
 ): Future[Result[void, string]] {.async.} =
   var
     roundTrips = 0
@@ -188,9 +188,7 @@ proc processRequest(
     roundTrips.inc()
 
     trace "sync payload received",
-      local = self.peerManager.switch.peerInfo.peerId,
-      remote = conn.peerId,
-      payload = recvPayload
+      local = self.peerManager.selfPeerId(), remote = conn.peerId, payload = recvPayload
 
     if recvPayload.ranges.len == 0 or recvPayload.ranges.allIt(it[1] == RangeType.Skip):
       break
@@ -206,7 +204,7 @@ proc processRequest(
       let preProcessedPayload = preProcessedPayloadRes.get()
 
       trace "pre-processed payload",
-        local = self.peerManager.switch.peerInfo.peerId,
+        local = self.peerManager.selfPeerId(),
         remote = conn.peerId,
         payload = preProcessedPayload
 
@@ -240,9 +238,7 @@ proc processRequest(
       return err("remote " & $conn.peerId & " connection write error: " & error.msg)
 
     trace "sync payload sent",
-      local = self.peerManager.switch.peerInfo.peerId,
-      remote = conn.peerId,
-      payload = sendPayload
+      local = self.peerManager.selfPeerId(), remote = conn.peerId, payload = sendPayload
 
     if sendPayload.ranges.len == 0 or sendPayload.ranges.allIt(it[1] == RangeType.Skip):
       break
@@ -259,9 +255,9 @@ proc processRequest(
 
   return ok()
 
-proc initiate(
+proc initiate[S: IStream](
     self: SyncReconciliation,
-    connection: Connection,
+    connection: S,
     offset: Duration,
     syncRange: Duration,
     pubsubTopics: seq[PubsubTopic],
@@ -297,7 +293,7 @@ proc initiate(
     return err("remote " & $connection.peerId & " connection write error: " & error.msg)
 
   trace "sync payload sent",
-    local = self.peerManager.switch.peerInfo.peerId,
+    local = self.peerManager.selfPeerId(),
     remote = connection.peerId,
     payload = initPayload
 
@@ -319,11 +315,11 @@ proc storeSynchronization*(
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
 
-  let conn: Connection = connOpt.valueOr:
+  let conn = connOpt.valueOr:
     return err("fail to dial remote " & $peer.peerId)
 
   debug "Sync session initialized",
-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
+    local = self.peerManager.selfPeerId(), remote = conn.peerId
 
   (
     await self.initiate(
@@ -331,12 +327,12 @@ proc storeSynchronization*(
     )
   ).isOkOr:
     debug "Sync session failed",
-      local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId, err = error
+      local = self.peerManager.selfPeerId(), remote = conn.peerId, err = error
 
     return err("sync request error: " & error)
 
   debug "Sync session ended gracefully",
-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
+    local = self.peerManager.selfPeerId(), remote = conn.peerId
 
   return ok()
 
@@ -384,6 +380,15 @@ proc initFillStorage(
 
   return ok(storage)
 
+proc handleStream*[S: IStream](
+    sync: SyncReconciliation, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  try:
+    (await sync.processRequest(conn)).isOkOr:
+      debug "Request processing error", error = error
+  except CatchableError:
+    error "exception in reconciliation handler", error = getCurrentExceptionMsg()
+
 proc new*(
     T: type SyncReconciliation,
     pubsubTopics: seq[PubSubTopic],
@@ -419,16 +424,6 @@ proc new*(
     localWantsTx: localWantsTx,
     remoteNeedsTx: remoteNeedsTx,
   )
-
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    try:
-      (await sync.processRequest(conn)).isOkOr:
-        debug "Request processing error", error = error
-    except CatchableError:
-      error "exception in reconciliation handler", error = getCurrentExceptionMsg()
-
-  sync.handler = handler
-  sync.codec = WakuReconciliationCodec
 
   info "Store Reconciliation protocol initialized",
     sync_range = syncRange, sync_interval = syncInterval, relay_jitter = relayJitter
@@ -474,7 +469,7 @@ proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
 
     self.messageIngress(id, pubsub, content)
 
-method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
+proc start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   if self.started:
     return
 
@@ -490,7 +485,10 @@ method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
 
   info "Store Sync Reconciliation protocol started"
 
-method stop*(self: SyncReconciliation) {.async: (raises: []).} =
+proc stop*(self: SyncReconciliation) {.async: (raises: []).} =
+  if not self.started:
+    return
+
   defer:
     self.started = false
 

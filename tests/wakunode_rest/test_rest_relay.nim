@@ -7,9 +7,9 @@ import
   testutils/unittests,
   presto,
   presto/client as presto_client,
-  libp2p/crypto/crypto,
-  libp2p/protocols/pubsub/pubsub
+  libp2p/crypto/crypto
 import brokers/broker_context
+from logos_delivery/waku/libp2p_iface/pubsub as pubsub import nil
 import
   logos_delivery/waku/[
     common/base64,

@@ -11,6 +11,7 @@ import
   logos_delivery/waku/waku_lightpush_legacy,
   logos_delivery/waku/waku_lightpush_legacy/[client, common],
   logos_delivery/waku/common/rate_limit/setting,
+  logos_delivery/waku/libp2p_backend/host,
   ../testlib/[common, wakucore]
 
 proc newTestWakuLegacyLightpushNode*(
@@ -25,8 +26,7 @@ proc newTestWakuLegacyLightpushNode*(
       peerManager, crypto.newRng(), handler, rateLimitSetting, maxMessageSize
     )
 
-  await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuLegacyLightPushCodec, proto)
 
   return proto
 

@@ -4,12 +4,11 @@ import
   chronicles,
   chronos,
   metrics,
-  libp2p/protocols/protocol,
-  libp2p/stream/connection,
   libp2p/crypto/crypto,
   eth/p2p/discoveryv5/enr
 import
   ../common/nimchronos,
+  ../libp2p_iface/stream,
   ../node/peer_manager,
   ../waku_core,
   ../discovery/waku_discv5,
@@ -31,14 +30,14 @@ declarePublicCounter logos_delivery_px_peers_sent,
 logScope:
   topics = "waku peer_exchange"
 
-type WakuPeerExchange* = ref object of LPProtocol
+type WakuPeerExchange* = ref object
   peerManager*: PeerManager
   cluster*: Opt[uint16]
     # todo: next step: ring buffer; future: implement cache satisfying https://rfc.vac.dev/spec/34/
   requestRateLimiter*: RequestRateLimiter
 
-proc respond(
-    wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
+proc respond[S: IStream](
+    wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: S
 ): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   let rpc = PeerExchangeRpc.makeResponse(enrs.mapIt(PeerExchangePeerInfo(enr: it.raw)))
 
@@ -58,11 +57,11 @@ proc respond(
 
   return ok()
 
-proc respondError(
+proc respondError[S: IStream](
     wpx: WakuPeerExchange,
     status_code: PeerExchangeResponseStatusCode,
     status_desc: Opt[string],
-    conn: Connection,
+    conn: S,
 ): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
 
@@ -109,9 +108,9 @@ proc getEnrsFromStore(
   # Reservoir sampling (Algorithm R)
   var i = 0
   let k = min(MaxPeersCacheSize, numPeers.int)
-  let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
+  let enrStoreLen = wpx.peerManager.peerStore[ENRBook].len
   var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
-  let peerStore = wpx.peerManager.switch.peerStore
+  let peerStore = wpx.peerManager.peerStore
   for (peerId, connectedness, origin, peerEnrRecord) in peerStore.enrPeers():
     if connectedness == CannotConnect:
       debug "Could not retrieve ENR because cannot connect to peer",
@@ -133,52 +132,50 @@ proc getEnrsFromStore(
     inc(i)
   return enrs
 
-proc initProtocolHandler(wpx: WakuPeerExchange) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    var buffer: seq[byte]
-    wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
-      try:
-        buffer = await conn.readLp(DefaultMaxRpcSize.int)
-      except LPStreamError as exc:
-        # Remote disconnected before sending a full request - expected churn;
-        # no point responding on a dead stream.
-        debug "peer exchange request not received: stream closed",
-          peerId = conn.peerId, error = exc.msg
-        logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
-        return
+proc handleStream*[S: IStream](
+    wpx: WakuPeerExchange, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  var buffer: seq[byte]
+  wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
+    try:
+      buffer = await conn.readLp(DefaultMaxRpcSize.int)
+    except LPStreamError as exc:
+      # Remote disconnected before sending a full request - expected churn;
+      # no point responding on a dead stream.
+      debug "peer exchange request not received: stream closed",
+        peerId = conn.peerId, error = exc.msg
+      logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
+      return
 
-      let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
-        logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
-        debug "Failed to decode PeerExchange request", error = $error
-
-        (
-          await wpx.respondError(
-            PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
-          )
-        ).isOkOr:
-          debug "Failed to respond with BAD_REQUEST", error = $error
-        return
-
-      let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
-
-      debug "Peer exchange request received"
-      trace "px enrs to respond", enrs = $enrs
-      (await wpx.respond(enrs, conn)).isErrOr:
-        logos_delivery_px_peers_sent.inc(enrs.len().int64())
-    do:
-      defer:
-        # close, no data is expected
-        await conn.closeWithEof()
+    let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
+      logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
+      debug "Failed to decode PeerExchange request", error = $error
 
       (
         await wpx.respondError(
-          PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
+          PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
         )
       ).isOkOr:
-        debug "Failed to respond with TOO_MANY_REQUESTS", error = $error
+        debug "Failed to respond with BAD_REQUEST", error = $error
+      return
 
-  wpx.handler = handler
-  wpx.codec = WakuPeerExchangeCodec
+    let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
+
+    debug "Peer exchange request received"
+    trace "px enrs to respond", enrs = $enrs
+    (await wpx.respond(enrs, conn)).isErrOr:
+      logos_delivery_px_peers_sent.inc(enrs.len().int64())
+  do:
+    defer:
+      # close, no data is expected
+      await conn.closeWithEof()
+
+    (
+      await wpx.respondError(
+        PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
+      )
+    ).isOkOr:
+      debug "Failed to respond with TOO_MANY_REQUESTS", error = $error
 
 proc new*(
     T: type WakuPeerExchange,
@@ -191,6 +188,5 @@ proc new*(
     cluster: cluster,
     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
   )
-  wpx.initProtocolHandler()
   setServiceLimitMetric(WakuPeerExchangeCodec, rateLimitSetting)
   return wpx

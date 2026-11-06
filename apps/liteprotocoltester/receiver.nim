@@ -91,7 +91,7 @@ proc maintainSubscription(
 
     # TODO: disconnet from failed actualFilterPeer
     # asyncSpawn(wakuNode.peerManager.switch.disconnect(p))
-    # wakunode.peerManager.peerStore.delete(actualFilterPeer)
+    # wakunode.peerManager.peerStore.del(actualFilterPeer)
 
     if noFailedSubscribes < maxFailedSubscribes:
       await sleepAsync(RetryWaitMs) # Wait a bit before retrying

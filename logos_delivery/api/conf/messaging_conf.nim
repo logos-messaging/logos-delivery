@@ -97,6 +97,10 @@ type MessagingClientConf* = object
   sendQueueCapacity* {.name: "send-queue-capacity".}: Opt[uint]
     ## Max messages tracked by the send service; sends beyond it are rejected
     ## (default 1000).
+  libp2pImpl* {.name: "libp2p-impl".}: Opt[string]
+    ## libp2p implementation: "builtin" (default) or the name of the Logos module
+    ## that provides it. Installing a module while this is "builtin" (or the
+    ## reverse) is a startup error.
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
     ## Store catch-up of missed messages after a start (default true).
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
@@ -162,6 +166,8 @@ proc toWakuNodeConf*(
     conf.rlnRelayUserMessageLimit = self.rlnUserMessageLimit
   if self.rlnDisableValidation.isSome():
     conf.rlnDisableValidation = self.rlnDisableValidation.get()
+  if self.libp2pImpl.isSome():
+    conf.libp2pImpl = self.libp2pImpl.get()
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():

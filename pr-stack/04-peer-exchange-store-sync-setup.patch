@@ -1,0 +1,942 @@
+diff --git a/logos_delivery/waku/factory/node_factory.nim b/logos_delivery/waku/factory/node_factory.nim
+index a147fc4..47d91ea 100644
+--- a/logos_delivery/waku/factory/node_factory.nim
++++ b/logos_delivery/waku/factory/node_factory.nim
+@@ -153,28 +153,13 @@ proc initNode(
+ 
+ ## Mount protocols
+ 
+-proc setupProtocols(
+-    node: WakuNode, conf: WakuConf
+-): Future[Result[void, string]] {.async.} =
+-  ## Setup configured protocols on an existing Waku v2 node.
+-  ## Optionally include persistent message storage.
+-  ## No protocols are started yet.
+-
+-  node.mountMetadata(conf.clusterId, conf.subscribeShards).isOkOr:
+-    return err("failed to mount waku metadata protocol: " & error)
+-
+-  var onFatalErrorAction = proc(msg: string) {.gcsafe, closure.} =
+-    ## Action to be taken when an internal error occurs during the node run.
+-    ## e.g. the connection with the database is lost and not recovered.
+-    error "Unrecoverable error occurred", error = msg
+-    quit(QuitFailure)
+-
+-  #mount mix
+-  if conf.mixConf.isSome():
+-    let mixConf = conf.mixConf.get()
+-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+-      return err("failed to mount waku mix protocol: " & $error)
++proc onFatalErrorAction(msg: string) {.gcsafe.} =
++  ## Action to be taken when an internal error occurs during the node run.
++  ## e.g. the connection with the database is lost and not recovered.
++  error "Unrecoverable error occurred", error = msg
++  quit(QuitFailure)
+ 
++proc setupServiceDiscovery(node: WakuNode, conf: WakuConf): Result[void, string] =
+   # Setup service discovery
+   if conf.kademliaDiscoveryConf.isSome():
+     var kadConf = conf.kademliaDiscoveryConf.get()
+@@ -198,6 +183,11 @@ proc setupProtocols(
+       error "Can't set provider for ServicePeersRequest", error = error
+       return err("Can't set provider for ServicePeersRequest: " & error)
+ 
++  return ok()
++
++proc setupStoreService(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
+   if conf.storeServiceConf.isSome():
+     let storeServiceConf = conf.storeServiceConf.get()
+ 
+@@ -242,15 +232,11 @@ proc setupProtocols(
+ 
+   return ok()
+ 
+-  if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
+-    node.setupStoreResume()
+ 
+-  if conf.shardingConf.kind == AutoSharding:
+-    node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
+-      return err("failed to mount waku auto sharding: " & error)
+-  else:
+-    info "Auto sharding is disabled"
+ 
++proc setupRelay(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
+   # Mount relay on all nodes
+   var peerExchangeHandler = Opt.none(RoutingRecordsHandler)
+   if conf.relayPeerExchange:
+@@ -298,16 +284,9 @@ proc setupProtocols(
+         protectedShard = shardKey.shard, publicKey = shardKey.key
+     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
+ 
+-  if conf.rendezvous:
+-    await node.mountRendezvous(conf.clusterId, shards)
+-    await node.mountRendezvousClient(conf.clusterId)
+-
+-  # Keepalive mounted on all nodes
+-  try:
+-    await mountLibp2pPing(node)
+-  except CatchableError:
+-    return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
++  return ok()
+ 
++proc setupRln(node: WakuNode, conf: WakuConf): Future[Result[void, string]] {.async.} =
+   # RLN backend selected by configuration source: each descriptor probes
+   # whether its own source is present — host callbacks installed over the C
+   # ABI (`logosdelivery_rln_set_plugin`) for the external backend, CLI/preset
+@@ -336,6 +315,11 @@ proc setupProtocols(
+         mounted, RlnCommonConf(disableValidation: conf.rlnDisableValidation)
+       )
+ 
++  return ok()
++
++proc setupLightPushService(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
+   # NOTE Must be mounted after relay
+   if conf.lightPush:
+     try:
+@@ -349,6 +333,9 @@ proc setupProtocols(
+ 
+   return ok()
+ 
++proc setupFilterService(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
+   # Filter setup. NOTE Must be mounted after relay
+   if conf.filterServiceConf.isSome():
+     let confFilter = conf.filterServiceConf.get()
+@@ -365,6 +352,9 @@ proc setupProtocols(
+ 
+   return ok()
+ 
++proc setupPeerExchangeService(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
+   # waku peer exchange setup
+   if conf.peerExchangeService:
+     try:
+@@ -380,6 +370,82 @@ proc setupProtocols(
+       return err("failed to set node waku peer-exchange peer: " & error)
+     node.peerManager.addServicePeer(peerExchangeNode, WakuPeerExchangeCodec)
+ 
++  return ok()
++
++proc setupProtocols(
++    node: WakuNode, conf: WakuConf
++): Future[Result[void, string]] {.async.} =
++  ## Setup configured protocols on an existing Waku v2 node.
++  ## Optionally include persistent message storage.
++  ## No protocols are started yet.
++
++  node.mountMetadata(conf.clusterId, conf.subscribeShards).isOkOr:
++    return err("failed to mount waku metadata protocol: " & error)
++
++  #mount mix
++  if conf.mixConf.isSome():
++    let mixConf = conf.mixConf.get()
++    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
++      return err("failed to mount waku mix protocol: " & $error)
++
++  ?node.setupServiceDiscovery(conf)
++  ?(await node.setupStoreService(conf))
++  mountStoreClient(node)
++  if conf.remoteStoreNode.isSome():
++    let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
++      return err("failed to set node waku store peer: " & error)
++    node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
++
++  if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
++    node.setupStoreResume()
++
++  if conf.shardingConf.kind == AutoSharding:
++    node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
++      return err("failed to mount waku auto sharding: " & error)
++  else:
++    info "Auto sharding is disabled"
++
++  ?(await node.setupRelay(conf))
++
++  if conf.rendezvous:
++    let shards = conf.subscribeShards.mapIt(
++      RelayShard(clusterId: conf.clusterId, shardId: uint16(it))
++    )
++    await node.mountRendezvous(conf.clusterId, shards)
++    await node.mountRendezvousClient(conf.clusterId)
++
++  # Keepalive mounted on all nodes
++  try:
++    await mountLibp2pPing(node)
++  except CatchableError:
++    return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
++
++  ?(await node.setupRln(conf))
++
++  ?(await node.setupLightPushService(conf))
++
++  mountLightPushClient(node)
++  mountLegacyLightPushClient(node)
++  if conf.remoteLightPushNode.isSome():
++    let lightPushNode = parsePeerInfo(conf.remoteLightPushNode.get()).valueOr:
++      return err("failed to set node waku lightpush peer: " & error)
++    node.peerManager.addServicePeer(lightPushNode, WakuLightPushCodec)
++    node.peerManager.addServicePeer(lightPushNode, WakuLegacyLightPushCodec)
++
++  ?(await node.setupFilterService(conf))
++
++  await node.mountFilterClient()
++  if conf.remoteFilterNode.isSome():
++    let filterNode = parsePeerInfo(conf.remoteFilterNode.get()).valueOr:
++      return err("failed to set node waku filter peer: " & error)
++    try:
++      node.peerManager.addServicePeer(filterNode, WakuFilterSubscribeCodec)
++    except CatchableError:
++      return
++        err("failed to mount waku filter client protocol: " & getCurrentExceptionMsg())
++
++  ?(await node.setupPeerExchangeService(conf))
++
+   if conf.peerExchangeDiscovery:
+     await node.mountPeerExchangeClient()
+ 
+diff --git a/logos_delivery/waku/node/waku_node.nim b/logos_delivery/waku/node/waku_node.nim
+index 680d10a..c88126e 100644
+--- a/logos_delivery/waku/node/waku_node.nim
++++ b/logos_delivery/waku/node/waku_node.nim
+@@ -684,8 +684,10 @@ proc mountStoreSync*(
+   node.wakuStoreReconciliation = recon
+ 
+   let reconMountRes = catch:
+-    node.switch.mount(
+-      node.wakuStoreReconciliation, protocolMatcher(WakuReconciliationCodec)
++    node.host.mountHandler(
++      WakuReconciliationCodec,
++      node.wakuStoreReconciliation,
++      protocolMatcher(WakuReconciliationCodec),
+     )
+   reconMountRes.isOkOr:
+     return err(error.msg)
+@@ -697,10 +699,16 @@ proc mountStoreSync*(
+   node.wakuStoreTransfer = transfer
+ 
+   let transMountRes = catch:
+-    node.switch.mount(node.wakuStoreTransfer, protocolMatcher(WakuTransferCodec))
++    node.host.mountHandler(
++      WakuTransferCodec, node.wakuStoreTransfer, protocolMatcher(WakuTransferCodec)
++    )
+   transMountRes.isOkOr:
+     return err(error.msg)
+ 
++  if node.started:
++    await recon.start()
++    await transfer.start()
++
+   return ok()
+ 
+ proc reconnectRelayPeers*(node: WakuNode) {.async.} =
+@@ -857,6 +865,13 @@ proc start*(node: WakuNode) {.async.} =
+   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
+   await node.switch.start()
+ 
++
++  if not node.wakuStoreReconciliation.isNil():
++    await node.wakuStoreReconciliation.start()
++
++  if not node.wakuStoreTransfer.isNil():
++    await node.wakuStoreTransfer.start()
++
+   ## Copy again: the observer skips an unchanged restart.
+   node.copyCommittedAddresses()
+   info "Announced addresses resolved", addrs = $node.announcedAddresses
+@@ -910,6 +925,13 @@ proc stop*(node: WakuNode) {.async.} =
+   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
+   await node.switch.stop()
+ 
++
++  if not node.wakuStoreReconciliation.isNil():
++    await node.wakuStoreReconciliation.stop()
++
++  if not node.wakuStoreTransfer.isNil():
++    await node.wakuStoreTransfer.stop()
++
+   node.peerManager.stop()
+ 
+   if node.rlnPlugin.isSome() and not node.rlnPlugin.get().stop.isNil():
+diff --git a/logos_delivery/waku/node/waku_node/peer_exchange.nim b/logos_delivery/waku/node/waku_node/peer_exchange.nim
+index 4f8868e..45cca53 100644
+--- a/logos_delivery/waku/node/waku_node/peer_exchange.nim
++++ b/logos_delivery/waku/node/waku_node/peer_exchange.nim
+@@ -8,13 +8,7 @@ import
+   results,
+   eth/keys,
+   eth/p2p/discoveryv5/enr,
+-  libp2p/crypto/crypto,
+-  libp2p/protocols/ping,
+-  libp2p/protocols/pubsub/gossipsub,
+-  libp2p/protocols/pubsub/rpc/messages,
+-  libp2p/builders,
+-  libp2p/transports/tcptransport,
+-  libp2p/transports/wstransport
++  libp2p/crypto/crypto
+ 
+ import
+   ../waku_node,
+@@ -39,14 +33,12 @@ proc mountPeerExchange*(
+   node.wakuPeerExchange =
+     WakuPeerExchange.new(node.peerManager, cluster, Opt.some(rateLimit))
+ 
+-  if node.started:
+-    try:
+-      await node.wakuPeerExchange.start()
+-    except CatchableError:
+-      error "failed to start wakuPeerExchange", error = getCurrentExceptionMsg()
+-
+   try:
+-    node.switch.mount(node.wakuPeerExchange, protocolMatcher(WakuPeerExchangeCodec))
++    node.host.mountHandler(
++      WakuPeerExchangeCodec,
++      node.wakuPeerExchange,
++      protocolMatcher(WakuPeerExchangeCodec),
++    )
+   except LPError:
+     error "failed to mount wakuPeerExchange", error = getCurrentExceptionMsg()
+ 
+diff --git a/logos_delivery/waku/waku_peer_exchange/client.nim b/logos_delivery/waku/waku_peer_exchange/client.nim
+index 62f6527..a03843e 100644
+--- a/logos_delivery/waku/waku_peer_exchange/client.nim
++++ b/logos_delivery/waku/waku_peer_exchange/client.nim
+@@ -6,6 +6,7 @@ import
+     waku_peer_exchange/rpc,
+     waku_peer_exchange/rpc_codec,
+     node/peer_manager,
++    libp2p_iface/stream,
+   ]
+ 
+ from logos_delivery/waku/waku_core/codecs import WakuPeerExchangeCodec
+@@ -25,8 +26,8 @@ type WakuPeerExchangeClient* = ref object
+ proc new*(T: type WakuPeerExchangeClient, peerManager: PeerManager): T =
+   WakuPeerExchangeClient(peerManager: peerManager)
+ 
+-proc request*(
+-    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: Connection
++proc request*[S: IStream](
++    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: S
+ ): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
+   let rpc = PeerExchangeRpc.makeRequest(numPeers)
+ 
+diff --git a/logos_delivery/waku/waku_peer_exchange/protocol.nim b/logos_delivery/waku/waku_peer_exchange/protocol.nim
+index 027aae1..4b0bcd5 100644
+--- a/logos_delivery/waku/waku_peer_exchange/protocol.nim
++++ b/logos_delivery/waku/waku_peer_exchange/protocol.nim
+@@ -4,12 +4,11 @@ import
+   chronicles,
+   chronos,
+   metrics,
+-  libp2p/protocols/protocol,
+-  libp2p/stream/connection,
+   libp2p/crypto/crypto,
+   eth/p2p/discoveryv5/enr
+ import
+   ../common/nimchronos,
++  ../libp2p_iface/stream,
+   ../node/peer_manager,
+   ../waku_core,
+   ../discovery/waku_discv5,
+@@ -31,14 +30,14 @@ declarePublicCounter logos_delivery_px_peers_sent,
+ logScope:
+   topics = "waku peer_exchange"
+ 
+-type WakuPeerExchange* = ref object of LPProtocol
++type WakuPeerExchange* = ref object
+   peerManager*: PeerManager
+   cluster*: Opt[uint16]
+     # todo: next step: ring buffer; future: implement cache satisfying https://rfc.vac.dev/spec/34/
+   requestRateLimiter*: RequestRateLimiter
+ 
+-proc respond(
+-    wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
++proc respond[S: IStream](
++    wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: S
+ ): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
+   let rpc = PeerExchangeRpc.makeResponse(enrs.mapIt(PeerExchangePeerInfo(enr: it.raw)))
+ 
+@@ -58,11 +57,11 @@ proc respond(
+ 
+   return ok()
+ 
+-proc respondError(
++proc respondError[S: IStream](
+     wpx: WakuPeerExchange,
+     status_code: PeerExchangeResponseStatusCode,
+     status_desc: Opt[string],
+-    conn: Connection,
++    conn: S,
+ ): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
+   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
+ 
+@@ -109,9 +108,9 @@ proc getEnrsFromStore(
+   # Reservoir sampling (Algorithm R)
+   var i = 0
+   let k = min(MaxPeersCacheSize, numPeers.int)
+-  let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
++  let enrStoreLen = wpx.peerManager.peerStore[ENRBook].len
+   var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
+-  let peerStore = wpx.peerManager.switch.peerStore
++  let peerStore = wpx.peerManager.peerStore
+   for (peerId, connectedness, origin, peerEnrRecord) in peerStore.enrPeers():
+     if connectedness == CannotConnect:
+       debug "Could not retrieve ENR because cannot connect to peer",
+@@ -133,52 +132,50 @@ proc getEnrsFromStore(
+     inc(i)
+   return enrs
+ 
+-proc initProtocolHandler(wpx: WakuPeerExchange) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    var buffer: seq[byte]
+-    wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
+-      try:
+-        buffer = await conn.readLp(DefaultMaxRpcSize.int)
+-      except LPStreamError as exc:
+-        # Remote disconnected before sending a full request - expected churn;
+-        # no point responding on a dead stream.
+-        debug "peer exchange request not received: stream closed",
+-          peerId = conn.peerId, error = exc.msg
+-        logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
+-        return
+-
+-      let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
+-        logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
+-        debug "Failed to decode PeerExchange request", error = $error
+-
+-        (
+-          await wpx.respondError(
+-            PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
+-          )
+-        ).isOkOr:
+-          debug "Failed to respond with BAD_REQUEST", error = $error
+-        return
+-
+-      let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
+-
+-      debug "Peer exchange request received"
+-      trace "px enrs to respond", enrs = $enrs
+-      (await wpx.respond(enrs, conn)).isErrOr:
+-        logos_delivery_px_peers_sent.inc(enrs.len().int64())
+-    do:
+-      defer:
+-        # close, no data is expected
+-        await conn.closeWithEof()
++proc handleStream*[S: IStream](
++    wpx: WakuPeerExchange, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  var buffer: seq[byte]
++  wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
++    try:
++      buffer = await conn.readLp(DefaultMaxRpcSize.int)
++    except LPStreamError as exc:
++      # Remote disconnected before sending a full request - expected churn;
++      # no point responding on a dead stream.
++      debug "peer exchange request not received: stream closed",
++        peerId = conn.peerId, error = exc.msg
++      logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
++      return
++
++    let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
++      logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
++      debug "Failed to decode PeerExchange request", error = $error
+ 
+       (
+         await wpx.respondError(
+-          PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
++          PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
+         )
+       ).isOkOr:
+-        debug "Failed to respond with TOO_MANY_REQUESTS", error = $error
+-
+-  wpx.handler = handler
+-  wpx.codec = WakuPeerExchangeCodec
++        debug "Failed to respond with BAD_REQUEST", error = $error
++      return
++
++    let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
++
++    debug "Peer exchange request received"
++    trace "px enrs to respond", enrs = $enrs
++    (await wpx.respond(enrs, conn)).isErrOr:
++      logos_delivery_px_peers_sent.inc(enrs.len().int64())
++  do:
++    defer:
++      # close, no data is expected
++      await conn.closeWithEof()
++
++    (
++      await wpx.respondError(
++        PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
++      )
++    ).isOkOr:
++      debug "Failed to respond with TOO_MANY_REQUESTS", error = $error
+ 
+ proc new*(
+     T: type WakuPeerExchange,
+@@ -191,6 +188,5 @@ proc new*(
+     cluster: cluster,
+     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
+   )
+-  wpx.initProtocolHandler()
+   setServiceLimitMetric(WakuPeerExchangeCodec, rateLimitSetting)
+   return wpx
+diff --git a/logos_delivery/waku/waku_store_sync/reconciliation.nim b/logos_delivery/waku/waku_store_sync/reconciliation.nim
+index f856ca6..804d5c5 100644
+--- a/logos_delivery/waku/waku_store_sync/reconciliation.nim
++++ b/logos_delivery/waku/waku_store_sync/reconciliation.nim
+@@ -7,11 +7,10 @@ import
+   chronicles,
+   chronos,
+   metrics,
+-  libp2p/protocols/protocol,
+-  libp2p/stream/connection,
+   libp2p/crypto/crypto,
+   eth/p2p/discoveryv5/enr
+ import
++  ../libp2p_iface/stream,
+   ../common/nimchronos,
+   ../common/protobuf,
+   ../common/paging,
+@@ -36,7 +35,8 @@ logScope:
+ 
+ const DefaultStorageCap = 50_000
+ 
+-type SyncReconciliation* = ref object of LPProtocol
++type SyncReconciliation* = ref object
++  started: bool
+   pubsubTopics: HashSet[PubsubTopic] # Empty set means accept all. See spec.
+   contentTopics: HashSet[ContentTopic] # Empty set means accept all. See spec.
+ 
+@@ -159,8 +159,8 @@ proc preProcessPayload(self: SyncReconciliation, payload: RangesData): Opt[Range
+ 
+   return Opt.some(payload)
+ 
+-proc processRequest(
+-    self: SyncReconciliation, conn: Connection
++proc processRequest[S: IStream](
++    self: SyncReconciliation, conn: S
+ ): Future[Result[void, string]] {.async.} =
+   var
+     roundTrips = 0
+@@ -188,9 +188,7 @@ proc processRequest(
+     roundTrips.inc()
+ 
+     trace "sync payload received",
+-      local = self.peerManager.switch.peerInfo.peerId,
+-      remote = conn.peerId,
+-      payload = recvPayload
++      local = self.peerManager.selfPeerId(), remote = conn.peerId, payload = recvPayload
+ 
+     if recvPayload.ranges.len == 0 or recvPayload.ranges.allIt(it[1] == RangeType.Skip):
+       break
+@@ -206,7 +204,7 @@ proc processRequest(
+       let preProcessedPayload = preProcessedPayloadRes.get()
+ 
+       trace "pre-processed payload",
+-        local = self.peerManager.switch.peerInfo.peerId,
++        local = self.peerManager.selfPeerId(),
+         remote = conn.peerId,
+         payload = preProcessedPayload
+ 
+@@ -240,9 +238,7 @@ proc processRequest(
+       return err("remote " & $conn.peerId & " connection write error: " & error.msg)
+ 
+     trace "sync payload sent",
+-      local = self.peerManager.switch.peerInfo.peerId,
+-      remote = conn.peerId,
+-      payload = sendPayload
++      local = self.peerManager.selfPeerId(), remote = conn.peerId, payload = sendPayload
+ 
+     if sendPayload.ranges.len == 0 or sendPayload.ranges.allIt(it[1] == RangeType.Skip):
+       break
+@@ -259,9 +255,9 @@ proc processRequest(
+ 
+   return ok()
+ 
+-proc initiate(
++proc initiate[S: IStream](
+     self: SyncReconciliation,
+-    connection: Connection,
++    connection: S,
+     offset: Duration,
+     syncRange: Duration,
+     pubsubTopics: seq[PubsubTopic],
+@@ -297,7 +293,7 @@ proc initiate(
+     return err("remote " & $connection.peerId & " connection write error: " & error.msg)
+ 
+   trace "sync payload sent",
+-    local = self.peerManager.switch.peerInfo.peerId,
++    local = self.peerManager.selfPeerId(),
+     remote = connection.peerId,
+     payload = initPayload
+ 
+@@ -319,11 +315,11 @@ proc storeSynchronization*(
+ 
+   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
+ 
+-  let conn: Connection = connOpt.valueOr:
++  let conn = connOpt.valueOr:
+     return err("fail to dial remote " & $peer.peerId)
+ 
+   debug "Sync session initialized",
+-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
++    local = self.peerManager.selfPeerId(), remote = conn.peerId
+ 
+   (
+     await self.initiate(
+@@ -331,12 +327,12 @@ proc storeSynchronization*(
+     )
+   ).isOkOr:
+     debug "Sync session failed",
+-      local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId, err = error
++      local = self.peerManager.selfPeerId(), remote = conn.peerId, err = error
+ 
+     return err("sync request error: " & error)
+ 
+   debug "Sync session ended gracefully",
+-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
++    local = self.peerManager.selfPeerId(), remote = conn.peerId
+ 
+   return ok()
+ 
+@@ -384,6 +380,15 @@ proc initFillStorage(
+ 
+   return ok(storage)
+ 
++proc handleStream*[S: IStream](
++    sync: SyncReconciliation, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  try:
++    (await sync.processRequest(conn)).isOkOr:
++      debug "Request processing error", error = error
++  except CatchableError:
++    error "exception in reconciliation handler", error = getCurrentExceptionMsg()
++
+ proc new*(
+     T: type SyncReconciliation,
+     pubsubTopics: seq[PubSubTopic],
+@@ -420,16 +425,6 @@ proc new*(
+     remoteNeedsTx: remoteNeedsTx,
+   )
+ 
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    try:
+-      (await sync.processRequest(conn)).isOkOr:
+-        debug "Request processing error", error = error
+-    except CatchableError:
+-      error "exception in reconciliation handler", error = getCurrentExceptionMsg()
+-
+-  sync.handler = handler
+-  sync.codec = WakuReconciliationCodec
+-
+   info "Store Reconciliation protocol initialized",
+     sync_range = syncRange, sync_interval = syncInterval, relay_jitter = relayJitter
+ 
+@@ -474,7 +469,7 @@ proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
+ 
+     self.messageIngress(id, pubsub, content)
+ 
+-method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
++proc start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
+   if self.started:
+     return
+ 
+@@ -490,7 +485,10 @@ method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
+ 
+   info "Store Sync Reconciliation protocol started"
+ 
+-method stop*(self: SyncReconciliation) {.async: (raises: []).} =
++proc stop*(self: SyncReconciliation) {.async: (raises: []).} =
++  if not self.started:
++    return
++
+   defer:
+     self.started = false
+ 
+diff --git a/logos_delivery/waku/waku_store_sync/transfer.nim b/logos_delivery/waku/waku_store_sync/transfer.nim
+index d32cca0..9afd67d 100644
+--- a/logos_delivery/waku/waku_store_sync/transfer.nim
++++ b/logos_delivery/waku/waku_store_sync/transfer.nim
+@@ -6,11 +6,11 @@ import
+   chronicles,
+   chronos,
+   metrics,
+-  libp2p/protocols/protocol,
+-  libp2p/stream/connection,
+   libp2p/crypto/crypto,
+   eth/p2p/discoveryv5/enr
+ import
++  ../libp2p_iface/stream,
++  ../libp2p_backend/host,
+   ../common/nimchronos,
+   ../common/protobuf,
+   ../waku_enr,
+@@ -30,7 +30,8 @@ import
+ logScope:
+   topics = "waku transfer"
+ 
+-type SyncTransfer* = ref object of LPProtocol
++type SyncTransfer* = ref object
++  started: bool
+   wakuArchive: WakuArchive
+   peerManager: PeerManager
+ 
+@@ -45,10 +46,10 @@ type SyncTransfer* = ref object of LPProtocol
+   # Receive Hashes from reconciliation protocol for transmission
+   remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)]
+   remoteNeedsRxFut: Future[void]
+-  outSessions: Table[PeerId, Connection]
++  outSessions: Table[PeerId, Libp2pStream]
+ 
+-proc sendMessage(
+-    conn: Connection, payload: WakuMessageAndTopic
++proc sendMessage[S: IStream](
++    conn: S, payload: WakuMessageAndTopic
+ ): Future[Result[void, string]] {.async.} =
+   let rawPayload = payload.encode().buffer
+ 
+@@ -68,14 +69,14 @@ proc sendMessage(
+ 
+ proc openConnection(
+     self: SyncTransfer, peerId: PeerId
+-): Future[Result[Connection, string]] {.async.} =
++): Future[Result[Libp2pStream, string]] {.async.} =
+   let connOpt = await self.peerManager.dialPeer(peerId, WakuTransferCodec)
+ 
+-  let conn: Connection = connOpt.valueOr:
++  let conn = connOpt.valueOr:
+     return err("fail to dial remote " & $peerId)
+ 
+   debug "Transfer session initialized",
+-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
++    local = self.peerManager.selfPeerId(), remote = conn.peerId
+ 
+   return ok(conn)
+ 
+@@ -104,7 +105,7 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
+     self.outSessions[peerId].isClosedRemotely:
+       ## quite possibly remote end has closed the connection, believing transfer to be done
+       debug "Opening transfer connection to remote peer",
+-        my_peer_id = self.peerManager.switch.peerInfo.peerId, remote_peer_id = peerId
++        my_peer_id = self.peerManager.selfPeerId(), remote_peer_id = peerId
+ 
+       let connection = (await self.openConnection(peerId)).valueOr:
+         debug "Failed to establish transfer connection", error = error
+@@ -130,9 +131,7 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
+       WakuMessageAndTopic(pubsub: response.topics[0], message: response.messages[0])
+ 
+     trace "sending transfer message",
+-      my_peer_id = self.peerManager.switch.peerInfo.peerId,
+-      remote_peer_id = peerId,
+-      msg = msg
++      my_peer_id = self.peerManager.selfPeerId(), remote_peer_id = peerId, msg = msg
+ 
+     (await sendMessage(connection, msg)).isOkOr:
+       self.outSessions.del(peerId)
+@@ -142,61 +141,59 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
+ 
+   return
+ 
+-proc initProtocolHandler(self: SyncTransfer) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    while true:
+-      ## removed DOS prototection until we can design something better
+-      #[ if not self.inSessions.contains(conn.peerId):
+-        error "unwanted peer, disconnecting", remote = conn.peerId
+-        break ]#
++proc handleStream*[S: IStream](
++    self: SyncTransfer, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  while true:
++    ## removed DOS prototection until we can design something better
++    #[ if not self.inSessions.contains(conn.peerId):
++      error "unwanted peer, disconnecting", remote = conn.peerId
++      break ]#
+ 
+-      let readRes = catch:
+-        await conn.readLp(int64(DefaultMaxWakuMessageSize))
++    let readRes = catch:
++      await conn.readLp(int64(DefaultMaxWakuMessageSize))
+ 
+-      let buffer: seq[byte] = readRes.valueOr:
+-        # connection closed normally
+-        break
++    let buffer: seq[byte] = readRes.valueOr:
++      # connection closed normally
++      break
+ 
+-      logos_delivery_total_bytes_exchanged.inc(
+-        buffer.len, labelValues = [Transfer, Receiving]
+-      )
++    logos_delivery_total_bytes_exchanged.inc(
++      buffer.len, labelValues = [Transfer, Receiving]
++    )
+ 
+-      let payload = WakuMessageAndTopic.decode(buffer).valueOr:
+-        debug "Decoding error", error = $error
+-        continue
++    let payload = WakuMessageAndTopic.decode(buffer).valueOr:
++      debug "Decoding error", error = $error
++      continue
+ 
+-      logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
++    logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
+ 
+-      let msg = payload.message
+-      let pubsub = payload.pubsub
++    let msg = payload.message
++    let pubsub = payload.pubsub
+ 
+-      let hash = computeMessageHash(pubsub, msg)
++    let hash = computeMessageHash(pubsub, msg)
+ 
+-      try:
+-        #TODO verify msg RLN proof...
+-        (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
+-          error "failed to archive message", error = $error
+-          continue
+-      except CatchableError:
+-        error "syncMessageIngress failed",
+-          remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
++    try:
++      #TODO verify msg RLN proof...
++      (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
++        error "failed to archive message", error = $error
+         continue
++    except CatchableError:
++      error "syncMessageIngress failed",
++        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
++      continue
+ 
+-      let id = SyncID(time: msg.timestamp, hash: hash)
+-
+-      await self.idsTx.addLast((id, pubsub, msg.contentTopic))
++    let id = SyncID(time: msg.timestamp, hash: hash)
+ 
+-      continue
++    await self.idsTx.addLast((id, pubsub, msg.contentTopic))
+ 
+-    await conn.close()
++    continue
+ 
+-    debug "Transfer session ended",
+-      local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
++  await conn.close()
+ 
+-    return
++  debug "Transfer session ended",
++    local = self.peerManager.selfPeerId(), remote = conn.peerId
+ 
+-  self.handler = handler
+-  self.codec = WakuTransferCodec
++  return
+ 
+ proc new*(
+     T: type SyncTransfer,
+@@ -214,13 +211,11 @@ proc new*(
+     remoteNeedsRx: remoteNeedsRx,
+   )
+ 
+-  transfer.initProtocolHandler()
+-
+   info "Store Transfer protocol initialized"
+ 
+   return transfer
+ 
+-method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
++proc start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
+   if self.started:
+     return
+ 
+@@ -231,7 +226,10 @@ method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
+ 
+   info "Store Sync Transfer protocol started"
+ 
+-method stop*(self: SyncTransfer) {.async: (raises: []).} =
++proc stop*(self: SyncTransfer) {.async: (raises: []).} =
++  if not self.started:
++    return
++
+   defer:
+     self.started = false
+ 
+diff --git a/tests/node/test_wakunode_peer_exchange.nim b/tests/node/test_wakunode_peer_exchange.nim
+index 213d8f7..d5530e0 100644
+--- a/tests/node/test_wakunode_peer_exchange.nim
++++ b/tests/node/test_wakunode_peer_exchange.nim
+@@ -42,7 +42,6 @@ suite "Waku Peer Exchange":
+       # Then peer exchange is mounted
+       check:
+         node.wakuPeerExchange != nil
+-        node.wakuPeerExchange.started == true
+ 
+       # Cleanup
+       await node.stop()
+@@ -58,7 +57,6 @@ suite "Waku Peer Exchange":
+       # Then peer exchange is mounted
+       check:
+         node.wakuPeerExchange != nil
+-        node.wakuPeerExchange.started == false
+ 
+   suite "fetchPeerExchangePeers":
+     var node2 {.threadvar.}: WakuNode
+diff --git a/tests/waku_store_sync/sync_utils.nim b/tests/waku_store_sync/sync_utils.nim
+index c6aabd6..3e0cbb5 100644
+--- a/tests/waku_store_sync/sync_utils.nim
++++ b/tests/waku_store_sync/sync_utils.nim
+@@ -7,6 +7,7 @@ import
+     waku_store_sync/common,
+     waku_store_sync/reconciliation,
+     waku_store_sync/transfer,
++    libp2p_backend/host,
+   ],
+   ../testlib/wakucore
+ 
+@@ -49,7 +50,7 @@ proc newTestWakuRecon*(
+   let proto = res.get()
+ 
+   await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuReconciliationCodec, proto)
+ 
+   return proto
+ 
+@@ -70,6 +71,6 @@ proc newTestWakuTransfer*(
+   )
+ 
+   await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuTransferCodec, proto)
+ 
+   return proto
+diff --git a/tests/waku_store_sync/test_protocol.nim b/tests/waku_store_sync/test_protocol.nim
+index 6d61b4e..e3430dd 100644
+--- a/tests/waku_store_sync/test_protocol.nim
++++ b/tests/waku_store_sync/test_protocol.nim
+@@ -21,6 +21,7 @@ import
+     waku_archive/archive,
+     waku_archive/driver,
+     waku_archive/common,
++    libp2p_backend/host,
+   ],
+   ../testlib/[wakucore, testasync],
+   ../waku_archive/archive_utils,
+@@ -946,8 +947,8 @@ suite "Waku Sync: transfer":
+     await server.start()
+     await client.start()
+ 
+-    serverSwitch.mount(server)
+-    clientSwitch.mount(client)
++    Libp2pHost.new(serverSwitch).mountHandler(WakuTransferCodec, server)
++    Libp2pHost.new(clientSwitch).mountHandler(WakuTransferCodec, client)
+ 
+     serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
+     clientPeerInfo = clientSwitch.peerInfo.toRemotePeerInfo()

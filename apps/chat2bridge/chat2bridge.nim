@@ -217,7 +217,7 @@ proc start*(cmb: Chat2MatterBridge) {.async.} =
     error "failed to mount relay", error = error
     return
 
-  cmb.nodev2.wakuRelay.triggerSelf = false
+  cmb.nodev2.wakuRelay.setTriggerSelf(false)
 
   # Bridging
   # Handle messages on Waku v2 and bridge to Matterbridge

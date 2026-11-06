@@ -5,9 +5,8 @@ import
   json_serialization,
   json_serialization/pkg/results,
   json_serialization/lexer,
-  results,
-  libp2p/protocols/pubsub/pubsubpeer
-import logos_delivery/waku/[waku_core, node/peer_manager], ../serdes
+  results
+import logos_delivery/waku/[waku_core, node/peer_manager, waku_relay], ../serdes
 
 #### Types
 type WakuPeer* = object
@@ -287,8 +286,8 @@ proc init*(T: type WakuPeer, peerInfo: RemotePeerInfo): WakuPeer =
     score: Opt.none(float64),
   )
 
-proc init*(T: type WakuPeer, pubsubPeer: PubSubPeer, pm: PeerManager): WakuPeer =
-  let peerInfo = pm.getPeer(pubsubPeer.peerId)
+proc init*(T: type WakuPeer, relayPeer: RelayPeer, pm: PeerManager): WakuPeer =
+  let peerInfo = pm.getPeer(PeerId.init(relayPeer.peerId).get())
   result = WakuPeer(
     multiaddr: constructMultiaddrStr(peerInfo),
     protocols: peerInfo.protocols,
@@ -296,7 +295,7 @@ proc init*(T: type WakuPeer, pubsubPeer: PubSubPeer, pm: PeerManager): WakuPeer 
     connected: peerInfo.connectedness,
     agent: peerInfo.agent,
     origin: peerInfo.origin,
-    score: Opt.some(pubsubPeer.score),
+    score: Opt.some(relayPeer.score),
   )
 
 proc add*(

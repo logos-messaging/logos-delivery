@@ -10,3 +10,5 @@ const
   WakuMetadataCodec* = "/vac/waku/metadata/1.0.0"
   WakuPeerExchangeCodec* = "/vac/waku/peer-exchange/2.0.0-alpha1"
   WakuRendezVousCodec* = "/vac/waku/rendezvous/1.0.0"
+  Libp2pRendezVousCodec* = "/rendezvous/1.0.0"
+    ## the generic libp2p rendezvous protocol, as spoken by the libp2p backend

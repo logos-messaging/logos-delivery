@@ -1,0 +1,15 @@
+log-level = "DEBUG"
+relay = true
+filter = false
+lightpush = true
+cluster-id = 2
+shard = [ 1, 2 ]
+num-shards-in-network = 1024
+rest = true
+staticnode = [ "/ip4/43.99.103.10/tcp/30303/p2p/16Uiu2HAm66VW1KUzkXFhDMzCUusSwASXV953AMpFrb1KtkrE4fT6" ]
+nodekey = "364d111d729a6eb6d2e6113e163f017b5ef03a6f94c9b5b7bb1bb36fa5cb07a9"
+
+metrics-server = true
+rest-admin = true
+
+

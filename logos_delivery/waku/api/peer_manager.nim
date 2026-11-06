@@ -67,7 +67,7 @@ proc dialPeerById*(
 
 proc peerIdsFromPeerstore*(self: Waku): Future[Result[seq[string], string]] {.async.} =
   try:
-    return ok(self.node.peerManager.switch.peerStore.peers().mapIt($it.peerId))
+    return ok(self.node.peerManager.peerStore.peers().mapIt($it.peerId))
   except CatchableError as e:
     return err(e.msg)
 
@@ -77,7 +77,7 @@ proc connectedPeersInfo*(
   ## Structured info (protocols, addresses) for every connected peer.
   try:
     var infos: seq[PeerConnInfo]
-    for peer in self.node.peerManager.switch.peerStore.peers():
+    for peer in self.node.peerManager.peerStore.peers():
       if peer.connectedness == Connected:
         infos.add(
           PeerConnInfo(
@@ -102,7 +102,7 @@ proc peerIdsByProtocol*(
 ): Future[Result[seq[string], string]] {.async.} =
   try:
     return ok(
-      self.node.peerManager.switch.peerStore
+      self.node.peerManager.peerStore
         .peers(protocol)
         .filterIt(it.connectedness == Connected)
         .mapIt($it.peerId)

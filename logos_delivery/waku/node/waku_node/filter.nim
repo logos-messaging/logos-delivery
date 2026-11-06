@@ -10,13 +10,7 @@ import
   eth/keys,
   nimcrypto,
   eth/p2p/discoveryv5/enr,
-  libp2p/crypto/crypto,
-  libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport
+  libp2p/crypto/crypto
 
 import
   ../waku_node,
@@ -62,7 +56,11 @@ proc mountFilter*(
     error "failed to start wakuFilter", error = getCurrentExceptionMsg()
 
   try:
-    node.switch.mount(node.wakuFilter, protocolMatcher(WakuFilterSubscribeCodec))
+    node.host.mountHandler(
+      WakuFilterSubscribeCodec,
+      node.wakuFilter,
+      protocolMatcher(WakuFilterSubscribeCodec),
+    )
   except LPError:
     error "failed to mount wakuFilter", error = getCurrentExceptionMsg()
 
@@ -88,12 +86,11 @@ proc mountFilterClient*(node: WakuNode) {.async: (raises: []).} =
   node.wakuFilterClient = WakuFilterClient.new(node.peerManager, node.rng)
 
   try:
-    await node.wakuFilterClient.start()
-  except CatchableError:
-    error "failed to start wakuFilterClient", error = getCurrentExceptionMsg()
-
-  try:
-    node.switch.mount(node.wakuFilterClient, protocolMatcher(WakuFilterSubscribeCodec))
+    node.host.mountHandler(
+      WakuFilterPushCodec,
+      node.wakuFilterClient,
+      protocolMatcher(WakuFilterSubscribeCodec),
+    )
   except LPError:
     error "failed to mount wakuFilterClient", error = getCurrentExceptionMsg()
 

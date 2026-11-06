@@ -29,7 +29,7 @@ proc newTestWakuRelay*(switch = newTestSwitch()): Future[WakuRelay] {.async.} =
   let protocolMatcher = proc(proto: string): bool {.gcsafe.} =
     return proto.startsWith(WakuRelayCodec)
 
-  switch.mount(proto, protocolMatcher)
+  proto.mountOn(switch, protocolMatcher)
 
   return proto
 

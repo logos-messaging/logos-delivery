@@ -57,6 +57,7 @@ const
     # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
   DefaultRelayPeerExchange: bool = false
+  DefaultLibp2pImpl: string = Libp2pImplBuiltin
   DefaultRlnDisableValidation: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
   DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
@@ -134,6 +135,7 @@ type WakuConfBuilder* = object
   peerExchange: Opt[bool]
   storeSync: Opt[bool]
   relayPeerExchange: Opt[bool]
+  libp2pImpl: Opt[string]
   mix: Opt[bool]
 
   # TODO: move within a relayConf
@@ -238,6 +240,9 @@ proc withPeerExchange*(b: var WakuConfBuilder, peerExchange: bool) =
 
 proc withRelayPeerExchange*(b: var WakuConfBuilder, relayPeerExchange: bool) =
   b.relayPeerExchange = Opt.some(relayPeerExchange)
+
+proc withLibp2pImpl*(b: var WakuConfBuilder, libp2pImpl: string) =
+  b.libp2pImpl = Opt.some(libp2pImpl)
 
 proc withRendezvous*(b: var WakuConfBuilder, rendezvous: bool) =
   b.rendezvous = Opt.some(rendezvous)
@@ -665,6 +670,7 @@ proc build*(
       DefaultRendezvous
 
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
+  let libp2pImpl = builder.libp2pImpl.get(DefaultLibp2pImpl)
 
   let rlnDisableValidation =
     builder.rlnDisableValidation.get(DefaultRlnDisableValidation)
@@ -945,6 +951,7 @@ proc build*(
     remoteFilterNode: builder.remoteFilterNode,
     remotePeerExchangeNode: builder.remotePeerExchangeNode,
     relayPeerExchange: relayPeerExchange,
+    libp2pImpl: libp2pImpl,
     maxMessageSizeBytes: maxMessageSizeBytes,
     logLevel: logLevel,
     logFormat: logFormat,

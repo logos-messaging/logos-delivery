@@ -30,6 +30,8 @@ declarePublicGauge logos_delivery_discv5_discovered_per_shard,
 declarePublicCounter logos_delivery_discv5_errors,
   "number of waku discv5 errors", ["type"]
 
+const recordConversionFailure = "record_conversion_failure"
+
 logScope:
   topics = "waku discv5"
 
@@ -270,7 +272,7 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
       let peerInfo = record.toRemotePeerInfo().valueOr:
         ## in case of error, we keep track of it for debugging purposes
         wrongRecordsReasons.add(($record, $error))
-        logos_delivery_discv5_errors.inc(labelValues = [$error])
+        logos_delivery_discv5_errors.inc(labelValues = [recordConversionFailure])
         continue
 
       discoveredPeers.add(peerInfo)

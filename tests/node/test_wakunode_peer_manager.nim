@@ -20,7 +20,7 @@ import
     waku_node,
     discovery/waku_discv5,
     waku_filter_v2/common,
-    waku_relay/protocol,
+    waku_relay,
   ],
   ../testlib/[wakucore, wakunode, testasync, testutils, comparisons],
   ../waku_enr/utils,
@@ -113,7 +113,7 @@ suite "Peer Manager":
     suite "Peer Store Pruning":
       asyncTest "Capacity is not exceeded":
         # Given the client's peer store has a capacity of 1
-        clientPeerStore.setCapacity(1)
+        clientPeerStore.capacity = 1
 
         # And the client connects to the server
         await client.connectToNodes(@[serverRemotePeerInfo])
@@ -129,7 +129,7 @@ suite "Peer Manager":
 
       asyncTest "Capacity is not exceeded but some peers are unhealthy":
         # Given the client's peer store has a capacity of 1
-        clientPeerStore.setCapacity(1)
+        clientPeerStore.capacity = 1
 
         # And the client connects to the server
         await client.connectToNodes(@[serverRemotePeerInfo])
@@ -149,7 +149,7 @@ suite "Peer Manager":
 
       asyncTest "Capacity is exceeded but all peers are healthy":
         # Given the client's peer store has a capacity of 0
-        clientPeerStore.setCapacity(0)
+        clientPeerStore.capacity = 0
 
         # And the client connects to the server
         await client.connectToNodes(@[serverRemotePeerInfo])
@@ -165,7 +165,7 @@ suite "Peer Manager":
 
       asyncTest "Failed connections":
         # Given the client's peer store has a capacity of 0 and maxFailedAttempts of 1
-        clientPeerStore.setCapacity(0)
+        clientPeerStore.capacity = 0
         client.peerManager.maxFailedAttempts = 1
 
         # And the client connects to the server
@@ -185,7 +185,7 @@ suite "Peer Manager":
 
       asyncTest "Shardless":
         # Given the client's peer store has a capacity of 0
-        clientPeerStore.setCapacity(0)
+        clientPeerStore.capacity = 0
 
         # And the client connects to the server
         await client.connectToNodes(@[serverRemotePeerInfo])
@@ -205,7 +205,7 @@ suite "Peer Manager":
 
       asyncTest "Higher than avg shard count":
         # Given the client's peer store has a capacity of 0
-        clientPeerStore.setCapacity(0)
+        clientPeerStore.capacity = 0
 
         # And the server's remote peer info contains the node's ENR
         serverRemotePeerInfo.enr = Opt.some(server.enr)

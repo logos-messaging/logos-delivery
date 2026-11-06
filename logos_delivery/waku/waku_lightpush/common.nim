@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import results, chronos, libp2p/peerid
-import ../waku_core, ./rpc, ../waku_relay/protocol
+import ../waku_core, ./rpc, ../waku_relay
 
 from ../waku_core/codecs import WakuLightPushCodec
 export WakuLightPushCodec

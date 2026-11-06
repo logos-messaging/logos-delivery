@@ -28,7 +28,7 @@ import
     waku_core,
     node/peer_manager,
     api/events/health_events,
-    waku_relay/protocol,
+    waku_relay,
     waku_archive,
     waku_archive/common as archive_common,
   ]

@@ -8,13 +8,7 @@ import
   results,
   eth/keys,
   eth/p2p/discoveryv5/enr,
-  libp2p/crypto/crypto,
-  libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport
+  libp2p/crypto/crypto
 
 import
   ../waku_node,
@@ -39,14 +33,12 @@ proc mountPeerExchange*(
   node.wakuPeerExchange =
     WakuPeerExchange.new(node.peerManager, cluster, Opt.some(rateLimit))
 
-  if node.started:
-    try:
-      await node.wakuPeerExchange.start()
-    except CatchableError:
-      error "failed to start wakuPeerExchange", error = getCurrentExceptionMsg()
-
   try:
-    node.switch.mount(node.wakuPeerExchange, protocolMatcher(WakuPeerExchangeCodec))
+    node.host.mountHandler(
+      WakuPeerExchangeCodec,
+      node.wakuPeerExchange,
+      protocolMatcher(WakuPeerExchangeCodec),
+    )
   except LPError:
     error "failed to mount wakuPeerExchange", error = getCurrentExceptionMsg()
 

@@ -1,16 +1,8 @@
 {.push raises: [].}
 
+import std/sequtils, results, chronicles, chronos, metrics, eth/p2p/discoveryv5/enr
 import
-  std/sequtils,
-  results,
-  chronicles,
-  chronos,
-  metrics,
-  libp2p/protocols/protocol,
-  libp2p/stream/connection,
-  libp2p/crypto/crypto,
-  eth/p2p/discoveryv5/enr
-import ../common/nimchronos, ../waku_core, ./rpc, ../common/callbacks
+  ../common/nimchronos, ../waku_core, ../libp2p_iface/stream, ./rpc, ../common/callbacks
 
 from ../waku_core/codecs import WakuMetadataCodec
 export WakuMetadataCodec
@@ -20,12 +12,12 @@ logScope:
 
 const RpcResponseMaxBytes* = 1024
 
-type WakuMetadata* = ref object of LPProtocol
+type WakuMetadata* = ref object
   clusterId*: uint32
   getShards: GetShards
 
-proc respond(
-    m: WakuMetadata, conn: Connection
+proc respond[S: IStream](
+    m: WakuMetadata, conn: S
 ): Future[Result[void, string]] {.async, gcsafe.} =
   let response = WakuMetadataResponse(
     clusterId: Opt.some(m.clusterId.uint32), shards: m.getShards().mapIt(it.uint32)
@@ -38,8 +30,8 @@ proc respond(
 
   return ok()
 
-proc request*(
-    m: WakuMetadata, conn: Connection
+proc request*[S: IStream](
+    m: WakuMetadata, conn: S
 ): Future[Result[WakuMetadataResponse, string]] {.async, gcsafe.} =
   let request = WakuMetadataRequest(
     clusterId: Opt.some(m.clusterId), shards: m.getShards().mapIt(it.uint32)
@@ -67,42 +59,38 @@ proc request*(
 
   return ok(response)
 
-proc initProtocolHandler(m: WakuMetadata) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    defer:
-      # close, no data is expected
-      await conn.closeWithEof()
+proc handleStream*[S: IStream](
+    m: WakuMetadata, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  ## Serves a metadata request received on `conn`.
+  defer:
+    # close, no data is expected
+    await conn.closeWithEof()
 
-    let res = catch:
-      await conn.readLp(RpcResponseMaxBytes)
-    let buffer = res.valueOr:
-      error "Connection reading error", error = error.msg
-      return
+  let res = catch:
+    await conn.readLp(RpcResponseMaxBytes)
+  let buffer = res.valueOr:
+    error "Connection reading error", error = error.msg
+    return
 
-    let response = WakuMetadataResponse.decode(buffer).valueOr:
-      error "Response decoding error", error = error
-      return
+  let response = WakuMetadataResponse.decode(buffer).valueOr:
+    error "Response decoding error", error = error
+    return
 
-    debug "Received WakuMetadata request",
-      remoteClusterId = response.clusterId,
-      remoteShards = response.shards,
-      localClusterId = m.clusterId,
-      localShards = m.getShards(),
-      peer = conn.peerId
+  debug "Received WakuMetadata request",
+    remoteClusterId = response.clusterId,
+    remoteShards = response.shards,
+    localClusterId = m.clusterId,
+    localShards = m.getShards(),
+    peer = conn.peerId
 
-    try:
-      discard await m.respond(conn)
-    except CatchableError:
-      error "Failed to respond to WakuMetadata request",
-        error = getCurrentExceptionMsg()
-
-  m.handler = handler
-  m.codec = WakuMetadataCodec
+  try:
+    discard await m.respond(conn)
+  except CatchableError:
+    error "Failed to respond to WakuMetadata request", error = getCurrentExceptionMsg()
 
 proc new*(T: type WakuMetadata, clusterId: uint32, getShards: GetShards): T =
   let wm = WakuMetadata(clusterId: clusterId, getShards: getShards)
-
-  wm.initProtocolHandler()
 
   info "Created WakuMetadata protocol",
     clusterId = wm.clusterId, shards = wm.getShards()

@@ -1,13 +1,16 @@
-import system, std/json, libp2p/[connmanager, peerid]
+import system, std/json, libp2p/peerid
 
-import ../../logos_delivery/waku/common/base64, ./json_base_event
+import
+  ../../logos_delivery/waku/common/base64,
+  ../../logos_delivery/waku/libp2p_iface/host,
+  ./json_base_event
 
 type JsonConnectionChangeEvent* = ref object of JsonEvent
   peerId*: string
-  peerEvent*: PeerEventKind
+  peerEvent*: HostPeerEventKind
 
 proc new*(
-    T: type JsonConnectionChangeEvent, peerId: string, peerEvent: PeerEventKind
+    T: type JsonConnectionChangeEvent, peerId: string, peerEvent: HostPeerEventKind
 ): T =
   return JsonConnectionChangeEvent(
     eventType: "connection_change", peerId: peerId, peerEvent: peerEvent

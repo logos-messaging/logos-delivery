@@ -6,7 +6,9 @@
 
 {.push raises: [].}
 
-import results, std/tables, libp2p/stream/connection
+import results, std/tables
+
+import ../../libp2p_iface/stream
 
 import ./[single_token_limiter, service_metrics], ../../utils/tableutils
 
@@ -26,7 +28,7 @@ proc mgetOrPut(
 template checkUsageLimit*(
     t: var PerPeerRateLimiter,
     proto: string,
-    conn: Connection,
+    conn: untyped,
     bodyWithinLimit, bodyRejected: untyped,
 ) =
   checkUsageLimit(t.mgetOrPut(conn.peerId), proto, conn, bodyWithinLimit, bodyRejected)

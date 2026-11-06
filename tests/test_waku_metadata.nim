@@ -20,7 +20,7 @@ import
     node/peer_manager,
     discovery/waku_discv5,
     waku_metadata,
-    waku_relay/protocol,
+    waku_relay,
   ],
   ./testlib/wakucore,
   ./testlib/wakunode

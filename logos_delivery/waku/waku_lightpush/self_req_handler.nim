@@ -10,7 +10,14 @@
 ## that could be used also as a lightpush client, helping testing and development.
 
 import results, chronos, metrics
-import ../waku_core, ./protocol, ./common, ./rpc, ./rpc_codec, ../utils/requests
+import
+  ../waku_core,
+  ../node/peer_manager,
+  ./protocol,
+  ./common,
+  ./rpc,
+  ./rpc_codec,
+  ../utils/requests
 
 proc handleSelfLightPushRequest*(
     self: WakuLightPush, pubSubTopic: Opt[PubsubTopic], message: WakuMessage
@@ -21,7 +28,7 @@ proc handleSelfLightPushRequest*(
 
   try:
     # provide self peerId as now this node is used directly, thus there is no light client sender peer.
-    let selfPeerId = self.peerManager.switch.peerInfo.peerId
+    let selfPeerId = self.peerManager.selfPeerId()
 
     let req = LightpushRequest(
       requestId: generateRequestId(self.rng), pubSubTopic: pubSubTopic, message: message

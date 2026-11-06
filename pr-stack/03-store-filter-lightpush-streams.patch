@@ -1,0 +1,1326 @@
+diff --git a/logos_delivery/waku/factory/node_factory.nim b/logos_delivery/waku/factory/node_factory.nim
+index d5c0ba8..a147fc4 100644
+--- a/logos_delivery/waku/factory/node_factory.nim
++++ b/logos_delivery/waku/factory/node_factory.nim
+@@ -240,11 +240,7 @@ proc setupProtocols(
+         node.peerManager.addServicePeer(storeNode, WakuReconciliationCodec)
+         node.peerManager.addServicePeer(storeNode, WakuTransferCodec)
+ 
+-  mountStoreClient(node)
+-  if conf.remoteStoreNode.isSome():
+-    let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
+-      return err("failed to set node waku store peer: " & error)
+-    node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
++  return ok()
+ 
+   if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
+     node.setupStoreResume()
+@@ -351,13 +347,7 @@ proc setupProtocols(
+     except CatchableError:
+       return err("failed to mount waku lightpush protocol: " & getCurrentExceptionMsg())
+ 
+-  mountLightPushClient(node)
+-  mountLegacyLightPushClient(node)
+-  if conf.remoteLightPushNode.isSome():
+-    let lightPushNode = parsePeerInfo(conf.remoteLightPushNode.get()).valueOr:
+-      return err("failed to set node waku lightpush peer: " & error)
+-    node.peerManager.addServicePeer(lightPushNode, WakuLightPushCodec)
+-    node.peerManager.addServicePeer(lightPushNode, WakuLegacyLightPushCodec)
++  return ok()
+ 
+   # Filter setup. NOTE Must be mounted after relay
+   if conf.filterServiceConf.isSome():
+@@ -373,15 +363,7 @@ proc setupProtocols(
+     except CatchableError:
+       return err("failed to mount waku filter protocol: " & getCurrentExceptionMsg())
+ 
+-  await node.mountFilterClient()
+-  if conf.remoteFilterNode.isSome():
+-    let filterNode = parsePeerInfo(conf.remoteFilterNode.get()).valueOr:
+-      return err("failed to set node waku filter peer: " & error)
+-    try:
+-      node.peerManager.addServicePeer(filterNode, WakuFilterSubscribeCodec)
+-    except CatchableError:
+-      return
+-        err("failed to mount waku filter client protocol: " & getCurrentExceptionMsg())
++  return ok()
+ 
+   # waku peer exchange setup
+   if conf.peerExchangeService:
+diff --git a/logos_delivery/waku/node/waku_node/filter.nim b/logos_delivery/waku/node/waku_node/filter.nim
+index 7d8168a..699a893 100644
+--- a/logos_delivery/waku/node/waku_node/filter.nim
++++ b/logos_delivery/waku/node/waku_node/filter.nim
+@@ -62,7 +62,11 @@ proc mountFilter*(
+     error "failed to start wakuFilter", error = getCurrentExceptionMsg()
+ 
+   try:
+-    node.switch.mount(node.wakuFilter, protocolMatcher(WakuFilterSubscribeCodec))
++    node.host.mountHandler(
++      WakuFilterSubscribeCodec,
++      node.wakuFilter,
++      protocolMatcher(WakuFilterSubscribeCodec),
++    )
+   except LPError:
+     error "failed to mount wakuFilter", error = getCurrentExceptionMsg()
+ 
+@@ -88,12 +92,11 @@ proc mountFilterClient*(node: WakuNode) {.async: (raises: []).} =
+   node.wakuFilterClient = WakuFilterClient.new(node.peerManager, node.rng)
+ 
+   try:
+-    await node.wakuFilterClient.start()
+-  except CatchableError:
+-    error "failed to start wakuFilterClient", error = getCurrentExceptionMsg()
+-
+-  try:
+-    node.switch.mount(node.wakuFilterClient, protocolMatcher(WakuFilterSubscribeCodec))
++    node.host.mountHandler(
++      WakuFilterPushCodec,
++      node.wakuFilterClient,
++      protocolMatcher(WakuFilterSubscribeCodec),
++    )
+   except LPError:
+     error "failed to mount wakuFilterClient", error = getCurrentExceptionMsg()
+ 
+diff --git a/logos_delivery/waku/node/waku_node/lightpush.nim b/logos_delivery/waku/node/waku_node/lightpush.nim
+index 1e69221..3dc0f2d 100644
+--- a/logos_delivery/waku/node/waku_node/lightpush.nim
++++ b/logos_delivery/waku/node/waku_node/lightpush.nim
+@@ -45,7 +45,7 @@ const MixReplyTimeout* = chronos.seconds(5)
+ 
+ proc publishOverMix*(
+     node: WakuNode,
+-    conn: Connection,
++    conn: Libp2pStream,
+     pubsubTopic: PubsubTopic,
+     message: WakuMessage,
+     replyTimeout: Duration = MixReplyTimeout,
+@@ -88,11 +88,11 @@ proc mountLegacyLightPush*(
+     node.wakuRelay.maxMessageSize,
+   )
+ 
+-  if node.started:
+-    # Node has started already. Let's start lightpush too.
+-    await node.wakuLegacyLightPush.start()
+-
+-  node.switch.mount(node.wakuLegacyLightPush, protocolMatcher(WakuLegacyLightPushCodec))
++  node.host.mountHandler(
++    WakuLegacyLightPushCodec,
++    node.wakuLegacyLightPush,
++    protocolMatcher(WakuLegacyLightPushCodec),
++  )
+ 
+   debug "legacy lightpush mounted successfully"
+   return ok()
+@@ -228,11 +228,9 @@ proc mountLightPush*(
+     node.wakuRelay.maxMessageSize,
+   )
+ 
+-  if node.started:
+-    # Node has started already. Let's start lightpush too.
+-    await node.wakuLightPush.start()
+-
+-  node.switch.mount(node.wakuLightPush, protocolMatcher(WakuLightPushCodec))
++  node.host.mountHandler(
++    WakuLightPushCodec, node.wakuLightPush, protocolMatcher(WakuLightPushCodec)
++  )
+ 
+   debug "lightpush mounted successfully"
+   return ok()
+diff --git a/logos_delivery/waku/node/waku_node/store.nim b/logos_delivery/waku/node/waku_node/store.nim
+index 1a8a7cb..85c988a 100644
+--- a/logos_delivery/waku/node/waku_node/store.nim
++++ b/logos_delivery/waku/node/waku_node/store.nim
+@@ -108,10 +108,11 @@ proc mountStore*(
+   node.wakuStore =
+     store.WakuStore.new(node.peerManager, node.rng, requestHandler, Opt.some(rateLimit))
+ 
+-  if node.started:
+-    await node.wakuStore.start()
+-
+-  node.switch.mount(node.wakuStore, protocolMatcher(store_common.WakuStoreCodec))
++  node.host.mountHandler(
++    store_common.WakuStoreCodec,
++    node.wakuStore,
++    protocolMatcher(store_common.WakuStoreCodec),
++  )
+ 
+ proc mountStoreClient*(node: WakuNode) =
+   info "mounting store client"
+diff --git a/logos_delivery/waku/waku_filter_v2/client.nim b/logos_delivery/waku/waku_filter_v2/client.nim
+index b559bfa..5377246 100644
+--- a/logos_delivery/waku/waku_filter_v2/client.nim
++++ b/logos_delivery/waku/waku_filter_v2/client.nim
+@@ -3,16 +3,15 @@ import results, libp2p/crypto/crypto
+ 
+ {.push raises: [].}
+ 
+-import
+-  chronicles,
+-  chronos,
+-  libp2p/protocols/protocol,
+-  bearssl/rand,
+-  stew/byteutils,
+-  brokers/broker_context
++import chronicles, chronos, bearssl/rand, stew/byteutils, brokers/broker_context
+ 
+ import
+-  logos_delivery/waku/[node/peer_manager, waku_core, api/events/filter_subscribe_events],
++  logos_delivery/waku/[
++    node/peer_manager,
++    waku_core,
++    libp2p_iface/stream,
++    api/events/filter_subscribe_events,
++  ],
+   ./common,
+   ./protocol_metrics,
+   ./rpc_codec,
+@@ -21,7 +20,7 @@ import
+ logScope:
+   topics = "waku filter client"
+ 
+-type WakuFilterClient* = ref object of LPProtocol
++type WakuFilterClient* = ref object
+   brokerCtx: BrokerContext
+   rng: crypto.Rng
+   peerManager: PeerManager
+@@ -40,18 +39,19 @@ proc sendSubscribeRequest(
+   trace "Sending filter subscribe request",
+     peerId = servicePeer.peerId, filterSubscribeRequest
+ 
+-  var connOpt: Opt[Connection]
+-  try:
+-    connOpt = await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
+-    if connOpt.isNone():
+-      trace "Failed to dial filter service peer", servicePeer
+-      logos_delivery_filter_errors.inc(labelValues = [dialFailure])
+-      return err(FilterSubscribeError.peerDialFailure($servicePeer))
+-  except CatchableError:
+-    let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
+-    trace "failed to dialPeer", error = getCurrentExceptionMsg()
+-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
+-    return err(FilterSubscribeError.badResponse(errMsg))
++  let connOpt =
++    try:
++      await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
++    except CatchableError:
++      let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
++      trace "failed to dialPeer", error = getCurrentExceptionMsg()
++      logos_delivery_filter_errors.inc(labelValues = [errMsg])
++      return err(FilterSubscribeError.badResponse(errMsg))
++
++  if connOpt.isNone():
++    trace "Failed to dial filter service peer", servicePeer
++    logos_delivery_filter_errors.inc(labelValues = [dialFailure])
++    return err(FilterSubscribeError.peerDialFailure($servicePeer))
+ 
+   let connection = connOpt.get()
+ 
+@@ -173,47 +173,50 @@ proc unsubscribeAll*(
+ 
+   return await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
+ 
+-proc registerPushHandler*(wfc: WakuFilterClient, handler: FilterPushHandler) =
+-  wfc.pushHandlers.add(handler)
+-
+-proc initProtocolHandler(wfc: WakuFilterClient) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    ## Notice that the client component is acting as a server of WakuFilterPushCodec messages
+-    while not conn.atEof():
+-      var buf: seq[byte]
+-      try:
+-        buf = await conn.readLp(int(DefaultMaxPushSize))
+-      except CancelledError, LPStreamError:
+-        debug "Error while reading conn", error = getCurrentExceptionMsg()
+-
+-      let msgPush = MessagePush.decode(buf).valueOr:
+-        debug "Failed to decode message push", peerId = conn.peerId, error = $error
+-        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
+-        return
+-
+-      let msg_hash =
+-        computeMessageHash(msgPush.pubsubTopic, msgPush.wakuMessage).to0xHex()
++proc start*(wfc: WakuFilterClient) {.async.} =
++  ## The client has no background work: it only serves the pushes it receives.
++  discard
+ 
+-      trace "Received message push",
+-        peerId = conn.peerId,
+-        msg_hash,
+-        payload = shortLog(msgPush.wakuMessage.payload),
+-        pubsubTopic = msgPush.pubsubTopic,
+-        content_topic = msgPush.wakuMessage.contentTopic,
+-        conn
++proc stop*(wfc: WakuFilterClient) {.async.} =
++  discard
+ 
+-      for handler in wfc.pushHandlers:
+-        asyncSpawn handler(msgPush.pubsubTopic, msgPush.wakuMessage)
+-
+-      # Protocol specifies no response for now
++proc registerPushHandler*(wfc: WakuFilterClient, handler: FilterPushHandler) =
++  wfc.pushHandlers.add(handler)
+ 
+-  wfc.handler = handler
+-  wfc.codec = WakuFilterPushCodec
++proc handleStream*[S: IStream](
++    wfc: WakuFilterClient, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  ## Notice that the client component is acting as a server of WakuFilterPushCodec messages
++  while not conn.atEof():
++    var buf: seq[byte]
++    try:
++      buf = await conn.readLp(int(DefaultMaxPushSize))
++    except CatchableError:
++      debug "Error while reading conn", error = getCurrentExceptionMsg()
++
++    let msgPush = MessagePush.decode(buf).valueOr:
++      debug "Failed to decode message push", peerId = conn.peerId, error = $error
++      logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
++      return
++
++    let msg_hash =
++      computeMessageHash(msgPush.pubsubTopic, msgPush.wakuMessage).to0xHex()
++
++    trace "Received message push",
++      peerId = conn.peerId,
++      msg_hash,
++      payload = shortLog(msgPush.wakuMessage.payload),
++      pubsubTopic = msgPush.pubsubTopic,
++      content_topic = msgPush.wakuMessage.contentTopic
++
++    for handler in wfc.pushHandlers:
++      asyncSpawn handler(msgPush.pubsubTopic, msgPush.wakuMessage)
++
++    # Protocol specifies no response for now
+ 
+ proc new*(T: type WakuFilterClient, peerManager: PeerManager, rng: crypto.Rng): T =
+   let brokerCtx = globalBrokerContext()
+   let wfc = WakuFilterClient(
+     brokerCtx: brokerCtx, rng: rng, peerManager: peerManager, pushHandlers: @[]
+   )
+-  wfc.initProtocolHandler()
+   wfc
+diff --git a/logos_delivery/waku/waku_filter_v2/protocol.nim b/logos_delivery/waku/waku_filter_v2/protocol.nim
+index e2c6775..1603db1 100644
+--- a/logos_delivery/waku/waku_filter_v2/protocol.nim
++++ b/logos_delivery/waku/waku_filter_v2/protocol.nim
+@@ -9,11 +9,11 @@ import
+   chronicles,
+   chronos,
+   libp2p/peerid,
+-  libp2p/protocols/protocol,
+   libp2p/protocols/pubsub/timedcache
+ import
+   ../node/peer_manager,
+   ../waku_core,
++  ../libp2p_iface/stream,
+   ../common/rate_limit/per_peer_limiter,
+   ./[common, protocol_metrics, rpc_codec, rpc, subscriptions]
+ 
+@@ -24,7 +24,7 @@ const MaxContentTopicsPerRequest* = 100
+ 
+ const MessagePushTimeout = 20.seconds
+ 
+-type WakuFilter* = ref object of LPProtocol
++type WakuFilter* = ref object
+   subscriptions*: FilterSubscriptions
+     # a mapping of peer ids to a sequence of filter criteria
+   peerManager: PeerManager
+@@ -227,7 +227,7 @@ proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
+   ## Remove subscriptions for peers that have been removed from peer store
+   var peersToRemove: seq[PeerId]
+   for peerId in wf.subscriptions.peersSubscribed.keys:
+-    if not wf.peerManager.switch.peerStore.hasPeer(peerId, WakuFilterPushCodec):
++    if not wf.peerManager.peerStore.hasPeer(peerId, WakuFilterPushCodec):
+       debug "Peer removed from peer store, removing subscription", peerId = peerId
+       peersToRemove.add(peerId)
+ 
+@@ -289,62 +289,63 @@ proc handleMessage*(
+     handleMessageDurationSec
+   )
+ 
+-proc initProtocolHandler(wf: WakuFilter) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    debug "Filter subscribe request handler triggered",
+-      peerId = shortLog(conn.peerId), conn
++proc handleStream*[S: IStream](
++    wf: WakuFilter, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  debug "Filter subscribe request handler triggered", peerId = shortLog(conn.peerId)
+ 
+-    var response: FilterSubscribeResponse
++  var response: FilterSubscribeResponse
+ 
+-    defer:
+-      await conn.closeWithEOF()
++  defer:
++    await conn.closeWithEOF()
+ 
+-    wf.peerRequestRateLimiter.checkUsageLimit(WakuFilterSubscribeCodec, conn):
+-      var buf: seq[byte]
+-      try:
+-        buf = await conn.readLp(int(DefaultMaxSubscribeSize))
+-      except LPStreamError:
+-        debug "Failed to read stream in readLp",
+-          remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+-        return
++  wf.peerRequestRateLimiter.checkUsageLimit(WakuFilterSubscribeCodec, conn):
++    var buf: seq[byte]
++    try:
++      buf = await conn.readLp(int(DefaultMaxSubscribeSize))
++    except CancelledError as exc:
++      raise exc
++    except CatchableError:
++      debug "Failed to read stream in readLp",
++        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
++      return
+ 
+-      logos_delivery_service_network_bytes.inc(
+-        amount = buf.len().int64, labelValues = [WakuFilterSubscribeCodec, "in"]
+-      )
++    logos_delivery_service_network_bytes.inc(
++      amount = buf.len().int64, labelValues = [WakuFilterSubscribeCodec, "in"]
++    )
+ 
+-      let request = FilterSubscribeRequest.decode(buf).valueOr:
+-        debug "Failed to decode filter subscribe request",
+-          peer_id = conn.peerId, err = error
+-        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
+-        return
+-
+-      try:
+-        response = await wf.handleSubscribeRequest(conn.peerId, request)
+-      except CatchableError:
+-        error "handleSubscribeRequest failed",
+-          remote_peer_id = conn.peerId, err = getCurrentExceptionMsg()
+-        return
+-
+-      debug "Sending filter subscribe response",
+-        peer_id = shortLog(conn.peerId), response = response
+-    do:
+-      debug "Filter request rejected due rate limit exceeded",
+-        peerId = shortLog(conn.peerId), limit = $wf.peerRequestRateLimiter.setting
+-      response = FilterSubscribeResponse(
+-        requestId: "N/A",
+-        statusCode: FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32,
+-        statusDesc: Opt.some("filter request rejected due rate limit exceeded"),
+-      )
++    let request = FilterSubscribeRequest.decode(buf).valueOr:
++      debug "Failed to decode filter subscribe request",
++        peer_id = conn.peerId, err = error
++      logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
++      return
+ 
+     try:
+-      await conn.writeLp(response.encode().buffer) #TODO: toRPC() separation here
+-    except LPStreamError:
+-      debug "Failed to write stream in writeLp",
+-        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+-    return
++      response = await wf.handleSubscribeRequest(conn.peerId, request)
++    except CatchableError:
++      error "handleSubscribeRequest failed",
++        remote_peer_id = conn.peerId, err = getCurrentExceptionMsg()
++      return
++
++    debug "Sending filter subscribe response",
++      peer_id = shortLog(conn.peerId), response = response
++  do:
++    debug "Filter request rejected due rate limit exceeded",
++      peerId = shortLog(conn.peerId), limit = $wf.peerRequestRateLimiter.setting
++    response = FilterSubscribeResponse(
++      requestId: "N/A",
++      statusCode: FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32,
++      statusDesc: Opt.some("filter request rejected due rate limit exceeded"),
++    )
+ 
+-  wf.handler = handler
+-  wf.codec = WakuFilterSubscribeCodec
++  try:
++    await conn.writeLp(response.encode().buffer) #TODO: toRPC() separation here
++  except CancelledError as exc:
++    raise exc
++  except CatchableError:
++    debug "Failed to write stream in writeLp",
++      remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
++  return
+ 
+ proc new*(
+     T: type WakuFilter,
+@@ -364,7 +365,6 @@ proc new*(
+     peerRequestRateLimiter: PerPeerRateLimiter(setting: rateLimitSetting),
+   )
+ 
+-  wf.initProtocolHandler()
+   setServiceLimitMetric(WakuFilterSubscribeCodec, rateLimitSetting)
+   return wf
+ 
+@@ -377,10 +377,8 @@ proc periodicSubscriptionsMaintenance(wf: WakuFilter) {.async.} =
+ 
+ proc start*(wf: WakuFilter) {.async.} =
+   info "Starting filter protocol"
+-  await procCall LPProtocol(wf).start()
+   wf.subscriptionsManagerFut = wf.periodicSubscriptionsMaintenance()
+ 
+ proc stop*(wf: WakuFilter) {.async.} =
+   info "Stopping filter protocol"
+   await wf.subscriptionsManagerFut.cancelAndWait()
+-  await procCall LPProtocol(wf).stop()
+diff --git a/logos_delivery/waku/waku_filter_v2/subscriptions.nim b/logos_delivery/waku/waku_filter_v2/subscriptions.nim
+index 979c642..060592c 100644
+--- a/logos_delivery/waku/waku_filter_v2/subscriptions.nim
++++ b/logos_delivery/waku/waku_filter_v2/subscriptions.nim
+@@ -1,12 +1,6 @@
+ {.push raises: [].}
+ 
+-import
+-  std/[sets, tables, sequtils],
+-  chronicles,
+-  chronos,
+-  libp2p/peerid,
+-  libp2p/stream/connection,
+-  stew/shims/sets
++import std/[sets, tables, sequtils], chronicles, chronos, libp2p/peerid, stew/shims/sets
+ import ../waku_core, ../utils/tableutils, ../node/peer_manager
+ 
+ logScope:
+diff --git a/logos_delivery/waku/waku_lightpush/client.nim b/logos_delivery/waku/waku_lightpush/client.nim
+index 30cdbf9..4cb1b1e 100644
+--- a/logos_delivery/waku/waku_lightpush/client.nim
++++ b/logos_delivery/waku/waku_lightpush/client.nim
+@@ -2,9 +2,10 @@ import libp2p/crypto/crypto
+ {.push raises: [].}
+ 
+ import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+-import libp2p/peerid, libp2p/stream/connection
++import libp2p/peerid
+ import
+   ../waku_core/peers,
++  ../libp2p_iface/stream,
+   ../node/peer_manager,
+   ../utils/requests,
+   ../waku_core,
+@@ -30,20 +31,9 @@ func shortPeerId(peer: PeerId): string =
+ func shortPeerId(peer: RemotePeerInfo): string =
+   shortLog(peer.peerId)
+ 
+-proc sendPushRequest(
+-    wl: WakuLightPushClient,
+-    req: LightPushRequest,
+-    peer: PeerId | RemotePeerInfo,
+-    conn: Opt[Connection] = Opt.none(Connection),
++proc exchangePushRequest[S: IStream](
++    wl: WakuLightPushClient, req: LightPushRequest, connection: S
+ ): Future[WakuLightPushResult] {.async.} =
+-  let connection = conn.valueOr:
+-    (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
+-      logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
+-      return lighpushErrorResult(
+-        LightPushErrorCode.NO_PEERS_TO_RELAY,
+-        dialFailure & ": " & $peer & " is not accessible",
+-      )
+-
+   defer:
+     await connection.closeWithEOF()
+ 
+@@ -73,24 +63,36 @@ proc sendPushRequest(
+ 
+   return toPushResult(response)
+ 
++proc sendPushRequest(
++    wl: WakuLightPushClient, req: LightPushRequest, peer: PeerId | RemotePeerInfo
++): Future[WakuLightPushResult] {.async.} =
++  let connection = (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
++    logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
++    return lighpushErrorResult(
++      LightPushErrorCode.NO_PEERS_TO_RELAY,
++      dialFailure & ": " & $peer & " is not accessible",
++    )
++
++  return await wl.exchangePushRequest(req, connection)
++
+ proc publish*(
+     wl: WakuLightPushClient,
+     pubSubTopic: Opt[PubsubTopic] = Opt.none(PubsubTopic),
+     wakuMessage: WakuMessage,
+-    dest: Connection | PeerId | RemotePeerInfo,
++    dest: IStream | PeerId | RemotePeerInfo,
+ ): Future[WakuLightPushResult] {.async, gcsafe.} =
+   let message = ensureTimestampSet(wakuMessage)
+ 
+   let msgHash = computeMessageHash(pubSubTopic.get(""), message).to0xHex()
+ 
+   let peerIdStr =
+-    when dest is Connection:
++    when dest is IStream:
+       shortPeerId(dest.peerId)
+     else:
+       shortPeerId(dest)
+ 
+   debug "Publish",
+-    myPeerId = wl.peerManager.switch.peerInfo.peerId,
++    myPeerId = wl.peerManager.selfPeerId(),
+     peerId = peerIdStr,
+     msgHash = msgHash,
+     sentTime = getNowInNanosecondTime()
+@@ -100,8 +102,8 @@ proc publish*(
+   )
+ 
+   let relayPeerCount =
+-    when dest is Connection:
+-      ?await wl.sendPushRequest(request, dest.peerId, Opt.some(dest))
++    when dest is IStream:
++      ?await wl.exchangePushRequest(request, dest)
+     else:
+       ?await wl.sendPushRequest(request, dest)
+ 
+@@ -118,11 +120,11 @@ proc publishToAny*(
+     )
+   return await wl.publish(Opt.some(pubsubTopic), wakuMessage, peer)
+ 
+-proc publishWithConn*(
++proc publishWithConn*[S: IStream](
+     wl: WakuLightPushClient,
+     pubSubTopic: PubsubTopic,
+     message: WakuMessage,
+-    conn: Connection,
++    conn: S,
+     destPeer: PeerId,
+ ): Future[WakuLightPushResult] {.async, gcsafe.} =
+   return await wl.publish(Opt.some(pubSubTopic), message, conn)
+diff --git a/logos_delivery/waku/waku_lightpush/protocol.nim b/logos_delivery/waku/waku_lightpush/protocol.nim
+index b0d2a05..f06c504 100644
+--- a/logos_delivery/waku/waku_lightpush/protocol.nim
++++ b/logos_delivery/waku/waku_lightpush/protocol.nim
+@@ -5,6 +5,7 @@ import std/strutils, results, stew/byteutils, chronicles, chronos, metrics, bear
+ import
+   ../node/peer_manager/peer_manager,
+   ../waku_core,
++  ../libp2p_iface/stream,
+   ../waku_core/topics/sharding,
+   ./common,
+   ./rpc,
+@@ -15,7 +16,7 @@ import
+ logScope:
+   topics = "waku lightpush"
+ 
+-type WakuLightPush* = ref object of LPProtocol
++type WakuLightPush* = ref object
+   rng*: crypto.Rng
+   peerManager*: PeerManager
+   pushHandler*: PushMessageHandler
+@@ -60,7 +61,7 @@ proc handleRequest(
+ 
+   let msg_hash = pubsubTopic.computeMessageHash(pushRequest.message).to0xHex()
+   debug "Handling lightpush request",
+-    my_peer_id = wl.peerManager.switch.peerInfo.peerId,
++    my_peer_id = wl.peerManager.selfPeerId(),
+     peer_id = peerId,
+     requestId = pushRequest.requestId,
+     pubsubTopic = pushRequest.pubsubTopic,
+@@ -101,64 +102,62 @@ proc handleRequest*(
+     relayPeerCount: Opt.some(relayPeerCount),
+   )
+ 
+-proc initProtocolHandler(wl: WakuLightPush) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    var rpc: LightPushResponse
+-    defer:
+-      await conn.closeWithEOF()
+-
+-    wl.requestRateLimiter.checkUsageLimit(WakuLightPushCodec, conn):
+-      block readAndHandle:
+-        var buffer: seq[byte]
+-        try:
+-          buffer = await conn.readLp(wl.maxRpcSize)
+-        except MaxSizeError:
+-          # Only the length prefix was read, so the requestId is unknown.
+-          debug "Lightpush request too large",
+-            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+-          rpc = LightPushResponse(
+-            requestId: "N/A",
+-            statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
+-            statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+-          )
+-          break readAndHandle
+-        except LPStreamError:
+-          debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
+-          return
+-
+-        logos_delivery_service_network_bytes.inc(
+-          amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
+-        )
+-
+-        try:
+-          rpc = await wl.handleRequest(conn.peerId, buffer)
+-        except CatchableError:
+-          error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
+-    do:
+-      debug "Lightpush request rejected due rate limit exceeded",
+-        peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
+-
+-      rpc = static(
+-        LightPushResponse(
+-          ## We will not copy and decode RPC buffer from stream only for requestId
+-          ## in reject case as it is comparably too expensive and opens possible
+-          ## attack surface
++proc handleStream*[S: IStream](
++    wl: WakuLightPush, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  var rpc: LightPushResponse
++  defer:
++    await conn.closeWithEOF()
++
++  wl.requestRateLimiter.checkUsageLimit(WakuLightPushCodec, conn):
++    block readAndHandle:
++      var buffer: seq[byte]
++      try:
++        buffer = await conn.readLp(wl.maxRpcSize)
++      except MaxSizeError:
++        # Only the length prefix was read, so the requestId is unknown.
++        debug "Lightpush request too large",
++          peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
++        rpc = LightPushResponse(
+           requestId: "N/A",
+-          statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
+-          statusDesc: Opt.some(TooManyRequestsMessage),
++          statusCode: LightPushErrorCode.PAYLOAD_TOO_LARGE,
++          statusDesc: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+         )
++        break readAndHandle
++      except LPStreamError:
++        debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
++        return
++
++      logos_delivery_service_network_bytes.inc(
++        amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
+       )
+ 
+-    try:
+-      await conn.writeLp(rpc.encode().buffer)
+-    except LPStreamError:
+-      debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
++      try:
++        rpc = await wl.handleRequest(conn.peerId, buffer)
++      except CatchableError:
++        error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
++  do:
++    debug "Lightpush request rejected due rate limit exceeded",
++      peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
++
++    rpc = static(
++      LightPushResponse(
++        ## We will not copy and decode RPC buffer from stream only for requestId
++        ## in reject case as it is comparably too expensive and opens possible
++        ## attack surface
++        requestId: "N/A",
++        statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
++        statusDesc: Opt.some(TooManyRequestsMessage),
++      )
++    )
+ 
+-    ## For lightpush might not worth to measure outgoing traffic as it is only
+-    ## small response about success/failure
++  try:
++    await conn.writeLp(rpc.encode().buffer)
++  except LPStreamError:
++    debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
+ 
+-  wl.handler = handler
+-  wl.codec = WakuLightPushCodec
++  ## For lightpush might not worth to measure outgoing traffic as it is only
++  ## small response about success/failure
+ 
+ proc new*(
+     T: type WakuLightPush,
+@@ -177,6 +176,5 @@ proc new*(
+     autoSharding: autoSharding,
+     maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
+   )
+-  wl.initProtocolHandler()
+   setServiceLimitMetric(WakuLightpushCodec, rateLimitSetting)
+   return wl
+diff --git a/logos_delivery/waku/waku_lightpush_legacy/client.nim b/logos_delivery/waku/waku_lightpush_legacy/client.nim
+index ddaac32..668a59d 100644
+--- a/logos_delivery/waku/waku_lightpush_legacy/client.nim
++++ b/logos_delivery/waku/waku_lightpush_legacy/client.nim
+@@ -5,6 +5,7 @@ import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+ import libp2p/peerid
+ import
+   ../waku_core/peers,
++  ../libp2p_iface/stream,
+   ../node/peer_manager,
+   ../utils/requests,
+   ../waku_core,
+diff --git a/logos_delivery/waku/waku_lightpush_legacy/protocol.nim b/logos_delivery/waku/waku_lightpush_legacy/protocol.nim
+index 00446fb..e5399db 100644
+--- a/logos_delivery/waku/waku_lightpush_legacy/protocol.nim
++++ b/logos_delivery/waku/waku_lightpush_legacy/protocol.nim
+@@ -5,6 +5,7 @@ import results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
+ import
+   ../node/peer_manager/peer_manager,
+   ../waku_core,
++  ../libp2p_iface/stream,
+   ./common,
+   ./rpc,
+   ./rpc_codec,
+@@ -14,7 +15,7 @@ import
+ logScope:
+   topics = "waku lightpush legacy"
+ 
+-type WakuLegacyLightPush* = ref object of LPProtocol
++type WakuLegacyLightPush* = ref object
+   rng*: crypto.Rng
+   peerManager*: PeerManager
+   pushHandler*: PushMessageHandler
+@@ -48,7 +49,7 @@ proc handleRequest*(
+     logos_delivery_lightpush_messages.inc(labelValues = ["PushRequest"])
+ 
+     debug "Handling legacy lightpush request",
+-      my_peer_id = wl.peerManager.switch.peerInfo.peerId,
++      my_peer_id = wl.peerManager.selfPeerId(),
+       peer_id = peerId,
+       requestId = requestId,
+       pubsubTopic = pubsubTopic,
+@@ -67,70 +68,67 @@ proc handleRequest*(
+   let rpc = PushRPC(requestId: requestId, response: Opt.some(response))
+   return rpc
+ 
+-proc initProtocolHandler(wl: WakuLegacyLightPush) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    var rpc: PushRPC
+-    defer:
+-      await conn.closeWithEOF()
+-
+-    wl.requestRateLimiter.checkUsageLimit(WakuLegacyLightPushCodec, conn):
+-      block readAndHandle:
+-        var buffer: seq[byte]
+-        try:
+-          buffer = await conn.readLp(wl.maxRpcSize)
+-        except MaxSizeError:
+-          # Only the length prefix was read, so the requestId is unknown.
+-          debug "Lightpush legacy request too large",
+-            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+-          rpc = PushRPC(
+-            requestId: "N/A",
+-            response: Opt.some(
+-              PushResponse(
+-                isSuccess: false,
+-                info: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+-              )
+-            ),
+-          )
+-          break readAndHandle
+-        except LPStreamError:
+-          debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
+-          return
+-
+-        logos_delivery_service_network_bytes.inc(
+-          amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
+-        )
+-
+-        try:
+-          rpc = await handleRequest(wl, conn.peerId, buffer)
+-        except CatchableError:
+-          error "lightpush legacy handleRequest failed",
+-            error = getCurrentExceptionMsg()
+-    do:
+-      debug "Lightpush request rejected due rate limit exceeded",
+-        peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
+-
+-      rpc = static(
+-        PushRPC(
+-          ## We will not copy and decode RPC buffer from stream only for requestId
+-          ## in reject case as it is comparably too expensive and opens possible
+-          ## attack surface
++proc handleStream*[S: IStream](
++    wl: WakuLegacyLightPush, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  var rpc: PushRPC
++  defer:
++    await conn.closeWithEOF()
++
++  wl.requestRateLimiter.checkUsageLimit(WakuLegacyLightPushCodec, conn):
++    block readAndHandle:
++      var buffer: seq[byte]
++      try:
++        buffer = await conn.readLp(wl.maxRpcSize)
++      except MaxSizeError:
++        # Only the length prefix was read, so the requestId is unknown.
++        debug "Lightpush legacy request too large",
++          peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
++        rpc = PushRPC(
+           requestId: "N/A",
+           response: Opt.some(
+-            PushResponse(isSuccess: false, info: Opt.some(TooManyRequestsMessage))
++            PushResponse(
++              isSuccess: false,
++              info: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
++            )
+           ),
+         )
++        break readAndHandle
++      except LPStreamError:
++        debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
++        return
++
++      logos_delivery_service_network_bytes.inc(
++        amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
+       )
+ 
+-    try:
+-      await conn.writeLp(rpc.encode().buffer)
+-    except LPStreamError:
+-      debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
++      try:
++        rpc = await handleRequest(wl, conn.peerId, buffer)
++      except CatchableError:
++        error "lightpush legacy handleRequest failed", error = getCurrentExceptionMsg()
++  do:
++    debug "Lightpush request rejected due rate limit exceeded",
++      peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
++
++    rpc = static(
++      PushRPC(
++        ## We will not copy and decode RPC buffer from stream only for requestId
++        ## in reject case as it is comparably too expensive and opens possible
++        ## attack surface
++        requestId: "N/A",
++        response: Opt.some(
++          PushResponse(isSuccess: false, info: Opt.some(TooManyRequestsMessage))
++        ),
++      )
++    )
+ 
+-    ## For lightpush might not worth to measure outgoing trafic as it is only
+-    ## small respones about success/failure
++  try:
++    await conn.writeLp(rpc.encode().buffer)
++  except LPStreamError:
++    debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
+ 
+-  wl.handler = handler
+-  wl.codec = WakuLegacyLightPushCodec
++  ## For lightpush might not worth to measure outgoing trafic as it is only
++  ## small respones about success/failure
+ 
+ proc new*(
+     T: type WakuLegacyLightPush,
+@@ -147,6 +145,5 @@ proc new*(
+     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
+     maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
+   )
+-  wl.initProtocolHandler()
+   setServiceLimitMetric(WakuLegacyLightPushCodec, rateLimitSetting)
+   return wl
+diff --git a/logos_delivery/waku/waku_store/client.nim b/logos_delivery/waku/waku_store/client.nim
+index 28711dd..d8b24d4 100644
+--- a/logos_delivery/waku/waku_store/client.nim
++++ b/logos_delivery/waku/waku_store/client.nim
+@@ -9,7 +9,12 @@ import
+   metrics,
+   bearssl/rand
+ import
+-  ../node/peer_manager, ../utils/requests, ./protocol_metrics, ./common, ./rpc_codec
++  ../node/peer_manager,
++  ../libp2p_iface/stream,
++  ../utils/requests,
++  ./protocol_metrics,
++  ./common,
++  ./rpc_codec
+ 
+ logScope:
+   topics = "waku store client"
+@@ -29,8 +34,8 @@ proc new*(
+ ): T {.gcsafe.} =
+   WakuStoreClient(peerManager: peerManager, rng: rng)
+ 
+-proc sendStoreRequest(
+-    self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
++proc sendStoreRequest[S: IStream](
++    self: WakuStoreClient, request: StoreQueryRequest, connection: S
+ ): Future[StoreQueryResult] {.async, gcsafe.} =
+   var req = request
+ 
+@@ -44,13 +49,17 @@ proc sendStoreRequest(
+ 
+   try:
+     await connection.writeLP(req.encode().buffer)
+-  except LPStreamError as exc:
++  except CancelledError as exc:
++    raise exc
++  except CatchableError as exc:
+     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: exc.msg))
+ 
+   let buf =
+     try:
+       await connection.readLp(DefaultMaxRpcSize.int)
+-    except LPStreamError as exc:
++    except CancelledError as exc:
++      raise exc
++    except CatchableError as exc:
+       return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: exc.msg))
+ 
+   let res = StoreQueryResponse.decode(buf).valueOr:
+@@ -97,7 +106,7 @@ proc queryToAny*(
+     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
+ 
+   # Get all available store peers
+-  var peers = self.peerManager.switch.peerStore.getPeersByProtocol(WakuStoreCodec)
++  var peers = self.peerManager.peerStore.peers(WakuStoreCodec)
+   # A configured Store peer sits in its service slot with no protocols recorded
+   # until a connection learns them; dial it too.
+   self.peerManager.serviceSlots.withValue(WakuStoreCodec, slot):
+diff --git a/logos_delivery/waku/waku_store/protocol.nim b/logos_delivery/waku/waku_store/protocol.nim
+index 23023d7..b2ff431 100644
+--- a/logos_delivery/waku/waku_store/protocol.nim
++++ b/logos_delivery/waku/waku_store/protocol.nim
+@@ -10,12 +10,11 @@ import
+   chronos,
+   bearssl/rand,
+   libp2p/crypto/crypto,
+-  libp2p/protocols/protocol,
+   libp2p/protobuf/minprotobuf,
+-  libp2p/stream/connection,
+   metrics
+ import
+   ../waku_core,
++  ../libp2p_iface/stream,
+   ../node/peer_manager,
+   ./common,
+   ./rpc_codec,
+@@ -28,7 +27,7 @@ logScope:
+ type StoreQueryRequestHandler* =
+   proc(req: StoreQueryRequest): Future[StoreQueryResult] {.async, gcsafe.}
+ 
+-type WakuStore* = ref object of LPProtocol
++type WakuStore* = ref object
+   peerManager: PeerManager
+   rng: crypto.Rng
+   requestHandler*: StoreQueryRequestHandler
+@@ -84,80 +83,79 @@ proc handleQueryRequest(
+ 
+   return (res.encode().buffer, requestId)
+ 
+-proc initProtocolHandler(self: WakuStore) =
+-  let rejectReposnseBuffer = StoreQueryResponse(
+-    ## We will not copy and decode RPC buffer from stream only for requestId
+-    ## in reject case as it is comparably too expensive and opens possible
+-    ## attack surface
++proc rejectResponseBuffer(): seq[byte] =
++  ## We will not copy and decode RPC buffer from stream only for requestId
++  ## in reject case as it is comparably too expensive and opens possible
++  ## attack surface
++  return StoreQueryResponse(
+     requestId: "N/A",
+     statusCode: uint32(ErrorCode.TOO_MANY_REQUESTS),
+     statusDesc: $ErrorCode.TOO_MANY_REQUESTS,
+   ).encode().buffer
+ 
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    var successfulQuery = false ## only consider the correct queries in metrics
+-    var resBuf: StoreResp
+-    var queryDuration: float
+-
+-    self.peerManager.addActiveStoreRequest(conn.peerId)
+-    defer:
+-      self.peerManager.removeActiveStoreRequest(conn.peerId)
+-      await conn.closeWithEof()
+-
+-    self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
+-      let readRes = catch:
+-        await conn.readLp(DefaultMaxRpcSize.int)
+-
+-      let reqBuf = readRes.valueOr:
+-        debug "Connection read error", error = error.msg
+-        return
+-
+-      logos_delivery_service_network_bytes.inc(
+-        amount = reqBuf.len().int64, labelValues = [WakuStoreCodec, "in"]
+-      )
+-
+-      let queryStartTime = getTime().toUnixFloat()
+-
+-      try:
+-        resBuf = await self.handleQueryRequest(conn.peerId, reqBuf)
+-      except CatchableError:
+-        error "store query failed in handler",
+-          remote_peer_id = conn.peerId,
+-          requestId = resBuf.requestId,
+-          error = getCurrentExceptionMsg()
+-        return
+-
+-      queryDuration = getTime().toUnixFloat() - queryStartTime
+-      logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
+-      successfulQuery = true
+-    do:
+-      debug "Store query request rejected due rate limit exceeded",
+-        peerId = conn.peerId, limit = $self.requestRateLimiter.setting
+-      resBuf = (rejectReposnseBuffer, "rejected")
+-
+-    let writeRespStartTime = getTime().toUnixFloat()
+-
+-    let writeRes = catch:
+-      await conn.writeLp(resBuf.resp)
+-
+-    writeRes.isOkOr:
+-      debug "Connection write error", error = error.msg
+-      return
++proc handleStream*[S: IStream](
++    self: WakuStore, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  var successfulQuery = false ## only consider the correct queries in metrics
++  var resBuf: StoreResp
++  var queryDuration: float
+ 
+-    if successfulQuery:
+-      let writeDuration = getTime().toUnixFloat() - writeRespStartTime
+-      logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
+-      debug "After sending response",
+-        requestId = resBuf.requestId,
+-        queryDurationSecs = queryDuration,
+-        writeStreamDurationSecs = writeDuration
++  self.peerManager.addActiveStoreRequest(conn.peerId)
++  defer:
++    self.peerManager.removeActiveStoreRequest(conn.peerId)
++    await conn.closeWithEof()
++
++  self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
++    let readRes = catch:
++      await conn.readLp(DefaultMaxRpcSize.int)
++
++    let reqBuf = readRes.valueOr:
++      debug "Connection read error", error = error.msg
++      return
+ 
+     logos_delivery_service_network_bytes.inc(
+-      amount = resBuf.resp.len().int64, labelValues = [WakuStoreCodec, "out"]
++      amount = reqBuf.len().int64, labelValues = [WakuStoreCodec, "in"]
+     )
+ 
+-  self.handler = handler
+-  self.codec = WakuStoreCodec
++    let queryStartTime = getTime().toUnixFloat()
++
++    try:
++      resBuf = await self.handleQueryRequest(conn.peerId, reqBuf)
++    except CatchableError:
++      error "store query failed in handler",
++        remote_peer_id = conn.peerId,
++        requestId = resBuf.requestId,
++        error = getCurrentExceptionMsg()
++      return
++
++    queryDuration = getTime().toUnixFloat() - queryStartTime
++    logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
++    successfulQuery = true
++  do:
++    debug "Store query request rejected due rate limit exceeded",
++      peerId = conn.peerId, limit = $self.requestRateLimiter.setting
++    resBuf = (rejectResponseBuffer(), "rejected")
++
++  let writeRespStartTime = getTime().toUnixFloat()
++
++  let writeRes = catch:
++    await conn.writeLp(resBuf.resp)
++
++  writeRes.isOkOr:
++    debug "Connection write error", error = error.msg
++    return
++
++  if successfulQuery:
++    let writeDuration = getTime().toUnixFloat() - writeRespStartTime
++    logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
++    debug "After sending response",
++      requestId = resBuf.requestId,
++      queryDurationSecs = queryDuration,
++      writeStreamDurationSecs = writeDuration
++
++  logos_delivery_service_network_bytes.inc(
++    amount = resBuf.resp.len().int64, labelValues = [WakuStoreCodec, "out"]
++  )
+ 
+ proc new*(
+     T: type WakuStore,
+@@ -176,6 +174,5 @@ proc new*(
+     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
+   )
+ 
+-  store.initProtocolHandler()
+   setServiceLimitMetric(WakuStoreCodec, rateLimitSetting)
+   return store
+diff --git a/tests/waku_filter_v2/waku_filter_utils.nim b/tests/waku_filter_v2/waku_filter_utils.nim
+index cabd6a1..11b739c 100644
+--- a/tests/waku_filter_v2/waku_filter_utils.nim
++++ b/tests/waku_filter_v2/waku_filter_utils.nim
+@@ -7,6 +7,7 @@ import
+     waku_filter_v2/client,
+     waku_filter_v2/subscriptions,
+     waku_core,
++    libp2p_backend/host,
+     common/rate_limit/setting,
+   ],
+   ../testlib/[common, wakucore]
+@@ -29,7 +30,7 @@ proc newTestWakuFilter*(
+     )
+ 
+   await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuFilterSubscribeCodec, proto)
+ 
+   return proto
+ 
+@@ -39,7 +40,7 @@ proc newTestWakuFilterClient*(switch: Switch): Future[WakuFilterClient] {.async.
+     proto = WakuFilterClient.new(peerManager, common.rng())
+ 
+   await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuFilterPushCodec, proto)
+ 
+   return proto
+ 
+diff --git a/tests/waku_lightpush/lightpush_utils.nim b/tests/waku_lightpush/lightpush_utils.nim
+index ec6b931..b32b136 100644
+--- a/tests/waku_lightpush/lightpush_utils.nim
++++ b/tests/waku_lightpush/lightpush_utils.nim
+@@ -9,6 +9,7 @@ import
+   logos_delivery/waku/waku_lightpush,
+   logos_delivery/waku/waku_lightpush/[client, common],
+   logos_delivery/waku/common/rate_limit/setting,
++  logos_delivery/waku/libp2p_backend/host,
+   ../testlib/[common, wakucore]
+ 
+ proc newTestWakuLightpushNode*(
+@@ -29,8 +30,7 @@ proc newTestWakuLightpushNode*(
+       maxMessageSize,
+     )
+ 
+-  await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuLightPushCodec, proto)
+ 
+   return proto
+ 
+diff --git a/tests/waku_lightpush_legacy/lightpush_utils.nim b/tests/waku_lightpush_legacy/lightpush_utils.nim
+index 7f4a7f0..e219626 100644
+--- a/tests/waku_lightpush_legacy/lightpush_utils.nim
++++ b/tests/waku_lightpush_legacy/lightpush_utils.nim
+@@ -11,6 +11,7 @@ import
+   logos_delivery/waku/waku_lightpush_legacy,
+   logos_delivery/waku/waku_lightpush_legacy/[client, common],
+   logos_delivery/waku/common/rate_limit/setting,
++  logos_delivery/waku/libp2p_backend/host,
+   ../testlib/[common, wakucore]
+ 
+ proc newTestWakuLegacyLightpushNode*(
+@@ -25,8 +26,7 @@ proc newTestWakuLegacyLightpushNode*(
+       peerManager, crypto.newRng(), handler, rateLimitSetting, maxMessageSize
+     )
+ 
+-  await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuLegacyLightPushCodec, proto)
+ 
+   return proto
+ 
+diff --git a/tests/waku_store/store_utils.nim b/tests/waku_store/store_utils.nim
+index dea142f..8233153 100644
+--- a/tests/waku_store/store_utils.nim
++++ b/tests/waku_store/store_utils.nim
+@@ -3,7 +3,8 @@
+ import chronos, chronicles
+ 
+ import
+-  logos_delivery/waku/[node/peer_manager, waku_store, waku_store/client],
++  logos_delivery/waku/
++    [node/peer_manager, waku_store, waku_store/client, libp2p_backend/host],
+   ../testlib/[common, wakucore]
+ 
+ proc newTestWakuStore*(
+@@ -13,8 +14,7 @@ proc newTestWakuStore*(
+     peerManager = PeerManager.new(switch)
+     proto = WakuStore.new(peerManager, common.rng(), handler)
+ 
+-  await proto.start()
+-  switch.mount(proto)
++  Libp2pHost.new(switch).mountHandler(WakuStoreCodec, proto)
+ 
+   return proto
+ 
+diff --git a/tests/wakunode_rest/test_rest_store.nim b/tests/wakunode_rest/test_rest_store.nim
+index b958b2e..9b73d6f 100644
+--- a/tests/wakunode_rest/test_rest_store.nim
++++ b/tests/wakunode_rest/test_rest_store.nim
+@@ -162,7 +162,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     await sleepAsync(1.seconds())
+ 
+@@ -239,7 +239,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let msgList = @[
+@@ -309,7 +309,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let timeOrigin = wakucore.now()
+@@ -404,7 +404,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let msgList = @[
+@@ -477,7 +477,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let msgList = @[
+@@ -566,7 +566,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let msgList = @[
+@@ -799,7 +799,7 @@ procSuite "Waku Rest API - Store v3":
+     var peerSwitch = newStandardSwitch(Opt.some(key))
+     await peerSwitch.start()
+ 
+-    peerSwitch.mount(node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, node.wakuStore)
+ 
+     # Now prime it with some history before tests
+     let timeOrigin = wakucore.now()
+@@ -1212,7 +1212,7 @@ procSuite "Waku Rest API - Store v3":
+     await peerSwitch.start()
+     defer:
+       await peerSwitch.stop()
+-    peerSwitch.mount(t.node.wakuStore)
++    Libp2pHost.new(peerSwitch).mountHandler(WakuStoreCodec, t.node.wakuStore)
+ 
+     let remotePeerInfo = peerSwitch.peerInfo.toRemotePeerInfo()
+     let fullAddr = $remotePeerInfo.addrs[0] & "/p2p/" & $remotePeerInfo.peerId

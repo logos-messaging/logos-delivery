@@ -295,19 +295,19 @@ suite "Extended nim-libp2p Peer Store":
       peerStore.hasPeers(protocolMatcher("/vac/waku/store/2.0.0"))
       not peerStore.hasPeers(protocolMatcher("/vac/waku/does-not-exist/2.0.0"))
 
-  test "getPeersByDirection()":
+  test "peers() filtered by direction":
     # When
-    let inPeers = peerStore.getPeersByDirection(Inbound)
-    let outPeers = peerStore.getPeersByDirection(Outbound)
+    let inPeers = peerStore.peers().filterIt(it.direction == Inbound)
+    let outPeers = peerStore.peers().filterIt(it.direction == Outbound)
 
     # Then
     check:
       inPeers.len == 4
       outPeers.len == 1
 
-  test "getDisconnectedPeers()":
+  test "peers() filtered by disconnected":
     # When
-    let disconnedtedPeers = peerStore.getDisconnectedPeers()
+    let disconnedtedPeers = peerStore.peers().filterIt(it.connectedness != Connected)
 
     # Then
     check:
@@ -340,7 +340,7 @@ suite "Extended nim-libp2p Peer Store":
     peerStore.addPeer(remotePeer)
 
     # When
-    peerStore.delete(p1)
+    peerStore.del(p1)
 
     # Then
     check:

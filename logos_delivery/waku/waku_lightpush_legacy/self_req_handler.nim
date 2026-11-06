@@ -12,6 +12,7 @@
 import results, chronos, chronicles, metrics, stew/byteutils
 import
   ../waku_core,
+  ../node/peer_manager,
   ./protocol,
   ./common,
   ./rpc,
@@ -28,7 +29,7 @@ proc handleSelfLightPushRequest*(
 
   try:
     # provide self peerId as now this node is used directly, thus there is no light client sender peer.
-    let selfPeerId = self.peerManager.switch.peerInfo.peerId
+    let selfPeerId = self.peerManager.selfPeerId()
 
     let req = PushRequest(pubSubTopic: pubSubTopic, message: message)
     let rpc = PushRPC(requestId: generateRequestId(self.rng), request: Opt.some(req))

@@ -316,9 +316,8 @@ proc selectRandomServicePeer*(
   if actualPeer.isSome():
     alreadyUsedServicePeers.add(actualPeer.get())
 
-  let supportivePeers = pm.switch.peerStore.getPeersByProtocol(codec).filterIt(
-      it notin alreadyUsedServicePeers
-    )
+  let supportivePeers =
+    pm.peerStore.peers(codec).filterIt(it notin alreadyUsedServicePeers)
   if supportivePeers.len == 0:
     return err()
 
@@ -369,7 +368,7 @@ proc maintainSubscription(
 
     # TODO: disconnet from failed actualFilterPeer
     # asyncSpawn(wakuNode.peerManager.switch.disconnect(p))
-    # wakunode.peerManager.peerStore.delete(actualFilterPeer)
+    # wakunode.peerManager.peerStore.del(actualFilterPeer)
 
     if noFailedSubscribes < maxFailedSubscribes:
       await sleepAsync(RetryWait) # Wait a bit before retrying

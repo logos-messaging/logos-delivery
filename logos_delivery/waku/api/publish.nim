@@ -19,7 +19,7 @@ import
     rln/rln_plugin,
     node/waku_node/lightpush,
     node/peer_manager,
-    waku_relay/protocol,
+    waku_relay,
     rln,
     waku_lightpush/common,
     waku_lightpush/rpc,
@@ -92,7 +92,7 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
   ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
   ## first, then draws one usable pool member uniformly.
-  let peerStore = self.node.peerManager.switch.peerStore
+  let peerStore = self.node.peerManager.peerStore
   let pool = MixNodePool.new(peerStore)
 
   let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)

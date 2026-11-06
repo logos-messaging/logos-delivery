@@ -7,8 +7,8 @@ import
   testutils/unittests,
   chronos,
   libp2p/switch,
-  libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub
+from logos_delivery/waku/libp2p_iface/pubsub as pubsub import nil
 import
   logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_relay],
   ../testlib/testutils,
@@ -34,7 +34,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to mount relay"
 
     check:
-      GossipSub(node1.wakuRelay).heartbeatFut.isNil() == false
+      node1.wakuRelay.pubsub.gossip.heartbeatFut.isNil() == false
 
     # Relay protocol starts if mounted before node start
 
@@ -47,13 +47,13 @@ suite "WakuNode - Relay":
 
     check:
       # Relay has not yet started as node has not yet started
-      GossipSub(node2.wakuRelay).heartbeatFut.isNil()
+      node2.wakuRelay.pubsub.gossip.heartbeatFut.isNil()
 
     await node2.start()
 
     check:
       # Relay started on node start
-      GossipSub(node2.wakuRelay).heartbeatFut.isNil() == false
+      node2.wakuRelay.pubsub.gossip.heartbeatFut.isNil() == false
 
     await allFutures([node1.stop(), node2.stop()])
 
@@ -174,7 +174,7 @@ suite "WakuNode - Relay":
     # set a topic validator for pubSubTopic
     proc validator(
         topic: string, msg: WakuMessage
-    ): Future[ValidationResult] {.async.} =
+    ): Future[pubsub.ValidationResult] {.async.} =
       ## the validator that only allows messages with contentTopic1 to be relayed
       check:
         topic == $shard
@@ -182,10 +182,10 @@ suite "WakuNode - Relay":
       # only relay messages with contentTopic1
       if msg.contentTopic != contentTopic1:
         completionFutValidatorRej.complete(true)
-        return ValidationResult.Reject
+        return pubsub.ValidationResult.Reject
 
       completionFutValidatorAcc.complete(true)
-      return ValidationResult.Accept
+      return pubsub.ValidationResult.Accept
 
     node2.wakuRelay.addValidator(validator)
 
@@ -259,15 +259,16 @@ suite "WakuNode - Relay":
 
     # Node 0 publishes 5 messages not compliant with WakuMessage (aka random bytes)
     for i in 0 .. 4:
-      discard
-        await nodes[0].wakuRelay.publish(DefaultPubsubTopic, urandom(1 * (10 ^ 2)))
+      discard await nodes[0].wakuRelay.pubsub.publish(
+        DefaultPubsubTopic, urandom(1 * (10 ^ 2))
+      )
 
     # Wait for gossip
     await sleepAsync(500.millis)
 
     # Verify that node 1 has received 5 invalid messages from node 0
     # meaning that message validity is enforced to gossip messages
-    var peerStats = nodes[1].wakuRelay.peerStats
+    var peerStats = nodes[1].wakuRelay.pubsub.gossip.peerStats
     check:
       peerStats[nodes[0].switch.peerInfo.peerId].topicInfos[DefaultPubsubTopic].invalidMessageDeliveries ==
         5.0
@@ -597,7 +598,7 @@ suite "WakuNode - Relay":
 
     # node[0] publishes wrong messages (random bytes not decoding into WakuMessage)
     for j in 0 ..< 50:
-      discard await nodes[0].wakuRelay.publish(topic, urandom(1 * (10 ^ 3)))
+      discard await nodes[0].wakuRelay.pubsub.publish(topic, urandom(1 * (10 ^ 3)))
 
     # long wait, must be higher than the configured decayInterval (how often score is updated)
     await sleepAsync(20.seconds)
@@ -605,7 +606,8 @@ suite "WakuNode - Relay":
     # all nodes lower the score of nodes[0] (will change if gossipsub params or amount of msg changes)
     for i in 1 ..< 5:
       check:
-        nodes[i].wakuRelay.peerStats[nodes[0].switch.peerInfo.peerId].score == -249999.9
+        nodes[i].wakuRelay.pubsub.gossip.peerStats[nodes[0].switch.peerInfo.peerId].score ==
+          -249999.9
 
     proc badPeerIsolated(): bool =
       nodes[0].peerManager.switch.connManager.getConnections().len == 0 and

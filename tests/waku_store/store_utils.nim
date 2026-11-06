@@ -3,7 +3,8 @@
 import chronos, chronicles
 
 import
-  logos_delivery/waku/[node/peer_manager, waku_store, waku_store/client],
+  logos_delivery/waku/
+    [node/peer_manager, waku_store, waku_store/client, libp2p_backend/host],
   ../testlib/[common, wakucore]
 
 proc newTestWakuStore*(
@@ -13,8 +14,7 @@ proc newTestWakuStore*(
     peerManager = PeerManager.new(switch)
     proto = WakuStore.new(peerManager, common.rng(), handler)
 
-  await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuStoreCodec, proto)
 
   return proto
 

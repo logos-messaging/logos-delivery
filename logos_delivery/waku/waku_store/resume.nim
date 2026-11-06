@@ -6,8 +6,6 @@ import
   chronicles,
   chronos,
   metrics,
-  libp2p/protocols/protocol,
-  libp2p/stream/connection,
   libp2p/crypto/crypto,
   eth/p2p/discoveryv5/enr
 

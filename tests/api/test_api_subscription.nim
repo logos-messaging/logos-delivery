@@ -10,13 +10,8 @@ import logos_delivery/messaging/messaging_metrics
 
 import
   logos_delivery,
-  logos_delivery/waku/[
-    waku_node,
-    waku_core,
-    waku_relay/protocol,
-    node/waku_node/filter,
-    node/subscription_manager,
-  ]
+  logos_delivery/waku/
+    [waku_node, waku_core, waku_relay, node/waku_node/filter, node/subscription_manager]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf

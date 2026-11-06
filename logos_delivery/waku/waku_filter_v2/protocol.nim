@@ -9,11 +9,11 @@ import
   chronicles,
   chronos,
   libp2p/peerid,
-  libp2p/protocols/protocol,
   libp2p/protocols/pubsub/timedcache
 import
   ../node/peer_manager,
   ../waku_core,
+  ../libp2p_iface/stream,
   ../common/rate_limit/per_peer_limiter,
   ./[common, protocol_metrics, rpc_codec, rpc, subscriptions]
 
@@ -22,14 +22,13 @@ logScope:
 
 const MaxContentTopicsPerRequest* = 100
 
-type WakuFilter* = ref object of LPProtocol
+type WakuFilter* = ref object
   subscriptions*: FilterSubscriptions
     # a mapping of peer ids to a sequence of filter criteria
   peerManager: PeerManager
   messageCache: TimedCache[string]
   peerRequestRateLimiter*: PerPeerRateLimiter
   subscriptionsManagerFut: Future[void]
-  peerConnections: Table[PeerId, Connection]
 
 proc pingSubscriber(wf: WakuFilter, peerId: PeerID): FilterSubscribeResult =
   debug "Pinging subscriber", peerId = peerId
@@ -172,13 +171,27 @@ proc pushToPeer(
 ): Future[Result[void, string]] {.async.} =
   debug "Pushing message to subscribed peer", peerId = shortLog(peerId)
 
-  let stream = (
-    await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
-  ).valueOr:
-    debug "Push to peer failed", error
-    return err("pushToPeer failed: " & $error)
+  let stream =
+    if wf.peerManager.isGoWaku(peerId):
+      ## go-waku closes the stream after one push, and over QUIC that remote close
+      ## is not observable, so reusing the stream would silently drop later pushes.
+      (await wf.peerManager.dialPeer(peerId, WakuFilterPushCodec)).valueOr:
+        error "Push to peer failed: could not open stream", peerId = shortLog(peerId)
+        return err("pushToPeer failed: no stream to peer: " & $peerId)
+    else:
+      (
+        await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
+      ).valueOr:
+        error "Push to peer failed", peerId = shortLog(peerId), error
+        return err("pushToPeer failed: " & $error)
 
-  await stream.writeLp(buffer)
+  let writeRes = catch:
+    await stream.writeLp(buffer)
+  if wf.peerManager.isGoWaku(peerId):
+    await stream.close()
+  writeRes.isOkOr:
+    error "Push to peer failed", peerId = shortLog(peerId), error = error.msg
+    return err("pushToPeer failed: " & error.msg)
 
   debug "Published successful", peerId = shortLog(peerId), stream
   logos_delivery_service_network_bytes.inc(
@@ -225,7 +238,7 @@ proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
   ## Remove subscriptions for peers that have been removed from peer store
   var peersToRemove: seq[PeerId]
   for peerId in wf.subscriptions.peersSubscribed.keys:
-    if not wf.peerManager.switch.peerStore.hasPeer(peerId, WakuFilterPushCodec):
+    if not wf.peerManager.peerStore.hasPeer(peerId, WakuFilterPushCodec):
       debug "Peer removed from peer store, removing subscription", peerId = peerId
       peersToRemove.add(peerId)
 
@@ -288,71 +301,63 @@ proc handleMessage*(
     handleMessageDurationSec
   )
 
-proc initProtocolHandler(wf: WakuFilter) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    debug "Filter subscribe request handler triggered",
-      peerId = shortLog(conn.peerId), conn
+proc handleStream*[S: IStream](
+    wf: WakuFilter, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  debug "Filter subscribe request handler triggered", peerId = shortLog(conn.peerId)
 
-    var response: FilterSubscribeResponse
+  var response: FilterSubscribeResponse
 
-    defer:
-      await conn.closeWithEOF()
+  defer:
+    await conn.closeWithEOF()
 
-    wf.peerRequestRateLimiter.checkUsageLimit(WakuFilterSubscribeCodec, conn):
-      var buf: seq[byte]
-      try:
-        buf = await conn.readLp(int(DefaultMaxSubscribeSize))
-      except LPStreamError:
-        debug "Failed to read stream in readLp",
-          remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
-        return
+  wf.peerRequestRateLimiter.checkUsageLimit(WakuFilterSubscribeCodec, conn):
+    var buf: seq[byte]
+    try:
+      buf = await conn.readLp(int(DefaultMaxSubscribeSize))
+    except CancelledError as exc:
+      raise exc
+    except CatchableError:
+      debug "Failed to read stream in readLp",
+        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+      return
 
-      logos_delivery_service_network_bytes.inc(
-        amount = buf.len().int64, labelValues = [WakuFilterSubscribeCodec, "in"]
-      )
+    logos_delivery_service_network_bytes.inc(
+      amount = buf.len().int64, labelValues = [WakuFilterSubscribeCodec, "in"]
+    )
 
-      let request = FilterSubscribeRequest.decode(buf).valueOr:
-        debug "Failed to decode filter subscribe request",
-          peer_id = conn.peerId, err = error
-        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
-        return
-
-      try:
-        response = await wf.handleSubscribeRequest(conn.peerId, request)
-      except CatchableError:
-        error "handleSubscribeRequest failed",
-          remote_peer_id = conn.peerId, err = getCurrentExceptionMsg()
-        return
-
-      debug "Sending filter subscribe response",
-        peer_id = shortLog(conn.peerId), response = response
-    do:
-      debug "Filter request rejected due rate limit exceeded",
-        peerId = shortLog(conn.peerId), limit = $wf.peerRequestRateLimiter.setting
-      response = FilterSubscribeResponse(
-        requestId: "N/A",
-        statusCode: FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32,
-        statusDesc: Opt.some("filter request rejected due rate limit exceeded"),
-      )
+    let request = FilterSubscribeRequest.decode(buf).valueOr:
+      debug "Failed to decode filter subscribe request",
+        peer_id = conn.peerId, err = error
+      logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
+      return
 
     try:
-      await conn.writeLp(response.encode().buffer) #TODO: toRPC() separation here
-    except LPStreamError:
-      debug "Failed to write stream in writeLp",
-        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
-    return
+      response = await wf.handleSubscribeRequest(conn.peerId, request)
+    except CatchableError:
+      error "handleSubscribeRequest failed",
+        remote_peer_id = conn.peerId, err = getCurrentExceptionMsg()
+      return
 
-  wf.handler = handler
-  wf.codec = WakuFilterSubscribeCodec
+    debug "Sending filter subscribe response",
+      peer_id = shortLog(conn.peerId), response = response
+  do:
+    debug "Filter request rejected due rate limit exceeded",
+      peerId = shortLog(conn.peerId), limit = $wf.peerRequestRateLimiter.setting
+    response = FilterSubscribeResponse(
+      requestId: "N/A",
+      statusCode: FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32,
+      statusDesc: Opt.some("filter request rejected due rate limit exceeded"),
+    )
 
-proc onPeerEventHandler(wf: WakuFilter, peerId: PeerId, event: PeerEvent) {.async.} =
-  ## These events are dispatched nim-libp2p, triggerPeerEvents proc
-  case event.kind
-  of Left:
-    ## Drop the previous known connection reference
-    wf.peerConnections.del(peerId)
-  else:
-    discard
+  try:
+    await conn.writeLp(response.encode().buffer) #TODO: toRPC() separation here
+  except CancelledError as exc:
+    raise exc
+  except CatchableError:
+    debug "Failed to write stream in writeLp",
+      remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+  return
 
 proc new*(
     T: type WakuFilter,
@@ -372,20 +377,6 @@ proc new*(
     peerRequestRateLimiter: PerPeerRateLimiter(setting: rateLimitSetting),
   )
 
-  proc peerEventHandler(
-      peerId: PeerId, event: PeerEvent
-  ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
-    try:
-      await wf.onPeerEventHandler(peerId, event)
-    except CatchableError:
-      error "onPeerEventHandler failed",
-        remote_peer_id = shortLog(peerId),
-        event = event,
-        error = getCurrentExceptionMsg()
-
-  peerManager.addExtPeerEventHandler(peerEventHandler, PeerEventKind.Left)
-
-  wf.initProtocolHandler()
   setServiceLimitMetric(WakuFilterSubscribeCodec, rateLimitSetting)
   return wf
 
@@ -398,10 +389,8 @@ proc periodicSubscriptionsMaintenance(wf: WakuFilter) {.async.} =
 
 proc start*(wf: WakuFilter) {.async.} =
   info "Starting filter protocol"
-  await procCall LPProtocol(wf).start()
   wf.subscriptionsManagerFut = wf.periodicSubscriptionsMaintenance()
 
 proc stop*(wf: WakuFilter) {.async.} =
   info "Stopping filter protocol"
   await wf.subscriptionsManagerFut.cancelAndWait()
-  await procCall LPProtocol(wf).stop()

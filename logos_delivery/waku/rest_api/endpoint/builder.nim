@@ -19,7 +19,7 @@ import
   logos_delivery/waku/rest_api/endpoint/health/handlers as rest_health_endpoint,
   logos_delivery/waku/rest_api/endpoint/admin/handlers as rest_admin_endpoint,
   logos_delivery/waku/waku_core/topics,
-  logos_delivery/waku/waku_relay/protocol
+  logos_delivery/waku/waku_relay
 
 ## Monitoring and external interfaces
 

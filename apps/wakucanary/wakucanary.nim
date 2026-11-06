@@ -271,7 +271,9 @@ proc main(rng: Rng): Future[int] {.async.} =
   node.wakuMetadata = metadata
   node.peerManager.wakuMetadata = metadata
   let mountRes = catch:
-    node.switch.mount(metadata, protocolMatcher(WakuMetadataCodec))
+    node.host.mountHandler(
+      WakuMetadataCodec, metadata, protocolMatcher(WakuMetadataCodec)
+    )
   mountRes.isOkOr:
     error "failed to mount metadata protocol", error = error.msg
     quit(QuitFailure)
@@ -298,8 +300,8 @@ proc main(rng: Rng): Future[int] {.async.} =
 
   debug "Connected, checking connection status", peerId = peer.peerId
 
-  let lp2pPeerStore = node.switch.peerStore
-  let conStatus = node.peerManager.switch.peerStore[ConnectionBook][peer.peerId]
+  let lp2pPeerStore = node.peerManager.peerStore
+  let conStatus = node.peerManager.peerStore[ConnectionBook][peer.peerId]
   debug "Connection status", peerId = peer.peerId, conStatus = conStatus
 
   var pingSuccess = true

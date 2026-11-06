@@ -39,7 +39,7 @@ proc newStandardSwitch*(
 ): Switch =
   ## Bare libp2p switch for tests. Replaces nim-libp2p's `newStandardSwitch`,
   ## removed in 2.0.0. Mirrors the *substrate* of the production switch
-  ## (`newWakuSwitch`, waku/node/waku_switch.nim): same transport (TCP only — no
+  ## (`newWakuSwitch`, waku/libp2p_backend/waku_switch.nim): same transport (TCP only — no
   ## QUIC yet, like prod), security (Noise), and muxers (yamux first so it is the
   ## one negotiated, then mplex). Tests therefore run on the same kernel peers
   ## actually use in prod. NB: the removed libp2p `newStandardSwitch` was

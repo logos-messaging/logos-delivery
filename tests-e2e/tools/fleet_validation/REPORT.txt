@@ -1,0 +1,81 @@
+logos.dev fleet validation - 2026-09-29
+Module v0.3.0-rc.3 / logos-delivery ca28145. Fleet: 6 nodes (AMS, US, HK x 2), cluster 3, 8 shards, no RLN.
+
+1. API USED (PUBLISH LAYER)
+1.1 All test traffic was published and received through the MESSAGING layer API: logosdelivery_send / logosdelivery_subscribe (liblogosdelivery C FFI, driven from Python).
+1.2 Messaging send service ran with reliability on: store confirmation, retries, backfill (store catch-up).
+1.3 The channels API (channel_send) was NOT used. The raw kernel was NOT used for publishing. Client nodes were created with the default entryLayer (channels), which only builds the stack; messaging is what sent.
+1.4 Edge clients publish via lightpush and receive via filter. Core clients publish and receive via relay.
+1.5 Fleet nodes run entryLayer=kernel (relay / store / filter / lightpush service).
+1.6 Implications:
+1.6.1 Store-confirmation errors and "Send queue full" come from the messaging send service.
+1.6.2 An app on the channels layer (built on messaging) adds its own overhead on top of these numbers.
+1.6.3 A kernel-level publisher avoids the ~6 s store wait (faster per client) but hits the same fleet limits (store ~20 msg/s, large payloads).
+
+2. HOW IT WAS VALIDATED
+2.1 Clients: one OS process per client node (Python + liblogosdelivery). Roles: sender or receiver; mode: Edge or Core; transport: TCP or QUIC.
+2.2 DC pinning: clients use the logos.dev settings (cluster 3, 8 shards, 150 KiB max size, reliability on) with entry nodes set to one DC's two fleet nodes and discv5/kad discovery off. Edge clients stay on their DC's two nodes; Core clients also learn other fleet nodes via rendezvous/peer exchange (cannot be disabled).
+2.3 Topics: one content topic per shard (8 topics, all shards covered), unique per run so no cross-run history.
+2.4 Payload: JSON with run id, sender id, step, sequence number and send timestamp, padded to the target size.
+2.5 Delivery check: every message whose send call succeeded is expected at every receiver (receivers subscribe to all 8 topics). Joined by (sender, sequence). Counted as live, history (recovered via store backfill) or lost. Duplicates counted by message hash.
+2.6 Latency: receive time minus send timestamp; all clients on the same host, so no clock skew.
+2.7 Send side: every send tracked through its events (message_propagated, message_sent = store-confirmed, message_error, message_queued) and the send call result.
+2.8 Fleet side, per step: Prometheus metrics scraped from all 6 nodes before and after (relay msgs, lightpush, filter, store inserts/errors, node errors, event-loop lag, CPU, memory, peers) plus WRN/ERR and IP-colocation prunes counted from each node's live log (via ssh tunnels, read-only).
+2.9 Concurrency: at most 4 clients at a time (2 senders + 2 receivers), because the fleet prunes more than 5 connections per source IP. Load generated from one Mac in Madrid.
+2.10 Scenarios:
+2.10.1 Smoke: same-DC send/receive, 1 msg/s per sender, 60 s, per DC, TCP and QUIC.
+2.10.2 Functional: all 9 DC pairs (incl. same DC), 1 msg/s per sender, 180 s, TCP and QUIC.
+2.10.3 Breaking point (AMS only so far): 120 s steps. Rate per sender 1, 5, 10, 25, 50, 100 msg/s (512 B), then payload 10, 50, 100, 145 KB at 5 msg/s per sender.
+
+3. LIMITS - AMS, TCP (only DC ramped so far; 2 senders, one Edge + one Core; rates are aggregate)
+3.1 NORMAL LOAD (SAFE): up to 10 msg/s aggregate with payloads up to 10 KB (~100 KB/s). 0 loss, 0 errors, store keeps up, fleet event-loop lag < 1 s.
+3.2 Message rate (512 B payloads):
+3.2.1 2 msg/s: OK.
+3.2.2 10 msg/s: OK, 0 loss, 0 errors.
+3.2.3 20 msg/s: BREAKS. Store starts failing (~500 insert errors per node, Postgres driver "another command is already in progress"). Edge senders lose 58%. Core senders lose nothing, but the app still gets "not confirmed by store" errors.
+3.2.4 50-200 msg/s: store failure grows, fleet event-loop lag up to 10 s. Relay alone still delivers all Core messages.
+3.3 Payload size (10 msg/s aggregate):
+3.3.1 10 KB (100 KB/s): OK.
+3.3.2 50 KB (500 KB/s): DEGRADED. No loss, but gossipsub "message too big to sent", store errors, p99 latency 13 s.
+3.3.3 100 KB (1 MB/s): BREAKS, 3-17% loss.
+3.3.4 145 KB (1.45 MB/s): BREAKS, up to 55% loss.
+3.4 What breaks first, in order:
+3.4.1 Store at ~20 msg/s: Postgres driver concurrency bug, not DB capacity.
+3.4.2 Edge publishing (lightpush) at the same ~20 msg/s, because it waits on store confirmation.
+3.4.3 Relay with payloads >= 50 KB: gossipsub drops "too big" messages even below the 150 KiB limit.
+3.5 What leaves the fleet degraded for hours afterwards: large payloads (>= 50 KB at 5 msg/s per sender, ~0.5-1.5 MB/s) for a few minutes. High rates of small messages did NOT cause it (see 5).
+3.6 Precision: the rate limit lies between 10 and 20 msg/s, the size limit between 10 KB and 50 KB (steps not refined). US and HK not measured yet. Client-count limit not measured (single IP).
+3.7 Single-client ceiling ~15-25 msg/s: "Send queue full" (each send waits ~6 s for store confirmation). Client-side, not fleet.
+
+4. OTHER RESULTS
+4.1 Normal load: 0 loss across smoke (36 pairs) and the full functional matrix (72 pairs = 9 DC pairs x Edge/Core x TCP/QUIC); every message propagated and store-confirmed.
+4.2 Latency p50 (from Madrid): AMS ~50-100 ms, US ~230 ms, HK ~400 ms, cross-region up to ~490 ms.
+4.3 Store confirmation (message_sent) p99 ~6-7 s.
+4.4 QUIC reachable on all 6 nodes (UDP 30303), same or better latency than TCP. The QUIC half of the AMS ramp is invalid (ran on an already-loaded fleet).
+4.5 Store backfill replays history correctly, no duplicates.
+
+5. CRITICAL - FLEET TAKES ~6 H TO RECOVER FROM OVERLOAD
+5.1 Triggered by the AMS ramp's large-payload steps (50-145 KB at 5 msg/s per sender).
+5.2 For hours after the ramp ended (~15:50 UTC), all 6 nodes kept relaying ~1.4-1.9k test messages/min each, all rejected by the archive as too old. AMS CPU ~98%, US ~58%, HK ~70%.
+5.3 Mechanisms seen in logs:
+5.3.1 Handler backlog: filter push and archive insert 20-35 min behind.
+5.3.2 Relay has no timestamp validation, so old messages are re-accepted and re-relayed after the gossipsub seen-cache expires.
+5.3.3 Filter keeps pushing to departed subscribers (timeouts).
+5.4 Other users' traffic on the fleet was delayed while this lasted.
+5.5 It cleared on its own at 21:40 UTC, about 6 h after the ramp ended (last rejected messages were ~6.5 h old). No node restarts (process start times unchanged). It stopped on all nodes at the same second, so the exact draining mechanism is still unclear. CPU back to 2-9%.
+
+6. BUGS / ISSUES FOUND
+6.1 QUIC half-open: when a fleet node closes a QUIC connection, the client does not notice for ~30 s; relay goes silently dead and backfill does not recover the gap (55% loss for the affected receiver). TCP detects it immediately.
+6.2 Postgres driver concurrency errors under load (3.4.1).
+6.3 "message too big to sent" for messages below max-msg-size (3.4.3).
+6.4 Relay accepts/forwards messages with stale timestamps; only the archive rejects them (enables 5).
+6.5 Every fleet node dials its own peer ID ~1/s (self-listed in the logos.dev entry nodes, never filtered).
+6.6 Config: entry-node overrides are appended to the preset's entry nodes instead of replacing them; Core mode cannot disable rendezvous/peer exchange (no per-DC pinning for Core).
+6.7 Lightpush 505 "No peers for topic" on US-01/HK-01 for third-party shard-7 traffic; likely duplicates mislabelled.
+6.8 IP colocation limit 5 silently prunes clients behind a shared NAT.
+6.9 A third-party mix node advertises a private IP (192.168.5.15).
+
+7. NOT DONE YET
+7.1 US and HK breaking-point ramps (fleet recovered at 21:40 UTC; can proceed with the rerun plan in 7.2).
+7.2 Rerun plan: auto-abort on store errors or "message too big", cool-down between TCP and QUIC, cap payloads at 50 KB, finer rate steps between 10 and 20 msg/s.
+7.3 Client-count breaking point needs multiple source IPs (colocation limit).

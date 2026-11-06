@@ -10,13 +10,6 @@ import
   eth/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
-  libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/pubsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport,
   brokers/broker_context
 
 import
@@ -36,6 +29,7 @@ import
     rln/types,
   ]
 import logos_delivery/api/events/kernel_events # MessageSeenEvent
+from logos_delivery/waku/libp2p_iface/pubsub as pubsub import nil
 
 export waku_relay.WakuRelayHandler
 
@@ -155,7 +149,7 @@ proc publish*(
 
 proc mountRelay*(
     node: WakuNode,
-    peerExchangeHandler = Opt.none(RoutingRecordsHandler),
+    peerExchangeHandler = Opt.none(PubSubPeerExchangeHandler),
     maxMessageSize = int(DefaultMaxWakuMessageSize),
 ): Future[Result[void, string]] {.async.} =
   if not node.wakuRelay.isNil():
@@ -171,15 +165,13 @@ proc mountRelay*(
 
   ## Add peer exchange handler
   if peerExchangeHandler.isSome():
-    node.wakuRelay.parameters.enablePX = true
-      # Feature flag for peer exchange in nim-libp2p
-    node.wakuRelay.routingRecordsHandler.add(peerExchangeHandler.get())
+    node.wakuRelay.enablePeerExchange(peerExchangeHandler.get())
 
   if node.started:
     await node.wakuRelay.start()
     await node.reconnectRelayPeers()
 
-  node.switch.mount(node.wakuRelay, protocolMatcher(WakuRelayCodec))
+  node.wakuRelay.mountOn(node.switch, protocolMatcher(WakuRelayCodec))
 
   debug "relay mounted successfully"
   return ok()

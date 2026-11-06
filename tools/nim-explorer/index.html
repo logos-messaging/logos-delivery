@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nim Explorer</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#1c2230;--mute:#667085;--line:#dfe3ea;--acc:#2f6fed;--bad:#d92d20;--warn:#b54708;--ok:#067647;--chip:#eef1f6}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1218;--panel:#171b23;--ink:#e6e9ef;--mute:#98a2b3;--line:#2a303c;--acc:#7aa2ff;--bad:#ff6b5e;--warn:#f5a85a;--ok:#4cd08c;--chip:#222836}}
+:root[data-theme=dark]{--bg:#0f1218;--panel:#171b23;--ink:#e6e9ef;--mute:#98a2b3;--line:#2a303c;--acc:#7aa2ff;--bad:#ff6b5e;--warn:#f5a85a;--ok:#4cd08c;--chip:#222836}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+header h1{font-size:16px;margin:0 8px 0 0}
+input,select,button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px}
+button{cursor:pointer}button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
+button:disabled{opacity:.5;cursor:default}
+label.chk{display:inline-flex;gap:5px;align-items:center;color:var(--mute);font-size:13px}
+#repo{width:260px}#branch{width:100px}#token{width:130px}
+nav{display:flex;gap:2px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:10px 12px;color:var(--mute);white-space:nowrap}
+nav button.on{color:var(--ink);border-color:var(--acc)}
+main{padding:16px;max-width:1500px;margin:0 auto}
+.tab{display:none}.tab.on{display:block}
+#status{padding:8px 16px;color:var(--mute);font-size:13px}
+#status.err{color:var(--bad)}
+progress{width:160px;vertical-align:middle}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.card,.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.card b{display:block;font-size:22px}.card span{color:var(--mute);font-size:12px}
+.card.bad b{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+h2{font-size:14px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
+th{color:var(--mute);font-weight:600;cursor:pointer;position:sticky;top:0;background:var(--panel)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+a.m{color:var(--acc);cursor:pointer;text-decoration:none}a.m:hover{text-decoration:underline}
+.chip{display:inline-block;background:var(--chip);border-radius:10px;padding:1px 8px;font-size:12px;margin:1px}
+.sev-high{color:var(--bad)}.sev-med{color:var(--warn)}.sev-low{color:var(--mute)}
+.bar{height:8px;background:var(--acc);border-radius:4px;min-width:2px}
+.gwrap{display:grid;grid-template-columns:1fr 340px;gap:12px;height:calc(100vh - 210px);min-height:480px}
+.gwrap .box{padding:0;position:relative;overflow:hidden}
+svg.g{width:100%;height:100%;display:block}
+.side{padding:12px;overflow:auto}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.node{stroke:var(--panel);stroke-width:1.2;cursor:pointer}
+.lbl{font-size:10px;fill:var(--ink);pointer-events:none;paint-order:stroke;stroke:var(--panel);stroke-width:3px}
+.lnk{stroke:var(--mute);stroke-opacity:.35;fill:none}
+.lnk.cyc{stroke:var(--bad);stroke-opacity:.9}
+.lnk.cut{stroke-dasharray:5 3}
+.dim{opacity:.08}
+.legend{position:absolute;left:10px;bottom:8px;font-size:12px;color:var(--mute);background:var(--panel);padding:4px 8px;border-radius:6px;border:1px solid var(--line)}
+.list{max-height:70vh;overflow:auto}
+.list div{padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer}.list div:hover,.list div.on{background:var(--chip)}
+.scrl{max-height:62vh;overflow:auto}
+.note{color:var(--mute);font-size:12px}
+@media(max-width:900px){.gwrap{grid-template-columns:1fr;height:auto}.gwrap .box:first-child{height:60vh}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Nim Explorer</h1>
+  <input id="repo" placeholder="owner/repo or GitHub URL" value="logos-messaging/logos-delivery" aria-label="GitHub repository">
+  <input id="branch" placeholder="branch" aria-label="Branch">
+  <input id="token" type="password" placeholder="token (optional)" autocomplete="off" aria-label="GitHub token">
+  <button class="primary" id="go">Analyse</button>
+  <label class="chk">or <input type="file" id="folder" webkitdirectory directory multiple style="display:none"><button id="pick" type="button">Open local folder</button></label>
+  <label class="chk"><input type="checkbox" id="incTests"> include tests/examples</label>
+  <button id="theme" title="Toggle theme">◐</button>
+</header>
+<div id="status">Enter a Nim repository and press Analyse. Static approximation: imports and type sections are parsed lexically.</div>
+<nav id="tabs">
+  <button data-t="overview" class="on">Overview</button><button data-t="graph">Dependency graph</button><button data-t="types">Types</button><button data-t="cycles">Cycles</button><button data-t="metrics">Metrics</button><button data-t="hints">Hints</button>
+</nav>
+<main>
+  <section class="tab on" id="t-overview"></section>
+  <section class="tab" id="t-graph">
+    <div class="tools">
+      <select id="gLevel" aria-label="Granularity"></select>
+      <select id="gLayout"><option value="force">Force layout</option><option value="layer">Layered (deps below)</option></select>
+      <select id="gSize"><option value="loc">size: LOC</option><option value="fanIn">size: fan-in</option><option value="pagerank">size: PageRank</option></select>
+      <select id="gFilter"><option value="all">all modules</option><option value="cycles">only cycle members</option><option value="focus">selected + neighbours</option></select>
+      <label class="chk"><input type="checkbox" id="gLabels" checked> labels</label>
+      <input id="gSearch" placeholder="find module…" list="modlist">
+      <datalist id="modlist"></datalist>
+      <button id="dot">Export DOT</button>
+    </div>
+    <div class="gwrap"><div class="box"><svg class="g" id="gsvg"></svg><div class="legend" id="glegend"></div></div><div class="box side" id="gside"><span class="note">Click a node for details.</span></div></div>
+  </section>
+  <section class="tab" id="t-types">
+    <div class="tools"><input id="tSearch" placeholder="search type…" style="width:220px"><select id="tKind"><option value="">all kinds</option></select><select id="tDepth"><option value="1">1 hop</option><option value="2">2 hops</option></select><span class="note" id="tCount"></span></div>
+    <div class="gwrap"><div class="box"><svg class="g" id="tsvg"></svg><div class="legend" id="tlegend"></div></div>
+      <div class="box side"><div class="list" id="tList" style="max-height:34vh"></div><div id="tSide" style="margin-top:10px"></div></div></div>
+  </section>
+  <section class="tab" id="t-cycles"></section>
+  <section class="tab" id="t-metrics"></section>
+  <section class="tab" id="t-hints"></section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="nimparse.js"></script>
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n) => n.toLocaleString();
+let M = null, BY = null, TD = null, pending = null;
+const st = { sel: null, tsel: null, sort: ["fanIn", -1] };
+
+// ------------------------------------------------------------ status / theme / tabs
+function status(msg, err) { const s = $("#status"); s.className = err ? "err" : ""; s.innerHTML = msg; }
+$("#theme").onclick = () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme:dark)").matches;
+  r.dataset.theme = dark ? "light" : "dark";
+};
+function showTab(t) {
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("on", s.id === "t-" + t));
+  if (M && t === "graph") drawModuleGraph();
+  if (M && t === "types") drawTypeGraph();
+}
+$("#tabs").onclick = (e) => { if (e.target.dataset.t) showTab(e.target.dataset.t); };
+const modLink = (id) => `<a class="m mono" data-mod="${esc(id)}">${esc(id)}</a>`;
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-mod]");
+  if (a) { st.sel = a.dataset.mod; showTab("graph"); }
+});
+
+// ------------------------------------------------------------ loading
+const idb = {
+  db: null,
+  async open() {
+    if (this.db) return this.db;
+    return (this.db = await new Promise((res, rej) => {
+      const r = indexedDB.open("nim-explorer", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("repos");
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+  },
+  async get(k) { try { const db = await this.open(); return await new Promise((res) => { const q = db.transaction("repos").objectStore("repos").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); } catch { return null; } },
+  async put(k, v) { try { const db = await this.open(); db.transaction("repos", "readwrite").objectStore("repos").put(v, k); } catch {} },
+};
+
+function parseRepo(s) {
+  const m = /(?:github\.com[/:])?([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/tree\/([^\s]+))?\/?$/.exec(s.trim());
+  return m ? { owner: m[1], repo: m[2], branch: m[3] || "" } : null;
+}
+
+async function fromGitHub() {
+  const r = parseRepo($("#repo").value);
+  if (!r) throw new Error("cannot parse repository: " + $("#repo").value);
+  const branch = $("#branch").value.trim() || r.branch || "HEAD";
+  const token = $("#token").value.trim();
+  const hdr = token ? { Authorization: "Bearer " + token } : {};
+  const tr = await fetch(`https://api.github.com/repos/${r.owner}/${r.repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`, { headers: hdr });
+  if (!tr.ok) {
+    const rem = tr.headers.get("x-ratelimit-remaining");
+    throw new Error(`GitHub API ${tr.status}${rem === "0" ? " (rate limit exhausted: add a token)" : ""} for ${r.owner}/${r.repo}@${branch}`);
+  }
+  const tree = await tr.json();
+  const key = `${r.owner}/${r.repo}@${tree.sha}`;
+  const wanted = tree.tree.filter((e) => e.type === "blob" && /\.(nim|nims|nimble|cfg)$/.test(e.path) && !NimParse.EXCLUDE_DEFAULT.test(e.path) && e.size < 2e6);
+  const cached = await idb.get(key);
+  if (cached) return { files: cached, note: `cached (${key.slice(0, 40)}…)` + (tree.truncated ? " — tree truncated" : "") };
+  const files = [];
+  let done = 0, i = 0;
+  const prog = document.createElement("progress"); prog.max = wanted.length;
+  status("Fetching files: "); $("#status").append(prog);
+  async function worker() {
+    while (i < wanted.length) {
+      const e = wanted[i++];
+      try {
+        const url = token
+          ? `https://api.github.com/repos/${r.owner}/${r.repo}/contents/${e.path.split("/").map(encodeURIComponent).join("/")}?ref=${e.sha}`
+          : `https://raw.githubusercontent.com/${r.owner}/${r.repo}/${tree.sha === undefined ? branch : branch}/${e.path.split("/").map(encodeURIComponent).join("/")}`;
+        const res = await fetch(url, { headers: token ? { ...hdr, Accept: "application/vnd.github.raw+json" } : {} });
+        if (res.ok) files.push({ path: e.path, text: await res.text() });
+      } catch {}
+      prog.value = ++done;
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, worker));
+  idb.put(key, files);
+  return { files, note: `fetched ${files.length}/${wanted.length} files` + (tree.truncated ? " — tree truncated (huge repo)" : "") };
+}
+
+async function fromFolder(list) {
+  const files = [];
+  const all = [...list].map((f) => ({ f, path: f.webkitRelativePath.split("/").slice(1).join("/") }))
+    .filter((x) => /\.(nim|nims|nimble|cfg)$/.test(x.path) && !NimParse.EXCLUDE_DEFAULT.test(x.path));
+  for (const x of all) files.push({ path: x.path, text: await x.f.text() });
+  return { files, note: `read ${files.length} local files` };
+}
+
+async function run(loader) {
+  try {
+    status("Loading…");
+    const { files, note } = await loader();
+    status("Analysing…");
+    await new Promise((r) => setTimeout(r));
+    pending = files;
+    analyseAndRender(note);
+  } catch (e) { status(esc(e.message || e), true); console.error(e); }
+}
+function analyseAndRender(note) {
+  const inc = $("#incTests").checked;
+  const exclude = inc ? NimParse.EXCLUDE_DEFAULT : new RegExp("(^|/)(tests?|examples?)/|" + NimParse.EXCLUDE_DEFAULT.source);
+  const t0 = performance.now();
+  M = NimParse.analyze(pending, { exclude });
+  BY = new Map(M.modules.map((m) => [m.id, m]));
+  TD = new Map(M.typeDefs.map((d) => [d.id, d]));
+  st.sel = null; st.tsel = null;
+  const edges = M.modules.reduce((a, m) => a + m.imports.length, 0);
+  status(`${esc(note)} — ${fmt(M.modules.length)} modules, ${fmt(edges)} imports, ${fmt(M.typeDefs.length)} types in ${(performance.now() - t0).toFixed(0)} ms. Static approximation.`);
+  renderOverview(); renderCycles(); renderMetrics(); renderHints(); setupGraphControls(); setupTypes();
+  const active = document.querySelector("nav button.on").dataset.t;
+  showTab(active);
+}
+$("#go").onclick = () => run(fromGitHub);
+$("#pick").onclick = () => $("#folder").click();
+$("#folder").onchange = (e) => run(() => fromFolder(e.target.files));
+$("#incTests").onchange = () => { if (pending) analyseAndRender("re-analysed"); };
+$("#repo").onkeydown = (e) => { if (e.key === "Enter") $("#go").click(); };
+
+// ------------------------------------------------------------ helpers
+const palette = ["#4e79a7", "#f28e2b", "#59a14f", "#b07aa1", "#76b7b2", "#edc948", "#9c755f", "#ff9da7", "#86bcb6", "#8cd17d", "#d37295", "#a0cbe8"];
+const colorOf = (() => { const m = new Map(); return (k) => { if (!m.has(k)) m.set(k, palette[m.size % palette.length]); return m.get(k); }; })();
+const topDir = (path, d = 2) => NimParse.dirAt(path, d);
+function table(cols, rows, opts = {}) {
+  return `<table><thead><tr>${cols.map((c) => `<th class="${c.n ? "n" : ""}" ${c.key ? `data-k="${c.key}"` : ""}>${c.h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.n ? "n" : ""}">${c.f(r)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function download(name, text, type = "text/plain") {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
+}
+
+// ------------------------------------------------------------ overview
+function renderOverview() {
+  const mods = M.modules, edges = mods.reduce((a, m) => a + m.imports.length, 0);
+  const loc = mods.reduce((a, m) => a + m.loc, 0);
+  const cyc = M.sccs.reduce((a, s) => a + s.modules.length, 0);
+  const fg = NimParse.folderGraph(M, 3);
+  const ext = new Map();
+  mods.forEach((m) => m.externals.forEach(([k, v]) => ext.set(k, (ext.get(k) || 0) + v)));
+  const extTop = [...ext].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const maxExt = extTop[0] ? extTop[0][1] : 1;
+  const top = (key, n = 10) => [...mods].sort((a, b) => b[key] - a[key]).slice(0, n);
+  const maxLevel = Math.max(0, ...mods.map((m) => m.level));
+  const kinds = {};
+  M.typeDefs.forEach((d) => (kinds[d.kind] = (kinds[d.kind] || 0) + 1));
+  const card = (v, l, bad) => `<div class="card ${bad ? "bad" : ""}"><b>${v}</b><span>${l}</span></div>`;
+  const rank = (key, lbl) => `<div class="box"><h2>${lbl}</h2>${table([{ h: "module", f: (m) => modLink(m.id) }, { h: key === "pagerank" ? "PR×1000" : key, n: 1, f: (m) => (key === "pagerank" ? (m.pagerank * 1000).toFixed(1) : fmt(m[key])) }], top(key))}</div>`;
+  $("#t-overview").innerHTML = `
+    <div class="cards">
+      ${card(fmt(mods.length), "modules")}${card(fmt(edges), "internal imports")}${card(fmt(loc), "lines of code")}
+      ${card(fmt(M.typeDefs.length), "types")}${card(maxLevel + 1, "dependency layers")}
+      ${card(M.sccs.length, "module import cycles", M.sccs.length)}${card(cyc, "modules in cycles", cyc)}${card(fg.sccs.length, "folder cycles (depth 3)", fg.sccs.length)}
+      ${card(M.unresolved.length, "unresolved relative imports", M.unresolved.length)}
+    </div>
+    <div class="grid2">
+      ${rank("fanIn", "Most depended-on (fan-in)")}${rank("fanOut", "Widest dependencies (fan-out)")}${rank("pagerank", "Most central (PageRank)")}${rank("loc", "Largest")}
+      <div class="box"><h2>External packages (import count)</h2>${extTop.map(([k, v]) => `<div style="display:flex;gap:8px;align-items:center"><span style="width:120px">${esc(k)}</span><div class="bar" style="width:${(v / maxExt) * 60}%"></div><span class="note">${v}</span></div>`).join("")}</div>
+      <div class="box"><h2>Type kinds</h2>${Object.entries(kinds).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="chip">${esc(k)}: ${v}</span>`).join("")}</div>
+      <div class="box"><h2>Unresolved relative imports</h2>${M.unresolved.length ? M.unresolved.slice(0, 15).map((u) => `<div class="mono">${esc(u.from)}:${u.line} → ${esc(u.spec)}</div>`).join("") : '<span class="note">none</span>'}</div>
+    </div>`;
+}
+
+// ------------------------------------------------------------ generic graph
+function drawGraph(svgEl, g, o = {}) {
+  const svg = d3.select(svgEl);
+  svg.selectAll("*").remove();
+  const W = svgEl.clientWidth || 900, H = svgEl.clientHeight || 600;
+  svg.attr("viewBox", `0 0 ${W} ${H}`);
+  const defs = svg.append("defs");
+  for (const [id, col] of [["a", "#8a93a6"], ["r", "#d92d20"]])
+    defs.append("marker").attr("id", "arr-" + id).attr("viewBox", "0 -4 8 8").attr("refX", 8).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto").append("path").attr("d", "M0,-4L8,0L0,4").attr("fill", col);
+  const root = svg.append("g");
+  svg.call(d3.zoom().scaleExtent([0.05, 8]).on("zoom", (e) => root.attr("transform", e.transform)));
+  const links = g.links.map((l) => ({ ...l }));
+  const nodes = g.nodes.map((n) => ({ ...n }));
+  const link = root.append("g").selectAll("line").data(links).join("line")
+    .attr("class", (d) => "lnk" + (d.cyc ? " cyc" : "") + (d.cut ? " cut" : ""))
+    .attr("stroke-width", (d) => Math.min(4, 0.6 + Math.log2(1 + (d.w || 1)) * 0.5))
+    .attr("stroke-dasharray", (d) => d.dash || null)
+    .attr("marker-end", (d) => (d.cyc ? "url(#arr-r)" : "url(#arr-a)"));
+  const node = root.append("g").selectAll("circle").data(nodes).join("circle")
+    .attr("class", "node").attr("r", (d) => d.r).attr("fill", (d) => d.color)
+    .attr("stroke", (d) => (d.cyc ? "#d92d20" : null)).attr("stroke-width", (d) => (d.cyc ? 2.5 : null));
+  node.append("title").text((d) => d.title || d.label);
+  const showLbl = o.labels !== false;
+  const lbl = root.append("g").selectAll("text").data(showLbl ? nodes : []).join("text").attr("class", "lbl").text((d) => d.label).attr("dx", (d) => d.r + 3).attr("dy", 3);
+  const nbr = new Map(nodes.map((n) => [n.id, new Set([n.id])]));
+  links.forEach((l) => { const s = l.source.id || l.source, t = l.target.id || l.target; nbr.get(s)?.add(t); nbr.get(t)?.add(s); });
+  function focus(id) {
+    if (!id) { node.classed("dim", false); link.classed("dim", false); lbl.classed("dim", false); return; }
+    const ns = nbr.get(id) || new Set([id]);
+    node.classed("dim", (d) => !ns.has(d.id)); lbl.classed("dim", (d) => !ns.has(d.id));
+    link.classed("dim", (d) => (d.source.id || d.source) !== id && (d.target.id || d.target) !== id);
+  }
+  node.on("click", (e, d) => { focus(d.id); o.onClick && o.onClick(d.id); });
+  svg.on("dblclick.zoom", null).on("click", (e) => { if (e.target === svgEl) { focus(null); o.onClick && o.onClick(null); } });
+  const sim = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id((d) => d.id).distance(o.dist || 50).strength(o.layer ? 0.05 : 0.25))
+    .force("charge", d3.forceManyBody().strength(o.charge || -90).distanceMax(400))
+    .force("collide", d3.forceCollide((d) => d.r + 2));
+  if (o.layer) {
+    const ml = Math.max(1, ...nodes.map((n) => n.level || 0));
+    sim.force("y", d3.forceY((d) => H - 40 - ((d.level || 0) * (H - 80)) / ml).strength(1))
+      .force("x", d3.forceX(W / 2).strength(0.03));
+  } else sim.force("center", d3.forceCenter(W / 2, H / 2)).force("x", d3.forceX(W / 2).strength(0.03)).force("y", d3.forceY(H / 2).strength(0.03));
+  node.call(d3.drag().on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+  sim.on("tick", () => {
+    link.each(function (d) {
+      const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y, len = Math.hypot(dx, dy) || 1;
+      d3.select(this).attr("x1", d.source.x).attr("y1", d.source.y).attr("x2", d.target.x - (dx / len) * (d.target.r + 2)).attr("y2", d.target.y - (dy / len) * (d.target.r + 2));
+    });
+    node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+    lbl.attr("x", (d) => d.x).attr("y", (d) => d.y);
+  });
+  sim.alpha(1);
+  for (let k = 0; k < 40; k++) sim.tick();
+  if (o.focus) focus(o.focus);
+  return { focus, stop: () => sim.stop() };
+}
+
+// ------------------------------------------------------------ dependency graph
+let GC = null;
+function setupGraphControls() {
+  $("#gLevel").innerHTML = `<option value="0">modules</option>` + [1, 2, 3, 4, 5].map((d) => `<option value="${d}" ${d === 3 ? "selected" : ""}>folders (depth ${d})</option>`).join("");
+  $("#modlist").innerHTML = M.modules.map((m) => `<option value="${esc(m.id)}">`).join("");
+  $("#gLevel").value = M.modules.length > 150 ? "3" : "0";
+  ["gLevel", "gLayout", "gSize", "gFilter", "gLabels"].forEach((id) => ($("#" + id).onchange = drawModuleGraph));
+  $("#gSearch").onchange = () => { const v = $("#gSearch").value; if (BY.has(v)) { st.sel = v; $("#gLevel").value = "0"; drawModuleGraph(); } };
+}
+function drawModuleGraph() {
+  const lvl = +$("#gLevel").value, layer = $("#gLayout").value === "layer", sizeKey = $("#gSize").value, filt = $("#gFilter").value;
+  const labels = $("#gLabels").checked;
+  let g;
+  if (lvl === 0) {
+    let mods = M.modules;
+    if (filt === "cycles") mods = mods.filter((m) => m.scc !== null);
+    if (filt === "focus" && st.sel && BY.has(st.sel)) {
+      const s = BY.get(st.sel), keep = new Set([s.id, ...s.imports.map((e) => e.to), ...s.importers]);
+      mods = mods.filter((m) => keep.has(m.id));
+    }
+    const ids = new Set(mods.map((m) => m.id));
+    const mx = Math.max(1, ...mods.map((m) => m[sizeKey]));
+    g = {
+      nodes: mods.map((m) => ({ id: m.id, label: m.name, level: m.level, r: 3 + Math.sqrt(m[sizeKey] / mx) * 14, color: colorOf(topDir(m.path)), cyc: m.scc !== null, title: `${m.id}\nLOC ${m.loc}, in ${m.fanIn}, out ${m.fanOut}, layer ${m.level}` })),
+      links: mods.flatMap((m) => m.imports.filter((e) => ids.has(e.to)).map((e) => ({ source: m.id, target: e.to, w: e.weight, cyc: m.scc !== null && BY.get(e.to).scc === m.scc, cut: e.cut, dash: e.conditional ? "2 3" : null }))),
+    };
+    $("#glegend").innerHTML = `${g.nodes.length} modules · colour = folder (depth 2) · red = in cycle · dashed red = suggested cut · dotted = conditional import`;
+  } else {
+    const fg = NimParse.folderGraph(M, lvl);
+    const mx = Math.max(1, ...fg.nodes.map((n) => n.loc));
+    g = {
+      nodes: fg.nodes.filter((n) => filt !== "cycles" || n.inCycle).map((n) => ({ id: n.id, label: n.id.split("/").slice(-2).join("/"), r: 5 + Math.sqrt(n.loc / mx) * 28, color: colorOf(n.id.split("/").slice(0, 2).join("/")), cyc: n.inCycle, title: `${n.id}\n${n.modules} modules, ${n.loc} LOC, ${n.types} types\ncohesion ${(n.cohesion * 100).toFixed(0)}%`, level: 0 })),
+      links: [],
+    };
+    const ids = new Set(g.nodes.map((n) => n.id));
+    g.links = fg.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ source: e.from, target: e.to, w: e.weight, cyc: e.inCycle }));
+    $("#glegend").innerHTML = `${g.nodes.length} folders at depth ${lvl} · node size = LOC · red = folder cycle`;
+  }
+  GC = drawGraph($("#gsvg"), g, { layer: layer && lvl === 0, labels: labels && g.nodes.length < 400, dist: lvl ? 90 : 40, charge: lvl ? -400 : -70, focus: lvl === 0 ? st.sel : null, onClick: (id) => { if (lvl === 0) { st.sel = id; renderSide(); } else renderFolderSide(id, lvl); } });
+  renderSide();
+}
+function renderSide() {
+  const el = $("#gside");
+  const m = st.sel && BY.get(st.sel);
+  if (!m) { el.innerHTML = '<span class="note">Click a node for details.</span>'; return; }
+  const list = (arr, f) => (arr.length ? arr.map(f).join("<br>") : '<span class="note">none</span>');
+  el.innerHTML = `<h2 class="mono">${esc(m.id)}</h2>
+    <p>${m.loc} LOC · layer ${m.level} · in ${m.fanIn} · out ${m.fanOut} · instability ${m.instability.toFixed(2)}${m.scc !== null ? ` · <span class="sev-high">cycle #${m.scc + 1}</span>` : ""}</p>
+    <p><button onclick="$('#gFilter').value='focus';drawModuleGraph()">Show only neighbours</button></p>
+    <h2>Imports (${m.imports.length})</h2>${list(m.imports, (e) => `${modLink(e.to)} <span class="note">${e.kinds.join("+")}${e.conditional ? " · cond" : ""}${e.cut ? ' · <span class="sev-high">cut?</span>' : ""}</span>`)}
+    <h2 style="margin-top:10px">Imported by (${m.importers.length})</h2>${list(m.importers, (i) => modLink(i))}
+    <h2 style="margin-top:10px">External</h2>${m.externals.map(([k, v]) => `<span class="chip">${esc(k)} ${v}</span>`).join("") || '<span class="note">none</span>'}
+    <h2 style="margin-top:10px">Types (${m.types.length})</h2>${list(m.types, (t) => `<a class="m" onclick="st.tsel='${esc(t)}';showTab('types')">${esc(TD.get(t).name)}</a> <span class="note">${esc(TD.get(t).kind)}</span>`)}`;
+}
+function renderFolderSide(id, lvl) {
+  const el = $("#gside");
+  if (!id) { el.innerHTML = '<span class="note">Click a node for details.</span>'; return; }
+  const mods = M.modules.filter((m) => NimParse.dirAt(m.path, lvl) === id).sort((a, b) => b.fanIn - a.fanIn);
+  el.innerHTML = `<h2 class="mono">${esc(id)}</h2><p>${mods.length} modules</p>${mods.map((m) => `${modLink(m.id)} <span class="note">in ${m.fanIn} out ${m.fanOut}</span>`).join("<br>")}`;
+}
+$("#dot").onclick = () => {
+  if (!M) return;
+  const q = (s) => '"' + s.replace(/"/g, '\\"') + '"';
+  let s = "digraph nim {\n  rankdir=LR; node [shape=box,fontsize=10];\n";
+  for (const m of M.modules) { s += `  ${q(m.id)}${m.scc !== null ? " [color=red]" : ""};\n`; for (const e of m.imports) s += `  ${q(m.id)} -> ${q(e.to)}${e.cut ? " [color=red,style=dashed]" : ""};\n`; }
+  download("nim-deps.dot", s + "}\n");
+};
+
+// ------------------------------------------------------------ types
+const KIND_COL = { object: "#4e79a7", "ref object": "#2f5f8f", enum: "#edc948", distinct: "#b07aa1", alias: "#9aa3b5", tuple: "#59a14f", ref: "#76b7b2", proc: "#f28e2b", concept: "#d37295" };
+function setupTypes() {
+  $("#tKind").innerHTML = '<option value="">all kinds</option>' + Object.keys(KIND_COL).map((k) => `<option>${k}</option>`).join("");
+  ["tSearch", "tKind", "tDepth"].forEach((id) => ($("#" + id).oninput = () => { renderTypeList(); drawTypeGraph(); }));
+  renderTypeList();
+}
+const tdeg = (() => ({ get: (id) => (M._deg ||= (() => { const d = new Map(); M.typeEdges.forEach((e) => { d.set(e.from, (d.get(e.from) || 0) + 1); d.set(e.to, (d.get(e.to) || 0) + 1); }); return d; })()).get(id) || 0 }))();
+function renderTypeList() {
+  const q = $("#tSearch").value.toLowerCase(), k = $("#tKind").value;
+  const arr = M.typeDefs.filter((d) => (!k || d.kind === k) && (!q || d.name.toLowerCase().includes(q) || d.module.toLowerCase().includes(q))).sort((a, b) => tdeg.get(b.id) - tdeg.get(a.id));
+  $("#tCount").textContent = `${arr.length} types`;
+  $("#tList").innerHTML = arr.slice(0, 300).map((d) => `<div data-t="${esc(d.id)}" class="${d.id === st.tsel ? "on" : ""}"><b>${esc(d.name)}</b> <span class="note">${esc(d.kind)} · ${tdeg.get(d.id)} links</span><br><span class="note mono">${esc(d.module)}</span></div>`).join("");
+  $("#tList").onclick = (e) => { const r = e.target.closest("[data-t]"); if (r) { st.tsel = r.dataset.t; renderTypeList(); drawTypeGraph(); } };
+}
+function drawTypeGraph() {
+  if (!M) return;
+  let ids;
+  const edges = M.typeEdges;
+  if (st.tsel && TD.has(st.tsel)) {
+    ids = new Set([st.tsel]);
+    for (let h = 0; h < +$("#tDepth").value; h++) for (const e of edges) { if (ids.has(e.from) || ids.has(e.to)) { ids.add(e.from); ids.add(e.to); } }
+    if (ids.size > 120) { const keep = new Set([st.tsel]); edges.forEach((e) => { if (e.from === st.tsel) keep.add(e.to); if (e.to === st.tsel) keep.add(e.from); }); ids = keep; }
+  } else {
+    const k = $("#tKind").value, q = $("#tSearch").value.toLowerCase();
+    ids = new Set(M.typeDefs.filter((d) => tdeg.get(d.id) > 0 && (!k || d.kind === k) && (!q || d.name.toLowerCase().includes(q))).sort((a, b) => tdeg.get(b.id) - tdeg.get(a.id)).slice(0, 120).map((d) => d.id));
+  }
+  const links = edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ source: e.from, target: e.to, w: 1, dash: e.kind === "alias" ? "5 3" : e.kind === "uses" ? "2 3" : null, kind: e.kind }));
+  const nodes = [...ids].map((id) => { const d = TD.get(id); return { id, label: d.name, r: 5 + Math.min(12, tdeg.get(id)), color: KIND_COL[d.kind] || "#999", title: `${d.name} (${d.kind})\n${d.module}`, cyc: id === st.tsel }; });
+  $("#tlegend").innerHTML = Object.entries(KIND_COL).map(([k, c]) => `<span style="color:${c}">●</span> ${k}`).join(" · ") + "<br>solid = has/inherits · dashed = alias · dotted = proc uses";
+  drawGraph($("#tsvg"), { nodes, links }, { charge: -160, dist: 70, onClick: (id) => { if (id) { st.tsel = id; renderTypeSide(); } } });
+  renderTypeSide();
+}
+function renderTypeSide() {
+  const el = $("#tSide"), d = st.tsel && TD.get(st.tsel);
+  if (!d) { el.innerHTML = '<span class="note">Click a type.</span>'; return; }
+  const out = M.typeEdges.filter((e) => e.from === d.id), inn = M.typeEdges.filter((e) => e.to === d.id);
+  const lk = (e, side) => `<a class="m" onclick="st.tsel='${esc(e[side])}';renderTypeList();drawTypeGraph()">${esc(TD.get(e[side]).name)}</a> <span class="note">${e.kind}</span>`;
+  el.innerHTML = `<h2>${esc(d.name)} <span class="note">${esc(d.kind)}${d.exported ? " · exported" : ""}${d.broker ? " · " + esc(d.broker) : ""}</span></h2>
+    <div>${modLink(d.module)}<span class="note">:${d.line}</span></div>
+    ${d.base ? `<p class="mono">${esc(d.base)}</p>` : ""}
+    ${d.fields.length ? `<table>${d.fields.map((f) => `<tr><td class="mono">${esc(f.name)}</td><td class="mono">${esc(f.type)}</td></tr>`).join("")}</table>` : ""}
+    ${d.members.length ? `<p class="mono">${esc(d.members.join(", "))}</p>` : ""}
+    <h2 style="margin-top:8px">Depends on (${out.length})</h2>${out.map((e) => lk(e, "to")).join("<br>") || '<span class="note">none</span>'}
+    <h2 style="margin-top:8px">Used by types (${inn.length})</h2>${inn.map((e) => lk(e, "from")).join("<br>") || '<span class="note">none</span>'}
+    <h2 style="margin-top:8px">Mentioned in modules (${(M.typeUsers.get(d.id) || []).length})</h2>${(M.typeUsers.get(d.id) || []).slice(0, 15).map(modLink).join("<br>")}`;
+}
+
+// ------------------------------------------------------------ cycles
+function renderCycles() {
+  const el = $("#t-cycles");
+  const fg = NimParse.folderGraph(M, 3);
+  if (!M.sccs.length && !fg.sccs.length) { el.innerHTML = '<div class="box"><b class="sev-low" style="color:var(--ok)">No import cycles found.</b></div>'; return; }
+  el.innerHTML = `<p class="note">A strongly connected component (SCC) is a set of modules that transitively import each other. Suggested cuts come from a greedy minimum feedback-arc heuristic, cheapest first (weight = 1 + exported types of the target that the importer mentions). Moving shared types into a lower module usually breaks the cycle.</p>` +
+    M.sccs.map((s) => `<div class="box" style="margin-bottom:12px"><h2>Cycle #${s.id + 1}: ${s.modules.length} modules</h2>
+      <div style="margin-bottom:8px">${s.modules.map(modLink).join(" ")}</div>
+      ${table([{ h: "suggested edge to cut", f: (b) => `${modLink(b.from)} → ${modLink(b.to)}` }, { h: "kind", f: (b) => b.kinds.join("+") }, { h: "weight", n: 1, f: (b) => b.weight }, { h: "cycle it closes", f: (b) => (b.cycle ? `<span class="mono note">${b.cycle.map((x) => esc(x.split("/").pop())).join(" → ")}</span>` : "") }], s.backEdges)}</div>`).join("") +
+    (fg.sccs.length ? `<div class="box"><h2>Folder-level cycles (depth 3)</h2>${fg.sccs.map((c) => `<div style="margin:6px 0">${c.map((f) => `<span class="chip">${esc(f)}</span>`).join("")}</div>`).join("")}</div>` : "");
+}
+
+// ------------------------------------------------------------ metrics
+function renderMetrics() {
+  const cols = [
+    { h: "module", key: "id", f: (m) => modLink(m.id) }, { h: "LOC", key: "loc", n: 1, f: (m) => m.loc }, { h: "in", key: "fanIn", n: 1, f: (m) => m.fanIn },
+    { h: "out", key: "fanOut", n: 1, f: (m) => m.fanOut }, { h: "instab.", key: "instability", n: 1, f: (m) => m.instability.toFixed(2) },
+    { h: "PR×1000", key: "pagerank", n: 1, f: (m) => (m.pagerank * 1000).toFixed(1) }, { h: "layer", key: "level", n: 1, f: (m) => m.level },
+    { h: "types", key: "ntypes", n: 1, f: (m) => m.types.length }, { h: "cycle", key: "scc", n: 1, f: (m) => (m.scc !== null ? "#" + (m.scc + 1) : "") },
+  ];
+  const el = $("#t-metrics");
+  el.innerHTML = `<div class="tools"><input id="mFilter" placeholder="filter…"><button id="csv">CSV</button><button id="json">JSON</button><span class="note">Click headers to sort. Instability = out/(in+out); layer 0 = no internal deps.</span></div><div class="box scrl" id="mTable"></div>`;
+  const draw = () => {
+    const f = $("#mFilter").value.toLowerCase();
+    const [k, dir] = st.sort;
+    const val = (m) => (k === "ntypes" ? m.types.length : k === "scc" ? (m.scc === null ? -1 : m.scc) : m[k]);
+    const rows = M.modules.filter((m) => m.id.toLowerCase().includes(f)).sort((a, b) => (val(a) > val(b) ? dir : val(a) < val(b) ? -dir : 0));
+    $("#mTable").innerHTML = table(cols, rows.slice(0, 1000));
+  };
+  draw();
+  $("#mFilter").oninput = draw;
+  $("#mTable").onclick = (e) => { const th = e.target.closest("th"); if (th && th.dataset.k) { st.sort = [th.dataset.k, st.sort[0] === th.dataset.k ? -st.sort[1] : -1]; draw(); } };
+  $("#csv").onclick = () => download("nim-metrics.csv", "module,loc,fan_in,fan_out,instability,pagerank,layer,types,cycle\n" + M.modules.map((m) => [m.id, m.loc, m.fanIn, m.fanOut, m.instability.toFixed(3), m.pagerank.toFixed(6), m.level, m.types.length, m.scc ?? ""].join(",")).join("\n"), "text/csv");
+  $("#json").onclick = () => download("nim-model.json", JSON.stringify({ modules: M.modules, typeEdges: M.typeEdges, sccs: M.sccs }, null, 1), "application/json");
+}
+
+// ------------------------------------------------------------ hints
+function renderHints() {
+  const kinds = [...new Set(M.hints.map((h) => h.kind))];
+  $("#t-hints").innerHTML = `<div class="tools"><select id="hKind"><option value="">all findings (${M.hints.length})</option>${kinds.map((k) => `<option value="${k}">${k} (${M.hints.filter((h) => h.kind === k).length})</option>`).join("")}</select><span class="note">Heuristics: treat as prompts for review, not verdicts.</span></div><div class="box scrl" id="hList"></div>`;
+  const draw = () => {
+    const k = $("#hKind").value;
+    $("#hList").innerHTML = M.hints.filter((h) => !k || h.kind === k).slice(0, 400).map((h) => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b class="sev-${h.severity}">${esc(h.kind)}</b> ${esc(h.title)}<br><span class="note">${esc(h.detail)}</span> ${h.modules.slice(0, 4).map(modLink).join(" ")}</div>`).join("");
+  };
+  draw();
+  $("#hKind").onchange = draw;
+}
+</script>
+</body>
+</html>

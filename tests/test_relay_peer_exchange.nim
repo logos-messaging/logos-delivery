@@ -11,6 +11,7 @@ import
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_node,
+  logos_delivery/waku/waku_relay,
   ./testlib/wakucore,
   ./testlib/wakunode
 
@@ -29,15 +30,15 @@ procSuite "Relay (GossipSub) Peer Exchange":
     # When both client and server mount relay without a handler
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    (await node2.mountRelay(Opt.none(RoutingRecordsHandler))).isOkOr:
+    (await node2.mountRelay(Opt.none(PubSubPeerExchangeHandler))).isOkOr:
       assert false, "Failed to mount relay"
 
     # Then the relays are mounted without a handler
     check:
-      node1.wakuRelay.parameters.enablePX == false
-      node1.wakuRelay.routingRecordsHandler.len == 0
-      node2.wakuRelay.parameters.enablePX == false
-      node2.wakuRelay.routingRecordsHandler.len == 0
+      node1.wakuRelay.pubsub.gossip.parameters.enablePX == false
+      node1.wakuRelay.pubsub.gossip.routingRecordsHandler.len == 0
+      node2.wakuRelay.pubsub.gossip.parameters.enablePX == false
+      node2.wakuRelay.pubsub.gossip.routingRecordsHandler.len == 0
 
   asyncTest "Mount relay with peer exchange handler":
     ## Given three nodes
@@ -54,29 +55,27 @@ procSuite "Relay (GossipSub) Peer Exchange":
 
     # Given some peer exchange handlers
     proc emptyPeerExchangeHandler(
-        peer: PeerId, topic: string, peers: seq[RoutingRecordsPair]
-    ) {.gcsafe.} =
+        peer: PeerIdStr, topic: string, peers: seq[PxPeer]
+    ) {.gcsafe, raises: [].} =
       discard
 
     var completionFut = newFuture[bool]()
     proc peerExchangeHandler(
-        peer: PeerId, topic: string, peers: seq[RoutingRecordsPair]
-    ) {.gcsafe.} =
+        peer: PeerIdStr, topic: string, peers: seq[PxPeer]
+    ) {.gcsafe, raises: [].} =
       ## Handle peers received via gossipsub peer exchange
-      let peerRecords = peers.mapIt(it.record.get())
-
       check:
         # Node 3 is informed of node 2 via peer exchange
-        peer == node1.switch.peerInfo.peerId
+        peer == $node1.switch.peerInfo.peerId
         topic == DefaultPubsubTopic
-        peerRecords.countIt(it.peerId == node2.switch.peerInfo.peerId) == 1
+        peers.countIt(it.peerId == $node2.switch.peerInfo.peerId) == 1
 
       if (not completionFut.completed()):
         completionFut.complete(true)
 
     let
-      emptyPeerExchangeHandle: RoutingRecordsHandler = emptyPeerExchangeHandler
-      peerExchangeHandle: RoutingRecordsHandler = peerExchangeHandler
+      emptyPeerExchangeHandle: PubSubPeerExchangeHandler = emptyPeerExchangeHandler
+      peerExchangeHandle: PubSubPeerExchangeHandler = peerExchangeHandler
 
     # Givem the nodes mount relay with a peer exchange handler
     (await node1.mountRelay(Opt.some(emptyPeerExchangeHandle))).isOkOr:
@@ -87,7 +86,7 @@ procSuite "Relay (GossipSub) Peer Exchange":
       assert false, "Failed to mount relay"
 
     # Ensure that node1 prunes all peers after the first connection
-    node1.wakuRelay.parameters.dHigh = 1
+    node1.wakuRelay.pubsub.gossip.parameters.dHigh = 1
 
     await allFutures([node1.start(), node2.start(), node3.start()])
 

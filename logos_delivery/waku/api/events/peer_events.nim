@@ -1,5 +1,5 @@
 import brokers/event_broker
-import libp2p/switch
+import libp2p/peerid
 
 type WakuPeerEventKind* {.pure.} = enum
   EventConnected

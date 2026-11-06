@@ -6,6 +6,17 @@ name: ci / windows (nix cross)
 on:
   pull_request:
     branches: [master]
+    # Mirrors the `all` deny-list in ci.yml minus nix/, which this build uses.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE-*'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'tests/**'
+      - 'tests-e2e/**'
+      - 'examples/**'
+      - 'docker/**'
+      - '.dockerignore'
   merge_group:
 
 concurrency:

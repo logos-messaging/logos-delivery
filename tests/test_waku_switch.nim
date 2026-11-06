@@ -9,7 +9,8 @@ import
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
   stew/byteutils
-import logos_delivery/waku/node/waku_switch, ./testlib/common, ./testlib/wakucore
+import
+  logos_delivery/waku/libp2p_backend/waku_switch, ./testlib/common, ./testlib/wakucore
 
 proc newCircuitRelayClientSwitch(relayClient: RelayClient): Switch =
   SwitchBuilder

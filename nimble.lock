@@ -614,8 +614,8 @@
       }
     },
     "secp256k1": {
-      "version": "#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
-      "vcsRevision": "d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
+      "version": "0.8.0.8.0",
+      "vcsRevision": "4e1ccd554777e4f9f790176bcffd8009a75fd2b7",
       "url": "https://github.com/status-im/nim-secp256k1",
       "downloadMethod": "git",
       "dependencies": [
@@ -625,7 +625,7 @@
         "nimcrypto"
       ],
       "checksums": {
-        "sha1": "6618ef9de17121846a8c1d0317026b0ce8584e10"
+        "sha1": "caafa7dd1675b6fb6ea27a347a6c605a553d046f"
       }
     },
     "libp2p": {

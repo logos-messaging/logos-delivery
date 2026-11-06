@@ -28,7 +28,7 @@ logScope:
 
 proc allPeers(pm: PeerManager): string =
   var allStr: string = ""
-  for idx, peer in pm.switch.peerStore.peers():
+  for idx, peer in pm.peerStore.peers():
     allStr.add(
       "    " & $idx & ". | " & constructMultiaddrStr(peer) & " | agent: " &
         peer.getAgent() & " | protos: " & $peer.protocols & " | caps: " &
@@ -37,10 +37,10 @@ proc allPeers(pm: PeerManager): string =
   return allStr
 
 proc logSelfPeers*(pm: PeerManager) =
-  let selfLighpushPeers = pm.switch.peerStore.getPeersByProtocol(WakuLightPushCodec)
-  let selfRelayPeers = pm.switch.peerStore.getPeersByProtocol(WakuRelayCodec)
-  let selfFilterPeers = pm.switch.peerStore.getPeersByProtocol(WakuFilterSubscribeCodec)
-  let selfPxPeers = pm.switch.peerStore.getPeersByProtocol(WakuPeerExchangeCodec)
+  let selfLighpushPeers = pm.peerStore.peers(WakuLightPushCodec)
+  let selfRelayPeers = pm.peerStore.peers(WakuRelayCodec)
+  let selfFilterPeers = pm.peerStore.peers(WakuFilterSubscribeCodec)
+  let selfPxPeers = pm.peerStore.peers(WakuPeerExchangeCodec)
 
   let printable = catch:
     """*------------------------------------------------------------------------------------------*

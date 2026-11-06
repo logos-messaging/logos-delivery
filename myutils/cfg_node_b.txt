@@ -1,0 +1,24 @@
+ports-shift = 1
+cluster-id = 16
+shard = [ 32, 64 ]
+staticnode = [ "/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAm2eqzqp6xn32fzgGi8K4BuF88W4Xy6yxsmDcW8h1gj6ie" ]
+log-level = "DEBUG"
+nodekey = "0d714a1fada214dead6dc9c7274585eca0ff292451866e7d6d677dc818e8ccd2"
+lightpush = true
+relay = true
+filter = false
+rest-admin = true
+rest = true
+metrics-server = true
+num-shards-in-network = 100
+max-msg-size = "1024KiB"
+
+dns-discovery = true
+dns-discovery-url = 'enrtree://AI4W5N5IFEUIHF5LESUAOSMV6TKWF2MB6GU2YK7PU4TYUGUNOCEPW@boot.staging.status.nodes.status.im'
+discv5-discovery = true
+discv5-udp-port = 9000
+discv5-enr-auto-update = false
+discv5-bootstrap-node = [
+]
+
+

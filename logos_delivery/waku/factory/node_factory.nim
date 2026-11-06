@@ -4,7 +4,6 @@ import
   chronicles,
   chronos,
   libp2p/peerid,
-  libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
@@ -35,6 +34,8 @@ import
   ../waku_store,
   ../waku_store/common as store_common,
   ../waku_filter_v2,
+  ../waku_relay,
+  ../libp2p_backend/module_transport,
   ../waku_peer_exchange,
   ../discovery/waku_kademlia,
   ../discovery/service_discovery,
@@ -153,28 +154,13 @@ proc initNode(
 
 ## Mount protocols
 
-proc setupProtocols(
-    node: WakuNode, conf: WakuConf
-): Future[Result[void, string]] {.async.} =
-  ## Setup configured protocols on an existing Waku v2 node.
-  ## Optionally include persistent message storage.
-  ## No protocols are started yet.
+proc onFatalErrorAction(msg: string) {.gcsafe.} =
+  ## Action to be taken when an internal error occurs during the node run.
+  ## e.g. the connection with the database is lost and not recovered.
+  error "Unrecoverable error occurred", error = msg
+  quit(QuitFailure)
 
-  node.mountMetadata(conf.clusterId, conf.subscribeShards).isOkOr:
-    return err("failed to mount waku metadata protocol: " & error)
-
-  var onFatalErrorAction = proc(msg: string) {.gcsafe, closure.} =
-    ## Action to be taken when an internal error occurs during the node run.
-    ## e.g. the connection with the database is lost and not recovered.
-    error "Unrecoverable error occurred", error = msg
-    quit(QuitFailure)
-
-  #mount mix
-  if conf.mixConf.isSome():
-    let mixConf = conf.mixConf.get()
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
-      return err("failed to mount waku mix protocol: " & $error)
-
+proc setupServiceDiscovery(node: WakuNode, conf: WakuConf): Result[void, string] =
   # Setup service discovery
   if conf.kademliaDiscoveryConf.isSome():
     var kadConf = conf.kademliaDiscoveryConf.get()
@@ -198,6 +184,11 @@ proc setupProtocols(
       error "Can't set provider for ServicePeersRequest", error = error
       return err("Can't set provider for ServicePeersRequest: " & error)
 
+  return ok()
+
+proc setupStoreService(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
 
@@ -240,32 +231,36 @@ proc setupProtocols(
         node.peerManager.addServicePeer(storeNode, WakuReconciliationCodec)
         node.peerManager.addServicePeer(storeNode, WakuTransferCodec)
 
-  mountStoreClient(node)
-  if conf.remoteStoreNode.isSome():
-    let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
-      return err("failed to set node waku store peer: " & error)
-    node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
+  return ok()
 
-  if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
-    node.setupStoreResume()
+proc parsePxPeer(pxPeer: PxPeer): Result[RemotePeerInfo, string] =
+  let peerId = PeerId.init(pxPeer.peerId).valueOr:
+    return err("invalid peer id: " & $error)
+  var addrs: seq[MultiAddress]
+  for address in pxPeer.addrs:
+    let multiAddr = MultiAddress.init(address).valueOr:
+      return err("invalid multiaddress: " & address)
+    addrs.add(multiAddr)
+  return ok(RemotePeerInfo.init(peerId, addrs))
 
-  if conf.shardingConf.kind == AutoSharding:
-    node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
-      return err("failed to mount waku auto sharding: " & error)
-  else:
-    info "Auto sharding is disabled"
-
+proc setupRelay(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
   # Mount relay on all nodes
-  var peerExchangeHandler = Opt.none(RoutingRecordsHandler)
+  var peerExchangeHandler = Opt.none(PubSubPeerExchangeHandler)
   if conf.relayPeerExchange:
     proc handlePeerExchange(
-        peer: PeerId, topic: string, peers: seq[RoutingRecordsPair]
-    ) {.gcsafe.} =
+        peer: PeerIdStr, topic: string, peers: seq[PxPeer]
+    ) {.gcsafe, raises: [].} =
       ## Handle peers received via gossipsub peer exchange
       # TODO: Only consider peers on pubsub topics we subscribe to
-      let exchangedPeers = peers.filterIt(it.record.isSome())
-        # only peers with populated records
-        .mapIt(toRemotePeerInfo(it.record.get()))
+      var exchangedPeers: seq[RemotePeerInfo]
+      for pxPeer in peers:
+        let remotePeer = parsePxPeer(pxPeer).valueOr:
+          debug "skipping invalid exchanged peer",
+            src = peer, topic = topic, peer = pxPeer.peerId, error = error
+          continue
+        exchangedPeers.add(remotePeer)
 
       debug "adding exchanged peers",
         src = peer, topic = topic, numPeers = exchangedPeers.len
@@ -302,16 +297,9 @@ proc setupProtocols(
         protectedShard = shardKey.shard, publicKey = shardKey.key
     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
 
-  if conf.rendezvous:
-    await node.mountRendezvous(conf.clusterId, shards)
-    await node.mountRendezvousClient(conf.clusterId)
+  return ok()
 
-  # Keepalive mounted on all nodes
-  try:
-    await mountLibp2pPing(node)
-  except CatchableError:
-    return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
-
+proc setupRln(node: WakuNode, conf: WakuConf): Future[Result[void, string]] {.async.} =
   # RLN backend selected by configuration source: each descriptor probes
   # whether its own source is present — host callbacks installed over the C
   # ABI (`logosdelivery_rln_set_plugin`) for the external backend, CLI/preset
@@ -338,6 +326,11 @@ proc setupProtocols(
         mounted, RlnCommonConf(disableValidation: conf.rlnDisableValidation)
       )
 
+  return ok()
+
+proc setupLightPushService(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
   # NOTE Must be mounted after relay
   if conf.lightPush:
     try:
@@ -349,14 +342,11 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku lightpush protocol: " & getCurrentExceptionMsg())
 
-  mountLightPushClient(node)
-  mountLegacyLightPushClient(node)
-  if conf.remoteLightPushNode.isSome():
-    let lightPushNode = parsePeerInfo(conf.remoteLightPushNode.get()).valueOr:
-      return err("failed to set node waku lightpush peer: " & error)
-    node.peerManager.addServicePeer(lightPushNode, WakuLightPushCodec)
-    node.peerManager.addServicePeer(lightPushNode, WakuLegacyLightPushCodec)
+  return ok()
 
+proc setupFilterService(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
   # Filter setup. NOTE Must be mounted after relay
   if conf.filterServiceConf.isSome():
     let confFilter = conf.filterServiceConf.get()
@@ -371,16 +361,11 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku filter protocol: " & getCurrentExceptionMsg())
 
-  await node.mountFilterClient()
-  if conf.remoteFilterNode.isSome():
-    let filterNode = parsePeerInfo(conf.remoteFilterNode.get()).valueOr:
-      return err("failed to set node waku filter peer: " & error)
-    try:
-      node.peerManager.addServicePeer(filterNode, WakuFilterSubscribeCodec)
-    except CatchableError:
-      return
-        err("failed to mount waku filter client protocol: " & getCurrentExceptionMsg())
+  return ok()
 
+proc setupPeerExchangeService(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
   # waku peer exchange setup
   if conf.peerExchangeService:
     try:
@@ -395,6 +380,82 @@ proc setupProtocols(
     let peerExchangeNode = parsePeerInfo(conf.remotePeerExchangeNode.get()).valueOr:
       return err("failed to set node waku peer-exchange peer: " & error)
     node.peerManager.addServicePeer(peerExchangeNode, WakuPeerExchangeCodec)
+
+  return ok()
+
+proc setupProtocols(
+    node: WakuNode, conf: WakuConf
+): Future[Result[void, string]] {.async.} =
+  ## Setup configured protocols on an existing Waku v2 node.
+  ## Optionally include persistent message storage.
+  ## No protocols are started yet.
+
+  node.mountMetadata(conf.clusterId, conf.subscribeShards).isOkOr:
+    return err("failed to mount waku metadata protocol: " & error)
+
+  #mount mix
+  if conf.mixConf.isSome():
+    let mixConf = conf.mixConf.get()
+    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+      return err("failed to mount waku mix protocol: " & $error)
+
+  ?node.setupServiceDiscovery(conf)
+  ?(await node.setupStoreService(conf))
+  mountStoreClient(node)
+  if conf.remoteStoreNode.isSome():
+    let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
+      return err("failed to set node waku store peer: " & error)
+    node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
+
+  if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
+    node.setupStoreResume()
+
+  if conf.shardingConf.kind == AutoSharding:
+    node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
+      return err("failed to mount waku auto sharding: " & error)
+  else:
+    info "Auto sharding is disabled"
+
+  ?(await node.setupRelay(conf))
+
+  if conf.rendezvous:
+    let shards = conf.subscribeShards.mapIt(
+      RelayShard(clusterId: conf.clusterId, shardId: uint16(it))
+    )
+    await node.mountRendezvous(conf.clusterId, shards)
+    await node.mountRendezvousClient(conf.clusterId)
+
+  # Keepalive mounted on all nodes
+  try:
+    await mountLibp2pPing(node)
+  except CatchableError:
+    return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
+
+  ?(await node.setupRln(conf))
+
+  ?(await node.setupLightPushService(conf))
+
+  mountLightPushClient(node)
+  mountLegacyLightPushClient(node)
+  if conf.remoteLightPushNode.isSome():
+    let lightPushNode = parsePeerInfo(conf.remoteLightPushNode.get()).valueOr:
+      return err("failed to set node waku lightpush peer: " & error)
+    node.peerManager.addServicePeer(lightPushNode, WakuLightPushCodec)
+    node.peerManager.addServicePeer(lightPushNode, WakuLegacyLightPushCodec)
+
+  ?(await node.setupFilterService(conf))
+
+  await node.mountFilterClient()
+  if conf.remoteFilterNode.isSome():
+    let filterNode = parsePeerInfo(conf.remoteFilterNode.get()).valueOr:
+      return err("failed to set node waku filter peer: " & error)
+    try:
+      node.peerManager.addServicePeer(filterNode, WakuFilterSubscribeCodec)
+    except CatchableError:
+      return
+        err("failed to mount waku filter client protocol: " & getCurrentExceptionMsg())
+
+  ?(await node.setupPeerExchangeService(conf))
 
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
@@ -444,8 +505,8 @@ proc startNode*(
   # retrieve px peers and add the to the peer store
   if conf.remotePeerExchangeNode.isSome():
     var desiredOutDegree = DefaultPXNumPeersReq
-    if not node.wakuRelay.isNil() and node.wakuRelay.parameters.d.uint64() > 0:
-      desiredOutDegree = node.wakuRelay.parameters.d.uint64()
+    if not node.wakuRelay.isNil() and node.wakuRelay.meshTargetDegree() > 0:
+      desiredOutDegree = node.wakuRelay.meshTargetDegree().uint64()
     (await node.fetchPeerExchangePeers(desiredOutDegree)).isOkOr:
       debug "error while fetching peers from peer exchange", error = error
 
@@ -462,9 +523,42 @@ proc startNode*(
 
   return ok()
 
+proc checkLibp2pImpl*(conf: WakuConf): Result[void, string] =
+  ## `libp2pImpl` and the installed libp2p module must agree: installing a
+  ## module while the implementation is the built-in one, or the reverse, is a
+  ## startup error.
+  let installed = libp2pModuleInstalled()
+  if conf.libp2pImpl == Libp2pImplBuiltin:
+    if installed:
+      return err(
+        "libp2p module '" & libp2pModuleName() & "' is installed but libp2pImpl is '" &
+          Libp2pImplBuiltin & "'"
+      )
+    return ok()
+
+  if not installed:
+    return err(
+      "libp2pImpl is '" & conf.libp2pImpl &
+        "' but no libp2p module is installed (install it before creating the node)"
+    )
+  if libp2pModuleName() != conf.libp2pImpl:
+    return err(
+      "libp2pImpl is '" & conf.libp2pImpl & "' but the installed libp2p module is '" &
+        libp2pModuleName() & "'"
+    )
+  # The node runs on a nim-libp2p `Switch` (peer book, address management and
+  # the libp2p-native protocols), so it cannot yet take the module as its host:
+  # the adapters exist (libp2p_backend/module_*), the node wiring does not.
+  return err(
+    "libp2pImpl '" & conf.libp2pImpl &
+      "' is not supported by the node yet: the node still runs on the built-in host"
+  )
+
 proc setupNode*(
     wakuConf: WakuConf, rng: crypto.Rng = crypto.newRng(), relay: Relay
 ): Future[Result[WakuNode, string]] {.async.} =
+  ?checkLibp2pImpl(wakuConf)
+
   ## Libplum resolves an any strategy when the NAT service starts.
   wakuConf.endpointConf.natStrategy =
     await resolveNatStrategy(wakuConf.endpointConf.natStrategy)

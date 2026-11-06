@@ -7,7 +7,7 @@ import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 
 import
   logos_delivery,
-  logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol],
+  logos_delivery/waku/[waku_node, waku_core, waku_relay],
   logos_delivery/waku/node/health_monitor/
     [topic_health, health_status, protocol_health, health_report],
   logos_delivery/waku/requests/health_requests,

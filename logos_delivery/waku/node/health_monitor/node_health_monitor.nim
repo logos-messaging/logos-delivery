@@ -5,9 +5,6 @@ import
   std/[sets, random, sequtils, json, strutils, tables],
   chronos,
   chronicles,
-  libp2p/protocols/rendezvous,
-  libp2p/protocols/pubsub,
-  libp2p/protocols/pubsub/rpc/messages,
   libp2p_mix/pool,
   logos_delivery/api/types,
   logos_delivery/api/events/kernel_events,
@@ -59,7 +56,6 @@ type NodeHealthMonitor* = ref object
   strength: Table[WakuProtocol, int]
     ## latest known connectivity strength (e.g. connected peer count) metric for each protocol.
     ## if it doesn't make sense for the protocol in question, this is set to zero.
-  relayObserver: PubSubObserver
   peerEventListener: WakuPeerEventListener
   shardHealthListener: EventShardTopicHealthChangeListener
   eventLoopLagExceeded: bool
@@ -109,11 +105,10 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  let relayPeers = hm.node.wakuRelay.getConnectedPubSubPeers(pubsubTopic = "").valueOr:
+  let count = hm.node.wakuRelay.getNumConnectedPeers(pubsubTopic = "").valueOr:
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  let count = relayPeers.len
   hm.strength[WakuProtocol.RelayProtocol] = count
   if count == 0:
     return p.notReady("No connected peers")
@@ -293,7 +288,7 @@ proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RendezvousProtocol] = 0
     return p.notMounted()
 
-  let peerCount = countCapablePeers(hm, RendezVousCodec)
+  let peerCount = countCapablePeers(hm, Libp2pRendezVousCodec)
   hm.strength[WakuProtocol.RendezvousProtocol] = peerCount
   if peerCount == 0:
     return p.notReady("No Rendezvous peers are available yet")
@@ -307,7 +302,7 @@ proc hasMixExit(hm: NodeHealthMonitor): bool =
   let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
   if not slotted.isNil() and pool.get(slotted.peerId).isSome():
     return true
-  let peerStore = hm.node.switch.peerStore
+  let peerStore = hm.node.peerManager.peerStore
   return pool.peerIds().anyIt(
       peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
     )
@@ -495,7 +490,7 @@ proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
     if isNil(hm.node.wakuRelay):
       Opt.none(int)
     else:
-      Opt.some(hm.node.wakuRelay.parameters.dLow)
+      Opt.some(hm.node.wakuRelay.meshLowDegree())
   let status = calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
   if hm.adjustConnectionStatus.isNil():
     return status
@@ -542,26 +537,6 @@ proc getSyncNodeHealthReport*(hm: NodeHealthMonitor): HealthReport =
   report.connectionStatus = hm.connectionStatus
   report.protocolsHealth = hm.cachedProtocols
   return report
-
-proc onRelayMsg(
-    hm: NodeHealthMonitor, peer: PubSubPeer, msg: var RPCMsg
-) {.gcsafe, raises: [].} =
-  ## Inspect Relay events for health-update relevance in Core (Relay) mode.
-  ##
-  ## For Core (Relay) mode, the connectivity health state is mostly determined
-  ## by the relay protocol state (it is the dominant factor), and we know
-  ## that a peer Relay can only affect this Relay's health if there is a
-  ## subscription change or a mesh (GRAFT/PRUNE) change.
-  ##
-
-  if msg.subscriptions.len == 0:
-    if msg.control.isNone():
-      return
-    let ctrl = msg.control.get()
-    if ctrl.graft.len == 0 and ctrl.prune.len == 0:
-      return
-
-  hm.healthUpdateEvent.fire()
 
 proc healthLoop(hm: NodeHealthMonitor) {.async.} =
   ## Re-evaluate the global health state of the node when notified of a potential change,
@@ -610,10 +585,11 @@ proc selectRandomPeersForKeepalive(
   if isNil(node.wakuRelay):
     return selectRandomPeers(outPeers, numRandomPeers)
 
-  let meshPeers = node.wakuRelay.getPeersInMesh().valueOr:
+  let meshPeerIds = node.wakuRelay.getPeersInMesh().valueOr:
     debug "Failed getting peers in mesh for ping", error = error
     # Fallback to random selection from all outgoing peers
     return selectRandomPeers(outPeers, numRandomPeers)
+  let meshPeers = meshPeerIds.mapIt(PeerId.init(it)).filterIt(it.isOk()).mapIt(it.get())
 
   trace "Mesh peers for keepalive", meshPeers = meshPeers
 
@@ -756,11 +732,10 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
     return err("startHealthMonitor: no node peerManager to monitor")
 
   if not isNil(hm.node.wakuRelay):
-    hm.relayObserver = PubSubObserver(
-      onRecv: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
-        hm.onRelayMsg(peer, msgs)
+    hm.node.wakuRelay.onTopologyChange(
+      proc() {.gcsafe, raises: [].} =
+        hm.healthUpdateEvent.fire()
     )
-    hm.node.wakuRelay.addObserver(hm.relayObserver)
 
   hm.peerEventListener = WakuPeerEvent.listen(
     hm.node.brokerCtx,
@@ -812,8 +787,8 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
     hm.node.brokerCtx, hm.shardHealthListener
   )
 
-  if not isNil(hm.node.wakuRelay) and not isNil(hm.relayObserver):
-    hm.node.wakuRelay.removeObserver(hm.relayObserver)
+  if not isNil(hm.node.wakuRelay):
+    hm.node.wakuRelay.clearTopologyChangeHandler()
 
 proc new*(
     T: type NodeHealthMonitor,
@@ -821,7 +796,7 @@ proc new*(
     dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): T =
   let om = OnlineMonitor.init(dnsNameServers)
-  om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
+  om.setPeerStoreToOnlineMonitor(node.peerManager.peerStore)
   om.addOnlineStateObserver(node.peerManager.getOnlineStateObserver())
   let hm = T(
     nodeHealth: INITIALIZING,
@@ -832,15 +807,15 @@ proc new*(
   )
   # Mix peers are learnt from discovery without any peer event, so without this
   # a filled (or drained) pool would wait for an unrelated trigger to show up.
-  node.switch.peerStore[MixPubKeyBook].addHandler(
+  node.peerManager.peerStore[MixPubKeyBook].addHandler(
     proc(peerId: PeerId) {.gcsafe, raises: [].} =
       hm.onMixPoolChange()
   )
   # ENR discovery and identify learn a pool peer's lightpush (its exit role)
   # through ProtoBook alone, without writing its mix key.
-  node.switch.peerStore[ProtoBook].addHandler(
+  node.peerManager.peerStore[ProtoBook].addHandler(
     proc(peerId: PeerId) {.gcsafe, raises: [].} =
-      if peerId in node.switch.peerStore[MixPubKeyBook]:
+      if peerId in node.peerManager.peerStore[MixPubKeyBook]:
         hm.onMixPoolChange()
   )
   return hm

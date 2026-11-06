@@ -89,10 +89,6 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
         Opt.none(Curve25519Key),
   )
 
-proc delete*(peerStore: PeerStore, peerId: PeerId) =
-  # Delete all the information of a given peer.
-  peerStore.del(peerId)
-
 proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   let allKeys = concat(
       toSeq(peerStore[LastSeenOutboundBook].book.keys()),
@@ -213,49 +209,15 @@ proc hasPeers*(peerStore: PeerStore, protocolMatcher: Matcher): bool =
   # Returns `true` if the peerstore has any peer matching the protocolMatcher
   toSeq(peerStore[ProtoBook].book.values()).anyIt(it.anyIt(protocolMatcher(it)))
 
-proc getCapacity*(peerStore: PeerStore): int =
-  peerStore.capacity
-
-proc setCapacity*(peerStore: PeerStore, capacity: int) =
-  peerStore.capacity = capacity
-
 proc getWakuProtos*(peerStore: PeerStore): seq[string] =
   toSeq(peerStore[ProtoBook].book.values()).flatten().deduplicate().filterIt(
     it.startsWith("/vac/waku")
   )
 
-proc getPeersByDirection*(
-    peerStore: PeerStore, direction: PeerDirection
-): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.direction == direction)
-
-proc getDisconnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness != Connected)
-
-proc getConnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness == Connected)
-
-proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.protocols.contains(proto))
-
-proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness != CannotConnect)
-
 proc supportsShard*(peer: RemotePeerInfo, cluster, shard: uint16): bool =
   return
     (peer.enr.isSome() and peer.enr.get().containsShard(cluster, shard)) or
     peer.shards.contains(shard)
-
-proc getPeersByShard*(
-    peerStore: PeerStore, cluster, shard: uint16
-): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.supportsShard(cluster, shard))
-
-proc getPeersByCapability*(
-    peerStore: PeerStore, cap: Capabilities
-): seq[RemotePeerInfo] =
-  return
-    peerStore.peers.filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
 
 iterator enrPeers*(
     peerStore: PeerStore

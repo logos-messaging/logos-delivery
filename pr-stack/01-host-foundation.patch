@@ -1,0 +1,696 @@
+diff --git a/apps/wakucanary/wakucanary.nim b/apps/wakucanary/wakucanary.nim
+index aee5bd0..10ffdc7 100644
+--- a/apps/wakucanary/wakucanary.nim
++++ b/apps/wakucanary/wakucanary.nim
+@@ -271,7 +271,9 @@ proc main(rng: Rng): Future[int] {.async.} =
+   node.wakuMetadata = metadata
+   node.peerManager.wakuMetadata = metadata
+   let mountRes = catch:
+-    node.switch.mount(metadata, protocolMatcher(WakuMetadataCodec))
++    node.host.mountHandler(
++      WakuMetadataCodec, metadata, protocolMatcher(WakuMetadataCodec)
++    )
+   mountRes.isOkOr:
+     error "failed to mount metadata protocol", error = error.msg
+     quit(QuitFailure)
+@@ -298,8 +300,8 @@ proc main(rng: Rng): Future[int] {.async.} =
+ 
+   debug "Connected, checking connection status", peerId = peer.peerId
+ 
+-  let lp2pPeerStore = node.switch.peerStore
+-  let conStatus = node.peerManager.switch.peerStore[ConnectionBook][peer.peerId]
++  let lp2pPeerStore = node.peerManager.peerStore
++  let conStatus = node.peerManager.peerStore[ConnectionBook][peer.peerId]
+   debug "Connection status", peerId = peer.peerId, conStatus = conStatus
+ 
+   var pingSuccess = true
+diff --git a/logos_delivery/waku/common/rate_limit/per_peer_limiter.nim b/logos_delivery/waku/common/rate_limit/per_peer_limiter.nim
+index 886a8f9..bfc553b 100644
+--- a/logos_delivery/waku/common/rate_limit/per_peer_limiter.nim
++++ b/logos_delivery/waku/common/rate_limit/per_peer_limiter.nim
+@@ -6,7 +6,9 @@
+ 
+ {.push raises: [].}
+ 
+-import results, std/tables, libp2p/stream/connection
++import results, std/tables
++
++import ../../libp2p_iface/stream
+ 
+ import ./[single_token_limiter, service_metrics], ../../utils/tableutils
+ 
+@@ -26,7 +28,7 @@ proc mgetOrPut(
+ template checkUsageLimit*(
+     t: var PerPeerRateLimiter,
+     proto: string,
+-    conn: Connection,
++    conn: untyped,
+     bodyWithinLimit, bodyRejected: untyped,
+ ) =
+   checkUsageLimit(t.mgetOrPut(conn.peerId), proto, conn, bodyWithinLimit, bodyRejected)
+diff --git a/logos_delivery/waku/common/rate_limit/request_limiter.nim b/logos_delivery/waku/common/rate_limit/request_limiter.nim
+index b93ce07..d2f295f 100644
+--- a/logos_delivery/waku/common/rate_limit/request_limiter.nim
++++ b/logos_delivery/waku/common/rate_limit/request_limiter.nim
+@@ -15,7 +15,9 @@
+ 
+ {.push raises: [].}
+ 
+-import results, std/math, chronicles, chronos/timer, libp2p/stream/connection
++import results, std/math, chronicles, chronos/timer
++
++import ../../libp2p_iface/stream
+ 
+ import std/times except TimeInterval, Duration, seconds, minutes
+ 
+@@ -41,7 +43,7 @@ type RequestRateLimiter* = ref object of RootObj
+   peerBucketSetting*: RateLimitSetting
+   peerUsage: TimedMap[PeerId, TokenBucket]
+   checkUsageImpl: proc(
+-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
++    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
+   ): bool {.gcsafe, raises: [].}
+ 
+ proc newMainTokenBucket(
+@@ -81,22 +83,22 @@ proc mgetOrPut(
+   return requestRateLimiter.peerUsage.mgetOrPut(peerId, bucketForNew)
+ 
+ proc checkUsageUnlimited(
+-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
++    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
+ ): bool {.gcsafe, raises: [].} =
+   true
+ 
+ proc checkUsageLimited(
+-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
++    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
+ ): bool {.gcsafe, raises: [].} =
+   # Lazy-init the main bucket using the first observed request time. This makes
+   # refill behavior deterministic under tests where `now` is controlled.
+   if isNil(t.tokenBucket):
+     t.tokenBucket = newMainTokenBucket(t.mainBucketSetting, t.ratio, now)
+ 
+-  let peerBucket = t.mgetOrPut(conn.peerId, now)
++  let peerBucket = t.mgetOrPut(peerId, now)
+   ## check requesting peer's usage is not over the calculated ratio and let that peer go which not requested much/or this time...
+   if not peerBucket.tryConsume(1, now):
+-    trace "peer usage limit reached", peer = conn.peerId
++    trace "peer usage limit reached", peer = peerId
+     return false
+ 
+   # Ok if the peer can consume, check the overall budget we have left
+@@ -106,14 +108,19 @@ proc checkUsageLimited(
+   return true
+ 
+ proc checkUsage*(
+-    t: var RequestRateLimiter, proto: string, conn: Connection, now = Moment.now()
++    t: var RequestRateLimiter, proto: string, peerId: PeerId, now = Moment.now()
++): bool {.raises: [].} =
++  t.checkUsageImpl(t, proto, peerId, now)
++
++proc checkUsage*[S: IStream](
++    t: var RequestRateLimiter, proto: string, conn: S, now = Moment.now()
+ ): bool {.raises: [].} =
+-  t.checkUsageImpl(t, proto, conn, now)
++  t.checkUsage(proto, conn.peerId, now)
+ 
+ template checkUsageLimit*(
+     t: var RequestRateLimiter,
+     proto: string,
+-    conn: Connection,
++    conn: untyped,
+     bodyWithinLimit, bodyRejected: untyped,
+ ) =
+   if t.checkUsage(proto, conn):
+diff --git a/logos_delivery/waku/common/rate_limit/single_token_limiter.nim b/logos_delivery/waku/common/rate_limit/single_token_limiter.nim
+index 86ab2a9..25b3394 100644
+--- a/logos_delivery/waku/common/rate_limit/single_token_limiter.nim
++++ b/logos_delivery/waku/common/rate_limit/single_token_limiter.nim
+@@ -2,7 +2,7 @@
+ 
+ {.push raises: [].}
+ 
+-import results, chronos/timer, libp2p/stream/connection
++import results, chronos/timer
+ 
+ import std/times except TimeInterval, Duration
+ 
+@@ -51,7 +51,7 @@ proc checkUsage(
+ template checkUsageLimit*(
+     t: var Opt[TokenBucket] | var TokenBucket,
+     proto: string,
+-    conn: Connection,
++    conn: untyped,
+     bodyWithinLimit, bodyRejected: untyped,
+ ) =
+   if t.checkUsage(proto):
+diff --git a/b/logos_delivery/waku/libp2p_backend/host.nim b/logos_delivery/waku/libp2p_backend/host.nim
+new file mode 100644
+index 0000000..6f82350
+--- /dev/null
++++ b/logos_delivery/waku/libp2p_backend/host.nim
+@@ -0,0 +1,152 @@
++## nim-libp2p `Switch` implementation of the `IHost` interface.
++##
++## Streams handed out by this host are nim-libp2p `Connection`s, which satisfy
++## `IStream` as they are.
++{.push raises: [].}
++
++import
++  std/tables,
++  results,
++  chronos,
++  libp2p/[switch, peerinfo, connmanager, errors, peerstore],
++  libp2p/protocols/protocol,
++  libp2p/stream/connection,
++  libp2p/stream/lpstream,
++  libp2p/muxers/muxer
++import ../libp2p_iface/host except Stream
++import ../libp2p_iface/stream
++
++export host
++
++type Libp2pHost* = ref object
++  switch*: Switch
++
++proc new*(T: type Libp2pHost, switch: Switch): Libp2pHost =
++  return Libp2pHost(switch: switch)
++
++type Libp2pStream* = Connection ## A stream opened through this host.
++
++proc peerId*(h: Libp2pHost): PeerId =
++  return h.switch.peerInfo.peerId
++
++proc peerStore*(h: Libp2pHost): PeerStore =
++  ## The peer book; backend specific for now.
++  return h.switch.peerStore
++
++proc listenAddrs*(h: Libp2pHost): seq[MultiAddress] =
++  return h.switch.peerInfo.listenAddrs
++
++proc announcedAddrs*(h: Libp2pHost): seq[MultiAddress] =
++  return h.switch.peerInfo.addrs
++
++proc start*(
++    h: Libp2pHost
++): Future[void] {.async: (raises: [CancelledError, LPError]).} =
++  await h.switch.start()
++
++proc stop*(h: Libp2pHost): Future[void] {.async: (raises: [CancelledError]).} =
++  await h.switch.stop()
++
++proc disconnect*(
++    h: Libp2pHost, peerId: PeerId
++): Future[void] {.async: (raises: [CancelledError]).} =
++  await h.switch.disconnect(peerId)
++
++proc isConnected*(h: Libp2pHost, peerId: PeerId): bool =
++  return h.switch.isConnected(peerId)
++
++proc connections*(h: Libp2pHost): seq[HostConnection] =
++  var conns: seq[HostConnection]
++  for peerId, muxers in h.switch.connManager.getConnections():
++    for muxer in muxers:
++      var streams: seq[HostStream]
++      for stream in muxer.getStreams():
++        streams.add(
++          HostStream(protocol: stream.protocol, inbound: stream.dir == Direction.In)
++        )
++      conns.add(
++        HostConnection(
++          peerId: peerId,
++          inbound: muxer.connection.transportDir == Direction.In,
++          observedAddr: muxer.connection.observedAddr,
++          streams: streams,
++        )
++      )
++  return conns
++
++proc findOpenStream*(
++    h: Libp2pHost, peerId: PeerId, protocol: string
++): Result[Opt[Connection], string] =
++  ## The first open stream of the peer on `protocol`, if any. Errors when the
++  ## peer has no connection at all.
++  let peerIdsMuxers = h.switch.connManager.getConnections()
++  if not peerIdsMuxers.contains(peerId):
++    return err("peerId not found in connManager: " & $peerId)
++
++  for muxer in peerIdsMuxers.getOrDefault(peerId):
++    for stream in muxer.getStreams():
++      if stream.protocol == protocol and not LPStream(stream).isClosed and
++          not LPStream(stream).isClosedRemotely:
++        return ok(Opt.some(stream))
++  return ok(Opt.none(Connection))
++
++proc connect*(
++    h: Libp2pHost, peerId: PeerId, addrs: seq[MultiAddress]
++): Future[void] {.async: (raises: [DialFailedError, CancelledError]).} =
++  await h.switch.connect(peerId, addrs)
++
++proc toSwitchHandler(
++    handler: HostPeerEventHandler, kind: HostPeerEventKind
++): PeerEventHandler =
++  return proc(peerId: PeerId, event: PeerEvent) {.async: (raises: [CancelledError]).} =
++    # `initiator` only exists on Joined events
++    let initiator = event.kind == PeerEventKind.Joined and event.initiator
++    await handler(peerId, HostPeerEvent(kind: kind, initiator: initiator))
++
++proc addPeerEventHandler*(
++    h: Libp2pHost, handler: HostPeerEventHandler, kind: HostPeerEventKind
++) =
++  ## Calls handler on every peer event of the given kind.
++  let switchKind =
++    case kind
++    of HostPeerEventKind.Joined: PeerEventKind.Joined
++    of HostPeerEventKind.Left: PeerEventKind.Left
++    of HostPeerEventKind.Identified: PeerEventKind.Identified
++  h.switch.addPeerEventHandler(handler.toSwitchHandler(kind), switchKind)
++
++proc mount*(
++    h: Libp2pHost, codec: string, handler: LPProtoHandler, matcher: Matcher = nil
++) {.raises: [LPError].} =
++  ## Registers a handler for the streams opened on `codec`.
++  let proto = LPProtocol()
++  proto.codec = codec
++  proto.handler = handler
++  # a running switch only accepts protocols that are started, and this one has nothing to start
++  proto.started = true
++  h.switch.mount(proto, matcher)
++
++proc mountHandler*[P](
++    h: Libp2pHost, codec: string, proto: P, matcher: Matcher = nil
++) {.raises: [LPError].} =
++  ## Mounts `proto` on `codec`: its `handleStream` serves every incoming stream.
++  mixin handleStream
++  let handler = proc(
++      stream: Connection, name: string
++  ) {.async: (raises: [CancelledError]).} =
++    await proto.handleStream(stream, name)
++
++  h.mount(codec, handler, matcher)
++
++proc dial*(
++    h: Libp2pHost, peerId: PeerId, addrs: seq[MultiAddress], codec: string
++): Future[Connection] {.async: (raises: [DialFailedError, CancelledError]).} =
++  return await h.switch.dial(peerId, addrs, codec)
++
++proc dial*(
++    h: Libp2pHost, peerId: PeerId, codec: string
++): Future[Connection] {.async: (raises: [DialFailedError, CancelledError]).} =
++  return await h.switch.dial(peerId, codec)
++
++static:
++  doAssert Libp2pHost is IHost
++  doAssert Connection is IStream
+diff --git a/b/logos_delivery/waku/libp2p_iface/host.nim b/logos_delivery/waku/libp2p_iface/host.nim
+new file mode 100644
+index 0000000..a0e72be
+--- /dev/null
++++ b/logos_delivery/waku/libp2p_iface/host.nim
+@@ -0,0 +1,47 @@
++## Owned host interface: connectivity services logos-delivery needs from a
++## libp2p stack (identity, listening, dialing, protocol registration, peer
++## events). See `stream.nim` for the streams a host hands out.
++{.push raises: [].}
++
++import chronos, results
++import libp2p/[peerid, multiaddress]
++import ./stream
++
++export peerid, multiaddress, stream
++
++type
++  HostPeerEventKind* {.pure.} = enum
++    Joined ## a connection to the peer was established
++    Left ## the last connection to the peer closed
++    Identified ## the peer finished the identify exchange
++
++  HostPeerEvent* = object
++    kind*: HostPeerEventKind
++    initiator*: bool ## we dialed the peer (Joined only)
++
++  HostPeerEventHandler* = proc(peerId: PeerId, event: HostPeerEvent): Future[void] {.
++    async: (raises: [CancelledError]), gcsafe
++  .}
++
++  HostStream* = object
++    protocol*: string
++    inbound*: bool
++
++  HostConnection* = object
++    peerId*: PeerId
++    inbound*: bool
++    observedAddr*: Opt[MultiAddress]
++    streams*: seq[HostStream] ## the logical streams open on the connection
++
++type IHost* = concept h
++  # Contract a host backend must satisfy; a backend is any type for which these
++  # calls compile.
++  h.peerId() is PeerId
++  h.listenAddrs() is seq[MultiAddress]
++  h.announcedAddrs() is seq[MultiAddress]
++  h.start() is Future[void]
++  h.stop() is Future[void]
++  h.disconnect(PeerId) is Future[void]
++  h.connections() is seq[HostConnection]
++  h.addPeerEventHandler(HostPeerEventHandler, HostPeerEventKind)
++  h.isConnected(PeerId) is bool
+diff --git a/b/logos_delivery/waku/libp2p_iface/stream.nim b/logos_delivery/waku/libp2p_iface/stream.nim
+new file mode 100644
+index 0000000..ffe1745
+--- /dev/null
++++ b/logos_delivery/waku/libp2p_iface/stream.nim
+@@ -0,0 +1,30 @@
++## Owned stream interface: what the request/response protocols need from an
++## open libp2p stream.
++##
++## The stream error types of the contract are exported too: a stream raises
++## `MaxSizeError` when a length-prefixed message exceeds the limit and
++## `LPStreamError` (or a subtype, e.g. `LPStreamRemoteClosedError`) when the
++## stream fails.
++##
++## `PeerId` is a plain value type (the multihash bytes) shared by the whole code
++## base, so it is used as is; behaviour (reading, writing, closing) is expressed
++## through the concept below.
++{.push raises: [].}
++
++import chronos
++import libp2p/peerid
++from libp2p/stream/lpstream import
++  LPStreamError, MaxSizeError, LPStreamRemoteClosedError
++
++export peerid, LPStreamError, MaxSizeError, LPStreamRemoteClosedError
++
++type IStream* = concept s
++  # Contract a stream must satisfy. The calls may raise (the underlying
++  # transport can fail); protocols guard them with `catch`. Closing only
++  # raises CancelledError, so a protocol can close from a `defer`.
++  s.peerId is PeerId
++  s.writeLP(seq[byte]) is Future[void]
++  s.readLp(int) is Future[seq[byte]]
++  s.close() is Future[void]
++  s.closeWithEof() is Future[void]
++  s.atEof() is bool
+diff --git a/logos_delivery/waku/node/waku_node.nim b/logos_delivery/waku/node/waku_node.nim
+index 5a6a092..680d10a 100644
+--- a/logos_delivery/waku/node/waku_node.nim
++++ b/logos_delivery/waku/node/waku_node.nim
+@@ -32,6 +32,7 @@ import
+     waku_core,
+     waku_core/topics/sharding,
+     waku_relay,
++    libp2p_backend/host,
+     waku_archive,
+     waku_store/protocol as store,
+     waku_store/client as store_client,
+@@ -72,7 +73,7 @@ import
+   ./shard_subscription,
+   ./edge_filter_sub_state
+ 
+-export shard_subscription, edge_filter_sub_state
++export shard_subscription, edge_filter_sub_state, host
+ 
+ logScope:
+   topics = "waku node"
+@@ -108,6 +109,7 @@ type
+   WakuNode* = ref object
+     peerManager*: PeerManager
+     switch*: Switch
++    host*: Libp2pHost
+     wakuRelay*: WakuRelay
+     wakuArchive*: waku_archive.WakuArchive
+     wakuStore*: store.WakuStore
+@@ -364,6 +366,7 @@ proc new*(
+   let node = WakuNode(
+     peerManager: peerManager,
+     switch: switch,
++    host: Libp2pHost.new(switch),
+     rng: rng,
+     brokerCtx: brokerCtx,
+     enr: enr,
+@@ -408,6 +411,11 @@ proc peerInfo*(node: WakuNode): PeerInfo =
+ proc peerId*(node: WakuNode): PeerId =
+   node.peerInfo.peerId
+ 
++proc mountProtocol*(
++    node: WakuNode, proto: LPProtocol, matcher: Matcher = nil
++) {.raises: [LPError].} =
++  node.switch.mount(proto, matcher)
++
+ # TODO: Move to application instance (e.g., the node app)
+ # TODO: Extend with more relevant info: topics, peers, memory usage, online time, etc
+ proc info*(node: WakuNode): WakuInfo =
+@@ -449,7 +457,9 @@ proc mountMetadata*(
+   node.peerManager.wakuMetadata = metadata
+ 
+   let catchRes = catch:
+-    node.switch.mount(node.wakuMetadata, protocolMatcher(WakuMetadataCodec))
++    node.host.mountHandler(
++      WakuMetadataCodec, node.wakuMetadata, protocolMatcher(WakuMetadataCodec)
++    )
+   catchRes.isOkOr:
+     return err(error.msg)
+ 
+@@ -607,7 +617,7 @@ proc mountMix*(
+   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
+   node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
+   let catchRes = catch:
+-    node.switch.mount(node.wakuMix)
++    node.mountProtocol(node.wakuMix)
+   catchRes.isOkOr:
+     return err(error.msg)
+ 
+@@ -637,7 +647,7 @@ proc mountKademlia*(
+   node.wakuKademlia = wk
+ 
+   let mountRes = catch:
+-    node.switch.mount(wk.protocol)
++    node.mountProtocol(wk.protocol)
+   mountRes.isOkOr:
+     return err("failed to mount service discovery: " & error.msg)
+ 
+diff --git a/logos_delivery/waku/node/waku_node/ping.nim b/logos_delivery/waku/node/waku_node/ping.nim
+index 61e4fe3..eb82085 100644
+--- a/logos_delivery/waku/node/waku_node/ping.nim
++++ b/logos_delivery/waku/node/waku_node/ping.nim
+@@ -30,7 +30,7 @@ proc mountLibp2pPing*(node: WakuNode) {.async: (raises: []).} =
+       error "failed to start libp2pPing", error = getCurrentExceptionMsg()
+ 
+   try:
+-    node.switch.mount(node.libp2pPing)
++    node.mountProtocol(node.libp2pPing)
+   except LPError:
+     error "failed to mount libp2pPing", error = getCurrentExceptionMsg()
+ 
+diff --git a/logos_delivery/waku/waku_metadata/protocol.nim b/logos_delivery/waku/waku_metadata/protocol.nim
+index 7fa7300..464c232 100644
+--- a/logos_delivery/waku/waku_metadata/protocol.nim
++++ b/logos_delivery/waku/waku_metadata/protocol.nim
+@@ -1,16 +1,8 @@
+ {.push raises: [].}
+ 
++import std/sequtils, results, chronicles, chronos, metrics, eth/p2p/discoveryv5/enr
+ import
+-  std/sequtils,
+-  results,
+-  chronicles,
+-  chronos,
+-  metrics,
+-  libp2p/protocols/protocol,
+-  libp2p/stream/connection,
+-  libp2p/crypto/crypto,
+-  eth/p2p/discoveryv5/enr
+-import ../common/nimchronos, ../waku_core, ./rpc, ../common/callbacks
++  ../common/nimchronos, ../waku_core, ../libp2p_iface/stream, ./rpc, ../common/callbacks
+ 
+ from ../waku_core/codecs import WakuMetadataCodec
+ export WakuMetadataCodec
+@@ -20,12 +12,12 @@ logScope:
+ 
+ const RpcResponseMaxBytes* = 1024
+ 
+-type WakuMetadata* = ref object of LPProtocol
++type WakuMetadata* = ref object
+   clusterId*: uint32
+   getShards: GetShards
+ 
+-proc respond(
+-    m: WakuMetadata, conn: Connection
++proc respond[S: IStream](
++    m: WakuMetadata, conn: S
+ ): Future[Result[void, string]] {.async, gcsafe.} =
+   let response = WakuMetadataResponse(
+     clusterId: Opt.some(m.clusterId.uint32), shards: m.getShards().mapIt(it.uint32)
+@@ -38,8 +30,8 @@ proc respond(
+ 
+   return ok()
+ 
+-proc request*(
+-    m: WakuMetadata, conn: Connection
++proc request*[S: IStream](
++    m: WakuMetadata, conn: S
+ ): Future[Result[WakuMetadataResponse, string]] {.async, gcsafe.} =
+   let request = WakuMetadataRequest(
+     clusterId: Opt.some(m.clusterId), shards: m.getShards().mapIt(it.uint32)
+@@ -67,43 +59,39 @@ proc request*(
+ 
+   return ok(response)
+ 
+-proc initProtocolHandler(m: WakuMetadata) =
+-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+-    defer:
+-      # close, no data is expected
+-      await conn.closeWithEof()
+-
+-    let res = catch:
+-      await conn.readLp(RpcResponseMaxBytes)
+-    let buffer = res.valueOr:
+-      error "Connection reading error", error = error.msg
+-      return
+-
+-    let response = WakuMetadataResponse.decode(buffer).valueOr:
+-      error "Response decoding error", error = error
+-      return
+-
+-    debug "Received WakuMetadata request",
+-      remoteClusterId = response.clusterId,
+-      remoteShards = response.shards,
+-      localClusterId = m.clusterId,
+-      localShards = m.getShards(),
+-      peer = conn.peerId
+-
+-    try:
+-      discard await m.respond(conn)
+-    except CatchableError:
+-      error "Failed to respond to WakuMetadata request",
+-        error = getCurrentExceptionMsg()
+-
+-  m.handler = handler
+-  m.codec = WakuMetadataCodec
++proc handleStream*[S: IStream](
++    m: WakuMetadata, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} =
++  ## Serves a metadata request received on `conn`.
++  defer:
++    # close, no data is expected
++    await conn.closeWithEof()
++
++  let res = catch:
++    await conn.readLp(RpcResponseMaxBytes)
++  let buffer = res.valueOr:
++    error "Connection reading error", error = error.msg
++    return
++
++  let response = WakuMetadataResponse.decode(buffer).valueOr:
++    error "Response decoding error", error = error
++    return
++
++  debug "Received WakuMetadata request",
++    remoteClusterId = response.clusterId,
++    remoteShards = response.shards,
++    localClusterId = m.clusterId,
++    localShards = m.getShards(),
++    peer = conn.peerId
++
++  try:
++    discard await m.respond(conn)
++  except CatchableError:
++    error "Failed to respond to WakuMetadata request", error = getCurrentExceptionMsg()
+ 
+ proc new*(T: type WakuMetadata, clusterId: uint32, getShards: GetShards): T =
+   let wm = WakuMetadata(clusterId: clusterId, getShards: getShards)
+ 
+-  wm.initProtocolHandler()
+-
+   info "Created WakuMetadata protocol",
+     clusterId = wm.clusterId, shards = wm.getShards()
+ 
+diff --git a/tests/all_tests_waku.nim b/tests/all_tests_waku.nim
+index 668c91f..589ea8a 100644
+--- a/tests/all_tests_waku.nim
++++ b/tests/all_tests_waku.nim
+@@ -43,6 +43,7 @@ import
+   ./waku_relay/test_all,
+   ./test_relay_peer_exchange,
+   ./test_waku_metadata,
++  ./waku_metadata/test_mock_stream,
+   ./test_waku_protobufs,
+   ./test_waku_rendezvous
+ 
+diff --git a/b/tests/waku_metadata/test_mock_stream.nim b/tests/waku_metadata/test_mock_stream.nim
+new file mode 100644
+index 0000000..aca65bb
+--- /dev/null
++++ b/tests/waku_metadata/test_mock_stream.nim
+@@ -0,0 +1,71 @@
++{.used.}
++
++## Runs the metadata protocol over an in-memory stream: any type satisfying
++## `IStream` can carry a protocol, no nim-libp2p transport is involved.
++
++import
++  std/sequtils, results, testutils/unittests, chronos, chronicles, libp2p/crypto/crypto
++
++import
++  logos_delivery/waku/waku_core,
++  logos_delivery/waku/waku_metadata,
++  logos_delivery/waku/libp2p_iface/stream
++
++type MockStream = ref object
++  peerId: PeerId
++  inbox: AsyncQueue[seq[byte]]
++  peer: MockStream
++  closed: bool
++
++proc newMockPair(): tuple[a, b: MockStream] =
++  let rng = newRng()
++  let a =
++    MockStream(peerId: PeerId.random(rng).get(), inbox: newAsyncQueue[seq[byte]]())
++  let b =
++    MockStream(peerId: PeerId.random(rng).get(), inbox: newAsyncQueue[seq[byte]]())
++  a.peer = b
++  b.peer = a
++  return (a, b)
++
++proc writeLP(s: MockStream, data: seq[byte]): Future[void] {.async.} =
++  await s.peer.inbox.put(data)
++
++proc readLp(s: MockStream, maxSize: int): Future[seq[byte]] {.async.} =
++  return await s.inbox.get()
++
++proc close(s: MockStream): Future[void] {.async: (raises: [CancelledError]).} =
++  s.closed = true
++
++proc atEof(s: MockStream): bool =
++  return s.closed
++
++proc closeWithEof(s: MockStream): Future[void] {.async: (raises: [CancelledError]).} =
++  s.closed = true
++
++static:
++  doAssert MockStream is IStream
++
++suite "Waku Metadata - mock stream":
++  asyncTest "request() gets the cluster and shards served by the remote handler":
++    let
++      server = WakuMetadata.new(
++        7,
++        proc(): seq[uint16] {.gcsafe, raises: [].} =
++          @[1'u16, 2'u16],
++      )
++      client = WakuMetadata.new(
++        7,
++        proc(): seq[uint16] {.gcsafe, raises: [].} =
++          @[],
++      )
++      (clientEnd, serverEnd) = newMockPair()
++
++    let serving = server.handleStream(serverEnd, WakuMetadataCodec)
++    let response = (await client.request(clientEnd)).tryGet()
++    await serving
++
++    check:
++      response.clusterId == Opt.some(7'u32)
++      response.shards == @[1'u32, 2'u32]
++      clientEnd.closed
++      serverEnd.closed

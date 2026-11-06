@@ -1,0 +1,905 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 244a3c5..c738279 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -77,6 +77,20 @@ jobs:
+       docker: ${{ steps.filter.outputs.docker }}
+       nix: ${{ steps.filter.outputs.nix }}
+ 
++  # Only the libp2p backend may import the behavioural nim-libp2p modules; the
++  # allow-list in scripts/libp2p_imports_allowlist.txt only shrinks.
++  libp2p-boundary:
++    needs: changes
++    if: ${{ needs.changes.outputs.all == 'true' }}
++    runs-on: ubuntu-22.04
++    timeout-minutes: 5
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++
++      - name: Check libp2p imports are confined to the backend
++        run: scripts/check_libp2p_imports.py
++
+   # Also on nix changes: it is the only check that compares nix/deps.nix
+   # against nimble.lock, and the Nix build itself never reads the lock.
+   build-health:
+diff --git a/AGENTS.md b/AGENTS.md
+index 9d98738..02d1482 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -245,14 +245,25 @@ Most files start with `{.push raises: [].}` to disable exception tracking, then
+ proc myProc(): Result[T, E] {.async.} =  # Async proc
+ ```
+ 
+-### Protocol Inheritance
+-Protocols inherit from libp2p's `LPProtocol`:
++### Protocol Streams
++Request/response protocols do not inherit from libp2p's `LPProtocol`: they are plain
++`ref object`s that serve any stream satisfying the `IStream` concept
++(`logos_delivery/waku/libp2p_iface/stream.nim`), and the node mounts them on the host:
+ ```nim
+-type WakuLightPush* = ref object of LPProtocol
++type WakuLightPush* = ref object
+   rng*: ref rand.HmacDrbgContext
+   peerManager*: PeerManager
+   pushHandler*: PushMessageHandler
++
++proc handleStream*[S: IStream](
++    wl: WakuLightPush, conn: S, proto: string
++) {.async: (raises: [CancelledError]).} = ...
++
++node.host.mountHandler(WakuLightPushCodec, node.wakuLightPush)
+ ```
++Only `logos_delivery/waku/libp2p_backend/` imports the behavioural nim-libp2p modules
++(enforced by `scripts/check_libp2p_imports.py`); see
++[docs/contributors/libp2p-backend.md](docs/contributors/libp2p-backend.md).
+ 
+ ### Type Visibility
+ - Public exports use `*` suffix: `type WakuFilter* = ...`
+@@ -413,12 +424,12 @@ Miscellaneous
+    - `common.nim` - Shared types
+ 3. Define protocol type in `protocol.nim`:
+    ```nim
+-   type WakuMyProtocol* = ref object of LPProtocol
++   type WakuMyProtocol* = ref object
+      peerManager: PeerManager
+      # ... fields
+    ```
+-4. Implement request handler
+-5. Mount in WakuNode (`waku/node/waku_node.nim`)
++4. Implement `handleStream*[S: IStream](p: WakuMyProtocol, conn: S, proto: string)`
++5. Mount in WakuNode (`waku/node/waku_node.nim`) with `node.host.mountHandler(Codec, proto)`
+ 6. Add tests in `tests/waku_myprotocol/`
+ 7. Export module via `waku/waku_myprotocol.nim`
+ 
+diff --git a/apps/chat2mix/chat2mix.nim b/apps/chat2mix/chat2mix.nim
+index 7dc3cfb..61dc836 100644
+--- a/apps/chat2mix/chat2mix.nim
++++ b/apps/chat2mix/chat2mix.nim
+@@ -316,9 +316,8 @@ proc selectRandomServicePeer*(
+   if actualPeer.isSome():
+     alreadyUsedServicePeers.add(actualPeer.get())
+ 
+-  let supportivePeers = pm.switch.peerStore.getPeersByProtocol(codec).filterIt(
+-      it notin alreadyUsedServicePeers
+-    )
++  let supportivePeers =
++    pm.peerStore.peers(codec).filterIt(it notin alreadyUsedServicePeers)
+   if supportivePeers.len == 0:
+     return err()
+ 
+@@ -369,7 +368,7 @@ proc maintainSubscription(
+ 
+     # TODO: disconnet from failed actualFilterPeer
+     # asyncSpawn(wakuNode.peerManager.switch.disconnect(p))
+-    # wakunode.peerManager.peerStore.delete(actualFilterPeer)
++    # wakunode.peerManager.peerStore.del(actualFilterPeer)
+ 
+     if noFailedSubscribes < maxFailedSubscribes:
+       await sleepAsync(RetryWait) # Wait a bit before retrying
+diff --git a/apps/liteprotocoltester/diagnose_connections.nim b/apps/liteprotocoltester/diagnose_connections.nim
+index d38f2fd..870aefc 100644
+--- a/apps/liteprotocoltester/diagnose_connections.nim
++++ b/apps/liteprotocoltester/diagnose_connections.nim
+@@ -28,7 +28,7 @@ logScope:
+ 
+ proc allPeers(pm: PeerManager): string =
+   var allStr: string = ""
+-  for idx, peer in pm.switch.peerStore.peers():
++  for idx, peer in pm.peerStore.peers():
+     allStr.add(
+       "    " & $idx & ". | " & constructMultiaddrStr(peer) & " | agent: " &
+         peer.getAgent() & " | protos: " & $peer.protocols & " | caps: " &
+diff --git a/apps/liteprotocoltester/publisher.nim b/apps/liteprotocoltester/publisher.nim
+index 7520be6..116f5ff 100644
+--- a/apps/liteprotocoltester/publisher.nim
++++ b/apps/liteprotocoltester/publisher.nim
+@@ -130,7 +130,7 @@ proc publishMessages(
+   var noFailedPush = 0
+   var noFailedServiceNodeSwitches = 0
+ 
+-  let selfPeerId = $wakuNode.switch.peerInfo.peerId
++  let selfPeerId = $wakuNode.peerId
+   failedToSendCount = 0
+   numMessagesToSend = if numMessages == 0: uint32.high else: numMessages
+   messagesSent = 0
+diff --git a/apps/liteprotocoltester/receiver.nim b/apps/liteprotocoltester/receiver.nim
+index 41e5a3f..f972c31 100644
+--- a/apps/liteprotocoltester/receiver.nim
++++ b/apps/liteprotocoltester/receiver.nim
+@@ -91,7 +91,7 @@ proc maintainSubscription(
+ 
+     # TODO: disconnet from failed actualFilterPeer
+     # asyncSpawn(wakuNode.peerManager.switch.disconnect(p))
+-    # wakunode.peerManager.peerStore.delete(actualFilterPeer)
++    # wakunode.peerManager.peerStore.del(actualFilterPeer)
+ 
+     if noFailedSubscribes < maxFailedSubscribes:
+       await sleepAsync(RetryWaitMs) # Wait a bit before retrying
+diff --git a/apps/liteprotocoltester/service_peer_management.nim b/apps/liteprotocoltester/service_peer_management.nim
+index 55508aa..7bf798c 100644
+--- a/apps/liteprotocoltester/service_peer_management.nim
++++ b/apps/liteprotocoltester/service_peer_management.nim
+@@ -61,7 +61,9 @@ proc selectRandomCapablePeer*(
+   elif codec.contains("filter"):
+     cap = Capabilities.Filter
+ 
+-  var supportivePeers = pm.switch.peerStore.getPeersByCapability(cap)
++  var supportivePeers = pm.peerStore.peers().filterIt(
++      it.enr.isSome() and it.enr.get().supportsCapability(cap)
++    )
+ 
+   trace "Found supportive peers count", count = supportivePeers.len()
+   trace "Found supportive peers", supportivePeers = $supportivePeers
+@@ -102,7 +104,9 @@ proc tryCallAllPxPeers*(
+   elif codec.contains("filter"):
+     capability = Capabilities.Filter
+ 
+-  var supportivePeers = pm.switch.peerStore.getPeersByCapability(capability)
++  var supportivePeers = pm.peerStore.peers().filterIt(
++      it.enr.isSome() and it.enr.get().supportsCapability(capability)
++    )
+ 
+   logos_delivery_lpt_px_peers.set(supportivePeers.len)
+   info "Found supportive peers count", count = supportivePeers.len()
+@@ -213,9 +217,8 @@ proc selectRandomServicePeer*(
+   if actualPeer.isSome():
+     alreadyUsedServicePeers.add(actualPeer.get())
+ 
+-  let supportivePeers = pm.switch.peerStore.getPeersByProtocol(codec).filterIt(
+-      it notin alreadyUsedServicePeers
+-    )
++  let supportivePeers =
++    pm.peerStore.peers(codec).filterIt(it notin alreadyUsedServicePeers)
+   if supportivePeers.len == 0:
+     return err()
+ 
+diff --git a/apps/networkmonitor/networkmonitor.nim b/apps/networkmonitor/networkmonitor.nim
+index 99cfc9e..5b2da04 100644
+--- a/apps/networkmonitor/networkmonitor.nim
++++ b/apps/networkmonitor/networkmonitor.nim
+@@ -219,7 +219,7 @@ proc setConnectedPeersMetrics(
+     info "connected to peer", peer = customPeerInfo[]
+ 
+     # after connection, get supported protocols
+-    let lp2pPeerStore = node.switch.peerStore
++    let lp2pPeerStore = node.peerManager.peerStore
+     let nodeProtocols = lp2pPeerStore[ProtoBook][peerId]
+     customPeerInfo.supportedProtocols = nodeProtocols
+     customPeerInfo.lastTimeConnected = currentTime
+diff --git a/b/docs/contributors/libp2p-backend.md b/docs/contributors/libp2p-backend.md
+new file mode 100644
+index 0000000..4c39cbb
+--- /dev/null
++++ b/docs/contributors/libp2p-backend.md
+@@ -0,0 +1,56 @@
++# The libp2p backend boundary
++
++logos-delivery is built against interfaces for what it needs from a libp2p
++stack, not against nim-libp2p. The nim-libp2p implementation is one backend
++behind them, so another implementation can be plugged in without touching protocol or
++API code.
++
++## Layout
++
++| Directory | Role |
++|---|---|
++| `logos_delivery/waku/libp2p_iface/` | The interfaces: Nim `concept`s and the plain value types they use |
++| `logos_delivery/waku/libp2p_backend/` | Implementations. The only place that may import the behavioural nim-libp2p modules |
++| `logos_delivery/waku/waku_relay/` | Relay logic (Waku validation, topic health, metrics), generic over `IPubSub` |
++
++## The interfaces
++
++- **`IPubSub`** (`libp2p_iface/pubsub.nim`): subscribe, publish, validators,
++  mesh/connected peers, events, parameters. Types are owned: `ValidationResult`,
++  `PubSubParams`, `PubSubEvent`, peer ids as strings. `WakuRelayOf[P: IPubSub]`
++  holds a `P`; `WakuRelay` is `WakuRelayOf[GossipSubBackend]`.
++- **`IHost`** (`libp2p_iface/host.nim`): identity, addresses, start/stop,
++  disconnect, connections, peer events. Streams and mounting are per backend,
++  because they depend on the backend's stream type.
++- **`IStream`** (`libp2p_iface/stream.nim`): `peerId`, `writeLP`, `readLp`,
++  `close`, `closeWithEof`, `atEof`. Every request/response protocol
++  (`metadata`, `store`, `filter`, `lightpush`, `peer exchange`, `store sync`)
++  exposes `handleStream[S: IStream]` and is mounted with
++  `host.mountHandler(codec, protocol)`; none inherits `LPProtocol`.
++
++A backend is any type for which the calls compile, with no base class or
++`method`. Each backend ends with a `static: doAssert Backend is IHost` so a
++contract break fails its own build.
++
++## Backends
++
++- **Built-in** (`gossipsub.nim`, `host.nim`, `relay.nim`): nim-libp2p `GossipSub`
++  and `Switch`, behaviour-identical to before. Used by `logosdeliverynode`.
++- **Module** (`module_pubsub.nim`, `mo
++
++## Boundary check
++
++`scripts/check_libp2p_imports.py` (CI job `libp2p-boundary`) fails when a file
++outside the backend imports a behavioural nim-libp2p module (`switch`,
++`protocols/*`, `stream/*`, `builders`, transports, ...). Modules that only
++define plain value types shared by the whole code base (`peerid`,
++`multiaddress`, `crypto/*`, ...) are exempt. Files that still import behaviour
++are listed in `scripts/libp2p_imports_allowlist.txt`; the list only shrinks.
++Run `scripts/check_libp2p_imports.py --update` after removing an import.
++
++## Testing without nim-libp2p
++
++Any type satisfying the concepts can back the relay or a protocol:
++`tests/waku_relay/test_pubsub_mock.nim` runs `WakuRelayOf` on an in-memory
++pubsub, and `tests/waku_metadata/test_mock_stream.nim` runs the metadata
++protocol over an in-memory stream.
+diff --git a/logos_delivery/waku/api/events/peer_events.nim b/logos_delivery/waku/api/events/peer_events.nim
+index 7eed309..afdfba7 100644
+--- a/logos_delivery/waku/api/events/peer_events.nim
++++ b/logos_delivery/waku/api/events/peer_events.nim
+@@ -1,5 +1,5 @@
+ import brokers/event_broker
+-import libp2p/switch
++import libp2p/peerid
+ 
+ type WakuPeerEventKind* {.pure.} = enum
+   EventConnected
+diff --git a/logos_delivery/waku/api/peer_manager.nim b/logos_delivery/waku/api/peer_manager.nim
+index cc93dca..2b04ae1 100644
+--- a/logos_delivery/waku/api/peer_manager.nim
++++ b/logos_delivery/waku/api/peer_manager.nim
+@@ -67,7 +67,7 @@ proc dialPeerById*(
+ 
+ proc peerIdsFromPeerstore*(self: Waku): Future[Result[seq[string], string]] {.async.} =
+   try:
+-    return ok(self.node.peerManager.switch.peerStore.peers().mapIt($it.peerId))
++    return ok(self.node.peerManager.peerStore.peers().mapIt($it.peerId))
+   except CatchableError as e:
+     return err(e.msg)
+ 
+@@ -77,7 +77,7 @@ proc connectedPeersInfo*(
+   ## Structured info (protocols, addresses) for every connected peer.
+   try:
+     var infos: seq[PeerConnInfo]
+-    for peer in self.node.peerManager.switch.peerStore.peers():
++    for peer in self.node.peerManager.peerStore.peers():
+       if peer.connectedness == Connected:
+         infos.add(
+           PeerConnInfo(
+@@ -102,7 +102,7 @@ proc peerIdsByProtocol*(
+ ): Future[Result[seq[string], string]] {.async.} =
+   try:
+     return ok(
+-      self.node.peerManager.switch.peerStore
++      self.node.peerManager.peerStore
+         .peers(protocol)
+         .filterIt(it.connectedness == Connected)
+         .mapIt($it.peerId)
+diff --git a/logos_delivery/waku/api/publish.nim b/logos_delivery/waku/api/publish.nim
+index b594956..933c219 100644
+--- a/logos_delivery/waku/api/publish.nim
++++ b/logos_delivery/waku/api/publish.nim
+@@ -92,7 +92,7 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
+   ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
+   ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
+   ## first, then draws one usable pool member uniformly.
+-  let peerStore = self.node.peerManager.switch.peerStore
++  let peerStore = self.node.peerManager.peerStore
+   let pool = MixNodePool.new(peerStore)
+ 
+   let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+diff --git a/logos_delivery/waku/factory/node_factory.nim b/logos_delivery/waku/factory/node_factory.nim
+index e136b15..a42eab1 100644
+--- a/logos_delivery/waku/factory/node_factory.nim
++++ b/logos_delivery/waku/factory/node_factory.nim
+@@ -35,6 +35,7 @@ import
+   ../waku_store/common as store_common,
+   ../waku_filter_v2,
+   ../waku_relay,
++
+   ../waku_peer_exchange,
+   ../discovery/waku_kademlia,
+   ../discovery/service_discovery,
+diff --git a/logos_delivery/waku/node/health_monitor/node_health_monitor.nim b/logos_delivery/waku/node/health_monitor/node_health_monitor.nim
+index b976f55..d351bde 100644
+--- a/logos_delivery/waku/node/health_monitor/node_health_monitor.nim
++++ b/logos_delivery/waku/node/health_monitor/node_health_monitor.nim
+@@ -302,7 +302,7 @@ proc hasMixExit(hm: NodeHealthMonitor): bool =
+   let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+   if not slotted.isNil() and pool.get(slotted.peerId).isSome():
+     return true
+-  let peerStore = hm.node.switch.peerStore
++  let peerStore = hm.node.peerManager.peerStore
+   return pool.peerIds().anyIt(
+       peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
+     )
+@@ -796,7 +796,7 @@ proc new*(
+     dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+ ): T =
+   let om = OnlineMonitor.init(dnsNameServers)
+-  om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
++  om.setPeerStoreToOnlineMonitor(node.peerManager.peerStore)
+   om.addOnlineStateObserver(node.peerManager.getOnlineStateObserver())
+   let hm = T(
+     nodeHealth: INITIALIZING,
+@@ -807,15 +807,15 @@ proc new*(
+   )
+   # Mix peers are learnt from discovery without any peer event, so without this
+   # a filled (or drained) pool would wait for an unrelated trigger to show up.
+-  node.switch.peerStore[MixPubKeyBook].addHandler(
++  node.peerManager.peerStore[MixPubKeyBook].addHandler(
+     proc(peerId: PeerId) {.gcsafe, raises: [].} =
+       hm.onMixPoolChange()
+   )
+   # ENR discovery and identify learn a pool peer's lightpush (its exit role)
+   # through ProtoBook alone, without writing its mix key.
+-  node.switch.peerStore[ProtoBook].addHandler(
++  node.peerManager.peerStore[ProtoBook].addHandler(
+     proc(peerId: PeerId) {.gcsafe, raises: [].} =
+-      if peerId in node.switch.peerStore[MixPubKeyBook]:
++      if peerId in node.peerManager.peerStore[MixPubKeyBook]:
+         hm.onMixPoolChange()
+   )
+   return hm
+diff --git a/logos_delivery/waku/node/peer_manager/waku_peer_store.nim b/logos_delivery/waku/node/peer_manager/waku_peer_store.nim
+index ff53470..d4a141e 100644
+--- a/logos_delivery/waku/node/peer_manager/waku_peer_store.nim
++++ b/logos_delivery/waku/node/peer_manager/waku_peer_store.nim
+@@ -89,10 +89,6 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
+         Opt.none(Curve25519Key),
+   )
+ 
+-proc delete*(peerStore: PeerStore, peerId: PeerId) =
+-  # Delete all the information of a given peer.
+-  peerStore.del(peerId)
+-
+ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
+   let allKeys = concat(
+       toSeq(peerStore[LastSeenOutboundBook].book.keys()),
+@@ -213,50 +209,16 @@ proc hasPeers*(peerStore: PeerStore, protocolMatcher: Matcher): bool =
+   # Returns `true` if the peerstore has any peer matching the protocolMatcher
+   toSeq(peerStore[ProtoBook].book.values()).anyIt(it.anyIt(protocolMatcher(it)))
+ 
+-proc getCapacity*(peerStore: PeerStore): int =
+-  peerStore.capacity
+-
+-proc setCapacity*(peerStore: PeerStore, capacity: int) =
+-  peerStore.capacity = capacity
+-
+ proc getWakuProtos*(peerStore: PeerStore): seq[string] =
+   toSeq(peerStore[ProtoBook].book.values()).flatten().deduplicate().filterIt(
+     it.startsWith("/vac/waku")
+   )
+ 
+-proc getPeersByDirection*(
+-    peerStore: PeerStore, direction: PeerDirection
+-): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.direction == direction)
+-
+-proc getDisconnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.connectedness != Connected)
+-
+-proc getConnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.connectedness == Connected)
+-
+-proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.protocols.contains(proto))
+-
+-proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.connectedness != CannotConnect)
+-
+ proc supportsShard*(peer: RemotePeerInfo, cluster, shard: uint16): bool =
+   return
+     (peer.enr.isSome() and peer.enr.get().containsShard(cluster, shard)) or
+     peer.shards.contains(shard)
+ 
+-proc getPeersByShard*(
+-    peerStore: PeerStore, cluster, shard: uint16
+-): seq[RemotePeerInfo] =
+-  return peerStore.peers.filterIt(it.supportsShard(cluster, shard))
+-
+-proc getPeersByCapability*(
+-    peerStore: PeerStore, cap: Capabilities
+-): seq[RemotePeerInfo] =
+-  return
+-    peerStore.peers.filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
+-
+ iterator enrPeers*(
+     peerStore: PeerStore
+ ): tuple[
+diff --git a/logos_delivery/waku/node/subscription_manager.nim b/logos_delivery/waku/node/subscription_manager.nim
+index f187240..6a8ced5 100644
+--- a/logos_delivery/waku/node/subscription_manager.nim
++++ b/logos_delivery/waku/node/subscription_manager.nim
+@@ -447,7 +447,7 @@ proc edgeFilterConnectionLoop(self: SubscriptionManager) {.async.} =
+     var connected = initTable[PeerId, RemotePeerInfo]()
+     for state in self.edgeFilterSubStates.values:
+       for peer in state.peers:
+-        if self.node.peerManager.switch.peerStore.isConnected(peer.peerId):
++        if self.node.peerManager.peerStore.isConnected(peer.peerId):
+           connected[peer.peerId] = peer
+ 
+     var alive = initHashSet[PeerId]()
+@@ -565,9 +565,7 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
+       )
+ 
+       self.edgeFilterSubStates.withValue(shard, state):
+-        state.peers.keepItIf(
+-          self.node.peerManager.switch.peerStore.isConnected(it.peerId)
+-        )
++        state.peers.keepItIf(self.node.peerManager.peerStore.isConnected(it.peerId))
+         state.pending.keepItIf(not it.finished)
+ 
+         if addedTopics.len > 0 or removedTopics.len > 0:
+diff --git a/logos_delivery/waku/node/waku_node.nim b/logos_delivery/waku/node/waku_node.nim
+index 7252b34..fa07328 100644
+--- a/logos_delivery/waku/node/waku_node.nim
++++ b/logos_delivery/waku/node/waku_node.nim
+@@ -711,7 +711,7 @@ proc reconnectRelayPeers*(node: WakuNode) {.async.} =
+   ## Reconnect to previously-seen WakuRelay peers.
+   if node.wakuRelay.isNil():
+     return
+-  if not node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
++  if not node.peerManager.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
+     return
+   info "Found previous WakuRelay peers. Reconnecting."
+   let backoffPeriod = node.wakuRelay.reconnectBackoff()
+diff --git a/logos_delivery/waku/node/waku_node/lightpush.nim b/logos_delivery/waku/node/waku_node/lightpush.nim
+index 159e5b0..614079c 100644
+--- a/logos_delivery/waku/node/waku_node/lightpush.nim
++++ b/logos_delivery/waku/node/waku_node/lightpush.nim
+@@ -197,7 +197,7 @@ proc legacyLightpushPublish*(
+       debug "Failed to publish message", err = msg
+       return err(msg)
+   elif not node.wakuLegacyLightPush.isNil():
+-    peerOpt = Opt.some(RemotePeerInfo.init($node.switch.peerInfo.peerId))
++    peerOpt = Opt.some(RemotePeerInfo.init($node.peerId))
+ 
+   return await node.legacyLightpushPublish(pubsubTopic, message, peer = peerOpt.get())
+ 
+diff --git a/logos_delivery/waku/requests/node_state_requests.nim b/logos_delivery/waku/requests/node_state_requests.nim
+index 92ed816..13fc590 100644
+--- a/logos_delivery/waku/requests/node_state_requests.nim
++++ b/logos_delivery/waku/requests/node_state_requests.nim
+@@ -14,7 +14,7 @@
+ ## FFI/MT lanes.
+ 
+ import chronos, results
+-import libp2p/[switch, peerinfo, crypto/crypto]
++import libp2p/[peerinfo, crypto/crypto]
+ import brokers/request_broker
+ import
+   logos_delivery/waku/waku_core,
+diff --git a/logos_delivery/waku/rest_api/endpoint/admin/handlers.nim b/logos_delivery/waku/rest_api/endpoint/admin/handlers.nim
+index a8be2d5..c007e5e 100644
+--- a/logos_delivery/waku/rest_api/endpoint/admin/handlers.nim
++++ b/logos_delivery/waku/rest_api/endpoint/admin/handlers.nim
+@@ -8,7 +8,7 @@ import
+   chronicles/topics_registry,
+   json_serialization,
+   presto/route,
+-  libp2p/[peerinfo, switch, peerid, protocols/pubsub/pubsubpeer]
++  libp2p/[peerinfo, peerid]
+ 
+ import
+   logos_delivery/waku/[
+@@ -74,9 +74,9 @@ proc populateAdminPeerInfo(
+     peers: var WakuPeers, node: WakuNode, codec: Opt[string] = Opt.none(string)
+ ) =
+   if codec.isNone():
+-    peers = node.peerManager.switch.peerStore.peers().mapIt(WakuPeer.init(it))
++    peers = node.peerManager.peerStore.peers().mapIt(WakuPeer.init(it))
+   else:
+-    let peersTuples = node.peerManager.switch.peerStore.peers(codec.get()).mapIt(
++    let peersTuples = node.peerManager.peerStore.peers(codec.get()).mapIt(
+         (
+           multiaddr: constructMultiaddrStr(it),
+           protocol: codec.get(),
+@@ -154,8 +154,8 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
+     let peerIdVal: PeerId = PeerId.init(peerIdString).valueOr:
+       return RestApiResponse.badRequest("Invalid argument:" & $error)
+ 
+-    if node.peerManager.switch.peerStore.peerExists(peerIdVal):
+-      let peerInfo = node.peerManager.switch.peerStore.getPeer(peerIdVal)
++    if node.peerManager.peerStore.peerExists(peerIdVal):
++      let peerInfo = node.peerManager.peerStore.getPeer(peerIdVal)
+       let peer = WakuPeer.init(peerInfo)
+       let resp = RestApiResponse.jsonResponse(peer, status = Http200).valueOr:
+         error "An error occurred while building the json response: ", error = error
+diff --git a/logos_delivery/waku/rest_api/message_cache.nim b/logos_delivery/waku/rest_api/message_cache.nim
+index 8a6ce6d..cfb17ec 100644
+--- a/logos_delivery/waku/rest_api/message_cache.nim
++++ b/logos_delivery/waku/rest_api/message_cache.nim
+@@ -1,11 +1,6 @@
+ {.push raises: [].}
+ 
+-import
+-  std/[sequtils, sugar, algorithm],
+-  results,
+-  chronicles,
+-  chronos,
+-  libp2p/protocols/pubsub
++import std/[sequtils, sugar, algorithm], results, chronicles, chronos
+ import ../waku_core
+ 
+ logScope:
+diff --git a/logos_delivery/waku/waku_core/multiaddrstr.nim b/logos_delivery/waku/waku_core/multiaddrstr.nim
+index cd0caf2..366a4ac 100644
+--- a/logos_delivery/waku/waku_core/multiaddrstr.nim
++++ b/logos_delivery/waku/waku_core/multiaddrstr.nim
+@@ -1,6 +1,6 @@
+ {.push raises: [].}
+ 
+-import libp2p/[peerinfo, switch]
++import libp2p/[peerinfo]
+ 
+ import ./peers
+ 
+diff --git a/logos_delivery/waku/waku_mix/protocol.nim b/logos_delivery/waku/waku_mix/protocol.nim
+index 47a72e4..28b70d1 100644
+--- a/logos_delivery/waku/waku_mix/protocol.nim
++++ b/logos_delivery/waku/waku_mix/protocol.nim
+@@ -128,7 +128,7 @@ proc processBootNodes(
+ 
+     # A fleet node finds itself in its own preset. Skip that entry, or mix could
+     # draw this node as a hop or an exit and route a packet to itself.
+-    if peerId == peermgr.switch.peerInfo.peerId:
++    if peerId == peermgr.selfPeerId():
+       debug "Skipping a mix bootstrap node that is this node itself", peerId = peerId
+       continue
+ 
+@@ -179,8 +179,12 @@ proc new*(
+   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
+     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
+   let localMixNodeInfo = initMixNodeInfo(
+-    peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
+-    peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
++    peermgr.selfPeerId(),
++    nodeMultiAddr,
++    mixPubKey,
++    mixPrivKey,
++    peermgr.switch.peerInfo.publicKey.skkey,
++    peermgr.switch.peerInfo.privateKey.skkey,
+   )
+ 
+   var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
+diff --git a/logos_delivery/waku/waku_store/resume.nim b/logos_delivery/waku/waku_store/resume.nim
+index a68bd65..dc45ad4 100644
+--- a/logos_delivery/waku/waku_store/resume.nim
++++ b/logos_delivery/waku/waku_store/resume.nim
+@@ -6,8 +6,6 @@ import
+   chronicles,
+   chronos,
+   metrics,
+-  libp2p/protocols/protocol,
+-  libp2p/stream/connection,
+   libp2p/crypto/crypto,
+   eth/p2p/discoveryv5/enr
+ 
+diff --git a/b/scripts/check_libp2p_imports.py b/scripts/check_libp2p_imports.py
+new file mode 100644
+index 0000000..c58a51c
+--- /dev/null
++++ b/scripts/check_libp2p_imports.py
+@@ -0,0 +1,120 @@
++#!/usr/bin/env python3
++"""Fails when behavioural nim-libp2p modules are imported outside the backend.
++
++logos-delivery talks to libp2p through the interfaces in
++logos_delivery/waku/libp2p_iface; only logos_delivery/waku/libp2p_backend may
++import the modules that implement behaviour (switch, streams, protocols,
++transports, ...). Modules that only define plain value types shared by the whole
++code base (peer ids, multiaddresses, keys, ...) are exempt, see VALUE_TYPES.
++
++Files that still import a behavioural module are listed in
++scripts/libp2p_imports_allowlist.txt. The list only shrinks: a new offender
++fails the check, and so does a listed file that no longer offends.
++
++    scripts/check_libp2p_imports.py [--update]
++"""
++import re
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parent.parent
++ALLOWLIST = ROOT / "scripts" / "libp2p_imports_allowlist.txt"
++SCAN = ["logos_delivery", "apps", "library"]
++BACKEND = ("logos_delivery/waku/libp2p_backend/", "logos_delivery/waku/libp2p_iface/")
++
++# libp2p modules (path prefixes under `libp2p/`) that only provide value types
++VALUE_TYPES = (
++    "peerid",
++    "multiaddress",
++    "multihash",
++    "multicodec",
++    "multibase",
++    "cid",
++    "varint",
++    "vbuffer",
++    "crypto/",
++    "peerinfo",
++    "signed_envelope",
++    "routing_record",
++    "errors",
++    "utils/",
++    "protobuf/minprotobuf",
++    "protocols/pubsub/timedcache",
++    "wire",
++    "nameresolving/nameresolver",
++)
++
++IMPORT_RE = re.compile(r"libp2p/(\[[^\]]*\]|[A-Za-z0-9_/]+)")
++
++
++def modules(text: str):
++    """Yields every `libp2p/<module>` referenced by an import-like line."""
++    for line in text.splitlines():
++        code = line.split("#", 1)[0]
++        for m in IMPORT_RE.finditer(code):
++            # skip URLs and prose such as github.com/libp2p/...
++            if m.start() > 0 and code[m.start() - 1] not in " \t,[":
++                continue
++            spec = m.group(1)
++            if spec.startswith("["):
++                for part in spec.strip("[]").split(","):
++                    part = part.strip().split(" ")[0]
++                    if part:
++                        yield part
++            else:
++                yield spec
++
++
++def is_value_type(module: str) -> bool:
++    return any(
++        module == v or (v.endswith("/") and module.startswith(v)) for v in VALUE_TYPES
++    )
++
++
++def offenders():
++    found = {}
++    for top in SCAN:
++        for path in sorted((ROOT / top).rglob("*.nim")):
++            rel = path.relative_to(ROOT).as_posix()
++            if rel.startswith(BACKEND):
++                continue
++            bad = sorted(
++                {m for m in modules(path.read_text()) if not is_value_type(m)}
++            )
++            if bad:
++                found[rel] = bad
++    return found
++
++
++def main() -> int:
++    found = offenders()
++    if "--update" in sys.argv:
++        ALLOWLIST.write_text(
++            "# Files that still import behavioural nim-libp2p modules.\n"
++            "# This list only shrinks, see scripts/check_libp2p_imports.py.\n"
++            + "".join(f"{f}\n" for f in found)
++        )
++        print(f"wrote {len(found)} entries to {ALLOWLIST.relative_to(ROOT)}")
++        return 0
++
++    allowed = {
++        l.strip()
++        for l in ALLOWLIST.read_text().splitlines()
++        if l.strip() and not l.startswith("#")
++    }
++    new = sorted(set(found) - allowed)
++    stale = sorted(allowed - set(found))
++    for f in new:
++        print(f"new libp2p import outside the backend: {f}: {', '.join(found[f])}")
++    for f in stale:
++        print(f"{f} no longer imports libp2p behaviour, remove it from the allow-list")
++    if new:
++        print("Use the interfaces in logos_delivery/waku/libp2p_iface instead.")
++    if new or stale:
++        return 1
++    print(f"libp2p imports confined: {len(found)} allow-listed files remain")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/b/scripts/libp2p_imports_allowlist.txt b/scripts/libp2p_imports_allowlist.txt
+new file mode 100644
+index 0000000..d321e39
+--- /dev/null
++++ b/scripts/libp2p_imports_allowlist.txt
+@@ -0,0 +1,27 @@
++# Files that still import behavioural nim-libp2p modules.
++# This list only shrinks, see scripts/check_libp2p_imports.py.
++logos_delivery/waku/api/peer_manager.nim
++logos_delivery/waku/api/ping.nim
++logos_delivery/waku/discovery/autonat_service.nim
++logos_delivery/waku/discovery/service_discovery.nim
++logos_delivery/waku/discovery/signed_service_record.nim
++logos_delivery/waku/discovery/waku_dnsdisc.nim
++logos_delivery/waku/discovery/waku_kademlia.nim
++logos_delivery/waku/factory/builder.nim
++logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder.nim
++logos_delivery/waku/factory/internal_config.nim
++logos_delivery/waku/factory/node_factory.nim
++logos_delivery/waku/factory/waku_conf.nim
++logos_delivery/waku/net/nat_config.nim
++logos_delivery/waku/node/health_monitor/online_monitor.nim
++logos_delivery/waku/node/peer_manager/peer_manager.nim
++logos_delivery/waku/node/peer_manager/waku_peer_store.nim
++logos_delivery/waku/node/waku_node/ping.nim
++logos_delivery/waku/node/waku_node.nim
++logos_delivery/waku/waku.nim
++logos_delivery/waku/waku_rendezvous/client.nim
++logos_delivery/waku/waku_rendezvous/protocol.nim
++apps/chat2/chat2.nim
++apps/chat2mix/chat2mix.nim
++apps/networkmonitor/networkmonitor.nim
++apps/wakucanary/wakucanary.nim
+diff --git a/tests/node/test_wakunode_health_monitor.nim b/tests/node/test_wakunode_health_monitor.nim
+index c735e1a..cee89ba 100644
+--- a/tests/node/test_wakunode_health_monitor.nim
++++ b/tests/node/test_wakunode_health_monitor.nim
+@@ -803,7 +803,7 @@ suite "Health Monitor - mix readiness":
+     check await waitForStatus(ConnectionStatus.PartiallyConnected)
+ 
+     # Pruning a single mix peer takes the pool below the minimum again.
+-    nodeA.peerManager.switch.peerStore.delete(nodeA.wakuMix.nodePool.peerIds()[0])
++    nodeA.peerManager.switch.peerStore.del(nodeA.wakuMix.nodePool.peerIds()[0])
+     check await waitForStatus(ConnectionStatus.Disconnected)
+ 
+     await monitorA.stopHealthMonitor()
+diff --git a/tests/node/test_wakunode_peer_manager.nim b/tests/node/test_wakunode_peer_manager.nim
+index df7aedb..413df15 100644
+--- a/tests/node/test_wakunode_peer_manager.nim
++++ b/tests/node/test_wakunode_peer_manager.nim
+@@ -113,7 +113,7 @@ suite "Peer Manager":
+     suite "Peer Store Pruning":
+       asyncTest "Capacity is not exceeded":
+         # Given the client's peer store has a capacity of 1
+-        clientPeerStore.setCapacity(1)
++        clientPeerStore.capacity = 1
+ 
+         # And the client connects to the server
+         await client.connectToNodes(@[serverRemotePeerInfo])
+@@ -129,7 +129,7 @@ suite "Peer Manager":
+ 
+       asyncTest "Capacity is not exceeded but some peers are unhealthy":
+         # Given the client's peer store has a capacity of 1
+-        clientPeerStore.setCapacity(1)
++        clientPeerStore.capacity = 1
+ 
+         # And the client connects to the server
+         await client.connectToNodes(@[serverRemotePeerInfo])
+@@ -149,7 +149,7 @@ suite "Peer Manager":
+ 
+       asyncTest "Capacity is exceeded but all peers are healthy":
+         # Given the client's peer store has a capacity of 0
+-        clientPeerStore.setCapacity(0)
++        clientPeerStore.capacity = 0
+ 
+         # And the client connects to the server
+         await client.connectToNodes(@[serverRemotePeerInfo])
+@@ -165,7 +165,7 @@ suite "Peer Manager":
+ 
+       asyncTest "Failed connections":
+         # Given the client's peer store has a capacity of 0 and maxFailedAttempts of 1
+-        clientPeerStore.setCapacity(0)
++        clientPeerStore.capacity = 0
+         client.peerManager.maxFailedAttempts = 1
+ 
+         # And the client connects to the server
+@@ -185,7 +185,7 @@ suite "Peer Manager":
+ 
+       asyncTest "Shardless":
+         # Given the client's peer store has a capacity of 0
+-        clientPeerStore.setCapacity(0)
++        clientPeerStore.capacity = 0
+ 
+         # And the client connects to the server
+         await client.connectToNodes(@[serverRemotePeerInfo])
+@@ -205,7 +205,7 @@ suite "Peer Manager":
+ 
+       asyncTest "Higher than avg shard count":
+         # Given the client's peer store has a capacity of 0
+-        clientPeerStore.setCapacity(0)
++        clientPeerStore.capacity = 0
+ 
+         # And the server's remote peer info contains the node's ENR
+         serverRemotePeerInfo.enr = Opt.some(server.enr)
+diff --git a/tests/test_peer_manager.nim b/tests/test_peer_manager.nim
+index 496e54e..40939af 100644
+--- a/tests/test_peer_manager.nim
++++ b/tests/test_peer_manager.nim
+@@ -1049,14 +1049,30 @@ procSuite "Peer Manager":
+       nodes[0].peerManager.switch.peerStore.peers().len == 3
+ 
+       # Inbound/Outbound number of peers match
+-      nodes[0].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 3
+-      nodes[0].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 0
+-      nodes[1].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
+-      nodes[1].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
+-      nodes[2].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
+-      nodes[2].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
+-      nodes[3].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
+-      nodes[3].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
++      nodes[0].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Inbound).len == 3
++      nodes[0].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Outbound).len == 0
++      nodes[1].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Inbound).len == 0
++      nodes[1].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Outbound).len == 1
++      nodes[2].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Inbound).len == 0
++      nodes[2].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Outbound).len == 1
++      nodes[3].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Inbound).len == 0
++      nodes[3].peerManager.switch.peerStore
++        .peers()
++        .filterIt(it.direction == Outbound).len == 1
+ 
+       # All peer ids are correct
+       nodes[0].peerManager.switch.peerStore.peers().anyIt(
+diff --git a/tests/test_peer_store_extended.nim b/tests/test_peer_store_extended.nim
+index 5e2f3d9..c27c240 100644
+--- a/tests/test_peer_store_extended.nim
++++ b/tests/test_peer_store_extended.nim
+@@ -295,19 +295,19 @@ suite "Extended nim-libp2p Peer Store":
+       peerStore.hasPeers(protocolMatcher("/vac/waku/store/2.0.0"))
+       not peerStore.hasPeers(protocolMatcher("/vac/waku/does-not-exist/2.0.0"))
+ 
+-  test "getPeersByDirection()":
++  test "peers() filtered by direction":
+     # When
+-    let inPeers = peerStore.getPeersByDirection(Inbound)
+-    let outPeers = peerStore.getPeersByDirection(Outbound)
++    let inPeers = peerStore.peers().filterIt(it.direction == Inbound)
++    let outPeers = peerStore.peers().filterIt(it.direction == Outbound)
+ 
+     # Then
+     check:
+       inPeers.len == 4
+       outPeers.len == 1
+ 
+-  test "getDisconnectedPeers()":
++  test "peers() filtered by disconnected":
+     # When
+-    let disconnedtedPeers = peerStore.getDisconnectedPeers()
++    let disconnedtedPeers = peerStore.peers().filterIt(it.connectedness != Connected)
+ 
+     # Then
+     check:
+@@ -340,7 +340,7 @@ suite "Extended nim-libp2p Peer Store":
+     peerStore.addPeer(remotePeer)
+ 
+     # When
+-    peerStore.delete(p1)
++    peerStore.del(p1)
+ 
+     # Then
+     check:

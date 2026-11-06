@@ -5,6 +5,7 @@ import results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
+  ../libp2p_iface/stream,
   ./common,
   ./rpc,
   ./rpc_codec,
@@ -14,7 +15,7 @@ import
 logScope:
   topics = "waku lightpush legacy"
 
-type WakuLegacyLightPush* = ref object of LPProtocol
+type WakuLegacyLightPush* = ref object
   rng*: crypto.Rng
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
@@ -48,7 +49,7 @@ proc handleRequest*(
     logos_delivery_lightpush_messages.inc(labelValues = ["PushRequest"])
 
     debug "Handling legacy lightpush request",
-      my_peer_id = wl.peerManager.switch.peerInfo.peerId,
+      my_peer_id = wl.peerManager.selfPeerId(),
       peer_id = peerId,
       requestId = requestId,
       pubsubTopic = pubsubTopic,
@@ -61,76 +62,73 @@ proc handleRequest*(
     pushResponseInfo = (if isSuccess: "OK" else: handleRes.error)
 
   if not isSuccess:
-    logos_delivery_lightpush_errors.inc(labelValues = [pushResponseInfo])
+    logos_delivery_lightpush_errors.inc(labelValues = [messagePushFailure])
     debug "Failed to push message", error = pushResponseInfo
   let response = PushResponse(isSuccess: isSuccess, info: Opt.some(pushResponseInfo))
   let rpc = PushRPC(requestId: requestId, response: Opt.some(response))
   return rpc
 
-proc initProtocolHandler(wl: WakuLegacyLightPush) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    var rpc: PushRPC
-    defer:
-      await conn.closeWithEOF()
+proc handleStream*[S: IStream](
+    wl: WakuLegacyLightPush, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  var rpc: PushRPC
+  defer:
+    await conn.closeWithEOF()
 
-    wl.requestRateLimiter.checkUsageLimit(WakuLegacyLightPushCodec, conn):
-      block readAndHandle:
-        var buffer: seq[byte]
-        try:
-          buffer = await conn.readLp(wl.maxRpcSize)
-        except MaxSizeError:
-          # Only the length prefix was read, so the requestId is unknown.
-          debug "Lightpush legacy request too large",
-            peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
-          rpc = PushRPC(
-            requestId: "N/A",
-            response: Opt.some(
-              PushResponse(
-                isSuccess: false,
-                info: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
-              )
-            ),
-          )
-          break readAndHandle
-        except LPStreamError:
-          debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
-          return
-
-        logos_delivery_service_network_bytes.inc(
-          amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
-        )
-
-        try:
-          rpc = await handleRequest(wl, conn.peerId, buffer)
-        except CatchableError:
-          error "lightpush legacy handleRequest failed",
-            error = getCurrentExceptionMsg()
-    do:
-      debug "Lightpush request rejected due rate limit exceeded",
-        peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
-
-      rpc = static(
-        PushRPC(
-          ## We will not copy and decode RPC buffer from stream only for requestId
-          ## in reject case as it is comparably too expensive and opens possible
-          ## attack surface
+  wl.requestRateLimiter.checkUsageLimit(WakuLegacyLightPushCodec, conn):
+    block readAndHandle:
+      var buffer: seq[byte]
+      try:
+        buffer = await conn.readLp(wl.maxRpcSize)
+      except MaxSizeError:
+        # Only the length prefix was read, so the requestId is unknown.
+        debug "Lightpush legacy request too large",
+          peerId = conn.peerId, maxRpcSize = wl.maxRpcSize
+        rpc = PushRPC(
           requestId: "N/A",
           response: Opt.some(
-            PushResponse(isSuccess: false, info: Opt.some(TooManyRequestsMessage))
+            PushResponse(
+              isSuccess: false,
+              info: Opt.some("request exceeds " & $wl.maxRpcSize & " bytes"),
+            )
           ),
         )
+        break readAndHandle
+      except LPStreamError:
+        debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
+        return
+
+      logos_delivery_service_network_bytes.inc(
+        amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
       )
 
-    try:
-      await conn.writeLp(rpc.encode().buffer)
-    except LPStreamError:
-      debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
+      try:
+        rpc = await handleRequest(wl, conn.peerId, buffer)
+      except CatchableError:
+        error "lightpush legacy handleRequest failed", error = getCurrentExceptionMsg()
+  do:
+    debug "Lightpush request rejected due rate limit exceeded",
+      peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
 
-    ## For lightpush might not worth to measure outgoing trafic as it is only
-    ## small respones about success/failure
+    rpc = static(
+      PushRPC(
+        ## We will not copy and decode RPC buffer from stream only for requestId
+        ## in reject case as it is comparably too expensive and opens possible
+        ## attack surface
+        requestId: "N/A",
+        response: Opt.some(
+          PushResponse(isSuccess: false, info: Opt.some(TooManyRequestsMessage))
+        ),
+      )
+    )
 
-  wl.handler = handler
-  wl.codec = WakuLegacyLightPushCodec
+  try:
+    await conn.writeLp(rpc.encode().buffer)
+  except LPStreamError:
+    debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
+
+  ## For lightpush might not worth to measure outgoing trafic as it is only
+  ## small respones about success/failure
 
 proc new*(
     T: type WakuLegacyLightPush,
@@ -147,6 +145,5 @@ proc new*(
     requestRateLimiter: newRequestRateLimiter(rateLimitSetting),
     maxRpcSize: maxMessageSize + DefaultSafetyBufferProtocolOverhead,
   )
-  wl.initProtocolHandler()
   setServiceLimitMetric(WakuLegacyLightPushCodec, rateLimitSetting)
   return wl

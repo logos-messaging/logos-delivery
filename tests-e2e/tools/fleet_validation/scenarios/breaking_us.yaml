@@ -1,0 +1,113 @@
+# 2 senders (Edge+Core) and 2 receivers (Edge+Core) per case: the fleet prunes
+# beyond 5 connections per source IP, so cases run one after another.
+# Ramp message rate (per sender), then payload size at 5 msg/s, 120s per step.
+name: breaking-us
+transports:
+- tcp
+- quic
+settle: 30
+step_gap: 15
+receivers:
+- mode: Edge
+  dc: us
+- mode: Core
+  dc: us
+steps:
+- id: r1
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 1
+  - mode: Core
+    dc: us
+    rate: 1
+- id: r5
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 5
+  - mode: Core
+    dc: us
+    rate: 5
+- id: r10
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 10
+  - mode: Core
+    dc: us
+    rate: 10
+- id: r25
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 25
+  - mode: Core
+    dc: us
+    rate: 25
+- id: r50
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 50
+  - mode: Core
+    dc: us
+    rate: 50
+- id: r100
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 100
+  - mode: Core
+    dc: us
+    rate: 100
+- id: sz10k
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 5
+    size: 10000
+  - mode: Core
+    dc: us
+    rate: 5
+    size: 10000
+- id: sz50k
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 5
+    size: 50000
+  - mode: Core
+    dc: us
+    rate: 5
+    size: 50000
+- id: sz100k
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 5
+    size: 100000
+  - mode: Core
+    dc: us
+    rate: 5
+    size: 100000
+- id: sz145k
+  duration: 120
+  senders:
+  - mode: Edge
+    dc: us
+    rate: 5
+    size: 145000
+  - mode: Core
+    dc: us
+    rate: 5
+    size: 145000

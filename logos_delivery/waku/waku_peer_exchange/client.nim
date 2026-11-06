@@ -6,6 +6,7 @@ import
     waku_peer_exchange/rpc,
     waku_peer_exchange/rpc_codec,
     node/peer_manager,
+    libp2p_iface/stream,
   ]
 
 from logos_delivery/waku/waku_core/codecs import WakuPeerExchangeCodec
@@ -25,8 +26,8 @@ type WakuPeerExchangeClient* = ref object
 proc new*(T: type WakuPeerExchangeClient, peerManager: PeerManager): T =
   WakuPeerExchangeClient(peerManager: peerManager)
 
-proc request*(
-    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: Connection
+proc request*[S: IStream](
+    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: S
 ): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
   let rpc = PeerExchangeRpc.makeRequest(numPeers)
 

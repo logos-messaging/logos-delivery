@@ -195,13 +195,13 @@ proc dupMsgs(self: Statistics): string =
 
 proc echoStat*(self: Statistics, peerId: string) =
   let (minL, maxL, avgL) = self.calcLatency()
-  logos_delivery_lpt_receiver_latencies.set(
+  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
     labelValues = [peerId, "min"], value = minL.nanos()
   )
-  logos_delivery_lpt_receiver_latencies.set(
+  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
     labelValues = [peerId, "avg"], value = avgL.nanos()
   )
-  logos_delivery_lpt_receiver_latencies.set(
+  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
     labelValues = [peerId, "max"], value = maxL.nanos()
   )
 

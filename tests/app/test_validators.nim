@@ -98,7 +98,7 @@ suite "Node app - Validators":
 
     # No invalid messages were received by any peer
     for i in 0 ..< 5:
-      for k, v in nodes[i].wakuRelay.peerStats.mpairs:
+      for k, v in nodes[i].wakuRelay.pubsub.gossip.peerStats.mpairs:
         check:
           v.topicInfos[spamProtectedShard].invalidMessageDeliveries == 0.0
 
@@ -241,7 +241,7 @@ suite "Node app - Validators":
     for i in 0 ..< 100:
       msgRejected = 0
       for i in 0 ..< 5:
-        for k, v in nodes[i].wakuRelay.peerStats.mpairs:
+        for k, v in nodes[i].wakuRelay.pubsub.gossip.peerStats.mpairs:
           msgRejected += v.topicInfos[spamProtectedShard].invalidMessageDeliveries.int
 
       if msgReceived == 125 and msgRejected == 500:
@@ -353,12 +353,12 @@ suite "Node app - Validators":
     # peer1 got invalid messages from peer0
     let p0Id = nodes[0].peerInfo.peerId
     check:
-      nodes[1].wakuRelay.peerStats[p0Id].topicInfos[spamProtectedShard].invalidMessageDeliveries ==
+      nodes[1].wakuRelay.pubsub.gossip.peerStats[p0Id].topicInfos[spamProtectedShard].invalidMessageDeliveries ==
         100.0
 
     # peer1 did not gossip further, so no other node rx invalid messages
     for i in 0 ..< 5:
-      for k, v in nodes[i].wakuRelay.peerStats.mpairs:
+      for k, v in nodes[i].wakuRelay.pubsub.gossip.peerStats.mpairs:
         if k == p0Id and i == 1:
           continue
         check:

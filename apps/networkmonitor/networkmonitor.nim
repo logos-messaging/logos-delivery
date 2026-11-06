@@ -219,7 +219,7 @@ proc setConnectedPeersMetrics(
     info "connected to peer", peer = customPeerInfo[]
 
     # after connection, get supported protocols
-    let lp2pPeerStore = node.switch.peerStore
+    let lp2pPeerStore = node.peerManager.peerStore
     let nodeProtocols = lp2pPeerStore[ProtoBook][peerId]
     customPeerInfo.supportedProtocols = nodeProtocols
     customPeerInfo.lastTimeConnected = currentTime

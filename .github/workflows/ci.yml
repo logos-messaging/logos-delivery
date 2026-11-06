@@ -77,6 +77,20 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
 
+  # Only the libp2p backend may import the behavioural nim-libp2p modules; the
+  # allow-list in scripts/libp2p_imports_allowlist.txt only shrinks.
+  libp2p-boundary:
+    needs: changes
+    if: ${{ needs.changes.outputs.all == 'true' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check libp2p imports are confined to the backend
+        run: scripts/check_libp2p_imports.py
+
   # Also on nix changes: it is the only check that compares nix/deps.nix
   # against nimble.lock, and the Nix build itself never reads the lock.
   build-health:
@@ -104,6 +118,9 @@ jobs:
 
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
+
+      - name: Cache librln
+        uses: ./.github/actions/librln-cache
 
       # Nim recompiles only the C files that changed, but nim-leopard reuses any
       # Leopard-RS archive already in nimcache, so the key hashes the files its
@@ -178,9 +195,10 @@ jobs:
       - name: Check liblogosdelivery exports no OpenSSL symbols
         run: scripts/check_lib_exports.sh build/liblogosdelivery.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
 
+  # The slowest job: not run on PR pushes, only in the merge queue and on master.
   build-windows:
     needs: changes
-    if: ${{ needs.changes.outputs.all == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && needs.changes.outputs.all == 'true' }}
     uses: ./.github/workflows/windows-build.yml
     with:
       branch: ${{ github.ref }}
@@ -349,6 +367,9 @@ jobs:
           echo "using nph at ${NPH}"
           "${NPH}" examples logos_delivery tests tools apps *.@(nim|nims|nimble)
           git diff --exit-code
+
+      - name: Check metric labels are bounded
+        run: scripts/check_metric_labels.py
 
   # The single required check for this workflow. A matrix or reusable-workflow
   # job skipped at job level reports under its raw name (e.g.

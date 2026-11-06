@@ -1,0 +1,20 @@
+ports-shift = 4
+cluster-id=16
+shard = [ 32, 64 ]
+
+staticnode = [ "/ip4/0.0.0.0/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN" ]
+log-level = "DEBUG"
+nodekey = "0d744a1fada214dead6dc9c7274585eca0ff292451866e7d6d677dc818e8ccd2"
+lightpush = true
+filter = true
+#store = true
+#store-message-db-url = "postgres://postgres:test123@localhost:5432/postgres"
+#store-message-retention-policy = "size:10GB"
+
+# max-msg-size = "1424KiB"  # leavin150KiB) makes the memory grow faster on "node b".
+num-shards-in-network = 100
+
+rest = true
+metrics-server = true
+
+

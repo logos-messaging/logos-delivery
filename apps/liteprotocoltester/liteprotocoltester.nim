@@ -87,6 +87,8 @@ when isMainModule:
   wakuNodeConf.logFormat = conf.logFormat
   wakuNodeConf.nat = conf.nat
   wakuNodeConf.maxConnections = 500
+  wakuNodeConf.libp2pImpl = "builtin"
+  wakuNodeConf.localStoragePath = "build/lpt-storage-" & $conf.testFunc
   wakuNodeConf.restAddress = conf.restAddress
   wakuNodeConf.restPort = conf.restPort
   wakuNodeConf.restAllowOrigin = conf.restAllowOrigin

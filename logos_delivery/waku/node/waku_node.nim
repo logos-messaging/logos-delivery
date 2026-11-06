@@ -3,6 +3,7 @@
 import
   std/[tables, sequtils, os, net, random, sets],
   chronos,
+  chronos/streams/tlsstream,
   chronicles,
   metrics,
   results,
@@ -16,11 +17,6 @@ import
   libp2p/[multiaddress, multicodec, peerinfo, wire, address_manager],
   libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport,
   libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
@@ -32,6 +28,7 @@ import
     waku_core,
     waku_core/topics/sharding,
     waku_relay,
+    libp2p_backend/host,
     waku_archive,
     waku_store/protocol as store,
     waku_store/client as store_client,
@@ -72,7 +69,7 @@ import
   ./shard_subscription,
   ./edge_filter_sub_state
 
-export shard_subscription, edge_filter_sub_state
+export shard_subscription, edge_filter_sub_state, host
 
 logScope:
   topics = "waku node"
@@ -108,6 +105,7 @@ type
   WakuNode* = ref object
     peerManager*: PeerManager
     switch*: Switch
+    host*: Libp2pHost
     wakuRelay*: WakuRelay
     wakuArchive*: waku_archive.WakuArchive
     wakuStore*: store.WakuStore
@@ -362,6 +360,7 @@ proc new*(
   let node = WakuNode(
     peerManager: peerManager,
     switch: switch,
+    host: Libp2pHost.new(switch),
     rng: rng,
     brokerCtx: brokerCtx,
     enr: enr,
@@ -406,6 +405,11 @@ proc peerInfo*(node: WakuNode): PeerInfo =
 proc peerId*(node: WakuNode): PeerId =
   node.peerInfo.peerId
 
+proc mountProtocol*(
+    node: WakuNode, proto: LPProtocol, matcher: Matcher = nil
+) {.raises: [LPError].} =
+  node.switch.mount(proto, matcher)
+
 # TODO: Move to application instance (e.g., the node app)
 # TODO: Extend with more relevant info: topics, peers, memory usage, online time, etc
 proc info*(node: WakuNode): WakuInfo =
@@ -447,7 +451,9 @@ proc mountMetadata*(
   node.peerManager.wakuMetadata = metadata
 
   let catchRes = catch:
-    node.switch.mount(node.wakuMetadata, protocolMatcher(WakuMetadataCodec))
+    node.host.mountHandler(
+      WakuMetadataCodec, node.wakuMetadata, protocolMatcher(WakuMetadataCodec)
+    )
   catchRes.isOkOr:
     return err(error.msg)
 
@@ -605,7 +611,7 @@ proc mountMix*(
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
   node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
   let catchRes = catch:
-    node.switch.mount(node.wakuMix)
+    node.mountProtocol(node.wakuMix)
   catchRes.isOkOr:
     return err(error.msg)
 
@@ -635,7 +641,7 @@ proc mountKademlia*(
   node.wakuKademlia = wk
 
   let mountRes = catch:
-    node.switch.mount(wk.protocol)
+    node.mountProtocol(wk.protocol)
   mountRes.isOkOr:
     return err("failed to mount service discovery: " & error.msg)
 
@@ -672,22 +678,37 @@ proc mountStoreSync*(
   node.wakuStoreReconciliation = recon
 
   let reconMountRes = catch:
-    node.switch.mount(
-      node.wakuStoreReconciliation, protocolMatcher(WakuReconciliationCodec)
+    node.host.mountHandler(
+      WakuReconciliationCodec,
+      node.wakuStoreReconciliation,
+      protocolMatcher(WakuReconciliationCodec),
     )
   reconMountRes.isOkOr:
     return err(error.msg)
 
+  let maxMessageSize =
+    if node.wakuRelay.isNil():
+      int(DefaultMaxWakuMessageSize)
+    else:
+      node.wakuRelay.maxMessageSize
+
   let transfer = SyncTransfer.new(
-    node.peerManager, node.wakuArchive, idsChannel, wantsChannel, needsChannel
+    node.peerManager, node.wakuArchive, idsChannel, wantsChannel, needsChannel,
+    maxMessageSize,
   )
 
   node.wakuStoreTransfer = transfer
 
   let transMountRes = catch:
-    node.switch.mount(node.wakuStoreTransfer, protocolMatcher(WakuTransferCodec))
+    node.host.mountHandler(
+      WakuTransferCodec, node.wakuStoreTransfer, protocolMatcher(WakuTransferCodec)
+    )
   transMountRes.isOkOr:
     return err(error.msg)
+
+  if node.started:
+    await recon.start()
+    await transfer.start()
 
   return ok()
 
@@ -695,11 +716,10 @@ proc reconnectRelayPeers*(node: WakuNode) {.async.} =
   ## Reconnect to previously-seen WakuRelay peers.
   if node.wakuRelay.isNil():
     return
-  if not node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
+  if not node.peerManager.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
     return
   info "Found previous WakuRelay peers. Reconnecting."
-  let backoffPeriod =
-    node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
+  let backoffPeriod = node.wakuRelay.reconnectBackoff()
   await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
 
 proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
@@ -744,7 +764,7 @@ proc mountRendezvous*(
       error "Failed to start wakuRendezvous", error = exc.msg
 
   try:
-    node.switch.mount(node.wakuRendezvous, protocolMatcher(WakuRendezVousCodec))
+    node.mountProtocol(node.wakuRendezvous, protocolMatcher(WakuRendezVousCodec))
   except LPError:
     error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
@@ -842,8 +862,17 @@ proc start*(node: WakuNode) {.async.} =
   node.switch.addressManager.addMapper(node.baseMapper, AddrSource.Listen)
 
   ## Binds the transports, resolves peerInfo.addrs, then starts the protocols.
-  ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
+
+  ## The switch started the mounted gossipsub; this starts the relay's own loops.
+  if not node.wakuRelay.isNil():
+    await node.wakuRelay.start()
+
+  if not node.wakuStoreReconciliation.isNil():
+    await node.wakuStoreReconciliation.start()
+
+  if not node.wakuStoreTransfer.isNil():
+    await node.wakuStoreTransfer.start()
 
   ## Copy again: the observer skips an unchanged restart.
   node.copyCommittedAddresses()
@@ -895,8 +924,16 @@ proc stop*(node: WakuNode) {.async.} =
     (await discovery.stopDiscovery()).isOkOr:
       error "failed to stop discovery backend", error = error
 
-  ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
+
+  if not node.wakuRelay.isNil():
+    await node.wakuRelay.stop()
+
+  if not node.wakuStoreReconciliation.isNil():
+    await node.wakuStoreReconciliation.stop()
+
+  if not node.wakuStoreTransfer.isNil():
+    await node.wakuStoreTransfer.stop()
 
   node.peerManager.stop()
 

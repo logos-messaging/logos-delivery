@@ -1,23 +1,17 @@
-## Waku Relay module. Thin layer on top of GossipSub.
+## Waku Relay module. Thin layer on top of a pubsub backend (`IPubSub`).
 ##
 ## See https://github.com/vacp2p/specs/blob/master/specs/waku/v2/waku-relay.md
 ## for spec.
 {.push raises: [].}
 
 import
-  std/[strformat, strutils, sets],
+  std/[strformat, strutils, sets, tables],
   stew/byteutils,
   results,
   sequtils,
   chronos,
   chronicles,
   metrics,
-  libp2p/multihash,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/stream/connection,
-  libp2p/switch,
-  libp2p/utils/opt,
   brokers/broker_context
 
 import
@@ -25,11 +19,13 @@ import
   logos_delivery/waku/node/health_monitor/topic_health,
   logos_delivery/waku/requests/health_requests,
   logos_delivery/waku/api/events/health_events,
-  ./message_id,
+  logos_delivery/waku/libp2p_iface/pubsub,
+  ./pubsub_params,
   logos_delivery/waku/api/events/peer_events
 
 from logos_delivery/waku/waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec
+export pubsub
 
 type ShardMetrics = object
   count: float64
@@ -62,111 +58,31 @@ declarePublicGauge(
   labels = ["shard"],
 )
 
-# see: https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#overview-of-new-parameters
-const TopicParameters = TopicParams(
-  topicWeight: 1,
-
-  # p1: favours peers already in the mesh
-  timeInMeshWeight: 0.01,
-  timeInMeshQuantum: 1.seconds,
-  timeInMeshCap: 10.0,
-
-  # p2: rewards fast peers
-  firstMessageDeliveriesWeight: 1.0,
-  firstMessageDeliveriesDecay: 0.5,
-  firstMessageDeliveriesCap: 10.0,
-
-  # p3: penalizes lazy peers. safe low value
-  meshMessageDeliveriesWeight: 0.0,
-  meshMessageDeliveriesDecay: 0.0,
-  meshMessageDeliveriesCap: 0,
-  meshMessageDeliveriesThreshold: 0,
-  meshMessageDeliveriesWindow: 0.milliseconds,
-  meshMessageDeliveriesActivation: 0.seconds,
-
-  # p3b: tracks history of prunes
-  meshFailurePenaltyWeight: 0.0,
-  meshFailurePenaltyDecay: 0.0,
-
-  # p4: penalizes invalid messages. highly penalize
-  # peers sending wrong messages
-  invalidMessageDeliveriesWeight: -100.0,
-  invalidMessageDeliveriesDecay: 0.5,
-)
-
-# see: https://rfc.vac.dev/spec/29/#gossipsub-v10-parameters
-const GossipsubParameters = GossipSubParams.init(
-  pruneBackoff = chronos.minutes(1),
-  unsubscribeBackoff = chronos.seconds(5),
-  floodPublish = true,
-  gossipFactor = 0.25,
-  d = 6,
-  dLow = 4,
-  dHigh = 8,
-  dScore = 6,
-  dOut = 3,
-  dLazy = 6,
-  heartbeatInterval = chronos.seconds(1),
-  historyLength = 6,
-  historyGossip = 3,
-  fanoutTTL = chronos.minutes(1),
-  seenTTL = chronos.minutes(2),
-
-  # no gossip is sent to peers below this score
-  gossipThreshold = -100,
-
-  # no self-published msgs are sent to peers below this score
-  publishThreshold = -1000,
-
-  # used to trigger disconnections + ignore peer if below this score
-  graylistThreshold = -10000,
-
-  # grafts better peers if the mesh median score drops below this. unset.
-  opportunisticGraftThreshold = 0,
-
-  # how often peer scoring is updated
-  decayInterval = chronos.seconds(12),
-
-  # below this we consider the parameter to be zero
-  decayToZero = 0.01,
-
-  # remember peer score during x after it disconnects
-  retainScore = chronos.minutes(10),
-
-  # p5: application specific, unset
-  appSpecificWeight = 0.0,
-
-  # p6: penalizes peers sharing more than threshold ips
-  ipColocationFactorWeight = -50.0,
-  ipColocationFactorThreshold = 5.0,
-
-  # p7: penalizes bad behaviour (weight and decay)
-  behaviourPenaltyWeight = -10.0,
-  behaviourPenaltyDecay = 0.986,
-
-  # triggers disconnections of bad peers aka score <graylistThreshold
-  disconnectBadPeers = true,
-)
-
 type
-  WakuRelayResult*[T] = Result[T, string]
   WakuRelayHandler* = proc(pubsubTopic: PubsubTopic, message: WakuMessage): Future[void] {.
     gcsafe, raises: [Defect]
   .}
   WakuValidatorHandler* = proc(
     pubsubTopic: PubsubTopic, message: WakuMessage
   ): Future[ValidationResult] {.gcsafe, raises: [Defect].}
-  WakuRelay* = ref object of GossipSub
+
+  RelayPeer* = object
+    peerId*: PeerIdStr
+    score*: float64
+
+  RelayTopologyChangeHandler* = proc() {.gcsafe, raises: [].}
+
+  WakuRelayOf*[P: IPubSub] = ref object
+    pubsub*: P
+    maxMessageSize*: int
     brokerCtx: BrokerContext
     peerEventListener: WakuPeerEventListener
     # seq of tuples: the first entry in the tuple contains the validators are called for every topic
     # the second entry contains the error messages to be returned when the validator fails
     wakuValidators: seq[tuple[handler: WakuValidatorHandler, errorMessage: string]]
-    # a map of validators to error messages to return when validation fails
-    topicValidator: Table[PubsubTopic, ValidatorHandler]
-      # map topic with its assigned validator within pubsub
-    topicHandlers: Table[PubsubTopic, TopicHandler]
-      # map topic with the TopicHandler proc in charge of attending topic's incoming message events
+    validatedTopics: HashSet[PubsubTopic]
+      # topics that already have the ordered validator installed in the pubsub backend
+    handledTopics: HashSet[PubsubTopic] # topics with an active subscription handler
     topicsHealth*: Table[string, TopicHealth]
     onTopicHealthChange*: TopicHealthChangeHandler
     topicHealthLoopHandle*: Future[void]
@@ -176,6 +92,7 @@ type
     topicHealthCheckAll: bool
       # true if all topics need to have their health status refreshed in the update event
     msgMetricsPerShard*: Table[string, ShardMetrics]
+    topologyHandler: RelayTopologyChangeHandler
 
 # predefinition for more detailed results from publishing new message
 type PublishOutcome* {.pure.} = enum
@@ -184,30 +101,8 @@ type PublishOutcome* {.pure.} = enum
   NoPeersToPublish
   CannotGenerateMessageId
 
-proc initProtocolHandler(w: WakuRelay) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    ## main protocol handler that gets triggered on every
-    ## connection for a protocol string
-    ## e.g. ``/wakusub/0.0.1``, etc...
-    debug "Incoming WakuRelay connection", connection = conn, protocol = proto
-
-    try:
-      await w.handleConn(conn, proto)
-    except CancelledError:
-      # This is top-level procedure which will work as separate task, so it
-      # do not need to propogate CancelledError.
-      debug "Unexpected cancellation in relay handler",
-        conn = conn, error = getCurrentExceptionMsg()
-    except CatchableError:
-      error "WakuRelay handler leaks an error",
-        conn = conn, error = getCurrentExceptionMsg()
-
-  # XXX: Handler hijack GossipSub here?
-  w.handler = handler
-  w.codec = WakuRelayCodec
-
-proc logMessageInfo*(
-    w: WakuRelay,
+proc logMessageInfo*[P: IPubSub](
+    w: WakuRelayOf[P],
     remotePeerId: string,
     topic: string,
     msg_id_short: string,
@@ -219,7 +114,7 @@ proc logMessageInfo*(
 
   if onRecv:
     trace "Received relay message",
-      my_peer_id = w.switch.peerInfo.peerId,
+      my_peer_id = w.pubsub.selfPeerId().shortPeerId(),
       msg_hash = msg_hash,
       msg_id = msg_id_short,
       from_peer_id = remotePeerId,
@@ -229,7 +124,7 @@ proc logMessageInfo*(
       payloadSizeBytes = payloadSize
   else:
     trace "Sent relay message",
-      my_peer_id = w.switch.peerInfo.peerId,
+      my_peer_id = w.pubsub.selfPeerId().shortPeerId(),
       msg_hash = msg_hash,
       msg_id = msg_id_short,
       to_peer_id = remotePeerId,
@@ -258,203 +153,157 @@ proc logMessageInfo*(
     shardMetrics.sizeSum, labelValues = [topic]
   )
 
-proc initRelayObservers(w: WakuRelay) =
-  proc decodeRpcMessageInfo(
-      peer: PubSubPeer, msg: Message
-  ): Result[
-      tuple[msgId: string, topic: string, wakuMessage: WakuMessage, msgSize: int], void
-  ] =
-    let msg_id = w.msgIdProvider(msg).valueOr:
-      debug "Error generating message id",
-        my_peer_id = w.switch.peerInfo.peerId,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
-        error = $error
-      return err()
+proc updateNetworkMetrics(topic: string, msgSize: int, onRecv: bool) =
+  if onRecv:
+    logos_delivery_relay_network_bytes.inc(
+      msgSize.int64, labelValues = [topic, "gross", "in"]
+    )
+  else:
+    # sent traffic can only be "net"
+    # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
+    logos_delivery_relay_network_bytes.inc(
+      msgSize.int64, labelValues = [topic, "net", "out"]
+    )
 
-    let msg_id_short = shortLog(msg_id)
+proc handlePubSubEvent[P: IPubSub](w: WakuRelayOf[P], event: PubSubEvent) =
+  case event.kind
+  of PubSubEventKind.TopologyChanged:
+    var topicsChanged = false
+    for topic in event.meshTopics:
+      w.topicHealthDirty.incl(topic)
+      topicsChanged = true
 
-    let wakuMessage = WakuMessage.decode(msg.payloadBytes).valueOr:
-      debug "Error decoding to Waku Message",
-        my_peer_id = w.switch.peerInfo.peerId,
-        msg_id = msg_id_short,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
-        error = $error
-      return err()
+    if topicsChanged:
+      w.topicHealthUpdateEvent.fire()
 
-    let msgSize = msg.payloadBytes.len + msg.topic.len
-    return ok((msg_id_short, msg.topic, wakuMessage, msgSize))
+    if not w.topologyHandler.isNil():
+      w.topologyHandler()
+  of PubSubEventKind.MessageReceived, PubSubEventKind.MessageSent:
+    let onRecv = event.kind == PubSubEventKind.MessageReceived
+    let wakuMessage = WakuMessage.decode(event.data).valueOr:
+      if onRecv:
+        debug "Error decoding to Waku Message",
+          my_peer_id = w.pubsub.selfPeerId().shortPeerId(),
+          msg_id = event.msgId,
+          from_peer_id = event.peerId.shortPeerId(),
+          pubsub_topic = event.topic,
+          error = $error
+      else:
+        debug "onSend: failed decoding RPC info",
+          my_peer_id = w.pubsub.selfPeerId().shortPeerId(),
+          to_peer_id = event.peerId.shortPeerId()
+      return
 
-  proc updateMetrics(
-      peer: PubSubPeer,
-      pubsub_topic: string,
-      msg: WakuMessage,
-      msgSize: int,
-      onRecv: bool,
-  ) =
-    if onRecv:
-      logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
+    # message receive log happens on MessageValidated, as MessageReceived comes before checks
+    if not onRecv:
+      w.logMessageInfo(
+        event.peerId.shortPeerId(),
+        event.topic,
+        event.msgId,
+        wakuMessage,
+        onRecv = false,
       )
-    else:
-      # sent traffic can only be "net"
-      # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
-      logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
-      )
-
-  proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
-    if msgs.control.isSome():
-      let ctrl = msgs.control.get()
-      var topicsChanged = false
-
-      for graft in ctrl.graft:
-        if graft.topicID.len > 0:
-          w.topicHealthDirty.incl(graft.topicID)
-          topicsChanged = true
-
-      for prune in ctrl.prune:
-        if prune.topicID.len > 0:
-          w.topicHealthDirty.incl(prune.topicID)
-          topicsChanged = true
-
-      if topicsChanged:
-        w.topicHealthUpdateEvent.fire()
-
-    for msg in msgs.messages:
-      let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
-        continue
-      # message receive log happens in onValidated observer as onRecv is called before checks
-      updateMetrics(peer, topic, wakuMessage, msgSize, onRecv = true)
-    discard
-
-  proc onValidated(peer: PubSubPeer, msg: Message, msgId: MessageId) =
-    let msg_id_short = shortLog(msgId)
-    let wakuMessage = WakuMessage.decode(msg.payloadBytes).valueOr:
+    updateNetworkMetrics(event.topic, event.data.len + event.topic.len, onRecv)
+  of PubSubEventKind.MessageValidated:
+    let wakuMessage = WakuMessage.decode(event.data).valueOr:
       debug "onValidated: failed decoding to Waku Message",
-        my_peer_id = w.switch.peerInfo.peerId,
-        msg_id = msg_id_short,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
+        my_peer_id = w.pubsub.selfPeerId().shortPeerId(),
+        msg_id = event.msgId,
+        from_peer_id = event.peerId.shortPeerId(),
+        pubsub_topic = event.topic,
         error = $error
       return
 
-    logMessageInfo(
-      w, shortLog(peer.peerId), msg.topic, msg_id_short, wakuMessage, onRecv = true
+    w.logMessageInfo(
+      event.peerId.shortPeerId(), event.topic, event.msgId, wakuMessage, onRecv = true
     )
 
-  proc onSend(peer: PubSubPeer, msgs: var RPCMsg) =
-    for msg in msgs.messages:
-      let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
-        debug "onSend: failed decoding RPC info",
-          my_peer_id = w.switch.peerInfo.peerId, to_peer_id = peer.peerId
-        continue
-      logMessageInfo(
-        w, shortLog(peer.peerId), topic, msg_id_short, wakuMessage, onRecv = false
-      )
-      updateMetrics(peer, topic, wakuMessage, msgSize, onRecv = false)
-
-  let administrativeObserver =
-    PubSubObserver(onRecv: onRecv, onSend: onSend, onValidated: onValidated)
-
-  w.addObserver(administrativeObserver)
-
-proc new*(
-    T: type WakuRelay, switch: Switch, maxMessageSize = int(DefaultMaxWakuMessageSize)
-): WakuRelayResult[T] =
+proc new*[P: IPubSub](
+    T: type WakuRelayOf[P], pubsub: P, maxMessageSize = int(DefaultMaxWakuMessageSize)
+): Result[WakuRelayOf[P], string] =
   ## maxMessageSize: max num bytes that are allowed for the WakuMessage
+  let w = WakuRelayOf[P](
+    pubsub: pubsub,
+    maxMessageSize: maxMessageSize,
+    brokerCtx: globalBrokerContext(),
+    topicsHealth: initTable[string, TopicHealth](),
+    topicHealthUpdateEvent: newAsyncEvent(),
+    topicHealthDirty: initHashSet[string](),
+    topicHealthCheckAll: false,
+  )
 
-  var w: WakuRelay
-  try:
-    w = WakuRelay.init(
-      switch = switch,
-      anonymize = true,
-      verifySignature = false,
-      sign = false,
-      triggerSelf = true,
-      msgIdProvider = defaultMessageIdProvider,
-      maxMessageSize = maxMessageSize,
-      rng = switch.rng,
-      parameters = GossipsubParameters,
-    )
-    w.brokerCtx = globalBrokerContext()
+  pubsub.setEventHandler(
+    proc(event: PubSubEvent) {.gcsafe, raises: [].} =
+      w.handlePubSubEvent(event)
+  )
 
-    procCall GossipSub(w).initPubSub()
-    w.topicsHealth = initTable[string, TopicHealth]()
-    w.topicHealthUpdateEvent = newAsyncEvent()
-    w.topicHealthDirty = initHashSet[string]()
-    w.topicHealthCheckAll = false
-    w.initProtocolHandler()
-    w.initRelayObservers()
-
-    w.peerEventListener = WakuPeerEvent.listen(
-      w.brokerCtx,
-      proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
-        if evt.kind == WakuPeerEventKind.EventDisconnected:
-          w.topicHealthCheckAll = true
-          w.topicHealthUpdateEvent.fire()
-      ,
-    ).valueOr:
-      return err("Failed to subscribe to peer events: " & error)
-  except InitializationError:
-    return err("initialization error: " & getCurrentExceptionMsg())
+  w.peerEventListener = WakuPeerEvent.listen(
+    w.brokerCtx,
+    proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      if evt.kind == WakuPeerEventKind.EventDisconnected:
+        w.topicHealthCheckAll = true
+        w.topicHealthUpdateEvent.fire()
+    ,
+  ).valueOr:
+    return err("Failed to subscribe to peer events: " & error)
 
   return ok(w)
 
-proc addValidator*(
-    w: WakuRelay, handler: WakuValidatorHandler, errorMessage: string = ""
+proc addValidator*[P: IPubSub](
+    w: WakuRelayOf[P], handler: WakuValidatorHandler, errorMessage: string = ""
 ) {.gcsafe.} =
   w.wakuValidators.add((handler, errorMessage))
 
-proc addObserver*(w: WakuRelay, observer: PubSubObserver) {.gcsafe.} =
-  ## Observes when a message is sent/received from the GossipSub PoV
-  procCall GossipSub(w).addObserver(observer)
+proc clearTopologyChangeHandler*[P: IPubSub](w: WakuRelayOf[P]) {.gcsafe.} =
+  w.topologyHandler = nil
 
-proc getDHigh*(T: type WakuRelay): int =
-  return GossipsubParameters.dHigh
+proc onTopologyChange*[P: IPubSub](
+    w: WakuRelayOf[P], handler: RelayTopologyChangeHandler
+) {.gcsafe.} =
+  ## Calls handler when a peer changes its subscriptions or mesh membership (GRAFT/PRUNE).
+  ## Only one handler is kept; a new one replaces the previous.
+  w.topologyHandler = handler
 
-proc getPubSubPeersInMesh*(
-    w: WakuRelay, pubsubTopic: PubsubTopic
-): Result[HashSet[PubSubPeer], string] =
-  ## Returns the list of PubSubPeers in a mesh defined by the passed pubsub topic.
-  ## The 'mesh' atribute is defined in the GossipSub ref object.
+proc meshTargetDegree*[P: IPubSub](w: WakuRelayOf[P]): int =
+  return w.pubsub.params().d
 
-  # If pubsubTopic is empty, we return all peers in mesh for any pubsub topic
-  if pubsubTopic == "":
-    var allPeers = initHashSet[PubSubPeer]()
-    for topic, topicMesh in w.mesh.pairs:
-      allPeers = allPeers.union(topicMesh)
-    return ok(allPeers)
+proc meshLowDegree*[P: IPubSub](w: WakuRelayOf[P]): int =
+  return w.pubsub.params().dLow
 
-  if not w.mesh.hasKey(pubsubTopic):
-    debug "No mesh peer for the given pubsub topic", pubsubTopic = pubsubTopic
-    return ok(initHashSet[PubSubPeer]())
+proc pruneBackoff*[P: IPubSub](w: WakuRelayOf[P]): Duration =
+  return w.pubsub.params().pruneBackoff
 
-  let peersRes = catch:
-    w.mesh[pubsubTopic]
+proc reconnectBackoff*[P: IPubSub](w: WakuRelayOf[P]): Duration =
+  ## How long to wait before reconnecting to the relay peers pruned on a restart.
+  return w.pruneBackoff() + PruneBackoffSlack
 
-  let peers: HashSet[PubSubPeer] = peersRes.valueOr:
-    return err(
-      "getPubSubPeersInMesh - exception accessing " & pubsubTopic & ": " & error.msg
-    )
+proc enablePeerExchange*[P: IPubSub](
+    w: WakuRelayOf[P], handler: PubSubPeerExchangeHandler
+) =
+  mixin enablePeerExchange
+  w.pubsub.enablePeerExchange(handler)
 
-  return ok(peers)
+proc setTriggerSelf*[P: IPubSub](w: WakuRelayOf[P], value: bool) =
+  mixin setTriggerSelf
+  w.pubsub.setTriggerSelf(value)
 
-proc getPeersInMesh*(
-    w: WakuRelay, pubsubTopic: PubsubTopic = ""
-): Result[seq[PeerId], string] =
+proc getDHigh*(T: type WakuRelayOf): int =
+  return WakuPubSubParams.dHigh
+
+proc getPeersInMesh*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic = ""
+): Result[seq[PeerIdStr], string] =
   ## Returns the list of peerIds in a mesh defined by the passed pubsub topic.
-  ## The 'mesh' atribute is defined in the GossipSub ref object.
-  let pubSubPeers = ?w.getPubSubPeersInMesh(pubsubTopic)
-  let peerIds = toSeq(pubSubPeers).mapIt(it.peerId)
+  ## If pubsubTopic is empty, it returns all peers in mesh for any pubsub topic.
+  let peers = ?w.pubsub.meshPeers(pubsubTopic)
+  return ok(peers.mapIt(it.peerId))
 
-  return ok(peerIds)
-
-proc getNumPeersInMesh*(w: WakuRelay, pubsubTopic: PubsubTopic): Result[int, string] =
+proc getNumPeersInMesh*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic
+): Result[int, string] =
   ## Returns the number of peers in a mesh defined by the passed pubsub topic.
 
-  let peers = w.getPubSubPeersInMesh(pubsubTopic).valueOr:
+  let peers = w.pubsub.meshPeers(pubsubTopic).valueOr:
     return err(
       "getNumPeersInMesh - failed retrieving peers in mesh: " & pubsubTopic & ": " &
         error
@@ -462,24 +311,24 @@ proc getNumPeersInMesh*(w: WakuRelay, pubsubTopic: PubsubTopic): Result[int, str
 
   return ok(peers.len)
 
-proc calculateTopicHealth(wakuRelay: WakuRelay, topic: string): TopicHealth =
-  let numPeersInMesh = wakuRelay.getNumPeersInMesh(topic).valueOr:
+proc calculateTopicHealth[P: IPubSub](w: WakuRelayOf[P], topic: string): TopicHealth =
+  let numPeersInMesh = w.getNumPeersInMesh(topic).valueOr:
     debug "Could not calculate topic health", topic = topic, error = error
     return TopicHealth.UNHEALTHY
 
   if numPeersInMesh < 1:
     return TopicHealth.UNHEALTHY
-  elif numPeersInMesh < wakuRelay.parameters.dLow:
+  elif numPeersInMesh < w.meshLowDegree():
     return TopicHealth.MINIMALLY_HEALTHY
   return TopicHealth.SUFFICIENTLY_HEALTHY
 
-proc isSubscribed*(w: WakuRelay, topic: PubsubTopic): bool =
-  GossipSub(w).topics.hasKey(topic)
+proc isSubscribed*[P: IPubSub](w: WakuRelayOf[P], topic: PubsubTopic): bool =
+  topic in w.pubsub.topics()
 
-proc subscribedTopics*(w: WakuRelay): seq[PubsubTopic] =
-  return toSeq(GossipSub(w).topics.keys())
+proc subscribedTopics*[P: IPubSub](w: WakuRelayOf[P]): seq[PubsubTopic] =
+  return w.pubsub.topics()
 
-proc topicsHealthLoop(w: WakuRelay) {.async.} =
+proc topicsHealthLoop[P: IPubSub](w: WakuRelayOf[P]) {.async.} =
   while true:
     await w.topicHealthUpdateEvent.wait()
     w.topicHealthUpdateEvent.clear()
@@ -487,9 +336,10 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     var topicsToCheck: seq[string]
 
     if w.topicHealthCheckAll:
-      topicsToCheck = toSeq(w.topics.keys)
+      topicsToCheck = w.pubsub.topics()
     else:
-      topicsToCheck = toSeq(w.topicHealthDirty)
+      for topic in sets.items(w.topicHealthDirty):
+        topicsToCheck.add(topic)
 
     w.topicHealthCheckAll = false
     w.topicHealthDirty.clear()
@@ -526,28 +376,36 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
 
-method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
+proc start*[P: IPubSub](
+    w: WakuRelayOf[P]
+): Future[void] {.async: (raises: [CancelledError]).} =
+  mixin start
   info "start"
-  await procCall GossipSub(w).start()
-  w.topicHealthLoopHandle = w.topicsHealthLoop()
+  await w.pubsub.start()
+  if w.topicHealthLoopHandle.isNil():
+    w.topicHealthLoopHandle = w.topicsHealthLoop()
 
-method stop*(w: WakuRelay) {.async: (raises: []).} =
+proc stop*[P: IPubSub](w: WakuRelayOf[P]): Future[void] {.async: (raises: []).} =
+  mixin stop
   info "stop"
-  await procCall GossipSub(w).stop()
+  await w.pubsub.stop()
 
   await WakuPeerEvent.dropListener(w.brokerCtx, w.peerEventListener)
 
   if not w.topicHealthLoopHandle.isNil():
     await w.topicHealthLoopHandle.cancelAndWait()
+    w.topicHealthLoopHandle = nil
 
-proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
-  # rejects messages that are not WakuMessage
+proc generateOrderedValidator[P: IPubSub](
+    w: WakuRelayOf[P]
+): PubSubValidator {.gcsafe.} =
+  # rejects messages that are not WakuMessage
   let wrappedValidator = proc(
-      pubsubTopic: string, message: messages.Message
+      pubsubTopic: string, data: seq[byte]
   ): Future[ValidationResult] {.async.} =
-    # can be optimized by checking if the message is a WakuMessage without allocating memory
-    # see nim-libp2p protobuf library
-    let msg = WakuMessage.decode(message.payloadBytes).valueOr:
+    # can be optimized by checking if the message is a WakuMessage without allocating memory
+    # see nim-libp2p protobuf library
+    let msg = WakuMessage.decode(data).valueOr:
       debug "Rejecting relay message, decode error",
         pubsubTopic = pubsubTopic, error = $error
       return ValidationResult.Reject
@@ -571,8 +429,8 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
 
   return wrappedValidator
 
-proc validateMessage*(
-    w: WakuRelay, pubsubTopic: string, msg: WakuMessage
+proc validateMessage*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: string, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
   let messageSizeBytes = msg.encode().buffer.len
   let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
@@ -600,10 +458,13 @@ proc validateMessage*(
 
   return ok()
 
-proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandler) =
+proc subscribe*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic, handler: WakuRelayHandler
+) =
+  mixin subscribe, addValidator
   debug "Subscribing to pubsub topic", pubsubTopic = pubsubTopic
 
-  # We need to wrap the handler since gossipsub doesnt understand WakuMessage
+  # We need to wrap the handler since the backend doesnt understand WakuMessage
   let topicHandler = proc(
       pubsubTopic: string, data: seq[byte]
   ): Future[void] {.gcsafe, raises: [].} =
@@ -622,65 +483,58 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
 
     return handler(pubsubTopic, decMsg)
 
-  # Add the ordered validator to the topic
-  # This assumes that if `w.validatorInserted.hasKey(pubSubTopic) is true`, it contains the ordered validator.
+  # Add the ordered validator to the topic
+  # This assumes that if `w.validatedTopics.contains(pubSubTopic)`, it has the ordered validator.
   # Otherwise this might lead to unintended behaviour.
-  if not w.topicValidator.hasKey(pubSubTopic):
-    let newValidator = w.generateOrderedValidator()
-    procCall GossipSub(w).addValidator(pubSubTopic, newValidator)
-    w.topicValidator[pubSubTopic] = newValidator
+  if pubSubTopic notin w.validatedTopics:
+    w.pubsub.addValidator(pubSubTopic, w.generateOrderedValidator())
+    w.validatedTopics.incl(pubSubTopic)
 
   # set this topic parameters for scoring
-  w.topicParams[pubsubTopic] = TopicParameters
+  w.pubsub.setTopicScoreParams(pubsubTopic, WakuTopicScoreParams)
 
   # subscribe to the topic with our wrapped handler
-  procCall GossipSub(w).subscribe(pubsubTopic, topicHandler)
+  w.pubsub.subscribe(pubsubTopic, topicHandler)
 
-  w.topicHandlers[pubsubTopic] = topicHandler
+  w.handledTopics.incl(pubsubTopic)
   w.topicHealthDirty.incl(pubsubTopic)
   w.topicHealthUpdateEvent.fire()
 
-proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
+proc unsubscribeAll*[P: IPubSub](w: WakuRelayOf[P], pubsubTopic: PubsubTopic) =
+  mixin unsubscribeAll
   ## Unsubscribe all handlers on this pubsub topic
 
   debug "Unsubscribe all", pubsubTopic = pubsubTopic
 
-  procCall GossipSub(w).unsubscribeAll(pubsubTopic)
-  w.topicValidator.del(pubsubTopic)
-  w.topicHandlers.del(pubsubTopic)
+  w.pubsub.unsubscribeAll(pubsubTopic)
+  w.validatedTopics.excl(pubsubTopic)
+  w.handledTopics.excl(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
 
-proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
-  if not w.topicValidator.hasKey(pubsubTopic):
+proc unsubscribe*[P: IPubSub](w: WakuRelayOf[P], pubsubTopic: PubsubTopic) =
+  mixin unsubscribe, removeValidator
+  if pubsubTopic notin w.validatedTopics:
     debug "Unsubscribe: no validator for this topic", pubsubTopic
     return
 
-  if not w.topicHandlers.hasKey(pubsubTopic):
+  if pubsubTopic notin w.handledTopics:
     debug "Not subscribed to the given topic", pubsubTopic
     return
 
-  var topicHandler: TopicHandler
-  var topicValidator: ValidatorHandler
-  try:
-    topicHandler = w.topicHandlers[pubsubTopic]
-    topicValidator = w.topicValidator[pubsubTopic]
-  except KeyError:
-    error "exception in unsubscribe", pubsubTopic, error = getCurrentExceptionMsg()
-    return
-
   debug "Unsubscribe", pubsubTopic
-  procCall GossipSub(w).unsubscribe(pubsubTopic, topicHandler)
-  procCall GossipSub(w).removeValidator(pubsubTopic, topicValidator)
+  w.pubsub.unsubscribe(pubsubTopic)
+  w.pubsub.removeValidator(pubsubTopic)
 
-  w.topicValidator.del(pubsubTopic)
-  w.topicHandlers.del(pubsubTopic)
+  w.validatedTopics.excl(pubsubTopic)
+  w.handledTopics.excl(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
 
-proc publish*(
-    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
+proc publish*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
 ): Future[Result[int, PublishOutcome]] {.async.} =
+  mixin publish
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
@@ -694,59 +548,25 @@ proc publish*(
   trace "Start publish Waku message",
     msg_hash = msgHash, pubsubTopic = pubsubTopic, contentTopic = message.contentTopic
 
-  let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)
+  let relayedPeerCount = await w.pubsub.publish(pubsubTopic, data)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)
 
   return ok(relayedPeerCount)
 
-proc getConnectedPubSubPeers*(
-    w: WakuRelay, pubsubTopic: PubsubTopic
-): Result[HashSet[PubsubPeer], string] =
+proc getConnectedPeers*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic
+): Result[seq[PeerIdStr], string] =
   ## Returns the list of peerIds of connected peers and subscribed to the passed pubsub topic.
-  ## The 'gossipsub' atribute is defined in the GossipSub ref object.
+  let peers = ?w.pubsub.connectedPeers(pubsubTopic)
+  return ok(peers.mapIt(it.peerId))
 
-  if pubsubTopic == "":
-    ## Return all the connected peers
-    var peerIds = initHashSet[PubsubPeer]()
-    for k, v in w.gossipsub:
-      peerIds = peerIds + v
-    return ok(peerIds)
-
-  if not w.gossipsub.hasKey(pubsubTopic):
-    return err(
-      "getConnectedPeers - there is no gossipsub peer for the given pubsub topic: " &
-        pubsubTopic
-    )
-
-  let peersRes = catch:
-    w.gossipsub[pubsubTopic]
-
-  let peers: HashSet[PubSubPeer] = peersRes.valueOr:
-    return
-      err("getConnectedPeers - exception accessing " & pubsubTopic & ": " & error.msg)
-
-  return ok(peers)
-
-proc getConnectedPeers*(
-    w: WakuRelay, pubsubTopic: PubsubTopic
-): Result[seq[PeerId], string] =
-  ## Returns the list of peerIds of connected peers and subscribed to the passed pubsub topic.
-  ## The 'gossipsub' atribute is defined in the GossipSub ref object.
-
-  let peers = ?w.getConnectedPubSubPeers(pubsubTopic)
-
-  let peerIds = toSeq(peers).mapIt(it.peerId)
-  return ok(peerIds)
-
-proc getNumConnectedPeers*(
-    w: WakuRelay, pubsubTopic: PubsubTopic
+proc getNumConnectedPeers*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic
 ): Result[int, string] =
   ## Returns the number of connected peers and subscribed to the passed pubsub topic.
-
-  ## Return all the connected peers
-  let peers = w.getConnectedPubSubPeers(pubsubTopic).valueOr:
+  let peers = w.pubsub.connectedPeers(pubsubTopic).valueOr:
     return err(
       "getNumConnectedPeers - failed retrieving peers in mesh: " & pubsubTopic & ": " &
         error
@@ -754,6 +574,23 @@ proc getNumConnectedPeers*(
 
   return ok(peers.len)
 
-proc getSubscribedTopics*(w: WakuRelay): seq[PubsubTopic] =
+proc getSubscribedTopics*[P: IPubSub](w: WakuRelayOf[P]): seq[PubsubTopic] =
   ## Returns a seq containing the current list of subscribed topics
-  return PubSub(w).topics.keys.toSeq().mapIt(cast[PubsubTopic](it))
+  return w.pubsub.topics()
+
+proc toRelayPeers(peers: seq[PubSubPeerInfo]): seq[RelayPeer] =
+  return peers.mapIt(RelayPeer(peerId: it.peerId, score: it.score))
+
+proc getConnectedRelayPeers*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic
+): seq[RelayPeer] =
+  let peers = w.pubsub.connectedPeers(pubsubTopic).valueOr:
+    return @[]
+  return peers.toRelayPeers()
+
+proc getMeshRelayPeers*[P: IPubSub](
+    w: WakuRelayOf[P], pubsubTopic: PubsubTopic
+): seq[RelayPeer] =
+  let peers = w.pubsub.meshPeers(pubsubTopic).valueOr:
+    return @[]
+  return peers.toRelayPeers()

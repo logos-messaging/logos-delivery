@@ -5,7 +5,7 @@ import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import ../waku_archive/archive_utils
-import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
+import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf

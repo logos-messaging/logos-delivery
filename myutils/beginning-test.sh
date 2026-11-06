@@ -1,0 +1,1 @@
+nim c -r --out:build/all_tests_common --mm:orc -d:chronicles_log_level=WARN -d:chronosStrictException --verbosity:0 --hints:off -d:git_version="v0.36.0-72-g8c2bbe" -d:debug --passL:librln_v0.7.0.a --passL:-lm #tests/wakunode_rest/test_rest_admin.nim  test "Get peer origin"

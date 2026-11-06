@@ -11,7 +11,7 @@ import
     node/waku_node,
     node/waku_node/relay,
     node/subscription_manager,
-    waku_relay/protocol,
+    waku_relay,
     factory/waku_conf,
     factory/validator_signed,
   ]

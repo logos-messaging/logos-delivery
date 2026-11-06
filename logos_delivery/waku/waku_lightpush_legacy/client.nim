@@ -5,6 +5,7 @@ import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
 import libp2p/peerid
 import
   ../waku_core/peers,
+  ../libp2p_iface/stream,
   ../node/peer_manager,
   ../utils/requests,
   ../waku_core,

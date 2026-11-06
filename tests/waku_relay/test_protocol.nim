@@ -4,19 +4,15 @@ import
   std/[strformat, sets, tables],
   testutils/unittests,
   chronos,
-  libp2p/protocols/pubsub/[pubsub, gossipsub],
+  libp2p/protocols/pubsub/gossipsub,
   libp2p/[stream/connection, switch],
   ./crypto_utils,
   std/json
+from logos_delivery/waku/libp2p_iface/pubsub as pubsub import nil
 
 import
-  logos_delivery/waku/[
-    node/peer_manager,
-    waku_relay/protocol,
-    waku_relay,
-    waku_core,
-    waku_core/message/codec,
-  ],
+  logos_delivery/waku/
+    [node/peer_manager, waku_relay, waku_core, waku_core/message/codec],
   ../testlib/[wakucore, wakunode, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
@@ -271,13 +267,13 @@ suite "Waku Relay":
       var validatorFuture = newBoolFuture()
       let len4Validator = proc(
           pubsubTopic: string, message: WakuMessage
-      ): Future[ValidationResult] {.async.} =
+      ): Future[pubsub.ValidationResult] {.async.} =
         if message.payload.len() == 8:
           validatorFuture.complete(true)
-          return ValidationResult.Accept
+          return pubsub.ValidationResult.Accept
         else:
           validatorFuture.complete(false)
-          return ValidationResult.Reject
+          return pubsub.ValidationResult.Reject
 
       # And a second node connected to the first one
       let

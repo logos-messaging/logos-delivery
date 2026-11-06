@@ -14,7 +14,7 @@
 ## FFI/MT lanes.
 
 import chronos, results
-import libp2p/[switch, peerinfo, crypto/crypto]
+import libp2p/[peerinfo, crypto/crypto]
 import brokers/request_broker
 import
   logos_delivery/waku/waku_core,

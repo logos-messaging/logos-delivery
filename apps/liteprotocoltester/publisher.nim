@@ -130,7 +130,7 @@ proc publishMessages(
   var noFailedPush = 0
   var noFailedServiceNodeSwitches = 0
 
-  let selfPeerId = $wakuNode.switch.peerInfo.peerId
+  let selfPeerId = $wakuNode.peerId
   failedToSendCount = 0
   numMessagesToSend = if numMessages == 0: uint32.high else: numMessages
   messagesSent = 0
@@ -178,7 +178,8 @@ proc publishMessages(
         err = wlpRes.error, hash = msgHash
       inc(failedToSendCount)
       logos_delivery_lpt_publisher_failed_messages_count.inc(
-        labelValues = [wlpRes.error]
+        labelValues =
+          [if wlpRes.error.toLower().contains("dial"): "dial_failure" else: "publish_failure"]
       )
       if not wlpRes.error.toLower().contains("dial"):
         # retry sending after shorter wait

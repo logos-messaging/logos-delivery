@@ -7,6 +7,7 @@ import
     waku_store_sync/common,
     waku_store_sync/reconciliation,
     waku_store_sync/transfer,
+    libp2p_backend/host,
   ],
   ../testlib/wakucore
 
@@ -49,7 +50,7 @@ proc newTestWakuRecon*(
   let proto = res.get()
 
   await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuReconciliationCodec, proto)
 
   return proto
 
@@ -70,6 +71,6 @@ proc newTestWakuTransfer*(
   )
 
   await proto.start()
-  switch.mount(proto)
+  Libp2pHost.new(switch).mountHandler(WakuTransferCodec, proto)
 
   return proto

@@ -15,7 +15,7 @@ import
   ../waku_enr,
   ../discovery/waku_discv5,
   ../waku_node,
-  ../node/waku_switch,
+  ../libp2p_backend/waku_switch,
   ../net/net_config,
   ../node/peer_manager,
   ../common/rate_limit/setting,

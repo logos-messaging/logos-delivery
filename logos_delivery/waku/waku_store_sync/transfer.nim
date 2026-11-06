@@ -6,17 +6,18 @@ import
   chronicles,
   chronos,
   metrics,
-  libp2p/protocols/protocol,
-  libp2p/stream/connection,
   libp2p/crypto/crypto,
   eth/p2p/discoveryv5/enr
 import
+  ../libp2p_iface/stream,
+  ../libp2p_backend/host,
   ../common/nimchronos,
   ../common/protobuf,
   ../waku_enr,
   ../waku_core/codecs,
   ../waku_core/topics/pubsub_topic,
   ../waku_core/topics/content_topic,
+  ../waku_core/message/codec,
   ../waku_core/message/digest,
   ../waku_core/message/message,
   ../waku_core/message/default_values,
@@ -30,9 +31,12 @@ import
 logScope:
   topics = "waku transfer"
 
-type SyncTransfer* = ref object of LPProtocol
+type SyncTransfer* = ref object
+  started: bool
   wakuArchive: WakuArchive
   peerManager: PeerManager
+  maxMessageSize: int
+    ## Largest encoded WakuMessage the node relays, so the largest it can be asked to sync
 
   # Send IDs to reconciliation protocol for storage
   idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
@@ -45,10 +49,10 @@ type SyncTransfer* = ref object of LPProtocol
   # Receive Hashes from reconciliation protocol for transmission
   remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)]
   remoteNeedsRxFut: Future[void]
-  outSessions: Table[PeerId, Connection]
+  outSessions: Table[PeerId, Libp2pStream]
 
-proc sendMessage(
-    conn: Connection, payload: WakuMessageAndTopic
+proc sendMessage[S: IStream](
+    conn: S, payload: WakuMessageAndTopic
 ): Future[Result[void, string]] {.async.} =
   let rawPayload = payload.encode().buffer
 
@@ -68,14 +72,14 @@ proc sendMessage(
 
 proc openConnection(
     self: SyncTransfer, peerId: PeerId
-): Future[Result[Connection, string]] {.async.} =
+): Future[Result[Libp2pStream, string]] {.async.} =
   let connOpt = await self.peerManager.dialPeer(peerId, WakuTransferCodec)
 
-  let conn: Connection = connOpt.valueOr:
+  let conn = connOpt.valueOr:
     return err("fail to dial remote " & $peerId)
 
   debug "Transfer session initialized",
-    local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
+    local = self.peerManager.selfPeerId(), remote = conn.peerId
 
   return ok(conn)
 
@@ -104,7 +108,7 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
     self.outSessions[peerId].isClosedRemotely:
       ## quite possibly remote end has closed the connection, believing transfer to be done
       debug "Opening transfer connection to remote peer",
-        my_peer_id = self.peerManager.switch.peerInfo.peerId, remote_peer_id = peerId
+        my_peer_id = self.peerManager.selfPeerId(), remote_peer_id = peerId
 
       let connection = (await self.openConnection(peerId)).valueOr:
         debug "Failed to establish transfer connection", error = error
@@ -129,74 +133,94 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
     let msg =
       WakuMessageAndTopic(pubsub: response.topics[0], message: response.messages[0])
 
-    trace "sending transfer message",
-      my_peer_id = self.peerManager.switch.peerInfo.peerId,
-      remote_peer_id = peerId,
-      msg = msg
+    ## The receiver ends its session at a message it cannot read, and drops the rest
+    ## of the batch with it
+    let encodedSize = msg.message.encode().buffer.len
+    if encodedSize > self.maxMessageSize:
+      debug "Skipping message over the transfer size limit",
+        remote_peer_id = peerId, size = encodedSize, limit = self.maxMessageSize
+      continue
 
-    (await sendMessage(connection, msg)).isOkOr:
+    trace "sending transfer message",
+      my_peer_id = self.peerManager.selfPeerId(), remote_peer_id = peerId, msg = msg
+
+    let sent = await sendMessage(connection, msg)
+    if sent.isErr():
+      ## The remote may have closed the cached stream since the last round, which only
+      ## shows on this write. Resend on a new stream instead of losing the message.
+      debug "Failed to send message on cached connection, retrying", error = sent.error
       self.outSessions.del(peerId)
       await connection.close()
-      debug "Failed to send message", error = error
-      continue
+
+      let retryConnection = (await self.openConnection(peerId)).valueOr:
+        debug "Failed to establish transfer connection", error = error
+        continue
+
+      self.outSessions[peerId] = retryConnection
+
+      (await sendMessage(retryConnection, msg)).isOkOr:
+        self.outSessions.del(peerId)
+        await retryConnection.close()
+        debug "Failed to send message", error = error
+        continue
 
   return
 
-proc initProtocolHandler(self: SyncTransfer) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    while true:
-      ## removed DOS prototection until we can design something better
-      #[ if not self.inSessions.contains(conn.peerId):
-        error "unwanted peer, disconnecting", remote = conn.peerId
-        break ]#
+proc handleStream*[S: IStream](
+    self: SyncTransfer, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  while true:
+    ## removed DOS prototection until we can design something better
+    #[ if not self.inSessions.contains(conn.peerId):
+      error "unwanted peer, disconnecting", remote = conn.peerId
+      break ]#
 
-      let readRes = catch:
-        await conn.readLp(int64(DefaultMaxWakuMessageSize))
-
-      let buffer: seq[byte] = readRes.valueOr:
-        # connection closed normally
-        break
-
-      logos_delivery_total_bytes_exchanged.inc(
-        buffer.len, labelValues = [Transfer, Receiving]
+    let readRes = catch:
+      await conn.readLp(
+        int64(self.maxMessageSize + DefaultSafetyBufferProtocolOverhead)
       )
 
-      let payload = WakuMessageAndTopic.decode(buffer).valueOr:
-        debug "Decoding error", error = $error
-        continue
+    let buffer: seq[byte] = readRes.valueOr:
+      # connection closed normally
+      break
 
-      logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
+    logos_delivery_total_bytes_exchanged.inc(
+      buffer.len, labelValues = [Transfer, Receiving]
+    )
 
-      let msg = payload.message
-      let pubsub = payload.pubsub
-
-      let hash = computeMessageHash(pubsub, msg)
-
-      try:
-        #TODO verify msg RLN proof...
-        (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
-          error "failed to archive message", error = $error
-          continue
-      except CatchableError:
-        error "syncMessageIngress failed",
-          remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
-        continue
-
-      let id = SyncID(time: msg.timestamp, hash: hash)
-
-      await self.idsTx.addLast((id, pubsub, msg.contentTopic))
-
+    let payload = WakuMessageAndTopic.decode(buffer).valueOr:
+      debug "Decoding error", error = $error
       continue
 
-    await conn.close()
+    logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
 
-    debug "Transfer session ended",
-      local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
+    let msg = payload.message
+    let pubsub = payload.pubsub
 
-    return
+    let hash = computeMessageHash(pubsub, msg)
 
-  self.handler = handler
-  self.codec = WakuTransferCodec
+    try:
+      #TODO verify msg RLN proof...
+      (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
+        error "failed to archive message", error = $error
+        continue
+    except CatchableError:
+      error "syncMessageIngress failed",
+        remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+      continue
+
+    let id = SyncID(time: msg.timestamp, hash: hash)
+
+    await self.idsTx.addLast((id, pubsub, msg.contentTopic))
+
+    continue
+
+  await conn.close()
+
+  debug "Transfer session ended",
+    local = self.peerManager.selfPeerId(), remote = conn.peerId
+
+  return
 
 proc new*(
     T: type SyncTransfer,
@@ -205,6 +229,7 @@ proc new*(
     idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     localWantsRx: AsyncQueue[PeerId],
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
+    maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): T =
   var transfer = SyncTransfer(
     peerManager: peerManager,
@@ -212,15 +237,14 @@ proc new*(
     idsTx: idsTx,
     localWantsRx: localWantsRx,
     remoteNeedsRx: remoteNeedsRx,
+    maxMessageSize: maxMessageSize,
   )
-
-  transfer.initProtocolHandler()
 
   info "Store Transfer protocol initialized"
 
   return transfer
 
-method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
+proc start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
   if self.started:
     return
 
@@ -231,7 +255,10 @@ method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
 
   info "Store Sync Transfer protocol started"
 
-method stop*(self: SyncTransfer) {.async: (raises: []).} =
+proc stop*(self: SyncTransfer) {.async: (raises: []).} =
+  if not self.started:
+    return
+
   defer:
     self.started = false
 

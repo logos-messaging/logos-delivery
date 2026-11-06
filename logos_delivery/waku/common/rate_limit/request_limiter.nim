@@ -15,7 +15,9 @@
 
 {.push raises: [].}
 
-import results, std/math, chronicles, chronos/timer, libp2p/stream/connection
+import results, std/math, chronicles, chronos/timer
+
+import ../../libp2p_iface/stream
 
 import std/times except TimeInterval, Duration, seconds, minutes
 
@@ -41,7 +43,7 @@ type RequestRateLimiter* = ref object of RootObj
   peerBucketSetting*: RateLimitSetting
   peerUsage: TimedMap[PeerId, TokenBucket]
   checkUsageImpl: proc(
-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
+    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
   ): bool {.gcsafe, raises: [].}
 
 proc newMainTokenBucket(
@@ -81,22 +83,22 @@ proc mgetOrPut(
   return requestRateLimiter.peerUsage.mgetOrPut(peerId, bucketForNew)
 
 proc checkUsageUnlimited(
-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
+    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
 ): bool {.gcsafe, raises: [].} =
   true
 
 proc checkUsageLimited(
-    t: var RequestRateLimiter, proto: string, conn: Connection, now: Moment
+    t: var RequestRateLimiter, proto: string, peerId: PeerId, now: Moment
 ): bool {.gcsafe, raises: [].} =
   # Lazy-init the main bucket using the first observed request time. This makes
   # refill behavior deterministic under tests where `now` is controlled.
   if isNil(t.tokenBucket):
     t.tokenBucket = newMainTokenBucket(t.mainBucketSetting, t.ratio, now)
 
-  let peerBucket = t.mgetOrPut(conn.peerId, now)
+  let peerBucket = t.mgetOrPut(peerId, now)
   ## check requesting peer's usage is not over the calculated ratio and let that peer go which not requested much/or this time...
   if not peerBucket.tryConsume(1, now):
-    trace "peer usage limit reached", peer = conn.peerId
+    trace "peer usage limit reached", peer = peerId
     return false
 
   # Ok if the peer can consume, check the overall budget we have left
@@ -106,14 +108,19 @@ proc checkUsageLimited(
   return true
 
 proc checkUsage*(
-    t: var RequestRateLimiter, proto: string, conn: Connection, now = Moment.now()
+    t: var RequestRateLimiter, proto: string, peerId: PeerId, now = Moment.now()
 ): bool {.raises: [].} =
-  t.checkUsageImpl(t, proto, conn, now)
+  t.checkUsageImpl(t, proto, peerId, now)
+
+proc checkUsage*[S: IStream](
+    t: var RequestRateLimiter, proto: string, conn: S, now = Moment.now()
+): bool {.raises: [].} =
+  t.checkUsage(proto, conn.peerId, now)
 
 template checkUsageLimit*(
     t: var RequestRateLimiter,
     proto: string,
-    conn: Connection,
+    conn: untyped,
     bodyWithinLimit, bodyRejected: untyped,
 ) =
   if t.checkUsage(proto, conn):

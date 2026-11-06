@@ -60,7 +60,7 @@ proc installLightPushRequestHandler*(
     let msg = req.message.toWakuMessage().valueOr:
       return RestApiResponse.badRequest("Invalid message: " & $error)
 
-    var peer = RemotePeerInfo.init($node.switch.peerInfo.peerId)
+    var peer = RemotePeerInfo.init($node.peerId)
     if useSelfHostedLightPush(node):
       discard
     else:

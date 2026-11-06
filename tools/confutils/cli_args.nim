@@ -267,6 +267,13 @@ type WakuNodeConf* = object
     desc: "Maximum stored peers in the peerstore.", name: "peer-store-capacity"
   .}: Opt[int]
 
+  libp2pImpl* {.
+    desc:
+      "libp2p implementation: 'builtin' (nim-libp2p in this process, the default) or the name of the Logos module that provides it, installed by the host application.",
+    defaultValue: "builtin",
+    name: "libp2p-impl"
+  .}: string
+
   peerPersistence* {.
     desc: "Enable peer persistence.", defaultValue: false, name: "peer-persistence"
   .}: bool
@@ -1167,6 +1174,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.relay.isSome():
     b.withRelay(n.relay.get())
   b.withRelayPeerExchange(n.relayPeerExchange)
+  if n.libp2pImpl != "":
+    b.withLibp2pImpl(n.libp2pImpl)
   b.withRelayShardedPeerManagement(n.relayShardedPeerManagement)
   b.withStaticNodes(n.staticNodes)
 

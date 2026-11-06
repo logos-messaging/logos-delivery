@@ -21,6 +21,7 @@ import
     waku_archive/archive,
     waku_archive/driver,
     waku_archive/common,
+    libp2p_backend/host,
   ],
   ../testlib/[wakucore, testasync],
   ../waku_archive/archive_utils,
@@ -946,8 +947,8 @@ suite "Waku Sync: transfer":
     await server.start()
     await client.start()
 
-    serverSwitch.mount(server)
-    clientSwitch.mount(client)
+    Libp2pHost.new(serverSwitch).mountHandler(WakuTransferCodec, server)
+    Libp2pHost.new(clientSwitch).mountHandler(WakuTransferCodec, client)
 
     serverPeerInfo = serverSwitch.peerInfo.toRemotePeerInfo()
     clientPeerInfo = clientSwitch.peerInfo.toRemotePeerInfo()
@@ -991,7 +992,7 @@ suite "Waku Sync: transfer":
     check:
       response.messages.len > 0
 
-  asyncTest "transfer a 100 KiB message but not a message encoded at the default limit":
+  asyncTest "transfer a 100 KiB message and a message encoded at the default limit":
     let
       maxSize = int(DefaultMaxWakuMessageSize)
       largeMsg = fakeWakuMessage(payload = newSeq[byte](100 * 1024))
@@ -1012,21 +1013,15 @@ suite "Waku Sync: transfer":
       await clientArchive.holdsMessages(@[largeHash])
 
     await serverRemoteNeeds.put((clientPeerInfo.peerId, atLimitHash))
+    checkUntilTimeout:
+      await clientArchive.holdsMessages(@[atLimitHash])
 
-    # The receiver ends the session at the message it cannot read, and whatever the
-    # sender writes before it notices is lost with that session.
-    let deadline = Moment.now() + 10.seconds
-    while Moment.now() < deadline and not await clientArchive.holdsMessages(
-      @[laterHash]
-    )
-    :
-      await serverRemoteNeeds.put((clientPeerInfo.peerId, laterHash))
-      await sleepAsync(100.milliseconds)
+    await serverRemoteNeeds.put((clientPeerInfo.peerId, laterHash))
+    checkUntilTimeout:
+      await clientArchive.holdsMessages(@[laterHash])
 
     check:
       atLimitMsg.encode().buffer.len == maxSize
-      await clientArchive.holdsMessages(@[laterHash])
-      not await clientArchive.holdsMessages(@[atLimitHash])
 
   ## Disabled until we impl. DOS protection again
   #[ asyncTest "Check the exact missing messages are received":

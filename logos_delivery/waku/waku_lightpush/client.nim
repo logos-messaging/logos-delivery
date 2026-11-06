@@ -2,9 +2,10 @@ import libp2p/crypto/crypto
 {.push raises: [].}
 
 import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
-import libp2p/peerid, libp2p/stream/connection
+import libp2p/peerid
 import
   ../waku_core/peers,
+  ../libp2p_iface/stream,
   ../node/peer_manager,
   ../utils/requests,
   ../waku_core,
@@ -30,20 +31,9 @@ func shortPeerId(peer: PeerId): string =
 func shortPeerId(peer: RemotePeerInfo): string =
   shortLog(peer.peerId)
 
-proc sendPushRequest(
-    wl: WakuLightPushClient,
-    req: LightPushRequest,
-    peer: PeerId | RemotePeerInfo,
-    conn: Opt[Connection] = Opt.none(Connection),
+proc exchangePushRequest[S: IStream](
+    wl: WakuLightPushClient, req: LightPushRequest, connection: S
 ): Future[WakuLightPushResult] {.async.} =
-  let connection = conn.valueOr:
-    (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
-      logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
-      return lighpushErrorResult(
-        LightPushErrorCode.NO_PEERS_TO_RELAY,
-        dialFailure & ": " & $peer & " is not accessible",
-      )
-
   defer:
     await connection.closeWithEOF()
 
@@ -73,24 +63,36 @@ proc sendPushRequest(
 
   return toPushResult(response)
 
+proc sendPushRequest(
+    wl: WakuLightPushClient, req: LightPushRequest, peer: PeerId | RemotePeerInfo
+): Future[WakuLightPushResult] {.async.} =
+  let connection = (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
+    return lighpushErrorResult(
+      LightPushErrorCode.NO_PEERS_TO_RELAY,
+      dialFailure & ": " & $peer & " is not accessible",
+    )
+
+  return await wl.exchangePushRequest(req, connection)
+
 proc publish*(
     wl: WakuLightPushClient,
     pubSubTopic: Opt[PubsubTopic] = Opt.none(PubsubTopic),
     wakuMessage: WakuMessage,
-    dest: Connection | PeerId | RemotePeerInfo,
+    dest: IStream | PeerId | RemotePeerInfo,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
   let message = ensureTimestampSet(wakuMessage)
 
   let msgHash = computeMessageHash(pubSubTopic.get(""), message).to0xHex()
 
   let peerIdStr =
-    when dest is Connection:
+    when dest is IStream:
       shortPeerId(dest.peerId)
     else:
       shortPeerId(dest)
 
   debug "Publish",
-    myPeerId = wl.peerManager.switch.peerInfo.peerId,
+    myPeerId = wl.peerManager.selfPeerId(),
     peerId = peerIdStr,
     msgHash = msgHash,
     sentTime = getNowInNanosecondTime()
@@ -100,8 +102,8 @@ proc publish*(
   )
 
   let relayPeerCount =
-    when dest is Connection:
-      ?await wl.sendPushRequest(request, dest.peerId, Opt.some(dest))
+    when dest is IStream:
+      ?await wl.exchangePushRequest(request, dest)
     else:
       ?await wl.sendPushRequest(request, dest)
 
@@ -118,11 +120,11 @@ proc publishToAny*(
     )
   return await wl.publish(Opt.some(pubsubTopic), wakuMessage, peer)
 
-proc publishWithConn*(
+proc publishWithConn*[S: IStream](
     wl: WakuLightPushClient,
     pubSubTopic: PubsubTopic,
     message: WakuMessage,
-    conn: Connection,
+    conn: S,
     destPeer: PeerId,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
   return await wl.publish(Opt.some(pubSubTopic), message, conn)

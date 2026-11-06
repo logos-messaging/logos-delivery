@@ -1,5 +1,5 @@
 import
-  ./node/waku_switch as switch,
+  ./libp2p_backend/waku_switch as switch,
   ./node/waku_node as node,
   ./node/waku_node/filter as filter_api,
   ./node/waku_node/lightpush as lightpush_api,

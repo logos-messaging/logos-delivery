@@ -21,13 +21,13 @@ from metrics import value
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,
-    node/delivery_dialer,
+    libp2p_backend/delivery_dialer,
     node/peer_manager/peer_manager,
     node/peer_manager/peer_store/waku_peer_storage,
     waku_node,
     waku_core,
     waku_enr/capabilities,
-    waku_relay/protocol,
+    waku_relay,
     waku_filter_v2/common,
     waku_store/common,
     waku_peer_exchange,
@@ -1012,14 +1012,30 @@ procSuite "Peer Manager":
       nodes[0].peerManager.switch.peerStore.peers().len == 3
 
       # Inbound/Outbound number of peers match
-      nodes[0].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 3
-      nodes[0].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 0
-      nodes[1].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
-      nodes[1].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
-      nodes[2].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
-      nodes[2].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
-      nodes[3].peerManager.switch.peerStore.getPeersByDirection(Inbound).len == 0
-      nodes[3].peerManager.switch.peerStore.getPeersByDirection(Outbound).len == 1
+      nodes[0].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Inbound).len == 3
+      nodes[0].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Outbound).len == 0
+      nodes[1].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Inbound).len == 0
+      nodes[1].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Outbound).len == 1
+      nodes[2].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Inbound).len == 0
+      nodes[2].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Outbound).len == 1
+      nodes[3].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Inbound).len == 0
+      nodes[3].peerManager.switch.peerStore
+        .peers()
+        .filterIt(it.direction == Outbound).len == 1
 
       # All peer ids are correct
       nodes[0].peerManager.switch.peerStore.peers().anyIt(

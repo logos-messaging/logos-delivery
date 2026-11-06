@@ -122,6 +122,9 @@ type EndpointConf* = object
 ## In this object. A convenient `validate` method enables doing
 ## sanity checks beyond type enforcement.
 ## If `Opt` is `some` it means the related protocol is enabled.
+const Libp2pImplBuiltin* = "builtin"
+  ## `WakuConf.libp2pImpl` for the nim-libp2p stack linked into this process
+
 type WakuConf* {.requiresInit.} = ref object
   # ref because `getRunningNetConfig` modifies it
   nodeKey*: crypto.PrivateKey
@@ -140,6 +143,8 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: remove relay peer exchange
   relayPeerExchange*: bool
+  libp2pImpl*: string
+    ## `Libp2pImplBuiltin`, or the name of the Logos module providing the libp2p stack
   rendezvous*: bool
   circuitRelayClient*: bool
 
@@ -294,8 +299,14 @@ proc validateExtMultiAddrsOnly(wakuConf: WakuConf): Result[void, string] =
       return err("ext-multiaddr-only requires concrete ports, got: " & $ma)
   return ok()
 
+proc validateLibp2pImpl(wakuConf: WakuConf): Result[void, string] =
+  if wakuConf.libp2pImpl.strip().len == 0:
+    return err("libp2pImpl must be '" & Libp2pImplBuiltin & "' or a module name")
+  return ok()
+
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
+  ?wakuConf.validateLibp2pImpl()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateNoEmptyStrings()
   ?wakuConf.validateExtMultiAddrsOnly()

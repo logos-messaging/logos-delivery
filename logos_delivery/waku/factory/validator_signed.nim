@@ -1,19 +1,11 @@
 {.push raises: [].}
 
 import
-  chronicles,
-  chronos,
-  metrics,
-  stew/byteutils,
-  stew/endians2,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/errors,
-  nimcrypto/sha2,
-  secp256k1
+  chronicles, chronos, metrics, stew/byteutils, stew/endians2, nimcrypto/sha2, secp256k1
 
 const MessageWindowInSec = 5 * 60 # +- 5 minutes
 
-import ./waku_conf, ../waku_relay/protocol, ../waku_core
+import ./waku_conf, ../waku_relay, ../waku_core
 
 declarePublicCounter logos_delivery_msg_validator_signed_outcome,
   "number of messages for each validation outcome", ["result"]
@@ -55,10 +47,8 @@ proc addSignedShardsValidator*(
 ) =
   debug "Adding validator to signed shards", protectedShards, clusterId
 
-  proc validator(
-      topic: string, msg: WakuMessage
-  ): Future[errors.ValidationResult] {.async.} =
-    var outcome = errors.ValidationResult.Reject
+  proc validator(topic: string, msg: WakuMessage): Future[ValidationResult] {.async.} =
+    var outcome = ValidationResult.Reject
 
     for protectedShard in protectedShards:
       let topicString =
@@ -69,14 +59,14 @@ proc addSignedShardsValidator*(
             let msgHash = SkMessage(topic.msgHash(msg))
             SkSignature.fromRaw(msg.meta).isErrOr:
               if value.verify(msgHash, protectedShard.key):
-                outcome = errors.ValidationResult.Accept
+                outcome = ValidationResult.Accept
 
-        if outcome != errors.ValidationResult.Accept:
+        if outcome != ValidationResult.Accept:
           debug "Signed topic validation failed",
             topic = topic, publicShardKey = protectedShard.key
         logos_delivery_msg_validator_signed_outcome.inc(labelValues = [$outcome])
         return outcome
 
-    return errors.ValidationResult.Accept
+    return ValidationResult.Accept
 
   w.addValidator(validator, "signed shard validation failed")

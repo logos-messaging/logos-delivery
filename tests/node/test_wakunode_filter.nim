@@ -28,7 +28,7 @@ proc waitForTopicPeer(
   ## Waits until node's gossipsub has learnt that peer subscribes to topic.
   let deadline = Moment.now() + timeout
   while Moment.now() < deadline:
-    for p in node.wakuRelay.gossipsub.getOrDefault(topic):
+    for p in node.wakuRelay.pubsub.gossip.gossipsub.getOrDefault(topic):
       if p.peerId == peer:
         return
     await sleepAsync(10.milliseconds)

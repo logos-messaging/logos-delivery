@@ -7,13 +7,7 @@ import
   results,
   eth/keys,
   eth/p2p/discoveryv5/enr,
-  libp2p/crypto/crypto,
-  libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport
+  libp2p/crypto/crypto
 
 import
   ../waku_node,
@@ -108,10 +102,11 @@ proc mountStore*(
   node.wakuStore =
     store.WakuStore.new(node.peerManager, node.rng, requestHandler, Opt.some(rateLimit))
 
-  if node.started:
-    await node.wakuStore.start()
-
-  node.switch.mount(node.wakuStore, protocolMatcher(store_common.WakuStoreCodec))
+  node.host.mountHandler(
+    store_common.WakuStoreCodec,
+    node.wakuStore,
+    protocolMatcher(store_common.WakuStoreCodec),
+  )
 
 proc mountStoreClient*(node: WakuNode) =
   info "mounting store client"

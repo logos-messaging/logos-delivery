@@ -3,16 +3,15 @@ import results, libp2p/crypto/crypto
 
 {.push raises: [].}
 
-import
-  chronicles,
-  chronos,
-  libp2p/protocols/protocol,
-  bearssl/rand,
-  stew/byteutils,
-  brokers/broker_context
+import chronicles, chronos, bearssl/rand, stew/byteutils, brokers/broker_context
 
 import
-  logos_delivery/waku/[node/peer_manager, waku_core, api/events/filter_subscribe_events],
+  logos_delivery/waku/[
+    node/peer_manager,
+    waku_core,
+    libp2p_iface/stream,
+    api/events/filter_subscribe_events,
+  ],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
@@ -21,7 +20,7 @@ import
 logScope:
   topics = "waku filter client"
 
-type WakuFilterClient* = ref object of LPProtocol
+type WakuFilterClient* = ref object
   brokerCtx: BrokerContext
   rng: crypto.Rng
   peerManager: PeerManager
@@ -40,18 +39,19 @@ proc sendSubscribeRequest(
   trace "Sending filter subscribe request",
     peerId = servicePeer.peerId, filterSubscribeRequest
 
-  var connOpt: Opt[Connection]
-  try:
-    connOpt = await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
-    if connOpt.isNone():
-      trace "Failed to dial filter service peer", servicePeer
+  let connOpt =
+    try:
+      await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
+    except CatchableError:
+      let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
+      trace "failed to dialPeer", error = getCurrentExceptionMsg()
       logos_delivery_filter_errors.inc(labelValues = [dialFailure])
-      return err(FilterSubscribeError.peerDialFailure($servicePeer))
-  except CatchableError:
-    let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
-    trace "failed to dialPeer", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
-    return err(FilterSubscribeError.badResponse(errMsg))
+      return err(FilterSubscribeError.badResponse(errMsg))
+
+  if connOpt.isNone():
+    trace "Failed to dial filter service peer", servicePeer
+    logos_delivery_filter_errors.inc(labelValues = [dialFailure])
+    return err(FilterSubscribeError.peerDialFailure($servicePeer))
 
   let connection = connOpt.get()
 
@@ -64,7 +64,7 @@ proc sendSubscribeRequest(
     let errMsg =
       "exception in waku_filter_v2 client writeLP: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client writeLP", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
+    logos_delivery_filter_errors.inc(labelValues = [writeFailure])
     return err(FilterSubscribeError.badResponse(errMsg))
 
   var respBuf: seq[byte]
@@ -74,7 +74,7 @@ proc sendSubscribeRequest(
     let errMsg =
       "exception in waku_filter_v2 client readLp: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client readLp", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
+    logos_delivery_filter_errors.inc(labelValues = [readFailure])
     return err(FilterSubscribeError.badResponse(errMsg))
 
   let response = FilterSubscribeResponse.decode(respBuf).valueOr:
@@ -173,47 +173,50 @@ proc unsubscribeAll*(
 
   return await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
+proc start*(wfc: WakuFilterClient) {.async.} =
+  ## The client has no background work: it only serves the pushes it receives.
+  discard
+
+proc stop*(wfc: WakuFilterClient) {.async.} =
+  discard
+
 proc registerPushHandler*(wfc: WakuFilterClient, handler: FilterPushHandler) =
   wfc.pushHandlers.add(handler)
 
-proc initProtocolHandler(wfc: WakuFilterClient) =
-  proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
-    ## Notice that the client component is acting as a server of WakuFilterPushCodec messages
-    while not conn.atEof():
-      var buf: seq[byte]
-      try:
-        buf = await conn.readLp(int(DefaultMaxPushSize))
-      except CancelledError, LPStreamError:
-        debug "Error while reading conn", error = getCurrentExceptionMsg()
+proc handleStream*[S: IStream](
+    wfc: WakuFilterClient, conn: S, proto: string
+) {.async: (raises: [CancelledError]).} =
+  ## Notice that the client component is acting as a server of WakuFilterPushCodec messages
+  while not conn.atEof():
+    var buf: seq[byte]
+    try:
+      buf = await conn.readLp(int(DefaultMaxPushSize))
+    except CatchableError:
+      debug "Error while reading conn", error = getCurrentExceptionMsg()
 
-      let msgPush = MessagePush.decode(buf).valueOr:
-        debug "Failed to decode message push", peerId = conn.peerId, error = $error
-        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
-        return
+    let msgPush = MessagePush.decode(buf).valueOr:
+      debug "Failed to decode message push", peerId = conn.peerId, error = $error
+      logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
+      return
 
-      let msg_hash =
-        computeMessageHash(msgPush.pubsubTopic, msgPush.wakuMessage).to0xHex()
+    let msg_hash =
+      computeMessageHash(msgPush.pubsubTopic, msgPush.wakuMessage).to0xHex()
 
-      trace "Received message push",
-        peerId = conn.peerId,
-        msg_hash,
-        payload = shortLog(msgPush.wakuMessage.payload),
-        pubsubTopic = msgPush.pubsubTopic,
-        content_topic = msgPush.wakuMessage.contentTopic,
-        conn
+    trace "Received message push",
+      peerId = conn.peerId,
+      msg_hash,
+      payload = shortLog(msgPush.wakuMessage.payload),
+      pubsubTopic = msgPush.pubsubTopic,
+      content_topic = msgPush.wakuMessage.contentTopic
 
-      for handler in wfc.pushHandlers:
-        asyncSpawn handler(msgPush.pubsubTopic, msgPush.wakuMessage)
+    for handler in wfc.pushHandlers:
+      asyncSpawn handler(msgPush.pubsubTopic, msgPush.wakuMessage)
 
-      # Protocol specifies no response for now
-
-  wfc.handler = handler
-  wfc.codec = WakuFilterPushCodec
+    # Protocol specifies no response for now
 
 proc new*(T: type WakuFilterClient, peerManager: PeerManager, rng: crypto.Rng): T =
   let brokerCtx = globalBrokerContext()
   let wfc = WakuFilterClient(
     brokerCtx: brokerCtx, rng: rng, peerManager: peerManager, pushHandlers: @[]
   )
-  wfc.initProtocolHandler()
   wfc

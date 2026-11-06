@@ -10,13 +10,6 @@ import
   eth/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
-  libp2p/protocols/ping,
-  libp2p/protocols/pubsub/gossipsub,
-  libp2p/protocols/pubsub/rpc/messages,
-  libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/transports/wstransport,
-  libp2p/stream/connection,
   libp2p_mix
 
 import
@@ -44,7 +37,7 @@ const MixReplyTimeout* = chronos.seconds(5)
 
 proc publishOverMix*(
     node: WakuNode,
-    conn: Connection,
+    conn: Libp2pStream,
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
     replyTimeout: Duration = MixReplyTimeout,
@@ -87,11 +80,11 @@ proc mountLegacyLightPush*(
     node.wakuRelay.maxMessageSize,
   )
 
-  if node.started:
-    # Node has started already. Let's start lightpush too.
-    await node.wakuLegacyLightPush.start()
-
-  node.switch.mount(node.wakuLegacyLightPush, protocolMatcher(WakuLegacyLightPushCodec))
+  node.host.mountHandler(
+    WakuLegacyLightPushCodec,
+    node.wakuLegacyLightPush,
+    protocolMatcher(WakuLegacyLightPushCodec),
+  )
 
   debug "legacy lightpush mounted successfully"
   return ok()
@@ -203,7 +196,7 @@ proc legacyLightpushPublish*(
       debug "Failed to publish message", err = msg
       return err(msg)
   elif not node.wakuLegacyLightPush.isNil():
-    peerOpt = Opt.some(RemotePeerInfo.init($node.switch.peerInfo.peerId))
+    peerOpt = Opt.some(RemotePeerInfo.init($node.peerId))
 
   return await node.legacyLightpushPublish(pubsubTopic, message, peer = peerOpt.get())
 
@@ -227,11 +220,9 @@ proc mountLightPush*(
     node.wakuRelay.maxMessageSize,
   )
 
-  if node.started:
-    # Node has started already. Let's start lightpush too.
-    await node.wakuLightPush.start()
-
-  node.switch.mount(node.wakuLightPush, protocolMatcher(WakuLightPushCodec))
+  node.host.mountHandler(
+    WakuLightPushCodec, node.wakuLightPush, protocolMatcher(WakuLightPushCodec)
+  )
 
   debug "lightpush mounted successfully"
   return ok()

@@ -1,11 +1,6 @@
 {.push raises: [].}
 
-import
-  std/[sequtils, sugar, algorithm],
-  results,
-  chronicles,
-  chronos,
-  libp2p/protocols/pubsub
+import std/[sequtils, sugar, algorithm], results, chronicles, chronos
 import ../waku_core
 
 logScope:

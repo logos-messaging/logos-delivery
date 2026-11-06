@@ -43,6 +43,9 @@ import
   ./waku_relay/test_all,
   ./test_relay_peer_exchange,
   ./test_waku_metadata,
+  ./waku_metadata/test_mock_stream,
+  ./libp2p_module/test_module_backend,
+  ./libp2p_module/test_module_plugin,
   ./test_waku_protobufs,
   ./test_waku_rendezvous
 

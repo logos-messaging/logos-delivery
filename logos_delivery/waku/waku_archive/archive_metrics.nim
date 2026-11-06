@@ -20,6 +20,7 @@ const
   invalidMessageOld* = "invalid_message_too_old"
   invalidMessageFuture* = "invalid_message_future_timestamp"
   insertFailure* = "insert_failure"
+  validationFailure* = "validation_failure"
   retPolicyFailure* = "retpolicy_failure"
 
 # Ingress that wrote the message (metric label values)

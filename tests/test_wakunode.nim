@@ -42,19 +42,19 @@ suite "WakuNode":
     await node1.start()
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    node1.wakuRelay.codec = "/vac/waku/relay/2.0.0"
+    node1.wakuRelay.pubsub.gossip.codec = "/vac/waku/relay/2.0.0"
 
     # Setup node 2 with beta codec "/vac/waku/relay/2.0.0-beta2"
 
     await node2.start()
     (await node2.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    node2.wakuRelay.codec = "/vac/waku/relay/2.0.0-beta2"
+    node2.wakuRelay.pubsub.gossip.codec = "/vac/waku/relay/2.0.0-beta2"
 
     check:
       # Check that mounted codecs are actually different
-      node1.wakuRelay.codec == "/vac/waku/relay/2.0.0"
-      node2.wakuRelay.codec == "/vac/waku/relay/2.0.0-beta2"
+      node1.wakuRelay.pubsub.gossip.codec == "/vac/waku/relay/2.0.0"
+      node2.wakuRelay.pubsub.gossip.codec == "/vac/waku/relay/2.0.0-beta2"
 
     # Now verify that protocol matcher returns `true` and relay works
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
