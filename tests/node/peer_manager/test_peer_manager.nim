@@ -164,3 +164,42 @@ suite "Peer Manager":
         server.switch.peerStore[ShardBook][client.switch.peerInfo.peerId] == @[1'u16]
         server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
         client.switch.isConnected(server.switch.peerInfo.toRemotePeerInfo().peerId)
+
+  suite "selectInRelayPeersToPrune":
+    let now = Moment.now()
+    let rng = crypto.newRng()
+
+    proc inPeer(age: Duration, usesService = false): InRelayPeer =
+      InRelayPeer(
+        peerId: PeerId.random(rng).get(),
+        connectedAt: now - age,
+        usesServiceProtocol: usesService,
+      )
+
+    test "late joiners in the grace period are kept":
+      let fresh = inPeer(chronos.seconds(10))
+      let old = inPeer(chronos.minutes(30))
+
+      check selectInRelayPeersToPrune([fresh, old], 2, now) == @[old.peerId]
+
+    test "longest-connected peers are pruned first":
+      let a = inPeer(chronos.minutes(10))
+      let b = inPeer(chronos.minutes(60))
+      let c = inPeer(chronos.minutes(30))
+
+      check selectInRelayPeersToPrune([a, b, c], 2, now) == @[b.peerId, c.peerId]
+
+    test "relay-only peers are pruned before service clients":
+      let client = inPeer(chronos.minutes(60), usesService = true)
+      let relayOnly = inPeer(chronos.minutes(10))
+
+      check selectInRelayPeersToPrune([client, relayOnly], 1, now) == @[
+        relayOnly.peerId
+      ]
+
+    test "non-positive amount prunes nothing":
+      let old = inPeer(chronos.minutes(30))
+
+      check:
+        selectInRelayPeersToPrune([old], 0, now).len == 0
+        selectInRelayPeersToPrune([old], -1, now).len == 0
