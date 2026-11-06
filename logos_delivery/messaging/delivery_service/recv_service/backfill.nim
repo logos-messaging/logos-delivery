@@ -116,7 +116,10 @@ func coveredFrom*(
 ): Timestamp =
   ## The time from which live delivery covers a topic. It is the later of the
   ## last recovery and the subscribe, plus `delayExtra` and `variance`. The
-  ## gap of a topic ends here.
+  ## gap of a topic ends here. `variance` is for a sender whose clock is
+  ## ahead. Its message can have a timestamp after the recovery when the
+  ## sender sent it before the recovery, and then live delivery did not give
+  ## it.
   return max(liveSince, subscribedSince) + delayExtra + variance
 
 func archivedBefore*(
