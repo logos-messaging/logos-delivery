@@ -268,20 +268,20 @@ proc dropFinishedResends(self: SendService) =
   for msgHash in ended:
     self.resends.del(msgHash)
 
-proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
-  ## Asks a Store peer about one batch, confirms the tasks that it reports, and
-  ## sends the others again.
-  let now = Moment.now()
-  for task in batch:
-    task.lastStoreQueryTime = Opt.some(now)
-
+proc checkGroupInStore(
+    self: SendService, shards: seq[PubsubTopic], batch: seq[DeliveryTask]
+) {.async.} =
+  ## One Store query about the tasks of `batch`, which are in `shards`. It
+  ## confirms the tasks that the answer reports, and sends the others again.
+  ## With no shards, the query can ask each Store peer.
   # TODO: confirm hash format for store query!!!
   let query = self.waku.storeQueryToAny(
     StoreQueryRequest(
       includeData: false,
       messageHashes: batch.mapIt(it.msgHash),
       paginationLimit: Opt.some(uint64(batch.len)),
-    )
+    ),
+    shards,
   )
   if not await query.withTimeout(StoreValidationQueryTimeout):
     debug "Store validation query timed out", messageCount = batch.len
@@ -312,7 +312,38 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
     return
   for task in batch:
     if task.msgHash notin reported and task.storeAnswerPending():
+      task.storeMissed = true
       self.startResend(task)
+
+proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
+  ## Asks Store about one batch. The tasks that a Store peer did not report go
+  ## in one query, which can ask each Store peer. The other tasks go in one
+  ## query for each group of `groupStoreShards`.
+  let now = Moment.now()
+  var missed: seq[DeliveryTask]
+  var byShard: OrderedTable[PubsubTopic, seq[DeliveryTask]]
+  for task in batch:
+    task.lastStoreQueryTime = Opt.some(now)
+    if task.storeMissed:
+      missed.add(task)
+    else:
+      byShard.mgetOrPut(task.pubsubTopic, @[]).add(task)
+  var checks: seq[Future[void]]
+  if missed.len > 0:
+    checks.add(self.checkGroupInStore(@[], missed))
+  for group in self.waku.groupStoreShards(toSeq(byShard.keys)):
+    var tasks: seq[DeliveryTask]
+    for shard in group:
+      tasks.add(byShard.getOrDefault(shard))
+    if tasks.len > 0:
+      checks.add(self.checkGroupInStore(group, tasks))
+  try:
+    for check in checks:
+      await check
+  finally:
+    let running = checks.filterIt(not it.finished())
+    if running.len > 0:
+      await noCancel allFutures(running.mapIt(it.cancelAndWait()))
 
 proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).} =
   ## Confirms propagated tasks against Store, one batch per round, apart from the
