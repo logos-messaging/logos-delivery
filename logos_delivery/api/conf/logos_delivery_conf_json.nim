@@ -11,7 +11,6 @@ const
   KeyEntryLayer = "entrylayer"
   KeyMode = "mode"
   KeyPreset = "preset"
-  KeyKernelConf = "kernelconf"
   KeyMessagingOverrides = "messagingoverrides"
   KeyChannelsOverrides = "channelsoverrides"
   # [Legacy flat JSON config] Keys that left the kernel and so must be lifted out of
@@ -100,19 +99,46 @@ proc parseFlatConf(
     KernelConf(kernel), messaging, Opt.some(ReliableChannelManagerConf())
   )
 
-proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
+proc parseKernelFields(
+    kernelConfJson: string
+): Result[Table[string, (string, JsonNode)], string] =
+  ## The kernel's own config: a JSON object of `WakuNodeConf` fields. An empty
+  ## string means no kernel field is set.
+  if kernelConfJson.strip().len == 0:
+    return ok(initTable[string, (string, JsonNode)]())
   var node: JsonNode
   try:
-    node = parseJson(jsonStr)
+    node = parseJson(kernelConfJson)
+  except CatchableError as e:
+    return err("invalid kernel config JSON: " & e.msg)
+  if node.kind != JObject:
+    return err("kernel config JSON must be an object")
+  return collectJsonFields(node)
+
+proc parseLogosDeliveryConf*(
+    messagingConfJson: string, kernelConfJson = ""
+): ConfResult[LogosDeliveryConf] =
+  ## `messagingConfJson` configures the layers above the kernel: `entryLayer`,
+  ## `mode`, `preset`, `messagingOverrides` and `channelsOverrides`.
+  ## `kernelConfJson` configures the kernel itself; its fields win over what the
+  ## mode, the preset and the messaging overrides set in the kernel.
+  var node: JsonNode
+  try:
+    node = parseJson(messagingConfJson)
   except CatchableError as e:
     return err("invalid JSON: " & e.msg)
   if node.kind != JObject:
     return err("configuration JSON must be an object")
 
   var top = ?collectJsonFields(node)
+  var kernelFields = ?parseKernelFields(kernelConfJson)
+
+  if kernelFields.hasKey(KeyPreset):
+    return err("preset belongs in the messaging config, not in the kernel config")
 
   var mode = LogosDeliveryMode.Core
-  if top.hasKey(KeyMode):
+  let modeSet = top.hasKey(KeyMode)
+  if modeSet:
     let (_, v) = top.getOrDefault(KeyMode)
     if v.kind != JString:
       return err("mode must be a string")
@@ -128,24 +154,27 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     top.del(KeyEntryLayer)
 
   if entryLayer == EntryLayer.kernel:
-    # Kernel-only: a raw kernelConf and no upper layers; mode is ignored.
-    if not top.hasKey(KeyKernelConf):
-      return err("kernel entry layer requires a 'kernelConf' object")
-    let (_, v) = top.getOrDefault(KeyKernelConf)
-    let kernel = ?parseOverrides(?defaultKernelConf(), v, "kernelConf")
-    top.del(KeyKernelConf)
+    # Kernel-only: the kernel config alone, no upper layers.
+    if modeSet:
+      return err("kernel entry layer takes no mode: mode is a messaging option")
     if top.len > 0:
       return err(
-        unknownKeysError(top, "kernel entry layer takes only 'kernelConf'; unexpected")
+        unknownKeysError(
+          top,
+          "kernel entry layer takes only 'entryLayer' in the messaging config; unexpected",
+        )
       )
+    var kernel = ?defaultKernelConf()
+    ?applyJsonFieldsToConf(
+      kernel, kernelFields, "Failed to parse kernel config field",
+      "Unrecognized kernel config option(s) found",
+    )
     return ok(LogosDeliveryConf.init(KernelConf(kernel)))
 
   # [Legacy flat JSON config] A wrapper key marks our structured shape. Otherwise any
   # leftover top-level key besides `preset` (mode is already consumed) is a bare
   # kernel field -> flat blob. Delete this block to drop flat-shape support.
-  let hasWrapper =
-    top.hasKey(KeyMessagingOverrides) or top.hasKey(KeyChannelsOverrides) or
-    top.hasKey(KeyKernelConf)
+  let hasWrapper = top.hasKey(KeyMessagingOverrides) or top.hasKey(KeyChannelsOverrides)
   if not hasWrapper:
     var bareField = false
     for k in top.keys:
@@ -153,6 +182,8 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
         bareField = true
         break
     if bareField:
+      if kernelFields.len > 0:
+        return err("a flat configuration blob takes no separate kernel config")
       return parseFlatConf(mode, top)
 
   var preset = ""
@@ -180,12 +211,21 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
   if top.len > 0:
     return err(unknownKeysError(top, "Unrecognized configuration option(s) found"))
 
+  let messaging = merge(?resolvePreset(preset), messagingOverrides)
+  var kernel = ?toWakuNodeConf(messaging, mode)
+  kernel.preset = preset
+  ?applyJsonFieldsToConf(
+    kernel, kernelFields, "Failed to parse kernel config field",
+    "Unrecognized kernel config option(s) found",
+  )
+
   return LogosDeliveryConf.init(
-    entryLayer = entryLayer,
-    mode = mode,
-    preset = preset,
-    messagingOverrides = messagingOverrides,
-    channelsOverrides = channelsOverrides,
+    KernelConf(kernel),
+    messaging,
+    if entryLayer == EntryLayer.channels:
+      Opt.some(channelsOverrides)
+    else:
+      Opt.none(ReliableChannelManagerConf),
   )
 
 {.pop.}

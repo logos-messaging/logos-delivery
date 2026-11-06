@@ -81,7 +81,7 @@ reply_callback_type = ctypes.CFUNCTYPE(
 
 
 class CreateNodeCtorReq(ctypes.Structure):
-    _fields_ = [("configJson", ctypes.c_char_p)]
+    _fields_ = [("messagingConfJson", ctypes.c_char_p), ("kernelConfJson", ctypes.c_char_p)]
 
 
 class RelaySubscribeReq(ctypes.Structure):
@@ -98,7 +98,7 @@ libwaku.logosdelivery_create_node.argtypes = [ctypes.POINTER(CreateNodeCtorReq),
                              reply_callback_type,
                              ctypes.c_void_p]
 
-create_req = CreateNodeCtorReq(configJson=bytes(json_config, 'utf-8'))
+create_req = CreateNodeCtorReq(messagingConfJson=bytes(json_config, "utf-8"), kernelConfJson=b"")
 on_create_cb = reply_callback_type(
     #onErrCb
     lambda ret, reply, err, user_data:

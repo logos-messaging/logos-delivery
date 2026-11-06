@@ -51,7 +51,8 @@ callback returns.
 ### Node Lifecycle
 
 #### `logosdelivery_ctx_create`
-Creates a node from the given configuration JSON.
+Creates a node from two configuration JSONs: one for the layers above the
+kernel (messaging and reliable channels), one for the kernel itself.
 
 ```c
 typedef void (*LogosDeliveryCreateFn)(
@@ -62,14 +63,17 @@ typedef void (*LogosDeliveryCreateFn)(
 );
 
 int logosdelivery_ctx_create(
-    const char *configJson,
+    const char *messagingConfJson,
+    const char *kernelConfJson,
     LogosDeliveryCreateFn onCreated,
     void *userData
 );
 ```
 
 **Parameters:**
-- `configJson`: JSON string containing node configuration
+- `messagingConfJson`: JSON object configuring the messaging and channel layers
+  (`""` is `{}`)
+- `kernelConfJson`: JSON object of kernel config fields (`""` sets none)
 - `onCreated`: Callback that receives the terminal result
 - `userData`: User data passed to the callback
 
@@ -83,7 +87,7 @@ later call on it answers `RET_ERR` with `library is not initialized: the
 constructor failed or has not run yet`, and `logosdelivery_destroy` still
 releases it.
 
-**Example configuration JSON:**
+**Example messaging configuration JSON:**
 ```json
 {
   "mode": "Core",
@@ -96,9 +100,18 @@ releases it.
 }
 ```
 
-The configuration object has four optional top-level keys: `mode` (`"Core"` or
-`"Edge"`, defaults to `"Core"`), `preset`, `messagingOverrides` (per-field node
-config overrides), and `channelsOverrides` (reliable-channel overrides).
+The messaging configuration object has five optional top-level keys:
+`entryLayer` (`"channels"`, `"messaging"` or `"kernel"`, defaults to
+`"channels"`), `mode` (`"Core"` or `"Edge"`, defaults to `"Core"`), `preset`,
+`messagingOverrides` (per-field node config overrides), and
+`channelsOverrides` (reliable-channel overrides). `mode` and `preset` are
+messaging options: the kernel configuration rejects them, and
+`"entryLayer": "kernel"` takes nothing else.
+
+The kernel configuration is a flat object of kernel config fields, e.g.
+`{"relay": false, "max-msg-size": "150KiB"}`. It applies after the mode, the
+preset and the messaging overrides, so its values win. With
+`"entryLayer": "kernel"` it is the whole node configuration.
 Override keys accept the config field name or its CLI switch name (e.g.
 `"clusterId"` or `"cluster-id"`); unknown keys are rejected.
 Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`,
@@ -365,7 +378,7 @@ int main(void) {
         "}";
 
     // Create the node, and wait for on_created to hand over the context.
-    logosdelivery_ctx_create(config, on_created, NULL);
+    logosdelivery_ctx_create(config, "", on_created, NULL);
     for (int i = 0; i < 100 && !created; i++) {
         usleep(100000);
     }

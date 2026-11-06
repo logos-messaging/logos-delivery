@@ -432,9 +432,9 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.storeMessageRetentionPolicy == "time:3600"
       kc.storeMaxNumDbConnections == 7
 
-  test "kernel entry layer parses a raw kernelConf":
+  test "kernel entry layer takes the kernel config alone":
     let lc = parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {"relay": false, "maxMessageSize": "150KiB"}}"""
+      """{"entrylayer": "kernel"}""", """{"relay": false, "maxMessageSize": "150KiB"}"""
     ).valueOr:
       raiseAssert error
     check:
@@ -445,25 +445,50 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.relay == Opt.some(false)
       kc.maxMessageSize == "150KiB"
 
-  test "kernel entry layer requires a kernelConf":
-    check parseLogosDeliveryConf("""{"entrylayer": "kernel"}""").isErr()
-
-  test "kernel entry layer rejects anything besides kernelConf":
+  test "kernel entry layer rejects messaging options":
     check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {}, "messagingOverrides": {"clusterId": 1}}"""
+      """{"entrylayer": "kernel", "messagingOverrides": {"clusterId": 1}}"""
     )
       .isErr()
-    # a preset for a kernel node goes inside kernelConf (WakuNodeConf.preset); the
-    # kernel entry layer treats kernelConf as a finished object and overlays nothing
+    check parseLogosDeliveryConf("""{"entrylayer": "kernel", "mode": "Edge"}""").isErr()
+    check parseLogosDeliveryConf("""{"entrylayer": "kernel", "preset": "twn"}""").isErr()
+
+  test "the kernel config overrides what the messaging config sets in the kernel":
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Core", "messagingOverrides": {"clusterId": 7}}""",
+      """{"clusterId": 9, "relay": false}""",
+    ).valueOr:
+      raiseAssert error
+    require lc.messagingConf.isSome()
+    let kc = WakuNodeConf(lc.kernelConf)
+    check:
+      kc.clusterId == Opt.some(9'u16)
+      kc.relay == Opt.some(false) # explicit kernel value beats the Core mode
+      lc.messagingConf.get().clusterId == Opt.some(7'u16)
+
+  test "mode and preset are rejected in the kernel config":
+    check parseLogosDeliveryConf("{}", """{"mode": "Edge"}""").isErr()
+    check parseLogosDeliveryConf("{}", """{"preset": "twn"}""").isErr()
     check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "kernelConf": {}, "preset": "twn"}"""
+      """{"entrylayer": "kernel"}""", """{"preset": "twn"}"""
     )
       .isErr()
 
-  test "kernelConf is rejected outside the kernel entry layer":
-    # kernelConf is a kernel-entry-layer wrapper. Under messaging/channels it is
-    # neither consumed by the structured path nor a flat kernel field, so it must
-    # surface as an unknown key.
+  test "a kernel config that disables mix conflicts with anonymity":
+    check parseLogosDeliveryConf(
+      """{"messagingOverrides": {"anonymityLevel": "Required"}}""", """{"mix": false}"""
+    )
+      .isErr()
+
+  test "an invalid kernel config is rejected":
+    check parseLogosDeliveryConf("{}", "{ not json }").isErr()
+    check parseLogosDeliveryConf("{}", "[]").isErr()
+    check parseLogosDeliveryConf("{}", """{"bogusKey": 1}""").isErr()
+
+  test "a flat blob takes no separate kernel config":
+    check parseLogosDeliveryConf("""{"relay": true}""", """{"store": true}""").isErr()
+
+  test "a kernelConf key in the messaging config is rejected":
     check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
 
   test "an empty config warns about the websocket port":

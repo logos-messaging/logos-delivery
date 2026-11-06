@@ -283,7 +283,7 @@ int main(int argc, char **argv)
     // Creation is asynchronous, and the context is only handed over once the
     // node exists: a config that fails to parse on the worker thread leaves
     // node_ctx null. Bail out cleanly rather than use it.
-    logosdelivery_ctx_create(jsonConfig, on_created, nullptr);
+    logosdelivery_ctx_create(jsonConfig, "", on_created, nullptr);
     waitForCallback();
     LogosDeliveryCtx *ctx = node_ctx;
     if (ctx == nullptr || last_callback_ret != RET_OK)
