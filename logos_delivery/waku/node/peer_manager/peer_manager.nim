@@ -7,6 +7,7 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
+  libp2p/protocols/[identify, ping],
   brokers/broker_context
 
 import
@@ -860,15 +861,47 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
   asyncSpawn(pm.switch.disconnect(peerId))
   pm.switch.peerStore.delete(peerId)
 
+const BaseLibp2pProtocols = [IdentifyCodec, IdentifyPushCodec, PingCodec]
+  ## Spoken by every libp2p peer, so sharing them says nothing about usefulness.
+
+proc sharesAppProtocol(pm: PeerManager, peerId: PeerId): bool =
+  ## Whether the peer advertises a protocol this node also mounts, beyond the
+  ## base libp2p ones.
+  for proto in pm.switch.peerStore[ProtoBook][peerId]:
+    if proto in BaseLibp2pProtocols:
+      continue
+    for holder in pm.switch.ms.handlers:
+      if proto in holder.protos or (not holder.match.isNil() and holder.match(proto)):
+        return true
+  return false
+
+proc hasOutboundConnection(pm: PeerManager, peerId: PeerId): bool =
+  ## A peer we dialled was chosen for a protocol we may only consume as a client
+  ## (e.g. circuit relay hop), which none of our handlers would match.
+  for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
+    if muxer.connection.transportDir == Direction.Out:
+      return true
+  return false
+
 proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
-  ## Only peers that advertise waku metadata are checked for cluster
-  ## membership. Any other peer (e.g. kademlia service discovery, mix) is a
-  ## libp2p application we may consume and is left connected.
+  ## Peers that advertise waku metadata are checked for cluster membership.
+  ## Any other peer is kept while it speaks a protocol we also run (e.g.
+  ## kademlia service discovery, mix) or we dialled it. An inbound peer that
+  ## shares nothing would only hold a connection slot, and nothing else ever
+  ## prunes it.
   if pm.wakuMetadata.isNil():
     return
-  if WakuMetadataCodec notin pm.switch.peerStore[ProtoBook][peerId]:
+  if WakuMetadataCodec in pm.switch.peerStore[ProtoBook][peerId]:
+    await pm.refreshPeerMetadata(peerId)
     return
-  await pm.refreshPeerMetadata(peerId)
+  if pm.sharesAppProtocol(peerId) or pm.hasOutboundConnection(peerId):
+    return
+  debug "Disconnecting from peer",
+    peerId = peerId,
+    reason = "no protocol in common",
+    protocols = pm.switch.peerStore[ProtoBook][peerId]
+  asyncSpawn(pm.switch.disconnect(peerId))
+  pm.switch.peerStore.delete(peerId)
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =

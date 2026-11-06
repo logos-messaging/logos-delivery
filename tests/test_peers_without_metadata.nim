@@ -29,22 +29,28 @@ proc newServiceDiscoverySwitch(): Switch =
   )
   switch
 
-proc newMixSwitch(): Switch =
-  let switch = newTestSwitch()
-  let mix = LPProtocol(codecs: @[MixProtocolID])
-  mix.handler = proc(
+proc stubProtocol(codec: string): LPProtocol =
+  let proto = LPProtocol(codecs: @[codec])
+  proto.handler = proc(
       stream: Stream, proto: string
   ) {.async: (raises: [CancelledError]).} =
     await stream.close()
-  switch.mount(mix)
+  proto
+
+proc newMixSwitch(): Switch =
+  let switch = newTestSwitch()
+  switch.mount(stubProtocol(MixProtocolID))
   switch
 
 proc newMetadataNode(
-    clusterId = ClusterId, mountMeta = true
+    clusterId = ClusterId, mountMeta = true, runs: seq[string] = @[]
 ): Future[WakuNode] {.async.} =
+  ## `runs`: extra protocols this node mounts, as the peers under test expect.
   let node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
   if mountMeta:
     discard node.mountMetadata(clusterId, @[])
+  for codec in runs:
+    node.switch.mount(stubProtocol(codec))
   await node.start()
   node
 
@@ -68,7 +74,7 @@ proc staysConnected(node: WakuNode, peer: Switch): Future[bool] {.async.} =
 
 suite "Peer manager - peers without waku metadata":
   asyncTest "a service-discovery-only peer stays connected":
-    let node = await newMetadataNode()
+    let node = await newMetadataNode(runs = @[ExtendedServiceDiscoveryCodec])
     let peer = newServiceDiscoverySwitch()
     await peer.start()
     defer:
@@ -79,7 +85,7 @@ suite "Peer manager - peers without waku metadata":
       WakuMetadataCodec notin node.switch.peerStore[ProtoBook][peer.peerInfo.peerId]
 
   asyncTest "a mix-only peer stays connected":
-    let node = await newMetadataNode()
+    let node = await newMetadataNode(runs = @[MixProtocolID])
     let peer = newMixSwitch()
     await peer.start()
     defer:
@@ -87,14 +93,33 @@ suite "Peer manager - peers without waku metadata":
 
     check await node.staysConnected(peer)
 
-  asyncTest "a peer offering no application protocol is not disconnected by us":
+  asyncTest "an inbound peer sharing no protocol with us is disconnected":
+    let node = await newMetadataNode()
+    let peer = newServiceDiscoverySwitch() # we do not run service discovery
+    await peer.start()
+    defer:
+      await allFutures(node.stop(), peer.stop())
+
+    try:
+      await peer.connect(node.switch.peerInfo.peerId, node.switch.peerInfo.listenAddrs)
+    except DialFailedError:
+      discard # cut off while its own upgrade was still running
+    checkUntilTimeout:
+      not node.switch.isConnected(peer.peerInfo.peerId)
+
+  asyncTest "a peer we dialled is kept even if it shares no protocol with us":
     let node = await newMetadataNode()
     let peer = newTestSwitch() # identify and ping only
     await peer.start()
     defer:
       await allFutures(node.stop(), peer.stop())
 
-    check await node.staysConnected(peer)
+    let disconnects = node.countDisconnects()
+    await node.switch.connect(peer.peerInfo.peerId, peer.peerInfo.listenAddrs)
+    await sleepAsync(Soak)
+    check:
+      disconnects[] == 0
+      node.switch.isConnected(peer.peerInfo.peerId)
 
   asyncTest "a node without metadata mounted still accepts everyone":
     let node = await newMetadataNode(mountMeta = false)
