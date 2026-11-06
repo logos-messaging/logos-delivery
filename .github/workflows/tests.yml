@@ -63,10 +63,20 @@ jobs:
           mkdir -p build
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }} 2>&1 | tee build/compile.log
 
-      # Failing tests already fail the job, so the warnings are checked anyway.
-      - name: Check compile warnings
+      # Absolute paths differ per runner, so each job keeps the repo-relative
+      # list and the compile-warnings job judges them all.
+      - name: Collect compile warnings
         if: ${{ !cancelled() }}
-        run: scripts/check_compile_warnings.sh build/compile.log
+        shell: bash
+        run: scripts/check_compile_warnings.sh build/compile.log > build/compile-warnings.txt || true
+
+      - name: Upload compile warnings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings-tests-${{ matrix.suite.name }}-${{ matrix.os }}
+          path: build/compile-warnings.txt
+          retention-days: 1
 
       # Collected by ci.yml's test-report job.
       - name: Upload test report

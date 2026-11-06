@@ -220,8 +220,20 @@ jobs:
           mkdir -p build
           make V=1 -j1 all 2>&1 | tee build/compile.log
 
-      - name: Check compile warnings
-        run: scripts/check_compile_warnings.sh build/compile.log
+      # Absolute paths differ per runner, so each job keeps the repo-relative
+      # list and the compile-warnings job judges them all.
+      - name: Collect compile warnings
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: scripts/check_compile_warnings.sh build/compile.log > build/compile-warnings.txt || true
+
+      - name: Upload compile warnings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings-build-${{ matrix.os }}
+          path: build/compile-warnings.txt
+          retention-days: 1
 
       - name: Save nimcache
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
@@ -567,8 +579,20 @@ jobs:
           mkdir -p build
           make V=1 -j1 examples tools 2>&1 | tee build/compile.log
 
-      - name: Check compile warnings
-        run: scripts/check_compile_warnings.sh build/compile.log
+      # Absolute paths differ per runner, so each job keeps the repo-relative
+      # list and the compile-warnings job judges them all.
+      - name: Collect compile warnings
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: scripts/check_compile_warnings.sh build/compile.log > build/compile-warnings.txt || true
+
+      - name: Upload compile warnings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings-examples-tools-${{ matrix.os }}
+          path: build/compile-warnings.txt
+          retention-days: 1
 
       - name: Audit installed deps
         run: make audit-deps
@@ -624,6 +648,33 @@ jobs:
   # job skipped at job level reports under its raw name (e.g.
   # `build-${{ matrix.os }}`), so requiring the per-job names blocks forever.
   # A skipped job is not relevant to the change and counts as passing here.
+  # Required through ci-required: fails on any compiler warning raised in this
+  # repo's code by the build, examples/tools or test jobs.
+  compile-warnings:
+    needs: [build, build-examples-tools, tests]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download compile warnings
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compile-warnings-*
+          path: build/compile-warnings
+
+      - name: Check compile warnings
+        shell: bash
+        run: |
+          shopt -s nullglob
+          logs=(build/compile-warnings/*/compile-warnings.txt)
+          if [ ${#logs[@]} -eq 0 ]; then
+            echo "compile warnings: no build ran"
+            exit 0
+          fi
+          scripts/check_compile_warnings.sh "${logs[@]}"
+
   ci-required:
     if: always()
     needs:
@@ -642,6 +693,7 @@ jobs:
       - tests-e2e-rest
       - nix
       - lint
+      - compile-warnings
     runs-on: ubuntu-22.04
     steps:
       - name: Fail if a job failed or was cancelled
