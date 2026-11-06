@@ -7,8 +7,6 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
-  libp2p/protocols/service_discovery/types,
-  libp2p_mix/mix_protocol,
   brokers/broker_context
 
 import
@@ -66,10 +64,6 @@ declarePublicGauge logos_delivery_peer_store_size,
 declarePublicGauge logos_delivery_service_peers,
   "Number of service peers per protocol", labels = ["protocol"]
 declarePublicGauge logos_delivery_total_unique_peers, "total number of unique peers"
-declarePublicGauge logos_delivery_pure_libp2p_peers,
-  "connected pure-libp2p peers: offer a protocol we consume, are not waku members"
-declarePublicCounter logos_delivery_pure_libp2p_admissions,
-  "admission decisions for peers that do not speak waku metadata", ["outcome"]
 
 logScope:
   topics = "waku node peer_manager"
@@ -134,10 +128,6 @@ type PeerManager* = ref object
   getShards: GetShards
   maxConnections: int
   activeStoreRequests*: Table[PeerId, int]
-  maxPureLibp2pPeers*: int
-    ## Inbound budget for pure-libp2p peers; 0 admits none (the default).
-  pureLibp2pPeers*: HashSet[PeerId]
-    ## Connected peers admitted as pure libp2p rather than as waku members.
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -870,83 +860,15 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
   asyncSpawn(pm.switch.disconnect(peerId))
   pm.switch.peerStore.delete(peerId)
 
-const PureLibp2pProtocols* = [ExtendedServiceDiscoveryCodec, MixProtocolID]
-  ## Protocols a peer can serve us without being a waku node: kademlia service
-  ## discovery, and mix once a pure-libp2p mix provider exists. A peer offering
-  ## any of these -- and nothing waku -- is a *pure-libp2p peer*.
-
-type PeerClass = enum
-  ## What a freshly identified peer is, decided from the protocols it
-  ## advertised -- never from whether a dial to it succeeded.
-  Member ## Speaks waku metadata: a waku node, held to waku membership rules.
-  PureLibp2p ## No waku metadata, but offers a protocol we consume.
-  Reject ## Neither.
-
-proc classifyPeer(pm: PeerManager, peerId: PeerId): PeerClass =
-  let protos = pm.switch.peerStore[ProtoBook][peerId]
-  if WakuMetadataCodec in protos:
-    return Member
-  if pm.maxPureLibp2pPeers > 0 and PureLibp2pProtocols.anyIt(it in protos):
-    return PureLibp2p
-  return Reject
-
-proc hasInboundConnection(pm: PeerManager, peerId: PeerId): bool =
-  ## Read from the connection itself, not from DirectionBook: libp2p asyncSpawns
-  ## `Joined`, so `Identified` can arrive before the Joined handler has written
-  ## the book.
-  for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
-    if muxer.connection.transportDir == Direction.In:
-      return true
-  false
-
-proc inboundPureLibp2pCount(pm: PeerManager): int =
-  return pm.pureLibp2pPeers.toSeq().countIt(pm.hasInboundConnection(it))
-
-proc admitPureLibp2pPeer(pm: PeerManager, peerId: PeerId): bool =
-  ## The budget counts inbound connections only. An outbound one is a peer
-  ## *our* kademlia chose to dial -- a lookup opens alpha of them at once -- and
-  ## an attacker cannot make us open those; capping them would starve our own
-  ## lookups.
-  if peerId in pm.pureLibp2pPeers:
-    return true # Identified fires per connection; already admitted
-  if pm.hasInboundConnection(peerId) and
-      pm.inboundPureLibp2pCount() >= pm.maxPureLibp2pPeers:
-    return false
-  pm.pureLibp2pPeers.incl(peerId)
-  logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
-  true
-
 proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
-  ## Runs once identify has told us what the peer speaks. A node with no
-  ## metadata protocol of its own has no membership to enforce and accepts
-  ## everyone, as before.
+  ## Only peers that advertise waku metadata are checked for cluster
+  ## membership. Any other peer (e.g. kademlia service discovery, mix) is a
+  ## libp2p application we may consume and is left connected.
   if pm.wakuMetadata.isNil():
     return
-
-  case pm.classifyPeer(peerId)
-  of Member:
-    await pm.refreshPeerMetadata(peerId)
-  of PureLibp2p:
-    if pm.admitPureLibp2pPeer(peerId):
-      logos_delivery_pure_libp2p_admissions.inc(labelValues = ["admitted"])
-      info "admitted pure-libp2p peer",
-        peerId = peerId, protocols = pm.switch.peerStore[ProtoBook][peerId]
-    else:
-      logos_delivery_pure_libp2p_admissions.inc(labelValues = ["over_budget"])
-      debug "Disconnecting from peer",
-        peerId = peerId,
-        reason = "pure-libp2p inbound budget exhausted",
-        budget = pm.maxPureLibp2pPeers
-      asyncSpawn(pm.switch.disconnect(peerId))
-      pm.switch.peerStore.delete(peerId)
-  of Reject:
-    logos_delivery_pure_libp2p_admissions.inc(labelValues = ["rejected"])
-    debug "Disconnecting from peer",
-      peerId = peerId,
-      reason = "no waku metadata and no protocol we consume",
-      protocols = pm.switch.peerStore[ProtoBook][peerId]
-    asyncSpawn(pm.switch.disconnect(peerId))
-    pm.switch.peerStore.delete(peerId)
+  if WakuMetadataCodec notin pm.switch.peerStore[ProtoBook][peerId]:
+    return
+  await pm.refreshPeerMetadata(peerId)
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
@@ -991,9 +913,6 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Left:
     direction = UnknownDirection
     connectedness = CanConnect
-
-    if not pm.pureLibp2pPeers.missingOrExcl(peerId):
-      logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
 
     # note we cant access the peerId ip here as the connection was already closed
     for ip, peerIds in pm.ipTable.pairs:
@@ -1364,7 +1283,6 @@ proc new*(
     colocationLimit = DefaultColocationLimit,
     shardedPeerManagement = false,
     maxConnections: int = MaxConnections,
-    maxPureLibp2pPeers: int = 0,
 ): PeerManager {.gcsafe.} =
   let capacity = switch.peerStore.capacity
   if maxConnections > capacity:
@@ -1419,7 +1337,6 @@ proc new*(
     shardedPeerManagement: shardedPeerManagement,
     online: true,
     maxConnections: maxConnections,
-    maxPureLibp2pPeers: maxPureLibp2pPeers,
   )
 
   proc peerHook(
