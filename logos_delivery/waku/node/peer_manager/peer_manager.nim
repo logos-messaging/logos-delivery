@@ -295,17 +295,31 @@ proc selectPeers*(
   shuffle(peers)
   return peers
 
+proc slotPeer(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
+  ## The peer in the service slot of `proto`, if any. Relay has no service slot.
+  if proto != WakuRelayCodec:
+    pm.serviceSlots.withValue(proto, serviceSlot):
+      return Opt.some(serviceSlot[])
+  return Opt.none(RemotePeerInfo)
+
+proc hasPeers*(pm: PeerManager, proto: string): bool =
+  ## True when `selectPeer(proto)` finds a peer.
+  if pm.slotPeer(proto).isSome():
+    return true
+  pm.exclusivePeers.withValue(proto, exclusive):
+    return exclusive[].len > 0
+  return pm.switch.peerStore.hasPeers(proto)
+
 proc selectPeer*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): Opt[RemotePeerInfo] =
   ## Selects a single peer for a given protocol, checking service slots first
   ## (for non-relay protocols).
-  # WakuRelay has no slots; other protocols use their slotted peer if any
-  if proto != WakuRelayCodec:
-    pm.serviceSlots.withValue(proto, serviceSlot):
-      trace "Got peer from service slots",
-        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs, protocol = proto
-      return Opt.some(serviceSlot[])
+  let slotted = pm.slotPeer(proto)
+  if slotted.isSome():
+    trace "Got peer from service slots",
+      peerId = slotted.get().peerId, multi = slotted.get().addrs, protocol = proto
+    return slotted
 
   # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
   let peers = pm.selectPeers(proto, shard)
