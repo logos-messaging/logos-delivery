@@ -50,6 +50,8 @@ suite "Peer Manager":
         server.mountMetadata(0, @[0'u16]) # clusterId irrelevant, overridden by topic
       await client.mountFilterClient()
       await server.mountFilter()
+      (await server.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
 
       # And both nodes are started
       await allFutures(server.start(), client.start())
@@ -59,7 +61,12 @@ suite "Peer Manager":
       await client.connectToNodes(@[serverRemotePeerInfo])
       checkUntilTimeout:
         client.switch.peerStore.hasShard(serverRemotePeerInfo.peerId, clusterId, 0)
-        server.switch.peerStore.hasShard(client.switch.peerInfo.peerId, clusterId, 1)
+
+      # Then the light client, having no relay, advertises no shards
+      check:
+        not server.switch.peerStore.hasShard(
+          client.switch.peerInfo.peerId, clusterId, 1
+        )
 
       # When the client issues a filter request
       discard await client.filterSubscribe(
