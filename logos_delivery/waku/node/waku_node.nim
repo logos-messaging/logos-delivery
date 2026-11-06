@@ -457,7 +457,14 @@ proc mountMetadata*(
   if not node.wakuMetadata.isNil():
     return err("Waku metadata already mounted, skipping")
 
-  let metadata = WakuMetadata.new(clusterId, node.getShardsGetter(shards))
+  let relayShards = node.getShardsGetter(shards)
+  let advertisedShards: GetShards = proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
+    ## The metadata spec says only relay nodes advertise shards: an edge node
+    ## would otherwise leak its interests.
+    if node.wakuRelay.isNil():
+      return @[]
+    return relayShards()
+  let metadata = WakuMetadata.new(clusterId, advertisedShards)
 
   node.wakuMetadata = metadata
   node.peerManager.wakuMetadata = metadata
