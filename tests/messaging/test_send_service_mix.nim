@@ -1,7 +1,7 @@
 {.used.}
 
 import std/[sequtils, sets, strutils]
-import chronos, chronicles, testutils/unittests, results, stew/byteutils
+import chronos, testutils/unittests, results, stew/byteutils
 
 import
   libp2p_mix,

@@ -5,8 +5,8 @@ import results, chronicles, std/tables, chronos, testutils/unittests
 import
   logos_delivery/waku/waku_node,
   logos_delivery/waku/waku_core,
-  ../../waku_lightpush/[lightpush_utils],
-  ../../testlib/[wakucore, wakunode, futures, testasync],
+  ../../waku_lightpush/lightpush_utils,
+  ../../testlib/[wakucore, wakunode, testasync],
   logos_delivery/waku/node/peer_manager/peer_manager
 
 suite "Peer Manager":

@@ -7,7 +7,7 @@ import
   libp2p/multiaddress,
   libp2p/peerid,
   libp2p/errors,
-  confutils/toml/std/net
+  toml_serialization/std/net
 import logos_delivery/waku/[waku_core, waku_enr], ../testlib/wakucore
 
 procSuite "Waku Core - Peers":

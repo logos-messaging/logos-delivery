@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tempfiles, strutils],
+  std/strutils,
   testutils/unittests,
   chronos,
   std/strformat,
@@ -15,12 +15,11 @@ import
     node/peer_manager,
     waku_node,
     waku_lightpush,
-    waku_filter_v2,
     waku_filter_v2/client,
     rln,
     rln/rln_plugin,
   ],
-  ../testlib/[wakucore, wakunode, testasync, futures],
+  ../testlib/[wakucore, wakunode, testasync],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 

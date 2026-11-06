@@ -1,10 +1,9 @@
-import libp2p/crypto/rng
 {.used.}
 
 {.push raises: [].}
 
 import
-  std/[exitprocs, net, os, osproc, streams, strutils, strformat],
+  std/[exitprocs, net, os, osproc, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -16,7 +15,7 @@ import
   web3/eth_api_types,
   json_rpc/rpcclient,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   results,
   brokers/request_broker
 
@@ -31,8 +30,7 @@ import
     node/waku_node,
     node/waku_node/relay,
     persistency/persistency,
-  ],
-  ../testlib/common
+  ]
 
 const CHAIN_ID* = 1234'u256
 

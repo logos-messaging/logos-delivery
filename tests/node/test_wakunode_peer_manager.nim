@@ -7,7 +7,6 @@ import
   testutils/unittests,
   chronos,
   # chronos/timer,
-  chronicles,
   times,
   libp2p/[peerstore, crypto/crypto, multiaddress]
 

@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, random, math, algorithm],
+  std/[sets, random, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -14,7 +14,6 @@ import
   libp2p/varint
 from libp2p/muxers/yamux/yamux import YamuxDefaultWindowSize
 import chronos, chronos/asyncsync
-import nimcrypto
 import
   ../../logos_delivery/waku/[
     node/peer_manager,

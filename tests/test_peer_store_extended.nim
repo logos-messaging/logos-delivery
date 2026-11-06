@@ -7,7 +7,7 @@ import
   libp2p/peerid,
   libp2p/peerstore,
   libp2p/multiaddress,
-  eth/keys as ethkeys,
+  eth/common/keys as ethkeys,
   eth/p2p/discoveryv5/enr,
   testutils/unittests
 import

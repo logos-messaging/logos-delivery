@@ -8,7 +8,7 @@ import std/[net, sequtils, strutils]
 import testutils/unittests, chronos
 import libp2p/[multiaddress, wire]
 import libp2p/crypto/crypto as libp2pcrypto
-import eth/keys, eth/p2p/discoveryv5/enr
+import eth/common/keys, eth/p2p/discoveryv5/enr
 import eth/p2p/discoveryv5/node as discv5_node
 import eth/p2p/discoveryv5/protocol as discv5_protocol
 import stew/byteutils
@@ -20,7 +20,7 @@ import
   ../logos_delivery/waku/waku,
   ../logos_delivery/waku/waku_enr,
   ../logos_delivery/waku/waku_core/peers
-import ./testlib/[common, wakucore, wakunode]
+import ./testlib/[wakucore, wakunode]
 
 proc tcpOf(record: enr.Record): Opt[uint16] =
   record.toTyped().expect("typed").tcp()

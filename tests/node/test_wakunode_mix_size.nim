@@ -6,13 +6,12 @@ import
   std/strutils,
   testutils/unittests,
   chronos,
-  chronicles,
   results,
   brokers/broker_context,
   libp2p/[peerid, peerinfo, switch],
   libp2p_mix/curve25519
 import
-  logos_delivery/waku/[waku, waku_core, waku_node, waku_mix],
+  logos_delivery/waku/[waku, waku_core, waku_node],
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/node/waku_node/lightpush,
   logos_delivery/waku/waku_lightpush/common,
@@ -23,7 +22,7 @@ import
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
     [send_service, delivery_task, mix_processor],
-  ../testlib/[futures, testasync, wakucore, mix_size_network, wakunodeconf]
+  ../testlib/[testasync, wakucore, mix_size_network, wakunodeconf]
 
 proc senderConf(): WakuConf =
   var nodeConf = defaultTestWakuNodeConf()

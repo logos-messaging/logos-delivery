@@ -1,12 +1,11 @@
 {.used.}
 
-import results, std/[importutils, os, sequtils, strutils, sets, tempfiles]
+import results, std/[importutils, os, sets, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import
   ../testlib/[
-    common, futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals,
-    rest_requests, rest_service,
+    futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service
   ]
 import ../waku_archive/archive_utils
 import
@@ -14,19 +13,16 @@ import
   logos_delivery/waku/[
     waku_node,
     waku_core,
-    waku_relay/protocol,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/protocol_metrics,
     waku_archive,
     waku_archive/archive_metrics,
-    common/base64,
     node/peer_manager,
   ],
   rest/server,
   rest/client,
   rest/kernel_api/relay/client as relay_rest_client
-import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/api/subscriptions
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf

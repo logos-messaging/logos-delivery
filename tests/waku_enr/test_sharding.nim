@@ -1,19 +1,17 @@
 {.used.}
 
 import
-  std/sequtils,
   results,
   chronos,
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,
-  eth/keys as eth_keys
+  eth/common/keys as eth_keys
 
 import brokers/broker_context
 import
   logos_delivery/waku/[
     waku_enr,
     discovery/waku_discv5,
-    waku_core,
     common/enr,
     net/auto_port,
     api/events/subscription_events,
