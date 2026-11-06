@@ -159,6 +159,9 @@ proc getLastOnlineTimestamp*(self: StoreResume): Result[Timestamp, string] =
 proc setLastOnlineTimestamp*(
     self: StoreResume, timestamp: Timestamp
 ): Result[void, string] =
+  if RawStmtPtr(self.replaceStmt).isNil():
+    return err("store resume is stopped")
+
   self.replaceStmt.exec((timestamp)).isOkOr:
     return err("failed to execute replace stmt" & $error)
 
@@ -225,5 +228,9 @@ proc stopWait*(self: StoreResume) {.async.} =
   if not self.handle.isNil():
     await noCancel(self.handle.cancelAndWait())
 
+  # SQLite leaves a second finalize of the same statement undefined.
+  if RawStmtPtr(self.replaceStmt).isNil():
+    return
   self.replaceStmt.dispose()
+  self.replaceStmt = default(typeof(self.replaceStmt))
   self.db.close()
