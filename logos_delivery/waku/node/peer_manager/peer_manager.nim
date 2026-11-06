@@ -105,6 +105,11 @@ const
   # Max peers that we allow from the same IP
   DefaultColocationLimit* = 5
 
+  # Inbound relay peers connected for less than this are never pruned for
+  # exceeding the in-relay target, so a late joiner gets a slot on a
+  # saturated network instead of being dropped right away.
+  InRelayPruneGracePeriod* = chronos.minutes(5)
+
 type ConnectionChangeHandler* = proc(
   peerId: PeerId, peerEvent: HostPeerEventKind
 ): Future[void] {.gcsafe, raises: [Defect].}
@@ -136,6 +141,14 @@ type PeerManager* = ref object
     ## Inbound budget for pure-libp2p peers; 0 admits none (the default).
   pureLibp2pPeers*: HashSet[PeerId]
     ## Connected peers admitted as pure libp2p rather than as waku members.
+  connectedAt: Table[PeerId, Moment]
+    ## When each currently connected peer joined; drives in-relay rotation.
+
+type InRelayPeer* = object
+  peerId*: PeerId
+  connectedAt*: Moment
+  usesServiceProtocol*: bool
+    ## Has a waku stream besides relay (store, filter, lightpush...) open.
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -331,9 +344,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs[0], service = proto
-  logos_delivery_service_peers.set(1, labelValues = [$proto])
-
-    # Set peer for service slot
+  logos_delivery_service_peers.set(1, labelValues = [$proto]) # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
 
   pm.addPeer(remotePeerInfo)
@@ -877,15 +888,10 @@ proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerJoined(pm: PeerManager, peerId: PeerId) {.async.} =
-  ## Check max allowed in-relay peers
-  let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
-  if inRelayPeers.len > pm.inRelayPeersTarget and
-      pm.peerStore.hasPeer(peerId, WakuRelayCodec):
-    debug "relay peer limit reached, evicting peer",
-      peerId = peerId,
-      inRelayPeers = inRelayPeers.len,
-      inRelayPeersTarget = pm.inRelayPeersTarget
-    await pm.evictPeer(peerId)
+  ## The newcomer is never evicted for the in-relay target: the connectivity
+  ## loop prunes the longest-connected inbound relay peers instead, so late
+  ## joiners can still find a slot on a saturated network.
+  discard pm.connectedAt.hasKeyOrPut(peerId, Moment.now())
 
   ## Apply max ip colocation limit
   if (let ip = pm.getPeerIp(peerId); ip.isSome()):
@@ -908,6 +914,8 @@ proc onPeerJoined(pm: PeerManager, peerId: PeerId) {.async.} =
     asyncSpawn pm.onConnectionChange(peerId, Joined)
 
 proc onPeerLeft(pm: PeerManager, peerId: PeerId) {.async.} =
+  pm.connectedAt.del(peerId)
+
   if not pm.pureLibp2pPeers.missingOrExcl(peerId):
     logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
 
@@ -1011,7 +1019,8 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
         agentCounts[agent] = agentCounts.getOrDefault(agent, 0) + 1
     for agent, count in agentCounts:
       logos_delivery_connected_peers_per_agent.set(
-        count.float64, labelValues = [agent] # bounded-label: agentLabel() yields KnownAgents or other
+        count.float64,
+        labelValues = [agent], # bounded-label: agentLabel() yields KnownAgents or other
       )
 
     for shard in pm.getShards().items:
@@ -1242,15 +1251,52 @@ proc relayConnectivityLoop*(pm: PeerManager) {.async.} =
     # Shorten the connectivity loop interval dynamically based on percentage of peers to fill or connections to prune
     await sleepAsync(max(dynamicSleepInterval, chronos.seconds(1)))
 
+func isServiceProtocol(protocol: string): bool =
+  protocol.startsWith("/vac/waku/") and protocol != WakuRelayCodec and
+    protocol != WakuMetadataCodec
+
+func selectInRelayPeersToPrune*(
+    peers: openArray[InRelayPeer],
+    amount: int,
+    now: Moment,
+    gracePeriod = InRelayPruneGracePeriod,
+): seq[PeerId] =
+  ## Peers inside the grace period are kept. Relay-only peers go before peers
+  ## also using us for a service protocol, and the longest-connected go first,
+  ## which rotates slots towards peers that joined later.
+  var candidates = peers.filterIt(now - it.connectedAt >= gracePeriod)
+  candidates.sort(
+    proc(a, b: InRelayPeer): int =
+      let byService = cmp(a.usesServiceProtocol, b.usesServiceProtocol)
+      if byService != 0:
+        return byService
+      return cmp(a.connectedAt, b.connectedAt)
+  )
+  return candidates[0 ..< min(max(amount, 0), candidates.len)].mapIt(it.peerId)
+
+proc inRelayPeers(pm: PeerManager): seq[InRelayPeer] =
+  var peers: seq[InRelayPeer]
+  for conn in pm.host.connections():
+    if not conn.inbound or not conn.streams.anyIt(it.protocol == WakuRelayCodec):
+      continue
+    if peers.anyIt(it.peerId == conn.peerId):
+      continue
+    peers.add(
+      InRelayPeer(
+        peerId: conn.peerId,
+        connectedAt: pm.connectedAt.getOrDefault(conn.peerId),
+        usesServiceProtocol: conn.streams.anyIt(it.protocol.isServiceProtocol()),
+      )
+    )
+  return peers
+
 proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.} =
   if amount <= 0:
     return
 
-  let (inRelayPeers, _) = pm.connectedPeers(WakuRelayCodec)
-  let connsToPrune = min(amount, inRelayPeers.len)
-
-  for p in inRelayPeers[0 ..< connsToPrune]:
-    trace "Pruning Peer", Peer = $p
+  let toPrune = selectInRelayPeersToPrune(pm.inRelayPeers(), amount, Moment.now())
+  for p in toPrune:
+    trace "Pruning in-relay peer", peerId = p
     asyncSpawn(pm.evictPeer(p))
 
 proc addExtPeerEventHandler*(
@@ -1377,6 +1423,7 @@ proc new*(
   pm.serviceSlots = initTable[string, RemotePeerInfo]()
   pm.ipTable = initTable[string, seq[PeerId]]()
   pm.activeStoreRequests = initTable[PeerId, int]()
+  pm.connectedAt = initTable[PeerId, Moment]()
 
   if not storage.isNil():
     trace "found persistent peer storage"
