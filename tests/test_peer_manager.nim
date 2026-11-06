@@ -1912,9 +1912,9 @@ procSuite "Peer Manager":
 
     ## Then: Returns Opt.none(RemotePeerInfo) without crashing
     for invalidTopic in invalidTopics:
-      let result = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
+      let selected = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
       check:
-        result.isNone()
+        selected.isNone()
 
     await allFutures(node.stop(), peer.stop())
 
