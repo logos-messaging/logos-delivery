@@ -330,7 +330,7 @@ proc backfillFetchTopic(
     self.backfill.archiveTime.nanos,
     self.backfill.timestampVariance.nanos,
   )
-  if stop > archived and record.timestamp >= lastPartStart:
+  if record.timestamp >= lastPartStart and now < restArchivedAt:
     # Only the last part is left, and the archive may not have it yet.
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
   let fetchStop = min(stop, archived)
