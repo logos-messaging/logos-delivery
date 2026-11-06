@@ -1006,7 +1006,9 @@ proc addMixPeer(node: WakuNode, port: int, lightpush = false) =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let (mixPrivKey, _) = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixPrivKey, @[])).expect("failed to mount mix")
+  (await node.mountMix(DefaultClusterId, mixPrivKey, @[], allowAllAddresses = true)).expect(
+    "failed to mount mix"
+  )
 
 suite "Health Monitor - mix readiness":
   asyncTest "Mix health follows the pool size":

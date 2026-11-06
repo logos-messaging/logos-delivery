@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/strutils
+import std/[sequtils, strutils]
 import chronicles, chronos, results, metrics
 
 import
@@ -28,6 +28,9 @@ logScope:
 const MinMixPoolSize* = 4
   ## The smallest pool that mix can build a path from. `PathLength` is 3, and
   ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
+
+const PublicHopAddressClasses = {MixAddressClass.Public, MixAddressClass.Relayed}
+  ## The classes of hop address that each node of the public network can dial.
 
 type
   WakuMix* = ref object of MixProtocol
@@ -101,7 +104,8 @@ proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
 
 proc poolSize*(mix: WakuMix): int =
   ## The number of pool members a path can use. `nodePool.get` needs an IPv4 TCP
-  ## or QUIC-v1 address and a secp256k1 key; `MixNodePool.len` checks neither.
+  ## or QUIC-v1 address of an accepted class and a secp256k1 key;
+  ## `MixNodePool.len` checks neither.
   ## Walks the pool; `mixReady` calls it once per send attempt.
   var routable = 0
   for peerId in mix.nodePool.peerIds():
@@ -120,6 +124,7 @@ proc processBootNodes(
     bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
 ) =
   var count = 0
+  var added: seq[(PeerId, string)]
   for node in bootnodes:
     let pInfo = parsePeerInfo(node.multiAddr).valueOr:
       error "Failed to get peer id from multiaddress: ",
@@ -152,12 +157,20 @@ proc processBootNodes(
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
+    added.add((peerId, node.multiAddr))
 
     peermgr.addPeer(
       RemotePeerInfo.init(
         peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
       )
     )
+  # One mix node can have many entries, and one usable address is enough. So
+  # check each mix node only now, with all its addresses in the pool.
+  let unused = added.filterIt(mix.nodePool.get(it[0]).isNone()).mapIt(it[1])
+  if unused.len > 0:
+    warn "Mix paths do not use configured mix nodes that have no usable " &
+      "address. A private or a loopback address needs --mix-allow-all-addresses",
+      unused = unused.len, examples = unused[0 ..< min(unused.len, 3)]
   # `count` is the accepted entries; the addresses of one peer make one member.
   let routable = mix.poolSize()
   info "Using mix bootstrap nodes", entries = count, poolSize = routable
@@ -175,7 +188,12 @@ proc new*(
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    allowAllAddresses: bool = false,
 ): WakuMixResult[T] =
+  ## A path uses a pool member only at a public address or through a circuit
+  ## relay, because each node of the path must dial the next one. With
+  ## `allowAllAddresses`, a path also uses a private or a loopback address. Set
+  ## it for a local simulation, a test or a private network.
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
@@ -198,6 +216,8 @@ proc new*(
           ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
         )
     ),
+    hopAddressClasses =
+      if allowAllAddresses: AllMixAddressClasses else: PublicHopAddressClasses,
   )
 
   processBootNodes(bootnodes, peermgr, m)
