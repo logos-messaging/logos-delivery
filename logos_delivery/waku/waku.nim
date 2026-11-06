@@ -47,6 +47,7 @@ import
     discovery/external_service_discovery,
     discovery/self_advertisement,
     discovery/autonat_service,
+    waku_peer_exchange/protocol,
     requests/health_requests,
     requests/node_state_requests,
     factory/node_factory,
@@ -481,6 +482,9 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
     # discv5 (as attached IPeerDiscovery backend) is stopped by node.stop()
 
+    if not waku.node.isNil() and not waku.node.wakuPeerExchange.isNil():
+      await waku.node.wakuPeerExchange.stopCacheRefresh()
+
     if not waku.node.isNil():
       await waku.node.stopMixRln()
       await waku.node.stop()
@@ -583,6 +587,9 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       return err("failed to start waku discovery v5: " & error)
 
     waku.wakuDiscv5 = waku.discv5Discovery.inner
+
+    if not waku.node.wakuPeerExchange.isNil():
+      waku.node.wakuPeerExchange.startCacheRefresh(waku.wakuDiscv5.randomWalk())
 
     let discoveryInfo = (await waku.discv5Discovery.backendInfo()).valueOr:
       return err("failed to read discv5 backend info: " & error)
