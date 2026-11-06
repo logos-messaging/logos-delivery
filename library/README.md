@@ -95,23 +95,19 @@ releases it.
 }
 ```
 
-The configuration is one flat object with the keys of the `logosdeliverynode`
-CLI flags. Each key belongs to one layer:
+One flat object with the `logosdeliverynode` CLI flag names; each key belongs
+to one layer:
 
-- `entryLayer` (`"channels"`, `"messaging"` or `"kernel"`, defaults to
-  `"channels"`) selects how far up the stack the node goes.
-- `mode` (`"Core"` or `"Edge"`, defaults to `"Core"`) and `preset` shape the
-  kernel config. An explicitly set kernel key wins over both.
-- Messaging keys (e.g. `reliability`, `anonymity-level`, `rate-limit-enabled`,
-  `backfill-enabled`) configure the messaging client.
-- Reliable-channel keys (e.g. `sdsMaxRetransmissions`,
-  `segmentationSegmentSizeBytes`) configure the channel manager.
-- Every other key is a kernel key (e.g. `tcp-port`, `cluster-id`, `relay`).
+- `entryLayer`: `"channels"` (default), `"messaging"` or `"kernel"`.
+- `mode` (`"Core"` default, or `"Edge"`) and `preset` shape the kernel config;
+  an explicit kernel key wins over both. A `"kernel"` node rejects `mode`.
+- Messaging keys (`reliability`, `anonymity-level`, `rate-limit-*`,
+  `backfill-*`) and reliable-channel keys (`sds*`, `segmentation*`).
+- Every other key is a kernel key (`tcp-port`, `cluster-id`, `relay`, ...).
 
-A kernel-only node (`"entryLayer": "kernel"`) takes kernel keys and `preset`,
-and rejects `mode` and the messaging and channel keys. Unless set, the ports
-of a messaging or channels node are auto-allocated, QUIC is on and websocket is
-off; a kernel-only node uses the CLI defaults.
+> **Kernel keys are not a stable API.** They have no backward-compatibility
+> guarantee and may be deprecated or removed without notice. Prefer `mode` and
+> `preset`.
 
 Keys accept the config field name or its CLI switch name (e.g.
 `"clusterId"` or `"cluster-id"`); unknown keys are rejected.
