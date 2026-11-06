@@ -32,7 +32,7 @@ public:
 
     void initialize(const QString& jsonConfig, LogosDeliveryCreateRawFn onCreated, void* userData) {
         const QByteArray config = jsonConfig.toUtf8();
-        LogosdeliveryCreateNodeCtorReq createReq = {config.constData(), ""};
+        LogosdeliveryCreateNodeCtorReq createReq = {config.constData()};
         ctx = logosdelivery_create_node(&createReq, onCreated, userData);
 
         for (const char *eventName :

@@ -191,18 +191,12 @@ proc restOf(self: LogosDelivery): RestService =
   return restServices[key]
 
 proc logosdelivery_create_node(
-    messagingConfJson: string, kernelConfJson: string
+    configJson: string
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
-  ## `messagingConfJson` configures the layers above the kernel (entry layer,
-  ## mode, preset, overrides); `kernelConfJson` configures the kernel. Either
-  ## may be empty.
-  let messagingJson = if messagingConfJson.len == 0: "{}" else: messagingConfJson
-  let conf = parseLogosDeliveryConf(messagingJson, kernelConfJson).valueOr:
+  let conf = parseLogosDeliveryConf(configJson).valueOr:
     error "Failed to parse Logos Delivery configuration JSON",
-      error = error,
-      messagingConfJson = messagingConfJson,
-      kernelConfJson = kernelConfJson
-    return err("failed parseLogosDeliveryConf: " & error)
+      error = error, configJson = configJson
+    return err("failed parseLogosDeliveryConf " & error)
 
   ## Give each node its own broker scope. This runs on the FFI thread the
   ## node will live on: the first node built on that thread mints the

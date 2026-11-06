@@ -432,9 +432,9 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.storeMessageRetentionPolicy == "time:3600"
       kc.storeMaxNumDbConnections == 7
 
-  test "kernel entry layer takes the kernel config alone":
+  test "kernel entry layer takes kernelConf alone":
     let lc = parseLogosDeliveryConf(
-      """{"entrylayer": "kernel"}""", """{"relay": false, "maxMessageSize": "150KiB"}"""
+      """{"entrylayer": "kernel", "kernelConf": {"relay": false, "maxMessageSize": "150KiB"}}"""
     ).valueOr:
       raiseAssert error
     check:
@@ -447,16 +447,16 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "kernel entry layer rejects messaging options":
     check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel", "messagingOverrides": {"clusterId": 1}}"""
+      """{"entrylayer": "kernel", "kernelConf": {}, "messagingOverrides": {"clusterId": 1}}"""
     )
       .isErr()
     check parseLogosDeliveryConf("""{"entrylayer": "kernel", "mode": "Edge"}""").isErr()
     check parseLogosDeliveryConf("""{"entrylayer": "kernel", "preset": "twn"}""").isErr()
 
-  test "the kernel config overrides what the messaging config sets in the kernel":
+  test "kernelConf overrides what the messaging options set in the kernel":
     let lc = parseLogosDeliveryConf(
-      """{"mode": "Core", "messagingOverrides": {"clusterId": 7}}""",
-      """{"clusterId": 9, "relay": false}""",
+      """{"mode": "Core", "messagingOverrides": {"clusterId": 7},
+          "kernelConf": {"clusterId": 9, "relay": false}}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
@@ -466,30 +466,27 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.relay == Opt.some(false) # explicit kernel value beats the Core mode
       lc.messagingConf.get().clusterId == Opt.some(7'u16)
 
-  test "mode and preset are rejected in the kernel config":
-    check parseLogosDeliveryConf("{}", """{"mode": "Edge"}""").isErr()
-    check parseLogosDeliveryConf("{}", """{"preset": "twn"}""").isErr()
+  test "mode and preset are rejected inside kernelConf":
+    check parseLogosDeliveryConf("""{"kernelConf": {"mode": "Edge"}}""").isErr()
+    check parseLogosDeliveryConf("""{"kernelConf": {"preset": "twn"}}""").isErr()
     check parseLogosDeliveryConf(
-      """{"entrylayer": "kernel"}""", """{"preset": "twn"}"""
+      """{"entrylayer": "kernel", "kernelConf": {"preset": "twn"}}"""
     )
       .isErr()
 
-  test "a kernel config that disables mix conflicts with anonymity":
+  test "a kernelConf that disables mix conflicts with anonymity":
     check parseLogosDeliveryConf(
-      """{"messagingOverrides": {"anonymityLevel": "Required"}}""", """{"mix": false}"""
+      """{"messagingOverrides": {"anonymityLevel": "Required"}, "kernelConf": {"mix": false}}"""
     )
       .isErr()
 
-  test "an invalid kernel config is rejected":
-    check parseLogosDeliveryConf("{}", "{ not json }").isErr()
-    check parseLogosDeliveryConf("{}", "[]").isErr()
-    check parseLogosDeliveryConf("{}", """{"bogusKey": 1}""").isErr()
+  test "an invalid kernelConf is rejected":
+    check parseLogosDeliveryConf("""{"kernelConf": []}""").isErr()
+    check parseLogosDeliveryConf("""{"kernelConf": {"bogusKey": 1}}""").isErr()
 
-  test "a flat blob takes no separate kernel config":
-    check parseLogosDeliveryConf("""{"relay": true}""", """{"store": true}""").isErr()
-
-  test "a kernelConf key in the messaging config is rejected":
-    check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
+  test "kernelConf does not mix with flat kernel fields":
+    check parseLogosDeliveryConf("""{"relay": true, "kernelConf": {"store": true}}""")
+      .isErr()
 
   test "an empty config warns about the websocket port":
     # TODO: logos-delivery#4553

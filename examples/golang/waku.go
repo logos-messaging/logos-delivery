@@ -126,7 +126,7 @@ package main
 	static void* cGoWakuNew(const char* configJson, void* resp) {
 		// We pass NULL because we are not interested in retrieving data from this callback
 		void* ret = logosdelivery_create_node(
-			&(LogosdeliveryCreateNodeCtorReq){.messagingConfJson = configJson, .kernelConfJson = ""}, replyCallback, resp);
+			&(LogosdeliveryCreateNodeCtorReq){.configJson = configJson}, replyCallback, resp);
 		waitResp(resp);
 		return ret;
 	}

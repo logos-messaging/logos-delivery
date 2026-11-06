@@ -227,7 +227,7 @@ int main() {
     "}";
 
     printf("1. Creating node...\n");
-    logosdelivery_ctx_create(config, "", on_created, NULL);
+    logosdelivery_ctx_create(config, on_created, NULL);
 
     // Creation is asynchronous: the context arrives in on_created.
     for (int i = 0; i < 100 && !create_node_done; i++) {

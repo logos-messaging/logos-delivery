@@ -199,7 +199,7 @@ jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
   const char *config = (*env)->GetStringUTFChars(env, configJson, 0);
   cb_result *result = NULL;
   void *wakuPtr = logosdelivery_create_node(
-      &(LogosdeliveryCreateNodeCtorReq){.messagingConfJson = config, .kernelConfJson = ""}, on_response_reply,
+      &(LogosdeliveryCreateNodeCtorReq){.configJson = config}, on_response_reply,
       (void *)&result);
   jobject response = to_jni_ptr(env, result, wakuPtr);
   (*env)->ReleaseStringUTFChars(env, configJson, config);

@@ -395,7 +395,7 @@ int main(int argc, char **argv)
            // fail to start with "Address already in use".
            cfgNode.port + 1);
 
-  WAKU_CALL(logosdelivery_ctx_create(jsonConfig, "", create_handler, userData));
+  WAKU_CALL(logosdelivery_ctx_create(jsonConfig, create_handler, userData));
 
   WAKU_CALL(logosdelivery_ctx_waku_default_pubsub_topic(ctx, print_default_pubsub_topic, userData));
   WAKU_CALL(logosdelivery_ctx_waku_version(ctx, print_waku_version, userData));

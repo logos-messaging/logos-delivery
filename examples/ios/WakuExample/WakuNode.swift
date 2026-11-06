@@ -336,8 +336,7 @@ actor WakuActor {
 
             // Set up a simple callback for logosdelivery_create_node
             let newCtx = config.withCString { configPtr -> UnsafeMutableRawPointer? in
-                "".withCString { kernelPtr -> UnsafeMutableRawPointer? in
-                var req = LogosdeliveryCreateNodeCtorReq(messagingConfJson: configPtr, kernelConfJson: kernelPtr)
+                var req = LogosdeliveryCreateNodeCtorReq(configJson: configPtr)
                 return logosdelivery_create_node(&req, { ret, reply, errMsg, userData in
                     guard let userData = userData else { return }
                     let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
@@ -346,7 +345,6 @@ actor WakuActor {
                         context.result = String(cString: text)
                     }
                 }, userDataPtr)
-                }
             }
 
             // Small delay to ensure callback completes

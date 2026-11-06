@@ -217,7 +217,7 @@ static napi_value WakuNew(napi_env env, napi_callback_info info) {
   napi_get_value_string_utf8(env, args[0], jsonConfig, str_size, &str_size_read);
 
   ctx = logosdelivery_create_node(
-      &(LogosdeliveryCreateNodeCtorReq){.messagingConfJson = jsonConfig, .kernelConfJson = ""},
+      &(LogosdeliveryCreateNodeCtorReq){.configJson = jsonConfig},
       event_handler_create, userData);
 
   free(jsonConfig);

@@ -18,8 +18,7 @@ pub type CreateRawFn =
 
 #[repr(C)]
 pub struct LogosdeliveryCreateNodeCtorReq {
-    pub messaging_conf_json: *const c_char,
-    pub kernel_conf_json: *const c_char,
+    pub config_json: *const c_char,
 }
 
 extern "C" {
@@ -127,10 +126,8 @@ fn main() {
         let mut closure = reply_sender(tx);
         let cb = get_create_trampoline(&closure);
         let config_json_str = CString::new(config_json).unwrap();
-        let kernel_conf_json_str = CString::new("").unwrap();
         let req = LogosdeliveryCreateNodeCtorReq {
-            messaging_conf_json: config_json_str.as_ptr(),
-            kernel_conf_json: kernel_conf_json_str.as_ptr(),
+            config_json: config_json_str.as_ptr(),
         };
         let ctx = logosdelivery_create_node(&req, cb, &mut closure as *mut _ as *const c_void);
         println!(
