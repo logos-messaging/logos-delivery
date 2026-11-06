@@ -59,7 +59,9 @@ when isMainModule:
   echo "Starting Waku node..."
 
   var preset: string
-  var messagingOverrides = MessagingClientConf()
+  var kernelConf = libraryKernelConf().valueOr:
+    echo "Failed to build the kernel config: ", error
+    quit(QuitFailure)
   if args.ethRpcEndpoint == "":
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
@@ -67,15 +69,14 @@ when isMainModule:
   else:
     # Connect to TWN, use ETH RPC Endpoint for RLN
     preset = "twn"
-    messagingOverrides.ethRpcEndpoints = Opt.some(@[EthRpcUrl(args.ethRpcEndpoint)])
+    kernelConf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 
   # Create the full Logos Messaging stack (Waku + messaging + channels)
   let node = (
     waitFor LogosDelivery.new(
       mode = LogosDeliveryMode.Core,
       preset = preset,
-      messagingOverrides = messagingOverrides,
-      channelsOverrides = ReliableChannelManagerConf(),
+      kernelConf = Opt.some(KernelConf(kernelConf)),
     )
   ).valueOr:
     echo "Failed to create node: ", error

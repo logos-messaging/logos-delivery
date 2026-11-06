@@ -32,11 +32,6 @@ proc new*(
     conf: ReliableChannelManagerConf,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Result[T, string] =
-  if conf.rateLimitEnabled.isSome() or conf.rateLimitEpochPeriodSec.isSome() or
-      conf.rateLimitMessagesPerEpoch.isSome():
-    warn "channel-level rate-limit config is deprecated and ignored; " &
-      "rate limiting moved to the messaging client (MessagingClientConf.rateLimitEnabled et al.)"
-
   return ok(
     T(
       channels: initTable[ChannelId, ReliableChannel](),

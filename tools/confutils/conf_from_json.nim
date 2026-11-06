@@ -91,14 +91,14 @@ proc parseSeqInto[U](
       )
   ok(res)
 
-proc applyJsonFieldsToConf*[T](
+proc takeJsonFieldsIntoConf*[T](
     conf: var T,
     jsonFields: var Table[string, (string, JsonNode)],
     parseErrPrefix: string,
-    unknownErrPrefix: string,
 ): Result[void, string] =
-  ## Write each conf field matched (case-insensitive) by name or CLI `name:` pragma.
-  ## JSON `null` leaves the field unset; unknown or non-`parseCmdArg` keys error.
+  ## Write each conf field matched (case-insensitive) by name or CLI `name:` pragma,
+  ## and remove its key from `jsonFields`; keys that match no field stay there.
+  ## JSON `null` leaves the field unset; a non-`parseCmdArg` field errors.
   for confField, confValue in fieldPairs(conf):
     # Match a field by its name or by its CLI name: pragma; case-insensitive.
     var matchKey = ""
@@ -156,6 +156,16 @@ proc applyJsonFieldsToConf*[T](
             jsonFields.del(matchKey)
           else:
             return err("config option '" & jsonKey & "' cannot be set via JSON")
+  ok()
+
+proc applyJsonFieldsToConf*[T](
+    conf: var T,
+    jsonFields: var Table[string, (string, JsonNode)],
+    parseErrPrefix: string,
+    unknownErrPrefix: string,
+): Result[void, string] =
+  ## `takeJsonFieldsIntoConf`, and a key that matches no field errors.
+  ?takeJsonFieldsIntoConf(conf, jsonFields, parseErrPrefix)
   if jsonFields.len > 0:
     return err(unknownKeysError(jsonFields, unknownErrPrefix))
   ok()

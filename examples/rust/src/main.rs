@@ -112,12 +112,10 @@ fn main() {
     let config_json = "\
     { \
         \"mode\": \"Core\",\
-        \"messagingOverrides\": { \
-            \"listen-address\": \"127.0.0.1\",\
-            \"tcp-port\": 60000, \
-            \"nodekey\": \"0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2\", \
-            \"log-level\": \"DEBUG\"
-        }
+        \"listen-address\": \"127.0.0.1\",\
+        \"tcp-port\": 60000, \
+        \"nodekey\": \"0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2\", \
+        \"log-level\": \"DEBUG\"
     }";
 
     unsafe {

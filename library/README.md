@@ -88,26 +88,32 @@ releases it.
 {
   "mode": "Core",
   "preset": "logos.dev",
-  "messagingOverrides": {
-    "listen-address": "0.0.0.0",
-    "tcp-port": 60000,
-    "discv5-udp-port": 9000
-  }
+  "listen-address": "0.0.0.0",
+  "tcp-port": 60000,
+  "discv5-udp-port": 9000,
+  "reliability": true
 }
 ```
 
-The configuration object has six optional top-level keys: `entryLayer`
-(`"channels"`, `"messaging"` or `"kernel"`, defaults to `"channels"`), `mode`
-(`"Core"` or `"Edge"`, defaults to `"Core"`), `preset`, `messagingOverrides`
-(per-field node config overrides), `channelsOverrides` (reliable-channel
-overrides), and `kernelConf`.
+The configuration is one flat object with the keys of the `logosdeliverynode`
+CLI flags. Each key belongs to one layer:
 
-`kernelConf` is a flat object of kernel config fields, e.g.
-`{"relay": false, "max-msg-size": "150KiB"}`. It applies after the mode, the
-preset and the messaging overrides, so its values win. `mode` and `preset` are
-not kernel options and are rejected inside it. With `"entryLayer": "kernel"`,
-`kernelConf` is the whole node configuration and no other key is accepted.
-Override keys accept the config field name or its CLI switch name (e.g.
+- `entryLayer` (`"channels"`, `"messaging"` or `"kernel"`, defaults to
+  `"channels"`) selects how far up the stack the node goes.
+- `mode` (`"Core"` or `"Edge"`, defaults to `"Core"`) and `preset` shape the
+  kernel config. An explicitly set kernel key wins over both.
+- Messaging keys (e.g. `reliability`, `anonymity-level`, `rate-limit-enabled`,
+  `backfill-enabled`) configure the messaging client.
+- Reliable-channel keys (e.g. `sdsMaxRetransmissions`,
+  `segmentationSegmentSizeBytes`) configure the channel manager.
+- Every other key is a kernel key (e.g. `tcp-port`, `cluster-id`, `relay`).
+
+A kernel-only node (`"entryLayer": "kernel"`) takes kernel keys and `preset`,
+and rejects `mode` and the messaging and channel keys. Unless set, the ports
+of a messaging or channels node are auto-allocated, QUIC is on and websocket is
+off; a kernel-only node uses the CLI defaults.
+
+Keys accept the config field name or its CLI switch name (e.g.
 `"clusterId"` or `"cluster-id"`); unknown keys are rejected.
 Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`,
 `"status.prod"`) which auto-configures entry nodes, cluster ID, sharding, and
