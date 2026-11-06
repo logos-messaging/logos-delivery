@@ -224,7 +224,7 @@ endif
 
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
-NIM_PARAMS := $(NIM_PARAMS) -d:release -d:lto_incremental -d:strip
+NIM_PARAMS := $(NIM_PARAMS) -d:release -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
@@ -338,7 +338,7 @@ testlogosdelivery: | build-deps build rln-deps librln
 logosdeliverynode: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIM) c --out:build/logosdeliverynode --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
+		$(NIM) c --out:build/logosdeliverynode --mm:orc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) logosdeliverynode $(NIMBLE_TASK_FLAGS)
@@ -563,7 +563,7 @@ endif
 
 liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
 ifeq ($(detected_OS),Windows)
-	$(NIM) c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
+	$(NIM) c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:orc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
 else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble $(NIMBLE_TASK_FLAGS)
 endif
