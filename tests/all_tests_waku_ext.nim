@@ -28,7 +28,7 @@ import
   ./test_peer_manager,
   ./test_peer_store_extended,
   ./test_peer_storage,
-  ./test_pure_libp2p_peers
+  ./test_peers_without_metadata
 
 # Discovery
 import

@@ -119,7 +119,6 @@ proc initNode(
         natStrategy = $conf.endpointConf.natStrategy
   else:
     builder.withNatConfig(natConf)
-  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let
