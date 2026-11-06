@@ -34,7 +34,11 @@ proc startMixNodes*(): Future[MixSizeNetwork] {.async.} =
     (await node.mountLightpush()).expect("mount lightpush")
     node.mountMetadata(uint32(DefaultClusterId), @[0'u16]).expect("mount metadata")
     let keys = generateKeyPair().expect("mix keys")
-    (await node.mountMix(DefaultClusterId, keys.privateKey, @[])).expect("mount mix")
+    (
+      await node.mountMix(
+        DefaultClusterId, keys.privateKey, @[], allowAllAddresses = true
+      )
+    ).expect("mount mix")
     await node.start()
     net.nodes.add(node)
     net.infos.add(

@@ -320,8 +320,8 @@
 
   libp2p_mix = pkgs.fetchgit {
     url = "https://github.com/logos-co/nim-libp2p-mix";
-    rev = "3f256aa03d2d36fea0b5206b41a6328da4f5c412";
-    sha256 = "03vlvrf7cqhqjjnrg60wibbd7qmp16gsdpb3c9p0w4a4fd33w63y";
+    rev = "fe620629bb40b2212d86e158da5929bbedfcb957";
+    sha256 = "0zc1fsdf4rv3gf53pbalyybjpjxpq4f16lqbiw6b5awnnwnz8r4l";
     fetchSubmodules = true;
   };
 
