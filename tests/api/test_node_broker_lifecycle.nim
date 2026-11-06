@@ -13,11 +13,11 @@ import brokers/broker_context
 import sds
 import logos_delivery
 import
-  logos_delivery/waku/[waku_core, waku_node],
+  logos_delivery/waku/waku_core,
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
   logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery]
-import tests/testlib/[testasync, wakunodeconf, rest_service]
+import tests/testlib/[wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
   var kernel = defaultTestWakuNodeConf(rest = rest)

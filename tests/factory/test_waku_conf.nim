@@ -8,7 +8,6 @@ import
   chronos/timer,
   std/[net, random, sequtils, strutils],
   results,
-  stew/byteutils,
   testutils/unittests
 import
   logos_delivery/waku/factory/waku_conf,

@@ -5,7 +5,6 @@ import
   std/[sequtils, strutils, net],
   stew/byteutils,
   testutils/unittests,
-  chronicles,
   chronos,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,

@@ -9,7 +9,6 @@ import
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/node/peer_manager/peer_manager,
   logos_delivery/waku/waku_core,
-  ../testlib/common,
   ../testlib/wakucore
 
 ## A fake plugin written the way a real one would be: plain C entry points

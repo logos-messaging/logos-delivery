@@ -22,7 +22,6 @@ import
     waku_node,
     waku_filter_v2/client,
     node/peer_manager,
-    waku_archive,
     waku_archive/driver/queue_driver,
     waku_relay,
     waku_peer_exchange,

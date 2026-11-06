@@ -1,7 +1,7 @@
 {.used.}
 
 import std/[importutils, sequtils, tables]
-import chronos, chronicles, testutils/unittests, results, stew/byteutils
+import chronos, testutils/unittests, results, stew/byteutils
 
 import
   logos_delivery/waku/waku,

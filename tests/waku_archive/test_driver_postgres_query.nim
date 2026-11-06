@@ -7,13 +7,8 @@ import
   chronos,
   chronicles
 import
-  logos_delivery/waku/[
-    waku_archive,
-    waku_archive/driver as driver_module,
-    waku_archive/driver/postgres_driver,
-    waku_core,
-    waku_core/message/digest,
-  ],
+  logos_delivery/waku/
+    [waku_archive/driver/postgres_driver, waku_core, waku_core/message/digest],
   ../testlib/common,
   ../testlib/wakucore,
   ../testlib/testasync,

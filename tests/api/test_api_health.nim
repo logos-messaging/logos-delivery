@@ -1,9 +1,9 @@
 {.used.}
 
-import results, std/[sequtils, tables, times]
-import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
+import results, std/[sequtils, tables]
+import chronos, testutils/unittests, libp2p/[switch, peerinfo]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
+import ../testlib/[wakucore, wakunode, wakunodeconf, testasync]
 
 import
   logos_delivery,
@@ -13,8 +13,7 @@ import
   logos_delivery/waku/requests/health_requests,
   logos_delivery/waku/requests/node_requests,
   logos_delivery/waku/api/events/health_events,
-  logos_delivery/waku/common/waku_protocol,
-  logos_delivery/waku/factory/waku_conf
+  logos_delivery/waku/common/waku_protocol
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)

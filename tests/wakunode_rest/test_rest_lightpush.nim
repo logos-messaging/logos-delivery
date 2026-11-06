@@ -13,7 +13,6 @@ import
   rest/message_cache,
   rest/server,
   rest/client,
-  rest/responses,
   rest/kernel_api/lightpush/types,
   rest/kernel_api/lightpush/handlers as lightpush_rest_interface,
   rest/kernel_api/lightpush/client as lightpush_rest_client,

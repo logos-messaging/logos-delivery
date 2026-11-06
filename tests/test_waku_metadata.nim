@@ -1,17 +1,14 @@
 {.used.}
 
 import
-  std/[algorithm, sequtils, tables],
+  std/[algorithm, sequtils],
   testutils/unittests,
   stew/byteutils,
   chronos,
-  chronicles,
   libp2p/switch,
   libp2p/peerId,
   libp2p/crypto/crypto,
-  libp2p/multistream,
-  libp2p/muxers/muxer,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr
 import
   logos_delivery/waku/[

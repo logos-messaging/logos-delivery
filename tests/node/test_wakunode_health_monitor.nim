@@ -1,7 +1,6 @@
 {.used.}
 
-import
-  std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results, metrics
+import std/[sequtils, tables], testutils/unittests, chronos, results, metrics
 import brokers/broker_context
 import libp2p_mix/[curve25519, mix_metrics, pool], libp2p/[peerid, multiaddress]
 
@@ -22,7 +21,6 @@ import
     node/waku_node/filter,
     api/events/health_events,
     api/events/peer_events,
-    waku_archive,
     waku_mix,
     waku_relay,
   ]

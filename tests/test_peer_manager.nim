@@ -7,7 +7,7 @@ import
   chronos,
   json_rpc/rpcserver,
   json_rpc/rpcclient,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   eth/common/eth_types,
   libp2p/[builders, switch, multiaddress],
@@ -34,7 +34,6 @@ import
   ],
   ./testlib/common,
   ./testlib/testasync,
-  ./testlib/testutils,
   ./testlib/wakucore,
   ./testlib/wakunode
 

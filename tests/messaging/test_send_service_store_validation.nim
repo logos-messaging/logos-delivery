@@ -1,7 +1,7 @@
 {.used.}
 
 import std/sequtils
-import chronos, chronicles, testutils/unittests, results, stew/byteutils
+import chronos, testutils/unittests, results, stew/byteutils
 
 import
   logos_delivery/waku/waku,
@@ -19,7 +19,7 @@ import
 import ../testlib/[futures, testasync, wakunodeconf, wakucore, wakunode]
 import ../waku_store/store_utils
 import ../waku_lightpush/lightpush_utils
-import logos_delivery/waku/waku_lightpush/[common, rpc]
+import logos_delivery/waku/waku_lightpush/common
 import logos_delivery/waku/node/waku_node/lightpush
 
 ## Store-based reliability asks a store node for a propagated message's hash, in

@@ -9,7 +9,7 @@ import
   libp2p/switch,
   libp2p/peerId,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   brokers/broker_context
 

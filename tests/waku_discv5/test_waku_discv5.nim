@@ -5,17 +5,14 @@ import
   std/[sequtils, algorithm, net],
   results,
   chronos,
-  chronicles,
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,
-  eth/keys as eth_keys,
+  eth/common/keys as eth_keys,
   eth/p2p/discoveryv5/enr as ethEnr,
-  libp2p/crypto/secp,
-  libp2p/protocols/rendezvous
+  libp2p/crypto/secp
 
 import
   logos_delivery/waku/[
-    waku_core/topics,
     waku_core/codecs,
     waku_enr,
     discovery/waku_discv5,
@@ -26,7 +23,7 @@ import
     waku_node,
     node/peer_manager,
   ],
-  ../testlib/[wakucore, testasync, assertions, futures, wakunode, testutils],
+  ../testlib/[wakucore, testasync, futures, wakunode, testutils],
   ../waku_enr/utils,
   ./utils as discv5_utils
 

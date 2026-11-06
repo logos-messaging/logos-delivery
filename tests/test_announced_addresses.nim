@@ -15,7 +15,7 @@ import chronos/transports/osnet
 import libp2p/services/nat/portmapper
 import eth/p2p/discoveryv5/protocol as discv5_protocol
 import ../logos_delivery/waku/discovery/waku_discv5
-import eth/keys, eth/p2p/discoveryv5/enr
+import eth/common/keys, eth/p2p/discoveryv5/enr
 import stew/byteutils
 import
   ../logos_delivery/waku/net/net_config,

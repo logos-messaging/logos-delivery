@@ -24,7 +24,6 @@ import
     waku_store/rpc_codec,
     net/net_config,
     waku_enr,
-    net/auto_port,
     discovery/waku_discv5,
     node/peer_manager,
     node/waku_metrics,
@@ -39,13 +38,8 @@ import
   logos_delivery/waku/node/subscription_manager,
   logos_delivery/waku/waku_peer_exchange/protocol,
   logos_delivery/waku/rln/rln_lez/transport,
-  logos_delivery/waku/factory/[
-    node_factory,
-    internal_config,
-    networks_config,
-    conf_builder/conf_builder,
-    conf_builder/web_socket_conf_builder,
-  ]
+  logos_delivery/waku/factory/
+    [node_factory, internal_config, networks_config, conf_builder/conf_builder]
 
 proc servicePeerGauge(codec: string): float64 =
   try:
