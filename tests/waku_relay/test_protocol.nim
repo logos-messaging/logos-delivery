@@ -92,26 +92,6 @@ suite "Waku Relay":
       check:
         not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
 
-    asyncTest "Publish with Subscription (Network Size: 1)":
-      # When subscribing to a Pubsub Topic
-
-      node.subscribe(pubsubTopic, simpleFutureHandler)
-
-      # Then the node is subscribed
-      check:
-        node.isSubscribed(pubsubTopic)
-        node.subscribedTopics == pubsubTopicSeq
-
-      # When publishing a message
-      discard await node.publish(pubsubTopic, wakuMessage)
-
-      # Then the message is published
-      assert (await handlerFuture.withTimeout(FUTURE_TIMEOUT))
-      let (topic, msg) = handlerFuture.read()
-      check:
-        topic == pubsubTopic
-        msg == wakuMessage
-
     asyncTest "Pubsub Topic Subscription (Network Size: 2, only one subscribed)":
       # Given a second node connected to the first one
       let
@@ -141,23 +121,7 @@ suite "Waku Relay":
       checkUntilTimeout:
         node.hasGossipsubPeer(pubsubTopic, otherRemotePeerInfo.peerId)
 
-      # When publishing a message in the subscribed node
-      let fromOtherWakuMessage = fakeWakuMessage("fromOther")
-      discard await otherNode.publish(pubsubTopic, fromOtherWakuMessage)
-
-      # Then the message is published only in the subscribed node
-      check:
-        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-
-      let (otherTopic1, otherMessage1) = otherHandlerFuture.read()
-      check:
-        otherTopic1 == pubsubTopic
-        otherMessage1 == fromOtherWakuMessage
-
-      # When publishing a message in the other node
-      handlerFuture = newPushHandlerFuture()
-      otherHandlerFuture = newPushHandlerFuture()
+      # When publishing a message in the unsubscribed node
       let fromNodeWakuMessage = fakeWakuMessage("fromNode")
       discard await node.publish(pubsubTopic, fromNodeWakuMessage)
 
@@ -206,56 +170,52 @@ suite "Waku Relay":
         otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # When publishing a message in node
-      let fromOtherWakuMessage = fakeWakuMessage("fromOther")
-      discard await node.publish(pubsubTopic, fromOtherWakuMessage)
+      let fromNodeWakuMessage = fakeWakuMessage("fromNode")
+      discard await node.publish(pubsubTopic, fromNodeWakuMessage)
 
-      # Then the message is published in both nodes
+      # Then the other node receives it
+      check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
+      let (otherTopic1, otherMessage1) = otherHandlerFuture.read()
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-
-      let
-        (topic1, message1) = handlerFuture.read()
-        (otherTopic1, otherMessage1) = otherHandlerFuture.read()
-      check:
-        topic1 == pubsubTopic
-        message1 == fromOtherWakuMessage
         otherTopic1 == pubsubTopic
-        otherMessage1 == fromOtherWakuMessage
+        otherMessage1 == fromNodeWakuMessage
 
       # When publishing a message in the other node
       handlerFuture = newPushHandlerFuture()
-      otherHandlerFuture = newPushHandlerFuture()
-      let fromNodeWakuMessage = fakeWakuMessage("fromNode")
-      discard await node.publish(pubsubTopic, fromNodeWakuMessage)
-      discard await otherNode.publish(pubsubTopic, fromNodeWakuMessage)
+      let fromOtherWakuMessage = fakeWakuMessage("fromOther")
+      discard await otherNode.publish(pubsubTopic, fromOtherWakuMessage)
 
-      # Then the message is published in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-
-      let
-        (topic2, message2) = handlerFuture.read()
-        (otherTopic2, otherMessage2) = otherHandlerFuture.read()
+      # Then node receives it
+      check await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+      let (topic2, message2) = handlerFuture.read()
       check:
         topic2 == pubsubTopic
-        message2 == fromNodeWakuMessage
-        otherTopic2 == pubsubTopic
-        otherMessage2 == fromNodeWakuMessage
+        message2 == fromOtherWakuMessage
 
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())
 
     asyncTest "Refreshing subscription":
-      # Given a subscribed node
+      # Given a subscribed node and a second node connected to it
+      let
+        otherSwitch = newTestSwitch()
+        otherNode = await newTestWakuRelay(otherSwitch)
+
+      await allFutures(otherSwitch.start(), otherNode.start())
+      let otherRemotePeerInfo = otherSwitch.peerInfo.toRemotePeerInfo()
+      check await peerManager.connectPeer(otherRemotePeerInfo)
+
       node.subscribe(pubsubTopic, simpleFutureHandler)
       check:
         node.isSubscribed(pubsubTopic)
         node.subscribedTopics == pubsubTopicSeq
+      checkUntilTimeout:
+        otherNode.hasGossipsubPeer(pubsubTopic, peerId)
+
       let otherWakuMessage = fakeWakuMessage("fromOther")
-      discard await node.publish(pubsubTopic, otherWakuMessage)
+      discard await otherNode.publish(pubsubTopic, otherWakuMessage)
       check:
+        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         messageSeq == @[(pubsubTopic, otherWakuMessage)]
 
       # Given the subscription is refreshed
@@ -273,15 +233,18 @@ suite "Waku Relay":
 
       # When publishing a message with the refreshed subscription
       handlerFuture = newPushHandlerFuture()
-      discard await node.publish(pubsubTopic, wakuMessage)
+      discard await otherNode.publish(pubsubTopic, wakuMessage)
 
-      # Then the message is published
+      # Then the message is received
       check (await handlerFuture.withTimeout(FUTURE_TIMEOUT))
       let (topic, msg) = handlerFuture.read()
       check:
         topic == pubsubTopic
         msg == wakuMessage
         messageSeq == @[(pubsubTopic, otherWakuMessage), (pubsubTopic, wakuMessage)]
+
+      # Finally stop the other node
+      await allFutures(otherSwitch.stop(), otherNode.stop())
 
     asyncTest "With additional validator":
       # Given a simple validator
@@ -339,18 +302,9 @@ suite "Waku Relay":
         await validatorFuture.withTimeout(FUTURE_TIMEOUT)
         validatorFuture.read() == false
 
-      # And the message is published in the self node, but not in the other node, 
-      # because it doesn't pass the validator check.
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      let (topic1, msg1) = handlerFuture.read()
-      # let (otherTopic1, otherMsg1) = otherHandlerFuture.read()
-      check:
-        topic1 == pubsubTopic
-        msg1 == wakuMessage
-        # otherTopic1 == pubsubTopic
-        # otherMsg1 == wakuMessage
+      # And the other node does not receive it, because it doesn't pass the
+      # validator check.
+      check not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
       # When publishing a message that matches the validator
       handlerFuture = newPushHandlerFuture()
@@ -365,15 +319,10 @@ suite "Waku Relay":
         await validatorFuture.withTimeout(FUTURE_TIMEOUT)
         validatorFuture.read() == true
 
-      # And the message is published in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      let (topic2, msg2) = handlerFuture.read()
+      # And the other node receives it
+      check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
       let (otherTopic2, otherMsg2) = otherHandlerFuture.read()
       check:
-        topic2 == pubsubTopic
-        msg2 == wakuMessage2
         otherTopic2 == pubsubTopic
         otherMsg2 == wakuMessage2
 
@@ -426,27 +375,18 @@ suite "Waku Relay":
       let encodedWakuMessage = fakeWakuMessage(encodedText, pubsubTopic)
       discard await node.publish(pubsubTopic, encodedWakuMessage)
 
-      # Then the message is published in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      let (topic1, msg1) = handlerFuture.read()
+      # Then the other node receives it
+      check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
       let (otherTopic1, otherMsg1) = otherHandlerFuture.read()
       check:
-        topic1 == pubsubTopic
-        msg1 == encodedWakuMessage
         otherTopic1 == pubsubTopic
         otherMsg1 == encodedWakuMessage
 
       # When decoding the message
-      let
-        decodedText = cfbDecode(key, iv, msg1.payload)
-        otherDecodedText = cfbDecode(key, iv, otherMsg1.payload)
+      let otherDecodedText = cfbDecode(key, iv, otherMsg1.payload)
 
-      # Then the message is decrypted in both nodes
-      check:
-        decodedText.toString() == data
-        otherDecodedText.toString() == data
+      # Then the message is decrypted
+      check otherDecodedText.toString() == data
 
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())
@@ -538,29 +478,21 @@ suite "Waku Relay":
       discard await node.publish(pubsubTopicB, fromNodeWakuMessage2)
       discard await node.publish(pubsubTopicC, fromNodeWakuMessage3)
 
-      # Then the messages are published in all nodes (because it's published in the center node)
+      # Then the other nodes receive the messages (because they are published in the center node)
       # Center meaning that all other nodes are connected to this one
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
 
       let
-        (topic1, msg1) = handlerFuture.read()
-        (topic2, msg2) = handlerFuture2.read()
         (otherTopic1, otherMsg1) = otherHandlerFuture1.read()
         (otherTopic2, otherMsg2) = otherHandlerFuture2.read()
         (anotherTopic1, anotherMsg1) = anotherHandlerFuture1.read()
         (anotherTopic2, anotherMsg2) = anotherHandlerFuture2.read()
 
       check:
-        topic1 == pubsubTopic
-        msg1 == fromNodeWakuMessage1
-        topic2 == pubsubTopicB
-        msg2 == fromNodeWakuMessage2
         otherTopic1 == pubsubTopic
         otherMsg1 == fromNodeWakuMessage1
         otherTopic2 == pubsubTopicC
@@ -597,8 +529,6 @@ suite "Waku Relay":
       # Then the message is published in node and otherNode, 
       # but not in anotherNode because it is not connected anymore
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
       check (
@@ -611,16 +541,10 @@ suite "Waku Relay":
       ).allIt(not it.read())
 
       let
-        (topic3, msg3) = handlerFuture.read()
-        (topic4, msg4) = handlerFuture2.read()
         (otherTopic3, otherMsg3) = otherHandlerFuture1.read()
         (otherTopic4, otherMsg4) = otherHandlerFuture2.read()
 
       check:
-        topic3 == pubsubTopic
-        msg3 == fromNodeWakuMessage4
-        topic4 == pubsubTopicB
-        msg4 == fromNodeWakuMessage5
         otherTopic3 == pubsubTopic
         otherMsg3 == fromNodeWakuMessage4
         otherTopic4 == pubsubTopicC
@@ -655,19 +579,6 @@ suite "Waku Relay":
           ]
         )
       ).allIt(not it.read())
-      check:
-        await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
-
-      let
-        (anotherTopic3, anotherMsg3) = anotherHandlerFuture1.read()
-        (anotherTopic4, anotherMsg4) = anotherHandlerFuture2.read()
-
-      check:
-        anotherTopic3 == pubsubTopicB
-        anotherMsg3 == fromAnotherNodeWakuMessage2
-        anotherTopic4 == pubsubTopicC
-        anotherMsg4 == fromAnotherNodeWakuMessage3
 
       # When publishing a message in otherNode for each of the pubsub topics
       handlerFuture = newPushHandlerFuture()
@@ -691,8 +602,6 @@ suite "Waku Relay":
       check:
         await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
       check (
         await allFinished(
           [
@@ -705,18 +614,12 @@ suite "Waku Relay":
       let
         (topic5, msg5) = handlerFuture.read()
         (topic6, msg6) = handlerFuture2.read()
-        (otherTopic5, otherMsg5) = otherHandlerFuture1.read()
-        (otherTopic6, otherMsg6) = otherHandlerFuture2.read()
 
       check:
         topic5 == pubsubTopic
         msg5 == fromOtherNodeWakuMessage1
         topic6 == pubsubTopicB
         msg6 == fromOtherNodeWakuMessage2
-        otherTopic5 == pubsubTopic
-        otherMsg5 == fromOtherNodeWakuMessage1
-        otherTopic6 == pubsubTopicC
-        otherMsg6 == fromOtherNodeWakuMessage3
 
       # Given anotherNode is reconnected, but to otherNode
       check await anotherPeerManager.connectPeer(otherRemotePeerInfo)
@@ -754,15 +657,11 @@ suite "Waku Relay":
         not await handlerFuture2.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
-        await anotherHandlerFuture1.withTimeout(FUTURE_TIMEOUT)
-        await anotherHandlerFuture2.withTimeout(FUTURE_TIMEOUT)
 
       let
         (topic7, msg7) = handlerFuture.read()
         (otherTopic7, otherMsg7) = otherHandlerFuture1.read()
         (otherTopic8, otherMsg8) = otherHandlerFuture2.read()
-        (anotherTopic7, anotherMsg7) = anotherHandlerFuture1.read()
-        (anotherTopic8, anotherMsg8) = anotherHandlerFuture2.read()
 
       check:
         topic7 == pubsubTopic
@@ -771,10 +670,6 @@ suite "Waku Relay":
         otherMsg7 == fromAnotherNodeWakuMessage4
         otherTopic8 == pubsubTopicC
         otherMsg8 == fromAnotherNodeWakuMessage6
-        anotherTopic7 == pubsubTopicB
-        anotherMsg7 == fromAnotherNodeWakuMessage5
-        anotherTopic8 == pubsubTopicC
-        anotherMsg8 == fromAnotherNodeWakuMessage6
 
       # Finally stop the other nodes
       await allFutures(
@@ -938,11 +833,9 @@ suite "Waku Relay":
       # When sending the alphabetic message
       discard await node.publish(pubsubTopic, msg1)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg1) == handlerFuture.read()
         (pubsubTopic, msg1) == otherHandlerFuture.read()
 
       # When sending the alphanumeric message
@@ -950,11 +843,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg2)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg2) == handlerFuture.read()
         (pubsubTopic, msg2) == otherHandlerFuture.read()
 
       # When sending the alphanumeric special message
@@ -962,11 +853,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg3)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg3) == handlerFuture.read()
         (pubsubTopic, msg3) == otherHandlerFuture.read()
 
       # When sending the emoji message
@@ -974,11 +863,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg4)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg4) == handlerFuture.read()
         (pubsubTopic, msg4) == otherHandlerFuture.read()
 
       # When sending the code message
@@ -986,11 +873,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg5)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg5) == handlerFuture.read()
         (pubsubTopic, msg5) == otherHandlerFuture.read()
 
       # When sending the query message
@@ -998,11 +883,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg6)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg6) == handlerFuture.read()
         (pubsubTopic, msg6) == otherHandlerFuture.read()
 
       # When sending the JSON dictionary message
@@ -1010,11 +893,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg7)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg7) == handlerFuture.read()
         (pubsubTopic, msg7) == otherHandlerFuture.read()
 
       # When sending the JSON list message
@@ -1022,11 +903,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg8)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg8) == handlerFuture.read()
         (pubsubTopic, msg8) == otherHandlerFuture.read()
 
       # When sending the small text message
@@ -1034,11 +913,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg9)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg9) == handlerFuture.read()
         (pubsubTopic, msg9) == otherHandlerFuture.read()
 
       # When sending the large text message
@@ -1046,11 +923,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg10)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg10) == handlerFuture.read()
         (pubsubTopic, msg10) == otherHandlerFuture.read()
 
       # Finally stop the other node
@@ -1115,11 +990,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg1)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg1) == handlerFuture.read()
         (pubsubTopic, msg1) == otherHandlerFuture.read()
 
       # When sending the 10KiB message
@@ -1127,11 +1000,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg2)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg2) == handlerFuture.read()
         (pubsubTopic, msg2) == otherHandlerFuture.read()
 
       # When sending the 100KiB message
@@ -1139,11 +1010,9 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg3)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg3) == handlerFuture.read()
         (pubsubTopic, msg3) == otherHandlerFuture.read()
 
       # When sending the message encoded at 'DefaultMaxWakuMessageSize'
@@ -1151,12 +1020,10 @@ suite "Waku Relay":
       otherHandlerFuture = newPushHandlerFuture()
       let msg4Res = await node.publish(pubsubTopic, msg4)
 
-      # Then the message is received in both nodes
+      # Then the other node receives the message
       check:
         msg4Res.isOk()
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg4) == handlerFuture.read()
         (pubsubTopic, msg4) == otherHandlerFuture.read()
 
       # When sending the message encoded at 'DefaultMaxWakuMessageSize + 1'
@@ -1229,31 +1096,17 @@ suite "Waku Relay":
         msg4 = fakeWakuMessage("msg4", pubsubTopic)
 
       discard await node.publish(pubsubTopic, msg1)
-      check await thisHandlerFuture.withTimeout(FUTURE_TIMEOUT)
       check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      thisHandlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg2)
-      check await thisHandlerFuture.withTimeout(FUTURE_TIMEOUT)
       check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      thisHandlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg3)
-      check await thisHandlerFuture.withTimeout(FUTURE_TIMEOUT)
       check await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-      thisHandlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg4)
 
       check:
-        await thisHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        thisMessageSeq ==
-          @[
-            (pubsubTopic, msg1),
-            (pubsubTopic, msg2),
-            (pubsubTopic, msg3),
-            (pubsubTopic, msg4),
-          ]
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
         otherMessageSeq ==
           @[
@@ -1301,20 +1154,17 @@ suite "Waku Relay":
       let firstPublish = await node.publish(pubsubTopic, msg)
       check:
         firstPublish.isOk()
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       let secondPublish = await node.publish(pubsubTopic, msg)
 
-      # Then the second publish fails with DuplicateMessage and neither the
-      # publishing node's handler nor the peer's receives a second copy
+      # Then the second publish fails with DuplicateMessage and the peer does
+      # not receive a second copy
       check:
         secondPublish.isErr() and secondPublish.error == PublishOutcome.DuplicateMessage
-        not (await handlerFuture.withTimeout(FUTURE_TIMEOUT))
         not (await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT))
-        messageSeq == @[(pubsubTopic, msg)]
         otherMessageSeq == @[(pubsubTopic, msg)]
 
   suite "Security and Privacy":
@@ -1357,10 +1207,7 @@ suite "Waku Relay":
       discard await node.publish(pubsubTopic, msg1)
 
       # Then the message is not received in any node
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg1) == handlerFuture.read()
+      check not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
       # When sending a message from other node
       handlerFuture = newPushHandlerFuture()
@@ -1368,11 +1215,50 @@ suite "Waku Relay":
       let msg2 = fakeWakuMessage(testMessage, pubsubTopic)
       discard await otherNode.publish(pubsubTopic, msg2)
 
-      # Then the message is received in both nodes
+      # Then node does not receive it
+      check not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+
+  suite "Own messages":
+    asyncTest "A published message reaches the own message handler once, not the subscribe handlers":
+      # Given a subscribed node with an own message handler and no relay peer
+      var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]
+      node.ownMessageHandler = proc(
+          topic: PubsubTopic, message: WakuMessage
+      ): Future[void] {.async, closure, gcsafe.} =
+        ownMessageSeq.add((topic, message))
+      node.subscribe(pubsubTopic, simpleFutureHandler)
+
+      # When publishing a message
+      let firstPublish = await node.publish(pubsubTopic, wakuMessage)
+
+      # Then the own message handler gets it and the subscribe handler does not
       check:
-        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg2) == otherHandlerFuture.read()
+        firstPublish.isErr() and firstPublish.error == PublishOutcome.NoPeersToPublish
+        ownMessageSeq == @[(pubsubTopic, wakuMessage)]
+        messageSeq.len == 0
+
+      # When the publish is retried
+      let retry = await node.publish(pubsubTopic, wakuMessage)
+
+      # Then the own message handler does not get it again
+      check:
+        retry.isErr() and retry.error == PublishOutcome.NoPeersToPublish
+        ownMessageSeq == @[(pubsubTopic, wakuMessage)]
+        messageSeq.len == 0
+
+    asyncTest "A message published to a topic the node is not subscribed to skips the own message handler":
+      # Given a node with an own message handler, not subscribed to the topic
+      var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]
+      node.ownMessageHandler = proc(
+          topic: PubsubTopic, message: WakuMessage
+      ): Future[void] {.async, closure, gcsafe.} =
+        ownMessageSeq.add((topic, message))
+
+      # When publishing a message
+      discard await node.publish(pubsubTopic, wakuMessage)
+
+      # Then the own message handler does not get it
+      check ownMessageSeq.len == 0
 
   suite "Messages that peers refuse":
     asyncTest "validateMessage refuses a message that peers refuse at decode":
@@ -1483,7 +1369,6 @@ suite "Waku Relay":
       # Then the peer accepts it and the node rejects it
       check:
         overRes.isOk()
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
         not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         tooLargeMessages("receive") == refusedBefore + 1
 
@@ -1496,7 +1381,6 @@ suite "Waku Relay":
       # Then the node receives it
       check:
         atRes.isOk()
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
         await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         (pubsubTopic, atLimit) == handlerFuture.read()
         tooLargeMessages("receive") == refusedBefore + 1
