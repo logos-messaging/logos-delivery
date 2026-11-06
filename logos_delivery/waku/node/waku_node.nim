@@ -163,10 +163,6 @@ type
       ## Runs after every copy of the committed addresses.
       ## waku.nim uses it to refresh the ENR.
     started*: bool # Indicates that node has started listening
-    stopped: bool
-      ## Set by `stop`, cleared by `start`, so a second `stop` does nothing.
-      ## A node that never started still needs its first `stop`: mounting
-      ## starts the archive.
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
@@ -871,7 +867,6 @@ proc start*(node: WakuNode) {.async.} =
 
   logos_delivery_version.set(1, labelValues = [git_version])
   info "Starting Waku node", version = git_version
-  node.stopped = false
 
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
@@ -930,8 +925,6 @@ proc start*(node: WakuNode) {.async.} =
 
 proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
-  if node.stopped:
-    return
 
   # Cancel the background relay reconnection (may still be in its backoff wait).
   if not node.relayReconnectFut.isNil():
@@ -979,7 +972,6 @@ proc stop*(node: WakuNode) {.async.} =
     await node.wakuRendezvousClient.stopWait()
 
   node.started = false
-  node.stopped = true
   node.baseAnnounced = Opt.none(seq[MultiAddress])
   node.explicitAnnounced = @[]
   node.enrLearnedEndpoint = Opt.none(DiscoveryEndpoint)

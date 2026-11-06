@@ -89,7 +89,6 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
     ## library layer installs its host transport.
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
-  stopped: bool ## Set by `stop`, cleared by `start`, so a second `stop` does nothing.
   networkConnLoopHandle: Future[void]
   enrReconcileLoopHandle*: Future[void]
   enrReconcileInterval*: Duration = DefaultEnrReconcileInterval
@@ -467,8 +466,6 @@ proc closePersistency(waku: Waku) =
     waku.persistency = nil
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
-  if waku.stopped:
-    return ok()
   if not waku.node.started:
     debug "stop: attempting to stop node that isn't running"
 
@@ -507,7 +504,6 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     ## node.stop() because discovery backends read them while stopping.
     ## GetDiscoveryRequirements stays (see new): it is config-only.
     waku.clearNodeState()
-    waku.stopped = true
   except Exception:
     error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())
@@ -518,8 +514,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
     debug "start: waku node already started"
     return ok()
-
-  waku.stopped = false
 
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
