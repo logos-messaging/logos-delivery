@@ -215,7 +215,13 @@ jobs:
         # failing the build. Serializing the targets removes the race; Nim's
         # own --parallelBuild still parallelizes compilation. Mirrors the test
         # job, which already forces -j1.
-        run: make V=1 -j1 all
+        shell: bash
+        run: |
+          mkdir -p build
+          make V=1 -j1 all 2>&1 | tee build/compile.log
+
+      - name: Check compile warnings
+        run: scripts/check_compile_warnings.sh build/compile.log
 
       - name: Save nimcache
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
@@ -556,7 +562,13 @@ jobs:
 
       - name: Build examples and tools
         # -j1: concurrent nimble tasks corrupt shared package metadata.
-        run: make V=1 -j1 examples tools
+        shell: bash
+        run: |
+          mkdir -p build
+          make V=1 -j1 examples tools 2>&1 | tee build/compile.log
+
+      - name: Check compile warnings
+        run: scripts/check_compile_warnings.sh build/compile.log
 
       - name: Audit installed deps
         run: make audit-deps

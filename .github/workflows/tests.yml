@@ -48,6 +48,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-${{ matrix.suite.name }}-
 
       - name: Run tests
+        shell: bash
         run: |
           # all_tests_waku carries the only postgres suites.
           postgres_enabled=0
@@ -59,7 +60,13 @@ jobs:
           export MAKEFLAGS="-j1"
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
 
-          make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
+          mkdir -p build
+          make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }} 2>&1 | tee build/compile.log
+
+      # Failing tests already fail the job, so the warnings are checked anyway.
+      - name: Check compile warnings
+        if: ${{ !cancelled() }}
+        run: scripts/check_compile_warnings.sh build/compile.log
 
       # Collected by ci.yml's test-report job.
       - name: Upload test report

@@ -147,6 +147,20 @@ make install-nph
 ```
 The nph formatter handles all formatting details automatically, especially with the pre-commit hook installed. Focus on semantic correctness.
 
+### Compiler Warnings
+Mandatory: code must compile without warnings. CI fails on any compiler warning raised in this repo's code (warnings raised inside dependencies are ignored).
+Before pushing, run both checks locally:
+```bash
+make lint             # nph formatting, metric labels
+make check-warnings   # builds the node and the library, fails on any warning
+```
+A test file you touched is checked by passing its build log:
+```bash
+make test tests/test_waku_enr.nim 2>&1 | tee build/test.log
+scripts/check_compile_warnings.sh build/test.log
+```
+Fix the cause of a warning. Only when it cannot be fixed in this repo (e.g. a dependency's API offers no non-deprecated path), silence it where it is raised with a scoped `{.push warning[<Name>]: off.}` ... `{.pop.}` and a comment saying why.
+
 ### Logging
 Choosing a log level: follow [docs/contributors/logging-policy.md](docs/contributors/logging-policy.md).
 The overriding rule is that a healthy node logs nothing at `WARN` or above.
