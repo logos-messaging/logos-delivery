@@ -41,6 +41,7 @@ import
     node/waku_metrics,
     node/peer_manager,
     factory/builder,
+    net/net_config,
     net/nat_config,
     waku_relay,
     waku_store/common,
@@ -198,8 +199,21 @@ proc publish(c: Chat, line: string) {.async.} =
 
     try:
       if not c.node.wakuLegacyLightPush.isNil():
-        # Attempt lightpush
-        (await c.node.legacyLightpushPublish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
+        # Attempt lightpush: through a remote service peer when the client is
+        # mounted, else through this node's own lightpush service.
+        let peer =
+          if c.node.wakuLegacyLightpushClient.isNil():
+            RemotePeerInfo.init($c.node.switch.peerInfo.peerId)
+          else:
+            c.node.peerManager.selectPeer(WakuLegacyLightPushCodec).valueOr:
+              error "failed to publish lightpush message",
+                error = "no suitable remote peers"
+              return
+        (
+          await c.node.legacyLightpushPublish(
+            Opt.some(DefaultPubsubTopic), message, peer
+          )
+        ).isOkOr:
           error "failed to publish lightpush message", error = error
       else:
         (await c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
@@ -333,17 +347,19 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     let resolvedNat = await resolveNatStrategy(natStrategy)
     builder.withNatConfig(natConfig(resolvedNat))
 
-    builder
-      .withNetworkConfigurationDetails(
-        conf.listenAddress,
-        Port(uint16(conf.tcpPort) + conf.portsShift),
-        extIp,
-        extTcpPort,
-        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-        wsEnabled = conf.websocketSupport,
-        wssEnabled = conf.websocketSecureSupport,
-      )
-      .tryGet()
+    builder.withNetworkConfiguration(
+      NetConfig
+        .init(
+          conf.listenAddress,
+          Port(uint16(conf.tcpPort) + conf.portsShift),
+          extIp,
+          extTcpPort,
+          wsBindPort = Opt.some(Port(uint16(conf.websocketPort) + conf.portsShift)),
+          wsEnabled = conf.websocketSupport,
+          wssEnabled = conf.websocketSecureSupport,
+        )
+        .tryGet()
+    )
     builder.build().tryGet()
 
   await node.start()

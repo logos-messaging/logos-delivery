@@ -107,7 +107,7 @@ proc ethToWei(eth: UInt256): UInt256 =
   eth * 1000000000000000000.u256
 
 proc getMinedTransactionReceipt(
-    web3: Web3, txHash: TxHash, retryStrategy: RetryStrategy
+    web3: Web3, txHash: Hash32, retryStrategy: RetryStrategy
 ): Future[Result[ReceiptObject, string]] {.async.} =
   return await retryWrapper(
     retryStrategy,
@@ -263,7 +263,7 @@ proc approveTokenAllowanceAndVerify*(
     spender: Address,
     amountWei: UInt256,
     expectedAllowanceBefore: Opt[UInt256] = Opt.none(UInt256),
-): Future[Result[TxHash, string]] {.async.} =
+): Future[Result[Hash32, string]] {.async.} =
   var allowanceBefore: UInt256
   if expectedAllowanceBefore.isSome():
     allowanceBefore =
@@ -405,7 +405,7 @@ proc sendEthTransfer*(
     accountTo: Address,
     amountWei: UInt256,
     accountToBalanceBeforeExpectedWei: Opt[UInt256] = Opt.none(UInt256),
-): Future[TxHash] {.async.} =
+): Future[Hash32] {.async.} =
   let doBalanceAssert = accountToBalanceBeforeExpectedWei.isSome()
 
   if doBalanceAssert:

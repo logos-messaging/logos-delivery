@@ -188,7 +188,7 @@ proc handleIncoming*(
     return err("SDS handleIncoming cancelled before acquiring ingress lock")
 
   ## Funnel every unwrap outcome into `res` so the lock is released once on
-  ## the tail path, where `releaseIngressLock` can surface its own error.
+  ## the tail path.
   var res: Result[seq[SdsDeliverable], string]
   block ingress:
     ## Load persisted state before the duplicate check, so a replay right
@@ -241,10 +241,7 @@ proc handleIncoming*(
     self.released.setLen(0)
     res = ok(deliverable)
 
-  try:
-    self.ingressLock.release()
-  except AsyncLockError as e:
-    return err("SDS ingress lock release failed: " & e.msg)
+  self.ingressLock.release2()
 
   return res
 

@@ -473,10 +473,7 @@ proc runAdmission(
       requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
     return false
   finally:
-    try:
-      self.admissionLock.release()
-    except AsyncLockError:
-      discard
+    self.admissionLock.release2()
 
 proc retryNow(self: SendService) =
   ## Starts the next attempt of each task that waits for one.

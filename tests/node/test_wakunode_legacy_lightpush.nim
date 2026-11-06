@@ -305,8 +305,9 @@ suite "Waku Legacy Lightpush message delivery":
     await sleepAsync(100.millis)
 
     ## When
-    let res =
-      await lightNode.legacyLightpushPublish(Opt.some(CustomPubsubTopic), message)
+    let res = await lightNode.legacyLightpushPublish(
+      Opt.some(CustomPubsubTopic), message, bridgeNode.peerInfo.toRemotePeerInfo()
+    )
     assert res.isOk(), $res.error
 
     ## Then

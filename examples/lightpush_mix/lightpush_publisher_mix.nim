@@ -27,6 +27,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
+    net/net_config,
     waku_lightpush/client,
   ],
   ./lightpush_publisher_mix_config,
@@ -77,7 +78,7 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(conf.port)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(conf.port)).tryGet())
 
   let node = builder.build().tryGet()
 

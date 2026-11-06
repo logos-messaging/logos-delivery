@@ -29,6 +29,7 @@ import
     rln,
     rln/rln_plugin,
     factory/builder,
+    net/net_config,
     factory/networks_config,
   ],
   ./networkmonitor_metrics,
@@ -187,9 +188,7 @@ proc setConnectedPeersMetrics(
     for maddr in peerInfo.addrs:
       if $maddr notin customPeerInfo.maddrs:
         customPeerInfo.maddrs.add $maddr
-    let typedRecord = discNode.toTypedRecord().valueOr:
-      warn "could not convert record to typed record", record = discNode
-      continue
+    let typedRecord = TypedRecord.fromRecord(discNode)
     let ipAddr = typedRecord.ip.valueOr:
       warn "ip field is not set", record = typedRecord
       continue
@@ -400,10 +399,8 @@ proc getBootstrapFromDiscDns(
       if n.enr.isSome():
         let
           enr = n.enr.get()
-          tenrRes = enr.toTypedRecord()
-        if tenrRes.isOk() and (
-          tenrRes.get().udp.isSome() or tenrRes.get().udp6.isSome()
-        ):
+          tenr = TypedRecord.fromRecord(enr)
+        if tenr.udp.isSome() or tenr.udp6.isSome():
           discv5BootstrapEnrs.add(enr)
     return ok(discv5BootstrapEnrs)
   except CatchableError:
@@ -463,8 +460,9 @@ proc initAndStartApp(
     relayServiceRatio = "13.33:86.67",
     shardAware = true,
   )
-  nodeBuilder.withNetworkConfigurationDetails(bindIp, nodeTcpPort).isOkOr:
+  let netConfig = NetConfig.init(bindIp, nodeTcpPort).valueOr:
     return err("node building error" & $error)
+  nodeBuilder.withNetworkConfiguration(netConfig)
 
   let node = nodeBuilder.build().valueOr:
     return err("node building error" & $error)
@@ -579,8 +577,11 @@ when isMainModule:
   var msgPerContentTopic = ContentTopicMessageTableRef()
 
   # start metrics server
+  var metricsServer: MetricsHttpServerRef
   if conf.metricsServer:
-    startMetricsServer(conf.metricsServerAddress, Port(conf.metricsServerPort)).isOkOr:
+    metricsServer = startMetricsServer(
+      conf.metricsServerAddress, Port(conf.metricsServerPort)
+    ).valueOr:
       error "could not start metrics server", error = error
       quit(QuitFailure)
 

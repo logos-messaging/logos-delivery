@@ -8,6 +8,7 @@ import
   chronos,
   chronicles,
   metrics,
+  bearssl/rand,
   libp2p/multiaddress,
   eth/common/keys as eth_keys,
   eth/p2p/discoveryv5/node,
@@ -94,6 +95,15 @@ proc shardingPredicate*(
 
   return Opt.some(predicate)
 
+# nim-eth discv5 still takes a BearSSL DRBG, which libp2p `Rng` only hands
+# out through the deprecated `bearSslDrbgRef`. Kept out of the generic `new`,
+# which would be checked under its caller's warning settings.
+{.push warning[Deprecated]: off.}
+proc discv5Rng(rng: crypto.Rng): ref HmacDrbgContext =
+  return rng.bearSslDrbgRef
+
+{.pop.}
+
 proc new*(
     T: type WakuDiscoveryV5,
     rng: crypto.Rng,
@@ -102,7 +112,7 @@ proc new*(
     peerManager: Opt[PeerManager] = Opt.none(PeerManager),
 ): T =
   let protocol = newProtocol(
-    rng = rng.bearSslDrbgRef,
+    rng = discv5Rng(rng),
     config = conf.discv5Config.get(protocol.defaultDiscoveryConfig),
     bindPort = conf.port,
     bindIp = conf.address,
@@ -378,8 +388,7 @@ proc parseBootstrapAddress(address: string): Result[enr.Record, cstring] =
 
   let lowerCaseAddress = toLowerAscii(address)
   if lowerCaseAddress.startsWith("enr:"):
-    var enrRec: enr.Record
-    if not enrRec.fromURI(address):
+    let enrRec = enr.Record.fromURI(address).valueOr:
       return err("Invalid ENR bootstrap record")
 
     return ok(enrRec)
@@ -499,8 +508,7 @@ proc updateBootstrapRecords*(
 
   for enr in jsonNode:
     let enrWithoutQuotes = ($enr).replace("\"", "")
-    var bootstrapNodeEnr: waku_enr.Record
-    if not bootstrapNodeEnr.fromURI(enrWithoutQuotes):
+    if waku_enr.Record.fromURI(enrWithoutQuotes).isErr():
       return err("wrong enr given: " & enrWithoutQuotes)
 
   self.protocol.bootstrapRecords = newRecords
