@@ -44,7 +44,11 @@ when isMainModule:
 
   ## Also called within LogosDelivery.new. The REST service needs the following
   ## line
-  logging.setupLog(nodeConf.kernel.logLevel, nodeConf.kernel.logFormat)
+  logging.setupLog(
+    nodeConf.kernel.logLevel, nodeConf.kernel.logFormat, nodeConf.kernel.logOutput
+  ).isOkOr:
+    error "failure while setting up logging", error = error
+    quit(QuitFailure)
 
   # `LogosDelivery` derives the per-layer config from `LogosDeliveryNodeConf` itself
   # (it runs `toWakuConf` internally), then builds the layers bottom-up:

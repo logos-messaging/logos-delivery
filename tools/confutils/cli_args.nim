@@ -99,6 +99,13 @@ type WakuNodeConf* = object
     name: "log-format"
   .}: logging.LogFormat
 
+  logOutput* {.
+    desc:
+      "Where logs are written. Supported values: stdout, stderr or a file path (appended)",
+    defaultValue: logging.StdoutLogOutput,
+    name: "log-output"
+  .}: string
+
   rlnRelayCredPath* {.
     desc: "The path for persisting rln-relay credential (requires --rln-relay)",
     defaultValue: "",
@@ -1297,6 +1304,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.withLogLevel(n.logLevel)
   b.withLogFormat(n.logFormat)
+  b.withLogOutput(n.logOutput)
 
   if n.rlnRelay.isSome():
     b.rlnRelayConf.withEnabled(n.rlnRelay.get())

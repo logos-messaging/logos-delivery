@@ -4,7 +4,8 @@ import
   std/[typetraits, os, strutils, syncio],
   chronicles,
   chronicles/log_output,
-  chronicles/topics_registry
+  chronicles/topics_registry,
+  results
 
 export chronicles.LogLevel
 
@@ -53,14 +54,39 @@ proc stripAnsi(v: string): string =
 
   res
 
-proc writeAndFlush(f: syncio.File, s: LogOutputStr) =
-  try:
-    f.write(s)
-    f.flushFile()
-  except CatchableError:
-    logLoggingFailure(cstring(s), getCurrentException())
+const
+  StdoutLogOutput* = "stdout"
+  StderrLogOutput* = "stderr"
 
-## Setup
+var logOutputFile = syncio.stdout
+  ## Destination shared by all chronicles writers; any other value than
+  ## stdout/stderr is a file opened (and owned) by `setupLog`.
+
+proc writeAndFlush(s: LogOutputStr) =
+  {.cast(gcsafe).}:
+    try:
+      logOutputFile.write(s)
+      logOutputFile.flushFile()
+    except CatchableError:
+      logLoggingFailure(cstring(s), getCurrentException())
+
+proc setupLogOutput(output: string): Result[void, string] =
+  let file =
+    case output
+    of "", StdoutLogOutput:
+      syncio.stdout
+    of StderrLogOutput:
+      syncio.stderr
+    else:
+      try:
+        open(output, fmAppend)
+      except IOError as e:
+        return err("could not open log output file: " & output & ": " & e.msg)
+
+  if logOutputFile != syncio.stdout and logOutputFile != syncio.stderr:
+    logOutputFile.close()
+  logOutputFile = file
+  return ok()
 
 proc setupLogLevel(level: LogLevel) =
   # TODO: Support per topic level configuratio
@@ -70,21 +96,21 @@ proc setupLogFormat(format: LogFormat, color = true) =
   proc noOutputWriter(logLevel: LogLevel, msg: LogOutputStr) =
     discard
 
-  proc stdoutOutputWriter(logLevel: LogLevel, msg: LogOutputStr) =
-    writeAndFlush(syncio.stdout, msg)
+  proc outputWriter(logLevel: LogLevel, msg: LogOutputStr) =
+    writeAndFlush(msg)
 
-  proc stdoutNoColorOutputWriter(logLevel: LogLevel, msg: LogOutputStr) =
-    writeAndFlush(syncio.stdout, stripAnsi(msg))
+  proc noColorOutputWriter(logLevel: LogLevel, msg: LogOutputStr) =
+    writeAndFlush(stripAnsi(msg))
 
   when defaultChroniclesStream.outputs.type.arity == 2:
     case format
     of LogFormat.Text:
       defaultChroniclesStream.outputs[0].writer =
-        if color: stdoutOutputWriter else: stdoutNoColorOutputWriter
+        if color: outputWriter else: noColorOutputWriter
       defaultChroniclesStream.outputs[1].writer = noOutputWriter
     of LogFormat.Json:
       defaultChroniclesStream.outputs[0].writer = noOutputWriter
-      defaultChroniclesStream.outputs[1].writer = stdoutOutputWriter
+      defaultChroniclesStream.outputs[1].writer = outputWriter
   else:
     {.
       warning:
@@ -92,14 +118,31 @@ proc setupLogFormat(format: LogFormat, color = true) =
         "and '-d:chronicles_sinks=\"textlines,json\"' options"
     .}
 
-proc setupLog*(level: LogLevel, format: LogFormat) =
-  ## Logging setup
+when defaultChroniclesStream.outputs.type.arity == 2:
+  # Without this, records logged before `setupLog` (e.g. by a library host
+  # that has not created a node yet) hit chronicles' unconfigured writer.
+  setupLogFormat(LogFormat.TEXT)
+
+proc setupLog*(
+    level: LogLevel, format: LogFormat, output: string
+): Result[void, string] =
+  ## Logging setup. `output` is "stdout", "stderr" or a file path (appended).
+  setupLogOutput(output).isOkOr:
+    return err("could not set up log output: " & error)
+
   # Adhere to NO_COLOR initiative: https://no-color.org/
-  let color =
+  let noColorEnv =
     try:
-      not parseBool(os.getEnv("NO_COLOR", "false"))
+      parseBool(os.getEnv("NO_COLOR", "false"))
     except CatchableError:
-      true
+      false
+  # Files never get ANSI colors.
+  let color = not noColorEnv and output in ["", StdoutLogOutput, StderrLogOutput]
 
   setupLogLevel(level)
   setupLogFormat(format, color)
+  return ok()
+
+proc setupLog*(level: LogLevel, format: LogFormat) =
+  ## Logging setup writing to stdout.
+  discard setupLog(level, format, StdoutLogOutput)

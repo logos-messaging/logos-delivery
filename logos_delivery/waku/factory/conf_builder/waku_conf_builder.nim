@@ -59,6 +59,7 @@ const
   DefaultRlnDisableValidation: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
   DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
+  DefaultLogOutput: string = logging.StdoutLogOutput
   DefaultNatStrategy: string = "none"
   DefaultP2pTcpPort: Port = Port(60000)
   DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
@@ -152,6 +153,7 @@ type WakuConfBuilder* = object
 
   logLevel: Opt[logging.LogLevel]
   logFormat: Opt[logging.LogFormat]
+  logOutput: Opt[string]
 
   natStrategy: Opt[string]
   natDiscoveryTimeoutMs: Opt[uint32]
@@ -290,6 +292,9 @@ proc withLogLevel*(b: var WakuConfBuilder, logLevel: logging.LogLevel) =
 
 proc withLogFormat*(b: var WakuConfBuilder, logFormat: logging.LogFormat) =
   b.logFormat = Opt.some(logFormat)
+
+proc withLogOutput*(b: var WakuConfBuilder, logOutput: string) =
+  b.logOutput = Opt.some(logOutput)
 
 proc withP2pTcpPort*(b: var WakuConfBuilder, p2pTcpPort: Port) =
   b.p2pTcpPort = Opt.some(p2pTcpPort)
@@ -809,6 +814,8 @@ proc build*(
       debug "Log Format not specified, defaulting to TEXT"
       DefaultLogFormat
 
+  let logOutput = builder.logOutput.get(DefaultLogOutput)
+
   # The CLI defaults to "any". This embedded default stays "none",
   # so library nodes probe gateways only when configured to.
   let natStrategyString =
@@ -975,6 +982,7 @@ proc build*(
     maxMessageSizeBytes: maxMessageSizeBytes,
     logLevel: logLevel,
     logFormat: logFormat,
+    logOutput: logOutput,
     # TODO: Separate builders
     endpointConf: EndpointConf(
       natStrategy: natStrategy,

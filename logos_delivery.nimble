@@ -165,6 +165,11 @@ const libFeatureFlags =
   " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support " &
   " -d:chronicles_runtime_filtering=on "
 
+## Desktop only: lets the host pick `log-format` and `log-output`. Mobile
+## builds keep their own sink setup.
+const libLogSinkFlags =
+  """ -d:chronicles_sinks="textlines,json" -d:chronicles_default_output_device=dynamic """
+
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
@@ -173,11 +178,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if `type` == "static":
     selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & libLogSinkFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
     selfExec "c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & libLogSinkFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
