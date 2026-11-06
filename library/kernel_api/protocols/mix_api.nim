@@ -57,6 +57,10 @@ proc waku_mix_add_peer(
         peerId, @[address], publicKey = publicKey, mixPubKey = Opt.some(key)
       )
     )
+    if mix.nodePool.get(peerId).isNone():
+      return err(
+        "Mix has no usable address for this peer. A private or a loopback address needs mix-allow-all-addresses"
+      )
     return ok("{}")
   except CatchableError as exc:
     return err("Invalid Mix peer record: " & exc.msg)

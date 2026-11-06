@@ -16,6 +16,8 @@ make logosdeliverynode
 make chat2mix
 ```
 
+All nodes of the simulation run on `127.0.0.1`. By default, a mix path uses a mix node only at a public address or through a circuit relay. So each config file and each chat script sets `mix-allow-all-addresses`.
+
 The simulation uses cluster 66, which has no network preset. Do not change it to 2. Cluster 2 applies the logos.dev preset. With this preset, the nodes connect to the public logos.dev fleet. The nodes then advertise their loopback addresses to the fleet.
 
 Simulation includes scripts for:

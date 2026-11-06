@@ -13,6 +13,8 @@ A node started with `--entry-layer=messaging` runs the Messaging API. With `--re
 | `--reliability` | Confirm each send with a Store node | on, off for the `twn`, `status.prod` and `status.staging` presets |
 | `--anonymity-level` | Mix anonymity level: `None`, `Preferred` or `Required`. A level above `None` mounts mix. | `None` |
 
+By default, a mix path uses a mix node only at a public address or through a circuit relay. On a local simulation or a private network, set `--mix-allow-all-addresses` on each node.
+
 ## Store nodes
 
 The `sent` event of a send confirms that a Store node has the message. Run Store nodes with `--store=true`.

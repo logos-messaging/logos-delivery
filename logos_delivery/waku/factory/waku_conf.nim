@@ -93,6 +93,8 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  allowAllAddresses*: bool
+    ## Lets mix paths use a mix node at a private or a loopback address.
   mixRlnConfig*: Opt[ModuleRlnConfig]
 
 type StoreServiceConf* = object
