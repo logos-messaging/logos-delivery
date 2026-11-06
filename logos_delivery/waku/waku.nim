@@ -217,7 +217,8 @@ proc new*(
   let rng = crypto.newRng()
   let brokerCtx = globalBrokerContext()
 
-  logging.setupLog(wakuConf.logLevel, wakuConf.logFormat)
+  logging.setupLog(wakuConf.logLevel, wakuConf.logFormat, wakuConf.logOutput).isOkOr:
+    return err("could not set up logging in Waku.new: " & error)
 
   ?wakuConf.validate()
   wakuConf.logConf()
