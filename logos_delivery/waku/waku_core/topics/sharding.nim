@@ -41,6 +41,9 @@ proc getGenZeroShard*(s: Sharding, topic: NsContentTopic): RelayShard =
 proc getShard*(s: Sharding, topic: NsContentTopic): Result[RelayShard, string] =
   ## Compute the (pubsub topic) shard to use for this content topic.
 
+  if s.shards.len == 0:
+    return err("could not compute shard: auto-sharding has no shards")
+
   if topic.generation.isNone():
     ## Implicit generation # is 0 for all content topic
     return ok(s.getGenZeroShard(topic))
