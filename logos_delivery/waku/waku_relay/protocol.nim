@@ -349,6 +349,9 @@ proc initRelayObservers(w: WakuRelay) =
           w.recalculateTopicHealth(prune.topicID)
 
     for msg in msgs.messages:
+      # Peers pick the topic: count only ours so the metric label stays bounded.
+      if not GossipSub(w).topics.hasKey(msg.topic):
+        continue
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
         continue
       # message receive log happens in onValidated observer as onRecv is called before checks
