@@ -265,6 +265,10 @@ proc logMessageInfo*(
       sentTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
 
+  # Peers pick the topic (a lightpush request, a crafted RPC): only ours become labels.
+  if not GossipSub(w).topics.hasKey(topic):
+    return
+
   var shardMetrics = w.msgMetricsPerShard.getOrDefault(topic, ShardMetrics())
   shardMetrics.count += 1
   shardMetrics.sizeSum += payloadSize
@@ -325,6 +329,9 @@ proc initRelayObservers(w: WakuRelay) =
       msgSize: int,
       onRecv: bool,
   ) =
+    # Peers pick the topic (a lightpush request, a crafted RPC): only ours become labels.
+    if not GossipSub(w).topics.hasKey(pubsub_topic):
+      return
     if onRecv:
       logos_delivery_relay_network_bytes.inc(
         msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
@@ -349,9 +356,6 @@ proc initRelayObservers(w: WakuRelay) =
           w.recalculateTopicHealth(prune.topicID)
 
     for msg in msgs.messages:
-      # Peers pick the topic: count only ours so the metric label stays bounded.
-      if not GossipSub(w).topics.hasKey(msg.topic):
-        continue
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
         continue
       # message receive log happens in onValidated observer as onRecv is called before checks
