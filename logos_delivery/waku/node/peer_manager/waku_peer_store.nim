@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tables, sequtils, sets, strutils],
+  std/[tables, sequtils, sets],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
