@@ -359,6 +359,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs, service = proto
+  # bounded-label: codec passed by node setup
   logos_delivery_service_peers.set(1, labelValues = [$proto])
 
   # Set peer for service slot
@@ -421,6 +422,7 @@ proc connectPeer*(
         await deadline.cancelAndWait()
 
       logos_delivery_peers_dials.inc(labelValues = ["successful"])
+      # bounded-label: literal at every caller
       logos_delivery_node_conns_initiated.inc(labelValues = [source])
 
       peerStore[NumberFailedConnBook][peerId] = 0
@@ -1053,15 +1055,19 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
     for proto in peerStore.getWakuProtos():
       let (protoConnsIn, protoConnsOut) = pm.connectedPeers(proto)
       let (protoStreamsIn, protoStreamsOut) = pm.getNumStreams(proto)
+      # bounded-label: Direction enum; proto is one of WakuCodecs
       logos_delivery_connected_peers.set(
         protoConnsIn.len.float64, labelValues = [$Direction.In, proto]
       )
+      # bounded-label: Direction enum; proto is one of WakuCodecs
       logos_delivery_connected_peers.set(
         protoConnsOut.len.float64, labelValues = [$Direction.Out, proto]
       )
+      # bounded-label: Direction enum; proto is one of WakuCodecs
       logos_delivery_streams_peers.set(
         protoStreamsIn.float64, labelValues = [$Direction.In, proto]
       )
+      # bounded-label: Direction enum; proto is one of WakuCodecs
       logos_delivery_streams_peers.set(
         protoStreamsOut.float64, labelValues = [$Direction.Out, proto]
       )
@@ -1087,6 +1093,7 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       # keep only those that are physically connected right now
       let connectedInShard = shardPeers.filterIt(connectedPeerIds.contains(it.peerId))
 
+      # bounded-label: configured shards
       logos_delivery_connected_peers_per_shard.set(
         connectedInShard.len.float64, labelValues = [$shard]
       )

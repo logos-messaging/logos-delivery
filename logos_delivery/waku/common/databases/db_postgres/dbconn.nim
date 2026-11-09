@@ -473,6 +473,7 @@ proc dbConnQuery*(
     return err("error in dbConnQuery calling sendQuery: " & $error)
 
   let sendDuration = getTime().toUnixFloat() - queryStartTime
+  # bounded-label: QueriesToMetricMap values or unknown_query_metric
   logos_delivery_query_time_secs.set(sendDuration, [metricLabel, "sendToDBQuery"])
 
   queryStartTime = getTime().toUnixFloat()
@@ -481,8 +482,10 @@ proc dbConnQuery*(
     return err("error in dbConnQuery calling waitQueryToFinish: " & $error)
 
   let waitDuration = getTime().toUnixFloat() - queryStartTime
+  # bounded-label: QueriesToMetricMap values or unknown_query_metric
   logos_delivery_query_time_secs.set(waitDuration, [metricLabel, "waitFinish"])
 
+  # bounded-label: QueriesToMetricMap values or unknown_query_metric
   logos_delivery_query_count.inc(labelValues = [metricLabel])
 
   if "insert" notin ($query).toLower():
@@ -515,6 +518,7 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling flushSend: " & $error)
 
   let sendDuration = getTime().toUnixFloat() - queryStartTime
+  # bounded-label: const names of our prepared statements
   logos_delivery_query_time_secs.set(sendDuration, [stmtName, "sendToDBQuery"])
 
   queryStartTime = getTime().toUnixFloat()
@@ -523,8 +527,10 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling waitQueryToFinish: " & $error)
 
   let waitDuration = getTime().toUnixFloat() - queryStartTime
+  # bounded-label: const names of our prepared statements
   logos_delivery_query_time_secs.set(waitDuration, [stmtName, "waitFinish"])
 
+  # bounded-label: const names of our prepared statements
   logos_delivery_query_count.inc(labelValues = [stmtName])
 
   if "insert" notin stmtName.toLower():

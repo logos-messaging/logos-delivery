@@ -273,14 +273,17 @@ proc logMessageInfo*(
   shardMetrics.avgSize = shardMetrics.sizeSum / shardMetrics.count
   w.msgMetricsPerShard[topic] = shardMetrics
 
+  # bounded-label: validated or sent messages: our topics
   logos_delivery_relay_max_msg_bytes_per_shard.set(
     shardMetrics.maxSize, labelValues = [topic]
   )
 
+  # bounded-label: validated or sent messages: our topics
   logos_delivery_relay_avg_msg_bytes_per_shard.set(
     shardMetrics.avgSize, labelValues = [topic]
   )
 
+  # bounded-label: validated or sent messages: our topics
   logos_delivery_relay_total_msg_bytes_per_shard.set(
     shardMetrics.sizeSum, labelValues = [topic]
   )
@@ -326,12 +329,14 @@ proc initRelayObservers(w: WakuRelay) =
       onRecv: bool,
   ) =
     if onRecv:
+      # bounded-label: in: subscribed topics only; out: topics we send on
       logos_delivery_relay_network_bytes.inc(
         msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
       )
     else:
       # sent traffic can only be "net"
       # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
+      # bounded-label: in: subscribed topics only; out: topics we send on
       logos_delivery_relay_network_bytes.inc(
         msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
       )
@@ -680,6 +685,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
       return fut
     # this subscription handler is called once for every validated message
     # that will be relayed, hence this is the place we can count net incoming traffic
+    # bounded-label: subscribed topic
     logos_delivery_relay_network_bytes.inc(
       data.len.int64 + pubsubTopic.len.int64, labelValues = [pubsubTopic, "net", "in"]
     )

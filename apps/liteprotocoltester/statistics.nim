@@ -75,6 +75,7 @@ proc addMessage*(
       prevIndex: self.helper.prevIndex,
     ),
   )
+  # bounded-label: publisher peers of the test run
   logos_delivery_lpt_receiver_received_bytes.inc(
     labelValues = [sender], amount = msg.size.int64
   )
@@ -85,7 +86,9 @@ proc addMessage*(
       index = msg.index,
       hash = msgHash,
       times_duplicated = self.helper.duplicates[msg.index].dupCount
+    # bounded-label: publisher peers of the test run
     logos_delivery_lpt_receiver_duplicate_messages_count.inc(labelValues = [sender])
+    # bounded-label: publisher peers of the test run
     logos_delivery_lpt_receiver_distinct_duplicate_messages_count.set(
       labelValues = [sender], value = self.helper.duplicates.len()
     )
@@ -104,7 +107,9 @@ proc addMessage*(
   self.helper.prevIndex = msg.index
   self.helper.prevArrivedAt = currentArrived.info.arrivedAt
   inc(self.receivedMessages)
+  # bounded-label: publisher peers of the test run
   logos_delivery_lpt_receiver_received_messages_count.inc(labelValues = [sender])
+  # bounded-label: publisher peers of the test run
   logos_delivery_lpt_receiver_missing_messages_count.set(
     labelValues = [sender], value = (self.helper.maxIndex - self.receivedMessages).int64
   )

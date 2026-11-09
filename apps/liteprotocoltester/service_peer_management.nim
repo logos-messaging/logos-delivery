@@ -129,14 +129,17 @@ proc tryCallAllPxPeers*(
           peer = constructMultiaddrStr(randomPeer),
           agent = randomPeer.getAgent(),
           codec = codec
+        # bounded-label: agents of the test run's service peers
         logos_delivery_lpt_dialed_peers.inc(labelValues = [randomPeer.getAgent()])
       else:
+        # bounded-label: agents of the test run's service peers
         logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
         error "Dialing failed",
           peer = constructMultiaddrStr(randomPeer),
           agent = randomPeer.getAgent(),
           codec = codec
     else:
+      # bounded-label: agents of the test run's service peers
       logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
       error "Timeout dialing service peer",
         peer = constructMultiaddrStr(randomPeer),

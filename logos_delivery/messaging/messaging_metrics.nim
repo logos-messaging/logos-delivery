@@ -22,14 +22,18 @@ declarePublicCounter logos_delivery_recv_message_bytes,
 # A labelled series exists from its first increment. Start every source at zero,
 # so the series are scraped before the first message and can be read at any time.
 for source in MessageSource:
+  # bounded-label: MessageSource enum
   logos_delivery_recv_messages.inc(0, labelValues = [$source])
+  # bounded-label: MessageSource enum
   logos_delivery_recv_message_bytes.inc(0, labelValues = [$source])
 
 proc recordStoreValidationTimeout*() =
   logos_delivery_send_store_validation_timeouts.inc()
 
 proc recordReceived*(source: MessageSource, payloadBytes: int) =
+  # bounded-label: MessageSource enum
   logos_delivery_recv_messages.inc(labelValues = [$source])
+  # bounded-label: MessageSource enum
   logos_delivery_recv_message_bytes.inc(payloadBytes.int64, labelValues = [$source])
 
 {.pop.}

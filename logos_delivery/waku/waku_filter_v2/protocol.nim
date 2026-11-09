@@ -131,6 +131,7 @@ proc handleSubscribeRequest*(
     wf: WakuFilter, peerId: PeerId, request: FilterSubscribeRequest
 ): Future[FilterSubscribeResponse] {.async.} =
   debug "Received filter subscribe request", peerId = peerId, request = request
+  # bounded-label: FilterSubscribeType enum
   logos_delivery_filter_requests.inc(labelValues = [$request.filterSubscribeType])
 
   var subscribeResult: FilterSubscribeResult
@@ -155,6 +156,7 @@ proc handleSubscribeRequest*(
     requestDuration = Moment.now() - requestStartTime
     requestDurationSec = requestDuration.milliseconds.float / 1000
       # Duration in seconds with millisecond precision floating point
+  # bounded-label: FilterSubscribeType enum
   logos_delivery_filter_request_duration_seconds.observe(
     requestDurationSec, labelValues = [$request.filterSubscribeType]
   )

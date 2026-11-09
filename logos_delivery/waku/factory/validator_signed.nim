@@ -72,6 +72,7 @@ proc addSignedShardsValidator*(
         if outcome != errors.ValidationResult.Accept:
           debug "Signed topic validation failed",
             topic = topic, publicShardKey = protectedShard.key
+        # bounded-label: ValidationResult enum
         logos_delivery_msg_validator_signed_outcome.inc(labelValues = [$outcome])
         return outcome
 

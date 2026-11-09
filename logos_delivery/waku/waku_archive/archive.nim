@@ -155,6 +155,7 @@ proc handleMessage*(
   let shard = RelayShard.parseStaticSharding(pubsubTopic).valueOr:
     DefaultRelayShard
 
+  # bounded-label: uint16 shard id of an archived message
   logos_delivery_archive_messages_per_shard.inc(labelValues = [$shard.shardId])
   logos_delivery_archive_inserts.inc(labelValues = [relayIngress])
 
