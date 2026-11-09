@@ -146,13 +146,15 @@ proc new*(
   return ok(resume)
 
 proc getLastOnlineTimestamp*(self: StoreResume): Result[Timestamp, string] =
+  if RawStmtPtr(self.replaceStmt).isNil():
+    return err("store resume is stopped")
   var timestamp: Timestamp
 
   proc queryCallback(s: ptr sqlite3_stmt) =
     timestamp = sqlite3_column_int64(s, 0)
 
   self.db.query("SELECT MAX(timestamp) FROM last_online", queryCallback).isOkOr:
-    return err("failed to query: " & $error)
+    return err("Failed to query: " & $error)
 
   return ok(timestamp)
 
@@ -163,7 +165,7 @@ proc setLastOnlineTimestamp*(
     return err("store resume is stopped")
 
   self.replaceStmt.exec((timestamp)).isOkOr:
-    return err("failed to execute replace stmt" & $error)
+    return err("failed to execute replace stmt: " & $error)
 
   return ok()
 
