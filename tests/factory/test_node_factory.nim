@@ -34,9 +34,9 @@ import
     conf_builder/web_socket_conf_builder,
   ]
 
-proc servicePeerGauge(codec, address: string): float64 =
+proc servicePeerGauge(codec: string): float64 =
   try:
-    return logos_delivery_service_peers.value([codec, address])
+    return logos_delivery_service_peers.value([codec])
   except KeyError:
     return 0.0
 
@@ -106,7 +106,7 @@ suite "Node Factory":
     # Then that peer holds the store service slot
     check:
       node.peerManager.serviceSlots[WakuStoreCodec].peerId == storePeerId
-      servicePeerGauge(WakuStoreCodec, storeAddress) == 1
+      servicePeerGauge(WakuStoreCodec) == 1
 
   asynctest "The storenode command line option fills the store sync service slots":
     # Given the configuration of a binary started with --store, --store-sync and --storenode
@@ -147,7 +147,7 @@ suite "Node Factory":
     # Then that peer holds the filter service slot
     check:
       node.peerManager.serviceSlots[WakuFilterSubscribeCodec].peerId == filterPeerId
-      servicePeerGauge(WakuFilterSubscribeCodec, filterAddress) == 1
+      servicePeerGauge(WakuFilterSubscribeCodec) == 1
 
   asynctest "The lightpushnode command line option fills the lightpush service slot":
     # Given the configuration of a binary started with --lightpushnode
@@ -166,7 +166,7 @@ suite "Node Factory":
     # Then that peer holds the lightpush service slot
     check:
       node.peerManager.serviceSlots[WakuLightPushCodec].peerId == lightPushPeerId
-      servicePeerGauge(WakuLightPushCodec, lightPushAddress) == 1
+      servicePeerGauge(WakuLightPushCodec) == 1
 
   asynctest "The peer-exchange-node command line option fills the peer exchange service slot and fetches its peers at start":
     # Given a peer exchange responder that discovered a peer via Discv5
