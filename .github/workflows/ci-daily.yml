@@ -11,3 +11,35 @@ jobs:
     with:
       full: true
     secrets: inherit
+
+  # One report per run, only when the result changes: see scripts/nightly_notify.sh.
+  # A manual run on the default branch reports too, so a fix can be confirmed green
+  # without waiting a night. Runs on other branches never touch the tracking issue.
+  notify:
+    needs: ci
+    if: ${{ !cancelled() && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    # Queue overlapping reports so two runs cannot both open a tracking issue.
+    concurrency:
+      group: nightly-notify
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/nightly_notify.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Report the nightly result
+        env:
+          RESULT: ${{ needs.ci.result }}
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NIGHTLY_DISCORD_MENTION: ${{ vars.NIGHTLY_DISCORD_MENTION }}
+          NIGHTLY_OWNER: ${{ vars.NIGHTLY_OWNER }}
+        run: scripts/nightly_notify.sh

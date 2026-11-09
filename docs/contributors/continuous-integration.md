@@ -30,3 +30,18 @@ The use of `?:` [Elvis operator](http://groovy-lang.org/operators.html#_elvis_op
 ```groovy
 defaultValue: params.IMAGE_TAG ?: 'deploy-waku-test',
 ```
+
+# Nightly CI
+
+`.github/workflows/ci-daily.yml` runs every `ci.yml` job (`full: true`) every night and on manual dispatch. Its `notify` job reports through [`scripts/nightly_notify.sh`](../../scripts/nightly_notify.sh), only when the result changes and only for runs of the default branch:
+
+* first red night: opens a `nightly-failure` + `infra` issue listing the failed jobs, and posts to Discord
+* each further red night: comments on that issue and posts with the day count
+* first green night: posts and closes the issue
+* green after green: nothing
+
+Settings:
+
+* `DISCORD_WEBHOOK_URL` secret - the channel the posts go to. Without it only the issue is updated.
+* `NIGHTLY_DISCORD_MENTION` variable - optional, prefixed to failure posts, e.g. `<@&role-id>`.
+* `NIGHTLY_OWNER` variable - optional, GitHub login the tracking issue is assigned to. Who owns the nightly (one person or a weekly rotation) is still open in #4342.
