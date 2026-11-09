@@ -23,11 +23,9 @@ declarePublicCounter logos_delivery_segmentation_payloads_reassembled,
   "inbound payloads reassembled from a complete segment set"
 
 proc recordSetDropped*(reason: SegmentSetDropReason) =
-  # bounded-label: SegmentSetDropReason enum
   logos_delivery_segmentation_sets_dropped.inc(labelValues = [$reason])
 
 proc recordSegmentDiscarded*(reason: SegmentDiscardReason) =
-  # bounded-label: SegmentDiscardReason enum
   logos_delivery_segmentation_segments_discarded.inc(labelValues = [$reason])
 
 proc recordPayloadReassembled*() =

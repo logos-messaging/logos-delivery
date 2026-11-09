@@ -249,7 +249,6 @@ proc registerRlnValidator(
     case res.verdict
     of ProofVerdict.Valid:
       trace "Message validity is verified, relaying", proof = proof
-      # bounded-label: subscribed topic
       logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
       return pubsub.ValidationResult.Accept
     of ProofVerdict.Invalid:

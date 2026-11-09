@@ -15,7 +15,6 @@ declarePublicCounter logos_delivery_service_network_bytes,
 
 proc setServiceLimitMetric*(service: string, limit: Opt[RateLimitSetting]) =
   if limit.isSome() and not limit.get().isUnlimited():
-    # bounded-label: codec of a mounted service
     logos_delivery_service_requests_limit.set(
       limit.get().calculateLimitPerSecond(), labelValues = [service]
     )

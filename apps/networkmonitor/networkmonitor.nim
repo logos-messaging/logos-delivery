@@ -53,7 +53,6 @@ proc setDiscoveredPeersCapabilities(routingTableNodes: seq[waku_enr.Record]) =
       routingTableNodes.countIt(it.supportsCapability(capability))
     info "capabilities as per ENR waku flag",
       capability = capability, amount = nOfNodesWithCapability
-    # bounded-label: Capabilities enum
     logos_delivery_networkmonitor_peer_type_as_per_enr.set(
       int64(nOfNodesWithCapability), labelValues = [$capability]
     )
@@ -73,7 +72,6 @@ proc setDiscoveredPeersCluster(routingTableNodes: seq[Node]) =
     clusters.inc(relayShard.clusterId)
 
   for (key, value) in clusters.pairs:
-    # bounded-label: uint16 cluster ids seen on crawled peers
     logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
       int64(value), labelValues = [$key]
     )
@@ -265,7 +263,6 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   ) # update count on each protocol
   for protocol in allProtocols.keys():
     let countOfProtocols = allProtocols.mgetOrPut(protocol, 0)
-    # bounded-label: protocols seen on crawled peers, the monitor's purpose
     logos_delivery_networkmonitor_peer_type_as_per_protocol.set(
       int64(countOfProtocols), labelValues = [protocol]
     )
@@ -275,7 +272,6 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   # update count on each user-agent
   for userAgent in allAgentStrings.keys():
     let countOfUserAgent = allAgentStrings.mgetOrPut(userAgent, 0)
-    # bounded-label: agents seen on crawled peers, the monitor's purpose
     logos_delivery_networkmonitor_peer_user_agents.set(
       int64(countOfUserAgent), labelValues = [userAgent]
     )
@@ -284,7 +280,6 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
 
   for country in countries.keys():
     let peerCount = countries.mgetOrPut(country, 0)
-    # bounded-label: country names
     logos_delivery_networkmonitor_peer_country_count.set(
       int64(peerCount), labelValues = [country]
     )

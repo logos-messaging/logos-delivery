@@ -7,25 +7,27 @@ an `if c: "a" else: "b"` of literals, or a `const` string. Anything else
 creates one time series per distinct value, which Prometheus cannot handle.
 
 Checks:
-  1. unbounded:  non-literal, non-const label value.
+  1. unbounded:  non-literal, non-const label value. Bounded-but-unprovable
+                 ones (enum conversions, ...) go in
+                 scripts/metric_labels_allowlist.txt as `<file>::<expr>`.
   2. tainted:    value that visibly carries free-form text (`error`, `.msg`,
                  `getCurrentExceptionMsg`, peer ids, addresses, ...) or an
-                 identifier bound to such text (`let x = "..." & y`).
+                 identifier bound to such text (`let x = "..." & y`). Never
+                 allowlistable; waive one use with `# bounded-label: <why>` on
+                 the call line, inside the call or on the line above.
   3. arity:      number of values differs from the declared label names.
   4. declared:   label names that look unbounded (`peer_id`, `addr`, ...).
 
-A provably bounded value (an enum, a codec, a configured shard, ...) is waived
-one call at a time with `# bounded-label: <why>` on the call line, inside the
-call or on the line above. There is no file-wide allowlist, so every new use
-needs its own reason.
+The allowlist only shrinks: a new offender fails, and so does a stale entry.
 
-    scripts/check_metric_labels.py
+    scripts/check_metric_labels.py [--update]
 """
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+ALLOWLIST = ROOT / "scripts" / "metric_labels_allowlist.txt"
 SCAN = ["logos_delivery", "apps", "library"]
 WAIVER = "bounded-label:"
 
@@ -38,7 +40,7 @@ DECL_RE = re.compile(
     re.S,
 )
 CONST_ITEM_RE = re.compile(rf"^[ \t]+(\w+)\*?\s*=\s*{STR}", re.M)
-CONST_ONE_RE = re.compile(rf"^const\s+(\w+)\*?\s*(?:\{{\.[^}}]*\.\}}\s*)?=\s*{STR}", re.M)
+CONST_ONE_RE = re.compile(rf"^const\s+(\w+)\*?\s*=\s*{STR}", re.M)
 TAINT_RE = re.compile(
     r"(?i)(\berror\b|\berr\w*\b|\.msg\b|\bmsg\b|getCurrentExceptionMsg|peerid|\bpeer\b|"
     r"\baddrs?\b|multiaddr|\bip\b|\bhash\b|\bagent\b|\.\$|\bdiagnostic\b)"
@@ -145,7 +147,8 @@ WHY = {
         "This label value is not a string literal or a `const`, so the linter "
         "cannot prove it takes a bounded set of values.",
         "Use a literal/const. If it is bounded (e.g. an enum), add "
-        "`# bounded-label: <why>` on the call line or the line above it.",
+        "`# bounded-label: <why>` on the call line or the line above it; "
+        "`scripts/check_metric_labels.py --update` is only for existing code.",
     ),
     "arity": (
         "The number of label values differs from the labels the metric declares.",
@@ -155,18 +158,24 @@ WHY = {
         "A declared label name suggests an unbounded dimension.",
         "Use a bounded dimension, or drop the label.",
     ),
+    "stale": (
+        "scripts/metric_labels_allowlist.txt lists an expression that no longer "
+        "offends (it was fixed or removed).",
+        "Delete the entry, or run `scripts/check_metric_labels.py --update`.",
+    ),
 }
-ORDER = ["tainted", "unbounded", "arity", "name"]
+ORDER = ["tainted", "unbounded", "arity", "name", "stale"]
 TITLE = {
     "tainted": "free-form text used as a metric label",
     "unbounded": "metric label not provably bounded",
     "arity": "metric label count mismatch",
     "name": "suspicious metric label name",
+    "stale": "stale allowlist entries",
 }
 
 
 def analyse(texts, consts, decls):
-    """Returns findings as (kind, location, detail)."""
+    """Returns findings as (kind, location, detail, allowlist_key|None)."""
     out = []
     for rel, text in texts.items():
         lines = text.splitlines()
@@ -191,6 +200,7 @@ def analyse(texts, consts, decls):
                         loc,
                         f"`{name}` declares {len(decls[name][1])} label(s) "
                         f"{decls[name][1]}, call passes {len(labels)}",
+                        None,
                     )
                 )
             for expr in labels:
@@ -202,7 +212,9 @@ def analyse(texts, consts, decls):
                     IDENT_RE.match(expr) and tainted_binding(text, m.start(), expr)
                 )
                 kind = "tainted" if bad else "unbounded"
-                out.append((kind, loc, f"`{name}` label value `{expr}`"))
+                out.append(
+                    (kind, loc, f"`{name}` label value `{expr}`", f"{rel}::{expr}")
+                )
     return out
 
 
@@ -212,11 +224,24 @@ def main():
     }
     consts = string_consts(texts)
     decls = declarations(texts)
-    findings = analyse(texts, consts, decls)
+    found = analyse(texts, consts, decls)
     for m, (rel, names) in sorted(decls.items()):
         for n in names:
             if BAD_LABEL_NAME.search(n):
-                findings.append(("name", rel, f"`{m}` declares label `{n}`"))
+                found.append(("name", rel, f"`{m}` declares label `{n}`", None))
+
+    keys = {k for kind, _, _, k in found if kind == "unbounded"}
+    if "--update" in sys.argv:
+        ALLOWLIST.write_text("".join(f"{e}\n" for e in sorted(keys)))
+    allowed = (
+        {l.strip() for l in ALLOWLIST.read_text().splitlines() if l.strip()}
+        if ALLOWLIST.exists()
+        else set()
+    )
+    # allowlisted `unbounded` findings are accepted; tainted ones never are
+    findings = [f for f in found if not (f[0] == "unbounded" and f[3] in allowed)]
+    for e in sorted(allowed - keys):
+        findings.append(("stale", "scripts/metric_labels_allowlist.txt", e, None))
 
     if not findings:
         print("metric labels: all label values are bounded")
@@ -229,7 +254,7 @@ def main():
         print(f"\n== {TITLE[kind]} ({len(group)})")
         print(f"   why: {why}")
         print(f"   fix: {fix}")
-        for _, loc, detail in sorted(set(group)):
+        for _, loc, detail, _k in sorted(set((f[0], f[1], f[2], f[3]) for f in group)):
             print(f"  {loc}: {detail}")
     print(f"\nmetric labels: {len(findings)} problem(s) found")
     return 1

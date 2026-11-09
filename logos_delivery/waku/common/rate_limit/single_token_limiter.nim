@@ -56,17 +56,14 @@ template checkUsageLimit*(
 ) =
   if t.checkUsage(proto):
     let requestStartTime = Moment.now()
-    # bounded-label: codec of a mounted service
     logos_delivery_service_requests.inc(labelValues = [proto, "served"])
 
     bodyWithinLimit
 
     let requestDuration = Moment.now() - requestStartTime
-    # bounded-label: codec of a mounted service
     logos_delivery_service_request_handling_duration_seconds.observe(
       requestDuration.milliseconds.float / 1000, labelValues = [proto]
     )
   else:
-    # bounded-label: codec of a mounted service
     logos_delivery_service_requests.inc(labelValues = [proto, "rejected"])
     bodyRejected

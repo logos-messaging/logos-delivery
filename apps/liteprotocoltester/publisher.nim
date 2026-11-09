@@ -191,7 +191,6 @@ proc publishMessages(
         continue
       else:
         noFailedPush += 1
-        # bounded-label: agents of the test run's service peers
         logos_delivery_lpt_service_peer_failure_count.inc(
           labelValues = ["publisher", actualServicePeer.getAgent()]
         )

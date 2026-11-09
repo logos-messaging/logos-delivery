@@ -65,11 +65,9 @@ proc sendStoreRequest(
       self.storeMsgMetricsPerShard[topic] = 0
     self.storeMsgMetricsPerShard[topic] += float64(req.encode().len)
 
-    # bounded-label: pubsub topic of our own query
     logos_delivery_store_fleet_msg_size_bytes.inc(
       self.storeMsgMetricsPerShard[topic], labelValues = [topic]
     )
-    # bounded-label: pubsub topic of our own query
     logos_delivery_store_fleet_msg_count.inc(1.0, labelValues = [topic])
 
   return ok(res)
