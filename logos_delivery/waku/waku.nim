@@ -515,8 +515,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     debug "start: waku node already started"
     return ok()
 
-  waku.provideNodeState() # cleared by a previous stop()
-
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
 
@@ -538,9 +536,17 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
         (await waku.stop()).isOkOr:
           error "Failed to stop after a failed start", error = error
       else:
-        # The node did not start, but mix RLN and the persistency can run.
+        # The node did not start, but mix RLN, the DNS retry loop and the
+        # persistency can run, and the node state is provided.
         await waku.node.stopMixRln()
+        if not waku.dnsRetryLoopHandle.isNil():
+          await waku.dnsRetryLoopHandle.cancelAndWait()
         waku.closePersistency()
+        waku.clearNodeState()
+
+  # Cleared by a previous stop(). Provided after the defer, so that every
+  # failed start clears it again.
+  waku.provideNodeState()
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()

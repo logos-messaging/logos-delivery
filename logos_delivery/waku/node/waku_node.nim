@@ -882,7 +882,15 @@ proc start*(node: WakuNode) {.async.} =
 
   ## Binds the transports, resolves peerInfo.addrs, then starts the protocols.
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
-  await node.switch.start()
+  try:
+    await node.switch.start()
+  except CatchableError as exc:
+    ## `started` stays false, so no `stop` follows: stop the loops started above.
+    if not node.wakuStoreResume.isNil():
+      await node.wakuStoreResume.stopWait()
+    if not node.wakuRendezvousClient.isNil():
+      await node.wakuRendezvousClient.stopWait()
+    raise exc
 
   ## Copy again: the observer skips an unchanged restart.
   node.copyCommittedAddresses()
