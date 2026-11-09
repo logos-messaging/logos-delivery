@@ -65,6 +65,10 @@ func needsRlnProof*(self: Waku, message: WakuMessage): bool =
   ## message id.
   return self.node.rlnPlugin.needsProof(message)
 
+func maxMessageSizeBytes*(self: Waku): uint64 =
+  ## The max size of an encoded message on this node.
+  return self.conf.maxMessageSizeBytes
+
 proc messageForSizeCheck*(
     self: Waku, message: WakuMessage
 ): Result[WakuMessage, RlnError] =

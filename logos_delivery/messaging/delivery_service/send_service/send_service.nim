@@ -57,6 +57,9 @@ const MaxSendsInFlight* = 50
   ## The number of sends that run at the same time. It bounds the open streams
   ## of this node independent of `sendQueueCapacity`.
 
+const MessageTooLargeReason* = "Message size exceeded"
+  ## The start of the error text of a message above `maxMessageSizeBytes`.
+
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
   deliveryTasks: OrderedTable[WakuMessageHash, DeliveryTask]
@@ -410,11 +413,26 @@ proc reportTaskQueued(self: SendService, task: DeliveryTask) =
   MessageQueuedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
   task.queuedEventEmitted = true
 
+proc checkMessageSize(self: SendService, task: DeliveryTask): bool =
+  ## Returns false and fails the task when the message with its RLN proof is too large.
+  let message = self.waku.messageForSizeCheck(task.msg).valueOr:
+    debug "No valid proof size, checking the size of the message without its proof",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = $error
+    task.msg
+  let size = message.encodedSize()
+  if uint64(size) <= self.waku.maxMessageSizeBytes:
+    return true
+  task.state = DeliveryState.FailedToDeliver
+  task.errorDesc = MessageTooLargeReason & ": the message has " & $size & " bytes"
+  return false
+
 proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
   ## Charges the epoch budget, then attaches the RLN proof, so a message over the
   ## budget reserves no RLN message id. It charges a task once for each proof. Returns false
   ## when the task waits for its next attempt or failed.
   if not self.sendProcessor.checkBeforeAdmission(task):
+    return false
+  if not self.checkMessageSize(task):
     return false
 
   if task.firstAdmittedTime.isNone():
