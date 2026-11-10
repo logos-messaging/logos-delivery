@@ -304,9 +304,16 @@ proc backfillFetchTopic(
     query: BackfillQuery,
     deliver: BackfillDeliver,
 ): Future[Result[BackfillFetchOutcome, string]] {.async.} =
-  ## One Store query for `topic`. The gap ends where live delivery covers the
-  ## topic again. The worker fetches at once the part of the gap that the
-  ## archive has for sure. The last part waits until the archive has it.
+  ## One Store query for `topic`. The gap of the topic has two parts.
+  ##
+  ##   record.timestamp ── part 1 ── lastPartFrom ── part 2 ── stop
+  ##                      (at once)             (at restArchivedAt)
+  ##
+  ## The gap ends at `stop`, where live delivery covers the topic again. The
+  ## archive has part 1 for sure, so the worker fetches it at once. Part 2
+  ## waits until `restArchivedAt`, because the archive can lack a message that
+  ## a node sent a short time before live delivery came back. A wake of the
+  ## worker in that wait sends no query.
   let record = self.backfill.records.getOrDefault(topic)
   let now = getNowInNanosecondTime()
   let stop = coveredFrom(
@@ -315,16 +322,21 @@ proc backfillFetchTopic(
     self.backfill.delayExtra.nanos,
     self.backfill.timestampVariance.nanos,
   )
-  let archived = archivedBefore(
-    now, self.backfill.archiveTime.nanos, self.backfill.timestampVariance.nanos
-  )
   # The time when the archive has every message before `stop`.
   let restArchivedAt =
     stop + self.backfill.timestampVariance.nanos + self.backfill.archiveTime.nanos
-  if stop > archived and record.timestamp >= archived:
+  # The start of the last part. It must not depend on `now`, or each wake has
+  # a new range to fetch.
+  let lastPartStart = lastPartFrom(
+    self.backfill.liveSince,
+    self.backfill.subscribedSince[topic],
+    self.backfill.archiveTime.nanos,
+    self.backfill.timestampVariance.nanos,
+  )
+  if record.timestamp >= lastPartStart and now < restArchivedAt:
     # Only the last part is left, and the archive may not have it yet.
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
-  let fetchStop = min(stop, archived)
+  let fetchStop = if now >= restArchivedAt: stop else: lastPartStart
   let next = ?await fetchPage(
     topic, record.timestamp, fetchStop, self.backfill.queryTimeout, query, deliver
   )
