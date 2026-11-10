@@ -278,10 +278,7 @@ suite "Store Client":
       # Five store peers announced the shard of the query, and one announced
       # another shard. The client has a connection to one peer of the shard
       # and to the peer of the other shard.
-      let clusterId = RelayShard.parse(DefaultPubsubTopic).get().clusterId
       let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
-      let otherTopic =
-        PubsubTopic($RelayShard(clusterId: clusterId, shardId: shard + 1))
       let connectedStore = await newFakeStore()
       let otherShardStore = await newFakeStore()
       var notConnectedStores: seq[FakeStore]
@@ -312,12 +309,6 @@ suite "Store Client":
       check:
         connectedStore.queries == 8
         notConnectedQueries() == 0
-
-      # Each shard has its own group, because no peer announced the two
-      # shards.
-      for _ in 0 ..< 10:
-        check client.groupShardsByStorePeer(@[DefaultPubsubTopic, otherTopic]) ==
-          @[@[DefaultPubsubTopic], @[otherTopic]]
 
       # A query with only hashes has its shard in the `shards` argument.
       # Without the argument, the choice is random among the six peers.
@@ -399,7 +390,6 @@ suite "Store Client":
       let otherTopic =
         PubsubTopic($RelayShard(clusterId: clusterId, shardId: shard + 1))
       let topics = @[DefaultPubsubTopic, otherTopic]
-      check client.groupShardsByStorePeer(topics) == @[topics]
       for _ in 0 ..< 5:
         check (
           await client.queryToAny(
@@ -426,63 +416,6 @@ suite "Store Client":
         ofShardStore.queries == 5
         otherShardStore.queries == 0
 
-    asyncTest "groupShardsByStorePeer puts the shards of one store peer in one group":
-      let clusterId = RelayShard.parse(DefaultPubsubTopic).get().clusterId
-      proc topicOf(shard: uint16): PubsubTopic =
-        PubsubTopic($RelayShard(clusterId: clusterId, shardId: shard))
-
-      check:
-        client.groupShardsByStorePeer(@[]).len == 0
-        client.groupShardsByStorePeer(@[PubsubTopic("not-a-shard")]) ==
-          @[@[PubsubTopic("not-a-shard")]]
-
-      # One store peer announced two of three shards, and one announced the
-      # third. No store peer announced a fourth shard.
-      let shardsZeroOneStore = await newFakeStore()
-      let shardTwoStore = await newFakeStore()
-      let shardOneStore = await newFakeStore()
-      defer:
-        await allFutures(
-          shardsZeroOneStore.switch.stop(),
-          shardTwoStore.switch.stop(),
-          shardOneStore.switch.stop(),
-        )
-      clientSwitch.addStorePeer(shardsZeroOneStore, @[0'u16, 1])
-      clientSwitch.addStorePeer(shardTwoStore, @[2'u16])
-      check client.groupShardsByStorePeer(
-        @[topicOf(0), topicOf(2), topicOf(1), topicOf(3)]
-      ) == @[@[topicOf(0), topicOf(1)], @[topicOf(2)], @[topicOf(3)]]
-
-      # The peer of shards 0 and 1 fails a query, so it is in its backoff. One
-      # more peer announced shard 1, and it did not fail. Shard 1 goes to that
-      # peer, and not in the group of the peer in its backoff.
-      shardsZeroOneStore.failing = true
-      check (
-        await client.queryToAny(StoreQueryRequest(pubsubTopic: Opt.some(topicOf(0))))
-      ).isErr()
-      shardsZeroOneStore.failing = false
-      clientSwitch.addStorePeer(shardOneStore, @[1'u16])
-      for _ in 0 ..< 10:
-        check client.groupShardsByStorePeer(@[topicOf(0), topicOf(1)]) ==
-          @[@[topicOf(0)], @[topicOf(1)]]
-
-      # The same result when the node has a connection to the peer of shard 1
-      # and the other peer is not in a backoff.
-      client.failedPeerBackoff = chronos.milliseconds(100)
-      await sleepAsync(chronos.milliseconds(200))
-      await clientSwitch.disconnect(shardsZeroOneStore.switch.peerInfo.peerId)
-      await clientSwitch.connectTo(shardOneStore)
-      for _ in 0 ..< 10:
-        check client.groupShardsByStorePeer(@[topicOf(0), topicOf(1)]) ==
-          @[@[topicOf(0)], @[topicOf(1)]]
-
-      # With no connection, the two peers have the same rank, and the peer
-      # of shard 0 gets shard 1 too.
-      await clientSwitch.disconnect(shardOneStore.switch.peerInfo.peerId)
-      for _ in 0 ..< 10:
-        check client.groupShardsByStorePeer(@[topicOf(0), topicOf(1)]) ==
-          @[@[topicOf(0), topicOf(1)]]
-
     asyncTest "queryToAny asks only the exclusive store peers":
       let peerManager = PeerManager.new(clientSwitch)
       let exclusiveClient = WakuStoreClient.new(peerManager, crypto.newRng())
@@ -492,11 +425,6 @@ suite "Store Client":
         clientSwitch.peerStore.addPeer(discovered)
       let exclusive = newTestSwitch().peerInfo.toRemotePeerInfo()
       peerManager.setExclusivePeers(WakuStoreCodec, @[exclusive])
-
-      # The exclusive store peers have no shard filter, so the shards are one
-      # group.
-      let topics = @[DefaultPubsubTopic, PubsubTopic("/waku/2/rs/0/1")]
-      check exclusiveClient.groupShardsByStorePeer(topics) == @[topics]
 
       for _ in 0 ..< 5:
         let res = await exclusiveClient.queryToAny(storeQuery)

@@ -575,7 +575,7 @@ suite "SendService - Store validation loop":
       service: SendService, pubsubTopics: seq[PubsubTopic]
   ): Future[seq[DeliveryTask]] {.async.} =
     ## Sends one task for each shard, and makes them old enough for the same
-    ## Store query. The Store lists their hashes.
+    ## Store validation batch. The Store lists their hashes.
     var tasks: seq[DeliveryTask]
     for i, pubsubTopic in pubsubTopics:
       let task = newTask("shard-task-" & $i, pubsubTopic)
@@ -609,7 +609,7 @@ suite "SendService - Store validation loop":
   const Shard1 = PubsubTopic("/waku/2/rs/3/1")
   const Shard2 = PubsubTopic("/waku/2/rs/3/2")
 
-  asyncTest "tasks of two shards that go to one Store node are asked in one Store query":
+  asyncTest "tasks of two shards get one Store query for each shard":
     ## The Store node of the suite announced shards 0 and 1.
     let service = startedService()
     defer:
@@ -620,9 +620,9 @@ suite "SendService - Store validation loop":
     check:
       await log.waitEvent(SendEvent.Sent, tasks[0])
       await log.waitEvent(SendEvent.Sent, tasks[1])
-      requests.len == 1
-      tasks[0].msgHash in requests[0].messageHashes
-      tasks[1].msgHash in requests[0].messageHashes
+      requests.len == 2
+      requests.anyIt(it.messageHashes == @[tasks[0].msgHash])
+      requests.anyIt(it.messageHashes == @[tasks[1].msgHash])
 
   asyncTest "a shard that no Store node can have gets its own Store query":
     ## After the first query, the node knows that the Store node announced
@@ -647,7 +647,7 @@ suite "SendService - Store validation loop":
       requests.len == 2
       requests.allIt(it.messageHashes.len == 1)
 
-  asyncTest "a Store node of the shard answers when the Store node of the group fails":
+  asyncTest "a Store node of the shard answers when the connected Store node fails":
     ## One more Store node announced shard 0, and one announced shard 2. The
     ## node has a connection to the Store node of the suite, which fails each
     ## query. So a query goes on to the other Store node of shard 0, and not
