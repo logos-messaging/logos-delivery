@@ -223,14 +223,18 @@ proc logosdelivery_create_node(
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   await self.restOf().stop(self)
-  if not self.isRunning():
-    return ok()
-
-  await self.stop()
+  return await self.stop()
 
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
+  # REST belongs to the call that starts a stopped node. A second `mount`
+  # replaces the messaging REST events without stopping their listeners.
+  if self.lifecycleState != LifecycleState.Stopped:
+    (await self.start()).isOkOr:
+      return err("failed to start: " & error)
+    return ok("")
+
   # REST answers health probes while the node boots, and gets its protocol
   # routes once the node runs.
   let rest = self.restOf()

@@ -261,35 +261,98 @@ suite "LogosDelivery - broker lifecycle":
       (await node.stop()).isOkOr:
         raiseAssert error
 
-  asyncTest "start refuses a node with the transport already up":
+  asyncTest "a second start is a no-op":
     lockNewGlobalBrokerContext:
       let ctx = globalBrokerContext()
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
-      (await node.waku.start()).isOkOr:
-        raiseAssert "transport start: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "first start: " & error
 
       check:
-        (await node.start()).isErr()
-        node.waku.node.started
-        MessagingSend.getCurrentProvider(ctx).isNone()
+        (await node.start()).isOk()
+        node.lifecycleState == LifecycleState.Running
+        node.isRunning()
+        MessagingSend.getCurrentProvider(ctx).present
 
       (await node.stop()).isOkOr:
         raiseAssert error
+      check node.lifecycleState == LifecycleState.Stopped
 
   asyncTest "start refuses a node that is stopping":
+    ## The channel layer stops first, so both lower layers are still up when
+    ## the start comes.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(channelsConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+      discard node.reliableChannelManager
+        .createReliableChannel(
+          ChannelId("stopping"),
+          ContentTopic("/lifecycle/1/stopping/proto"),
+          SdsParticipantID("me"),
+        )
+        .expect("createReliableChannel")
+
+      let stopping = node.stop()
+      check:
+        node.lifecycleState == LifecycleState.Stopping
+        node.messagingClient.started
+        node.waku.node.started
+        (await node.start()).isErr()
+
+      check:
+        (await stopping).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+
+  asyncTest "a stop during a start waits for the start, then stops":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      # The dial to a static node on a closed port makes the start wait.
+      var kernel = defaultTestWakuNodeConf()
+      kernel.staticnodes =
+        @["/ip4/127.0.0.1/tcp/1/p2p/" & $PeerId.random(crypto.newRng()).get()]
+      let node = (await LogosDelivery.new(testNodeConf(kernel, EntryLayer.messaging))).valueOr:
+        raiseAssert error
+      let starting = node.start()
+      check:
+        node.lifecycleState == LifecycleState.Starting
+        (await node.start()).isErr()
+
+      let stopped = await node.stop()
+      check:
+        starting.finished()
+        (await starting).isOk()
+        stopped.isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+        MessagingSend.getCurrentProvider(ctx).isNone()
+
+  asyncTest "a failed messaging start with MessagingUnsubscribe held clears the rest":
     lockNewGlobalBrokerContext:
       let ctx = globalBrokerContext()
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
-      node.messagingClient.stopping = true
+      let foreign = MessagingUnsubscribe.setProvider(
+        ctx,
+        proc(contentTopic: ContentTopic): Result[void, string] =
+          ok(),
+      )
+      require foreign.isOk()
 
       check:
         (await node.start()).isErr()
-        not node.waku.node.started
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
         MessagingSend.getCurrentProvider(ctx).isNone()
+        MessagingSubscribe.getCurrentProvider(ctx).isNone()
+        MessagingUnsubscribe.getCurrentProvider(ctx).present
 
-      node.messagingClient.stopping = false
+      MessagingUnsubscribe.clearProvider(ctx)
 
   asyncTest "a start on a TCP port in use leaves nothing running":
     lockNewGlobalBrokerContext:

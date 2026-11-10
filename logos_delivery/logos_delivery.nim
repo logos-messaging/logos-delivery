@@ -66,10 +66,21 @@ export logos_delivery_conf
 logScope:
   topics = "logosdelivery"
 
-type LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
-  waku*: Waku
-  messagingClient*: MessagingClient
-  reliableChannelManager*: ReliableChannelManager
+type
+  LifecycleState* {.pure.} = enum
+    Stopped
+    Starting
+    Running
+    Stopping
+
+  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
+    waku*: Waku
+    messagingClient*: MessagingClient
+    reliableChannelManager*: ReliableChannelManager
+    state: LifecycleState
+    lifecycleLock: AsyncLock
+      ## Held for the whole of `start` and `stop`, so that a stop waits for a
+      ## start in progress.
 
 proc buildLogosDeliveryStack(
     wakuConf: WakuConf,
@@ -100,6 +111,7 @@ proc buildLogosDeliveryStack(
       waku: waku,
       messagingClient: messagingClient,
       reliableChannelManager: reliableChannelManager,
+      lifecycleLock: newAsyncLock(),
     )
   )
 
@@ -217,27 +229,44 @@ proc new*(
     return err("failed to synthesize configuration: " & error)
   return await LogosDelivery.new(conf, appCallbacks)
 
+func lifecycleState*(self: LogosDelivery): LifecycleState =
+  self.state
+
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each present layer bottom-up: transport, then messaging, then channels.
-  ## Only a stopped node starts: a stop in progress, or one layer up and the
-  ## other down, is refused before anything is touched. A start that fails
-  ## stops the transport and messaging layers. The channel layer cannot fail,
-  ## and its `stop` closes the channels made before `start`, so the rollback
-  ## does not stop it.
+  ## Only a stopped node starts. A start on a running node is a no-op. A start
+  ## during a start or a stop returns an error. A start that fails stops the
+  ## transport and messaging layers. The channel layer cannot fail, and its
+  ## `stop` closes the channels made before `start`, so the rollback does not
+  ## stop it.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
-  if not self.messagingClient.isNil():
-    if self.messagingClient.stopping:
-      return err("cannot start while a stop is in progress")
-    if self.waku.node.started != self.messagingClient.started:
-      return err("cannot start a node with one layer already up")
+  case self.state
+  of LifecycleState.Running:
+    return ok()
+  of LifecycleState.Starting:
+    return err("cannot start while a start is in progress")
+  of LifecycleState.Stopping:
+    return err("cannot start while a stop is in progress")
+  of LifecycleState.Stopped:
+    discard
+
+  # Set before the lock, so that a start or a stop that comes while this one
+  # waits sees it. A stop that held the lock overwrites it, so set it again.
+  self.state = LifecycleState.Starting
+  await self.lifecycleLock.acquire()
+  self.state = LifecycleState.Starting
+
+  var startSucceeded = false
+  defer:
+    self.state = if startSucceeded: LifecycleState.Running else: LifecycleState.Stopped
+    self.lifecycleLock.release2()
 
   # Waku.start stops the node when it fails after the node started.
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
-  var startSucceeded = false
   defer:
     if not startSucceeded:
       # noCancel: a cancelled rollback leaves the node half stopped.
@@ -259,6 +288,16 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
 proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
+  ## A stop during a start waits for the start to end, then stops.
+  await self.lifecycleLock.acquire()
+  self.state = LifecycleState.Stopping
+  var stopSucceeded = false
+  defer:
+    # After a failed stop the transport can still be up: the next stop
+    # retries, and a start stays a no-op.
+    self.state = if stopSucceeded: LifecycleState.Stopped else: LifecycleState.Running
+    self.lifecycleLock.release2()
+
   if not self.reliableChannelManager.isNil():
     await self.reliableChannelManager.stop()
   if not self.messagingClient.isNil():
@@ -267,6 +306,7 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
     (await self.waku.stop()).isOkOr:
       return err("failed to stop Waku: " & error)
 
+  stopSucceeded = true
   return ok()
 
 func isRunning*(self: LogosDelivery): bool =
