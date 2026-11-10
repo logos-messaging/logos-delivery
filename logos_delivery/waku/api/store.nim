@@ -16,12 +16,21 @@ proc hasStorePeer*(self: Waku): bool =
   ## True if at least one store service peer is available to query.
   return self.node.peerManager.hasPeers(WakuStoreCodec)
 
-proc groupStoreShards*(self: Waku, shards: seq[PubsubTopic]): seq[seq[PubsubTopic]] =
-  ## The shards in groups, one group for each store query that asks about them
-  ## (see `groupShardsByStorePeer`).
+proc groupStorePubsubTopics*(
+    self: Waku, pubsubTopics: seq[PubsubTopic]
+): seq[seq[PubsubTopic]] =
+  ## Splits `pubsubTopics` into groups, one Store query per group. One Store
+  ## peer can serve every topic of a group (see `groupShardsByStorePeer`).
+  ## Example: Store peer A serves shards 0 and 1, and Store peer B serves
+  ## shard 2. Then
+  ##   @["/waku/2/rs/1/0", "/waku/2/rs/1/1", "/waku/2/rs/1/2"]
+  ## gives
+  ##   @[@["/waku/2/rs/1/0", "/waku/2/rs/1/1"], @["/waku/2/rs/1/2"]]
+  ## With no Store client mounted, or a topic that is not a shard topic, all
+  ## topics go in one group.
   if self.node.wakuStoreClient.isNil():
-    return @[shards]
-  return self.node.wakuStoreClient.groupShardsByStorePeer(shards)
+    return @[pubsubTopics]
+  return self.node.wakuStoreClient.groupShardsByStorePeer(pubsubTopics)
 
 proc storeQueryToAny*(
     self: Waku, request: StoreQueryRequest, shards: seq[PubsubTopic] = @[]

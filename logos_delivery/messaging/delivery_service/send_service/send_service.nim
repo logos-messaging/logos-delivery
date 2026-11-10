@@ -318,7 +318,7 @@ proc queryStoreForTasks(
 proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   ## Asks Store about one batch. The tasks that a Store peer did not report go
   ## in one query, which can ask each Store peer. The other tasks go in one
-  ## query for each group of `groupStoreShards`.
+  ## query for each group of `groupStorePubsubTopics`.
   let now = Moment.now()
   var missed: seq[DeliveryTask]
   var byShard: OrderedTable[PubsubTopic, seq[DeliveryTask]]
@@ -331,7 +331,7 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   var checks: seq[Future[void]]
   if missed.len > 0:
     checks.add(self.queryStoreForTasks(@[], missed))
-  for group in self.waku.groupStoreShards(toSeq(byShard.keys)):
+  for group in self.waku.groupStorePubsubTopics(toSeq(byShard.keys)):
     var tasks: seq[DeliveryTask]
     for shard in group:
       tasks.add(byShard.getOrDefault(shard))
