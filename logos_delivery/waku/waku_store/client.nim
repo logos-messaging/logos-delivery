@@ -185,16 +185,16 @@ proc rankStorePeers(
     byRank[StorePeerRank.InBackoff]
 
 proc groupShardsByStorePeer*(
-    self: WakuStoreClient, shards: seq[PubsubTopic]
+    self: WakuStoreClient, pubsubTopics: seq[PubsubTopic]
 ): seq[seq[PubsubTopic]] =
-  ## Splits `shards` into groups, one group for each store query. One store
+  ## Splits `pubsubTopics` into groups, one group for each store query. One store
   ## peer can have all the shards of a group.
-  if shards.len == 0:
+  if pubsubTopics.len == 0:
     return @[]
-  let relayShards = shards.toRelayShards()
+  let relayShards = pubsubTopics.toRelayShards()
   # No shard filter applies, so one query asks about all the shards.
   if relayShards.len == 0 or WakuStoreCodec in self.peerManager.exclusivePeers:
-    return @[shards]
+    return @[pubsubTopics]
 
   let ranked = self.rankStorePeers(self.storePeers(), connectedFirst = true)
   var chosen: seq[RankedStorePeer]
@@ -208,7 +208,7 @@ proc groupShardsByStorePeer*(
         best = j
         break
     if best < 0:
-      noPeer.add(shards[i])
+      noPeer.add(pubsubTopics[i])
       continue
     # The shard joins an earlier group when the peer of that group can have
     # it and has the same rank.
@@ -221,7 +221,7 @@ proc groupShardsByStorePeer*(
       chosen.add(ranked[best])
       groups.add(newSeq[PubsubTopic]())
       group = groups.high
-    groups[group].add(shards[i])
+    groups[group].add(pubsubTopics[i])
   # The shards that no known store peer can have are the last group.
   if noPeer.len > 0:
     groups.add(noPeer)
