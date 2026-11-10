@@ -268,28 +268,28 @@ proc dropFinishedResends(self: SendService) =
   for msgHash in ended:
     self.resends.del(msgHash)
 
-proc checkGroupInStore(
-    self: SendService, shards: seq[PubsubTopic], batch: seq[DeliveryTask]
+proc queryStoreForTasks(
+    self: SendService, shards: seq[PubsubTopic], tasks: seq[DeliveryTask]
 ) {.async.} =
-  ## One Store query about the tasks of `batch`, which are in `shards`. It
-  ## confirms the tasks that the answer reports, and sends the others again.
-  ## With no shards, the query can ask each Store peer.
+  ## Sends one Store query about `tasks`, whose messages are in `shards`.
+  ## Confirms the tasks the answer reports and resends the others.
+  ## With no `shards`, any Store peer can answer.
   # TODO: confirm hash format for store query!!!
   let query = self.waku.storeQueryToAny(
     StoreQueryRequest(
       includeData: false,
-      messageHashes: batch.mapIt(it.msgHash),
-      paginationLimit: Opt.some(uint64(batch.len)),
+      messageHashes: tasks.mapIt(it.msgHash),
+      paginationLimit: Opt.some(uint64(tasks.len)),
     ),
     shards,
   )
   if not await query.withTimeout(StoreValidationQueryTimeout):
-    debug "Store validation query timed out", messageCount = batch.len
+    debug "Store validation query timed out", messageCount = tasks.len
     return
 
   let storeResp: StoreQueryResponse = query.read().valueOr:
     debug "Failed to get store validation for messages",
-      messageCount = batch.len, error = $error
+      messageCount = tasks.len, error = $error
     return
 
   # The Store peer decides which hashes its answer lists, and it can list hashes
@@ -310,7 +310,7 @@ proc checkGroupInStore(
   if storeResp.paginationCursor.isSome():
     # The answer is partial: a hash that it lacks can be on the next page.
     return
-  for task in batch:
+  for task in tasks:
     if task.msgHash notin reported and task.storeAnswerPending():
       task.storeMissed = true
       self.startResend(task)
@@ -330,13 +330,13 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
       byShard.mgetOrPut(task.pubsubTopic, @[]).add(task)
   var checks: seq[Future[void]]
   if missed.len > 0:
-    checks.add(self.checkGroupInStore(@[], missed))
+    checks.add(self.queryStoreForTasks(@[], missed))
   for group in self.waku.groupStoreShards(toSeq(byShard.keys)):
     var tasks: seq[DeliveryTask]
     for shard in group:
       tasks.add(byShard.getOrDefault(shard))
     if tasks.len > 0:
-      checks.add(self.checkGroupInStore(group, tasks))
+      checks.add(self.queryStoreForTasks(group, tasks))
   try:
     for check in checks:
       await check
