@@ -249,6 +249,10 @@ proc writePayload(
 
   return ok()
 
+proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
+  ## True when a round asked a peer for the message and it has not arrived.
+  self.pendingSet.contains(hash)
+
 proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.

@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, random, algorithm],
+  std/[sets, sequtils, random, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -2145,3 +2145,87 @@ suite "Waku Sync: transfer":
     check received == expected
 
     check clientIds.len == 0 ]#
+
+suite "Waku Sync: transfer request check":
+  var
+    receiverSwitch {.threadvar.}: Switch
+    senderSwitch {.threadvar.}: Switch
+    receiver {.threadvar.}: SyncTransfer
+    receiverArchive {.threadvar.}: WakuArchive
+    requestedMsg {.threadvar.}: WakuMessage
+
+  asyncSetup:
+    requestedMsg = fakeWakuMessage(payload = "requested")
+    let requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+    receiverSwitch = newTestSwitch()
+    senderSwitch = newTestSwitch()
+    await allFutures(receiverSwitch.start(), senderSwitch.start())
+    receiverArchive = newWakuArchive(newSqliteArchiveDriver())
+    receiver = SyncTransfer.new(
+      peerManager = PeerManager.new(receiverSwitch),
+      wakuArchive = receiverArchive,
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      localWantsRx = newAsyncQueue[PeerId](),
+      remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
+      maxMessageSize = int(DefaultMaxWakuMessageSize),
+      isRequested = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+        hash == requestedHash,
+    )
+    await receiver.start()
+    receiverSwitch.mount(receiver)
+
+  asyncTeardown:
+    await receiver.stop()
+    await allFutures(receiverSwitch.stop(), senderSwitch.stop())
+
+  asyncTest "messages that no round asked for are not archived, and the stream stays open":
+    let
+      unrequested = @[
+        fakeWakuMessage(payload = "pushed 1"),
+        fakeWakuMessage(payload = "pushed 2"),
+        fakeWakuMessage(payload = "pushed 3"),
+      ]
+      unrequestedHashes = unrequested.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+      notRequestedBefore = failureCount("not_requested")
+
+    # When a peer pushes three messages that no round asked for, then the requested one
+    let conn = await senderSwitch.dial(
+      receiverSwitch.peerInfo.peerId, receiverSwitch.peerInfo.addrs, WakuTransferCodec
+    )
+    for msg in unrequested:
+      await conn.writeLp(
+        WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+      )
+    await conn.writeLp(
+      WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: requestedMsg).encode()
+    )
+
+    # Then the receiver archives the requested one only, and counts the other three
+    checkUntilTimeout:
+      await receiverArchive.holdsMessages(@[requestedHash])
+    for hash in unrequestedHashes:
+      check not await receiverArchive.holdsMessages(@[hash])
+    check failureCount("not_requested") == notRequestedBefore + 3
+    await conn.close()
+
+  asyncTest "a stream of messages that no round asked for is reset":
+    let notRequestedBefore = failureCount("not_requested")
+
+    # When a peer pushes ten messages in a row that no round asked for
+    let conn = await senderSwitch.dial(
+      receiverSwitch.peerInfo.peerId, receiverSwitch.peerInfo.addrs, WakuTransferCodec
+    )
+    for i in 0 ..< 10:
+      let msg = fakeWakuMessage(payload = "pushed " & $i)
+      await conn.writeLp(
+        WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+      )
+
+    # Then the receiver counts them and resets the stream
+    checkUntilTimeout:
+      failureCount("not_requested") == notRequestedBefore + 10
+    let readRes = catch:
+      await conn.readLp(1024)
+    check readRes.isErr()
+    await conn.close()

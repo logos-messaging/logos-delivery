@@ -246,6 +246,33 @@ suite "Waku Store Sync - End to End":
     checkUntilTimeout:
       await nodeC.wakuArchive.holdsMessages(@[freshHash])
 
+  asyncTest "A node that holds nothing gets every message of the peer that starts the session":
+    # Given a node holding three messages, and an empty node
+    let
+      msgs = @[
+        fakeWakuMessage(@[byte 0], ts = now() - 3.seconds.nanos),
+        fakeWakuMessage(@[byte 1], ts = now() - 2.seconds.nanos),
+        fakeWakuMessage(@[byte 2], ts = now() - 1.seconds.nanos),
+      ]
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, msgs)
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.start()))
+
+    let syncInsertsBefore = insertCount(syncIngress)
+
+    # When the node that holds the messages starts the session
+    let res = await nodeA.syncWith(nodeB)
+
+    # Then the empty node learns what to accept in an extra round and archives all three
+    check res.isOk()
+    checkUntilTimeout:
+      await nodeB.wakuArchive.holdsMessages(hashes)
+    check insertCount(syncIngress) == syncInsertsBefore + 3
+
   asyncTest "The sync range is clamped to the archive's time retention":
     # Given a node whose time retention is shorter than the sync range plus jitter
     let node = newTestWakuNode(generateSecp256k1Key(), listenIp, listenPort)
