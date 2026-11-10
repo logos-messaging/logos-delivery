@@ -720,6 +720,8 @@ proc mountStoreSync*(
     needsChannel,
     maxMessageSize,
     recon.getEffectiveSyncRange(),
+    proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+      recon.isPending(hash),
   )
 
   node.wakuStoreTransfer = transfer
