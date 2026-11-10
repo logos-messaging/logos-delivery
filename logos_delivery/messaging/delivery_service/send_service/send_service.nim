@@ -14,6 +14,7 @@ import
 import logos_delivery/api/events/messaging_client_events
 import logos_delivery/api/conf/modes
 import logos_delivery/messaging/messaging_metrics
+from logos_delivery/waku/waku_store/client import FailedPeerMaxBackoff
 
 {.push raises: [].}
 
@@ -32,6 +33,11 @@ const MixWindow* = chronos.seconds(10)
 const StoreValidationWindow* = chronos.seconds(30)
   ## The default wait for a Store node to report a propagated message. The
   ## delivery window does not bound it.
+
+static:
+  # A Store peer in its longest backoff gets no Store query.
+  # That backoff must end early in this window, so a task still gets its Store queries.
+  doAssert FailedPeerMaxBackoff * 3 <= StoreValidationWindow
 
 const RetryInterval* = chronos.seconds(1)
   ## The pause between two ticks of `retryLoop`, and between two Store validation

@@ -278,6 +278,7 @@ suite "Store Client":
       # Five store peers announced the shard of the query, and one announced
       # another shard. The client has a connection to one peer of the shard
       # and to the peer of the other shard.
+      client.failedPeerInitialBackoff = ZeroDuration # the test checks the order
       let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
       let connectedStore = await newFakeStore()
       let otherShardStore = await newFakeStore()
@@ -338,9 +339,9 @@ suite "Store Client":
         connectedStore.queries == 19
         otherShardStore.queries == 0
 
-      # The four other peers of the shard fail a query, so the query gets to
-      # the last peer, which answers. That success ends its backoff. It is
-      # then the only peer of the shard that is not in a backoff.
+      # The four other peers of the shard fail, so the query gets to the last peer.
+      # That success deletes its failure record.
+      # It is then the only peer of the shard that did not fail recently.
       for store in notConnectedStores:
         store.failing = true
       check (await client.queryToAny(storeQuery)).isOk()
@@ -354,9 +355,9 @@ suite "Store Client":
         connectedStore.queries == 30
         notConnectedQueries() == otherQueries
 
-      # A backoff also ends after `failedPeerBackoff`. The four peers are then
-      # of the same rank as the connected peer again.
-      client.failedPeerBackoff = chronos.milliseconds(100)
+      # A failed peer leaves the last rank after `failedPeerRankLastPeriod`.
+      # The four peers then have the same rank as the connected peer again.
+      client.failedPeerRankLastPeriod = chronos.milliseconds(100)
       await sleepAsync(chronos.milliseconds(200))
       for _ in 0 ..< 30:
         check (await client.queryToAny(storeQuery)).isOk()
@@ -365,6 +366,7 @@ suite "Store Client":
         otherShardStore.queries == 0
 
     asyncTest "queryToAny asks a store peer with no known shards, and asks last a peer that did not answer":
+      client.failedPeerInitialBackoff = ZeroDuration # the test checks the order
       let clusterId = RelayShard.parse(DefaultPubsubTopic).get().clusterId
       let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
       let noShardsStore = await newFakeStore()
@@ -444,6 +446,7 @@ suite "Store Client":
       ## The first store peer fails after most of the timeout, and the time ends on the
       ## second store peer. The second store peer did not fail, so the next queries
       ## must still use its connection.
+      client.failedPeerInitialBackoff = ZeroDuration # the test checks the order
       let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
       let slowToFailStore = await newFakeStore()
       let secondStore = await newFakeStore()
@@ -471,6 +474,105 @@ suite "Store Client":
       check:
         slowToFailStore.queries == 1
         notConnectedStore.queries == 0
+
+    asyncTest "a store peer that failed gets no query until its backoff ends":
+      ## The backfill tries a failed query again at each peer event.
+      ## A dial at each of those events adds load to a Store node that fails.
+      let store = await newFakeStore()
+      defer:
+        await store.switch.stop()
+      clientSwitch.addStorePeer(store)
+      client.failedPeerInitialBackoff = FailedPeerMaxBackoff # longer than a slow run
+      store.failing = true
+      let first = await client.queryToAny(storeQuery)
+      check first.isErr()
+
+      # In its backoff, a query asks nobody, and it fails with the error of the failure.
+      for _ in 0 ..< 5:
+        let skipped = await client.queryToAny(storeQuery)
+        check:
+          skipped.isErr()
+          $skipped.error == $first.error
+      check store.queries == 1
+
+      # With no backoff left, the next query asks the peer.
+      client.failedPeerInitialBackoff = ZeroDuration
+      let afterBackoff = await client.queryToAny(storeQuery)
+      check afterBackoff.isErr()
+      check store.queries == 2
+
+    asyncTest "the backoff of a store peer doubles with each failure up to its maximum":
+      ## A Store node that fails for a long time must get few dials.
+      ## `SendService` checks a message for a short time, so the backoff has a maximum.
+      let store = await newFakeStore()
+      defer:
+        await store.switch.stop()
+      clientSwitch.addStorePeer(store)
+      let initialBackoff = client.failedPeerInitialBackoff
+      store.failing = true
+      var backoffs: seq[Duration]
+      for _ in 0 ..< 4:
+        # With no backoff, the next query asks the peer, and its failure counts.
+        client.failedPeerInitialBackoff = ZeroDuration
+        let failed = await client.queryToAny(storeQuery)
+        check failed.isErr()
+        client.failedPeerInitialBackoff = initialBackoff
+        backoffs.add(client.backoffOf(store.switch.peerInfo.peerId))
+      check:
+        store.queries == 4
+        backoffs ==
+          @[
+            initialBackoff,
+            initialBackoff * 2,
+            FailedPeerMaxBackoff,
+            FailedPeerMaxBackoff,
+          ]
+
+    asyncTest "failed queries at the same time count as one failure of a store peer":
+      ## `SendService` asks a Store node about each shard at the same time.
+      ## When the node fails, those queries must not make its backoff longer.
+      let store = await newFakeStore()
+      defer:
+        await store.switch.stop()
+      clientSwitch.addStorePeer(store)
+      await clientSwitch.connectTo(store)
+      store.failing = true
+      # The peer answers when it has all three queries, so the failures come together.
+      store.allowAnswer = newFuture[void]("allow answer")
+      var atTheSameTime: seq[Future[StoreQueryResult]]
+      for _ in 0 ..< 3:
+        atTheSameTime.add(client.queryToAny(storeQuery))
+      checkUntilTimeout:
+        store.queries == 3
+      store.allowAnswer.complete()
+      for query in atTheSameTime:
+        let response = await query
+        check response.isErr()
+      check:
+        client.backoffOf(store.switch.peerInfo.peerId) == client.failedPeerInitialBackoff
+
+    asyncTest "a store peer that failed at the dial gets a query when it has a connection":
+      ## A Store node at its connection limit refuses a dial, and it connects later.
+      ## The backfill must get its messages then, and not after the backoff.
+      let store = await newFakeStore()
+      defer:
+        await store.switch.stop()
+      let unreachable = RemotePeerInfo.init(
+        store.switch.peerInfo.peerId, @[MultiAddress.init("/ip4/127.0.0.1/tcp/1").get()]
+      )
+      unreachable.protocols = @[WakuStoreCodec]
+      clientSwitch.peerStore.addPeer(unreachable)
+      client.failedPeerInitialBackoff = FailedPeerMaxBackoff # longer than a slow run
+      let refused = await client.queryToAny(storeQuery)
+      check:
+        refused.isErr()
+        refused.error.kind == ErrorCode.PEER_DIAL_FAILURE
+
+      await clientSwitch.connectTo(store)
+      let afterConnect = await client.queryToAny(storeQuery)
+      check:
+        afterConnect.isOk()
+        store.queries == 1
 
     asyncTest "queryToAny asks only the exclusive store peers":
       let peerManager = PeerManager.new(clientSwitch)
