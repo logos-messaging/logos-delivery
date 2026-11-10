@@ -131,10 +131,7 @@ proc canHaveShard(peer: RemotePeerInfo, shard: RelayShard): bool =
   return peer.getShards().len == 0 or peer.supportsShard(shard.clusterId, shard.shardId)
 
 proc canHaveEachShard(peer: RemotePeerInfo, shards: seq[RelayShard]): bool =
-  for shard in shards:
-    if not peer.canHaveShard(shard):
-      return false
-  return true
+  return shards.allIt(peer.canHaveShard(it))
 
 proc toRelayShards(shards: seq[PubsubTopic]): seq[RelayShard] =
   ## Empty when a topic of `shards` is not a shard topic.
