@@ -235,31 +235,31 @@ proc logosdelivery_start_node(
 ): Future[Result[string, string]] {.ffi.} =
   # REST belongs to the call that starts a stopped node. A second `mount`
   # replaces the messaging REST events without stopping their listeners.
-  if self.lifecycleState != LifecycleState.Stopped:
-    (await self.start()).isOkOr:
-      return err("failed to start: " & error)
-    return ok("")
+  let startsStoppedNode = self.lifecycleState == LifecycleState.Stopped
 
   # REST answers health probes while the node boots, and gets its protocol
   # routes once the node runs.
   let rest = self.restOf()
-  rest.start(self).isOkOr:
-    chronicles.error "START_NODE failed to start REST", err = error
-    return err("failed to start REST: " & error)
+  if startsStoppedNode:
+    rest.start(self).isOkOr:
+      chronicles.error "START_NODE failed to start REST", err = error
+      return err("failed to start REST: " & error)
 
   (await self.start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
-    await rest.stop(self)
+    if startsStoppedNode:
+      await rest.stop(self)
     return err("failed to start: " & errMsg)
 
-  rest.mount(self).isOkOr:
-    let mountErr = error
-    chronicles.error "START_NODE failed to mount REST", err = mountErr
-    (await self.stopNode()).isOkOr:
-      chronicles.error "START_NODE failed to stop after a failed REST mount",
-        err = error
-    return err("failed to mount REST: " & mountErr)
+  if startsStoppedNode:
+    rest.mount(self).isOkOr:
+      let mountErr = error
+      chronicles.error "START_NODE failed to mount REST", err = mountErr
+      (await self.stopNode()).isOkOr:
+        chronicles.error "START_NODE failed to stop after a failed REST mount",
+          err = error
+      return err("failed to mount REST: " & mountErr)
 
   return ok("")
 
