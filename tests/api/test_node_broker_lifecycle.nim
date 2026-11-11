@@ -46,6 +46,16 @@ proc holdMessagingSubscribe(ctx: BrokerContext) =
   )
   doAssert foreign.isOk()
 
+proc failingStopPlugin(): RlnPlugin =
+  ## The transport stop awaits the RLN plugin stop, so this plugin fails it.
+  RlnPlugin(
+    name: "failing-stop",
+    stop: proc(): Future[void] {.gcsafe, raises: [].} =
+      let fut = newFuture[void]("failing-stop")
+      fut.fail(newException(CatchableError, "stop failed"))
+      fut,
+  )
+
 template present(r: untyped): bool =
   r.isSome()
 
@@ -444,9 +454,52 @@ suite "LogosDelivery - broker lifecycle":
         (await node.stop()).isErr()
         node.lifecycleState == LifecycleState.Running
         node.isRunning()
+        (await node.start()).isErr()
 
       node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
       check:
         (await node.stop()).isOk()
         node.lifecycleState == LifecycleState.Stopped
         not node.isRunning()
+
+  asyncTest "a LogosDelivery built without the stack builder starts and stops":
+    lockNewGlobalBrokerContext:
+      let built = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      let node = LogosDelivery(waku: built.waku, messagingClient: built.messagingClient)
+
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+      check node.lifecycleState == LifecycleState.Running
+
+      (await node.stop()).isOkOr:
+        raiseAssert "stop: " & error
+      check node.lifecycleState == LifecycleState.Stopped
+
+  asyncTest "a start after a failed rollback returns an error":
+    ## The messaging start fails, and the transport stop of the rollback fails
+    ## too, so the transport is still marked as started.
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      holdMessagingSubscribe(ctx)
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
+
+      check:
+        (await node.start()).isErr()
+        node.lifecycleState == LifecycleState.Stopped
+        node.waku.node.started
+
+      MessagingSubscribe.clearProvider(ctx)
+      check:
+        (await node.start()).isErr()
+        not node.messagingClient.started
+
+      # A stop retries the transport stop, and the node then starts again.
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
+        not node.isRunning()
+        (await node.start()).isOk()
+        (await node.stop()).isOk()

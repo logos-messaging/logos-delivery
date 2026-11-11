@@ -111,7 +111,6 @@ proc buildLogosDeliveryStack(
       waku: waku,
       messagingClient: messagingClient,
       reliableChannelManager: reliableChannelManager,
-      lifecycleLock: newAsyncLock(),
     )
   )
 
@@ -232,6 +231,12 @@ proc new*(
 func lifecycleState*(self: LogosDelivery): LifecycleState =
   self.state
 
+proc lifecycle(self: LogosDelivery): AsyncLock =
+  ## Made on first use, so that a zero-initialised `LogosDelivery` is valid.
+  if self.lifecycleLock.isNil():
+    self.lifecycleLock = newAsyncLock()
+  self.lifecycleLock
+
 func isRunning*(self: LogosDelivery): bool =
   ## True while a layer still holds what `stop` releases; the channel manager
   ## needs no test, its `stop` is already a no-op when empty.
@@ -246,30 +251,38 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## during a start or a stop returns an error. A start that fails stops the
   ## transport and messaging layers. The channel layer cannot fail, and its
   ## `stop` closes the channels made before `start`, so the rollback does not
-  ## stop it.
+  ## stop it. After a failed stop, a start returns an error while the messaging
+  ## layer is down. A start on a stopped node with a layer still up returns an
+  ## error too.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
   case self.state
   of LifecycleState.Running:
+    # A failed stop keeps `Running` with the messaging layer already stopped.
+    if not self.messagingClient.isNil() and not self.messagingClient.started:
+      return err("cannot start a node with one layer already up")
     return ok()
   of LifecycleState.Starting:
     return err("cannot start while a start is in progress")
   of LifecycleState.Stopping:
     return err("cannot start while a stop is in progress")
   of LifecycleState.Stopped:
-    discard
+    # A layer can be up on a `Stopped` node: after a failed rollback, or when
+    # the layer was started on its own.
+    if self.isRunning():
+      return err("cannot start a node with one layer already up")
 
   # A start does not wait for the lock. On a stopped node, only a stop that
   # waits to run holds it.
-  if not self.lifecycleLock.tryAcquire():
+  if not self.lifecycle.tryAcquire():
     return err("cannot start while a stop is in progress")
   self.state = LifecycleState.Starting
 
   var startSucceeded = false
   defer:
     self.state = if startSucceeded: LifecycleState.Running else: LifecycleState.Stopped
-    self.lifecycleLock.release2()
+    self.lifecycle.release2()
 
   # Waku.start stops the node when it fails after the node started.
   (await self.waku.start()).isOkOr:
@@ -298,14 +311,14 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
   ## A stop during a start waits for the start to end, then stops. The layers
   ## below the channels are stopped only when one of them runs.
-  await self.lifecycleLock.acquire()
+  await self.lifecycle.acquire()
   self.state = LifecycleState.Stopping
   var stopSucceeded = false
   defer:
-    # After a failed stop the transport can still be up: the next stop
-    # retries, and a start stays a no-op.
+    # After a failed stop the transport can still be up, so the next stop
+    # retries. `start` refuses the node while its messaging layer is down.
     self.state = if stopSucceeded: LifecycleState.Stopped else: LifecycleState.Running
-    self.lifecycleLock.release2()
+    self.lifecycle.release2()
 
   if not self.reliableChannelManager.isNil():
     await self.reliableChannelManager.stop()
