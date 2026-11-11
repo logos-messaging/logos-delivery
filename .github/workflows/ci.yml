@@ -605,6 +605,17 @@ jobs:
           path: build/compile-warnings.txt
           retention-days: 1
 
+      - name: Install Qt 5
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y qtbase5-dev qtbase5-dev-tools qtdeclarative5-dev
+
+      # One make call: liblogosdelivery is phony, so each call would rebuild it.
+      # Qt only on Linux, where apt provides Qt 5.
+      - name: Build FFI and bindings examples
+        env:
+          MOC: /usr/lib/qt5/bin/moc
+        run: make V=1 -j1 ffi-examples bindings-examples ${{ runner.os == 'Linux' && 'qtwaku_example' || '' }}
+
       - name: Audit installed deps
         run: make audit-deps
 

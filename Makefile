@@ -107,12 +107,12 @@ endif
 ## Main ##
 ##########
 # The Makefile automatically bootstraps dependency setup when needed for build and test targets.
-.PHONY: all test clean examples ffi-examples deps nimble install-nimble print-nimble-path print-nim-path
+.PHONY: all test clean examples ffi-examples bindings-examples gowaku_example rustwaku_example qtwaku_example pywaku_example nodejswaku deps nimble install-nimble print-nimble-path print-nim-path
 
 # default target
 all: | logosdeliverynode liblogosdelivery
 
-examples: | example2 chat2 chat2bridge
+examples: | example2 chat2 chat2bridge chat2mix lightpushwithmix
 
 ffi-examples: | cwaku_example cppwaku_example logosdelivery_example
 
@@ -632,9 +632,32 @@ cppwaku_example: | build liblogosdelivery tinycbor
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
-nodejswaku: | build deps
+# binding.gyp finds TinyCBOR under nimbledeps/ itself.
+nodejswaku: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
-		node-gyp build --directory=examples/nodejs/
+		npx --yes node-gyp rebuild --directory=examples/nodejs/
+
+gowaku_example: | build liblogosdelivery tinycbor
+	echo -e $(BUILD_MSG) "build/$@" && \
+		CGO_CFLAGS="-I$(TINYCBOR_VENDOR_DIR)" CGO_LDFLAGS="$(CURDIR)/$(TINYCBOR_LIB)" \
+		go build -o "build/$@" ./examples/golang/waku.go
+
+rustwaku_example: | build liblogosdelivery
+	echo -e $(BUILD_MSG) "build/$@" && \
+		cd examples/rust && cargo build && cp target/debug/waku-rust-simple-example ../../build/$@
+
+# Needs Qt 5 (qtdeclarative5-dev on Ubuntu) and moc on PATH.
+qtwaku_example: | build liblogosdelivery tinycbor
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(MAKE) -C examples/qt && cp examples/qt/main-qt build/$@
+
+# ctypes binds by name at run time, so only the syntax can be checked here.
+pywaku_example:
+	python3 -m py_compile examples/python/waku.py
+
+# The examples in other languages that bind liblogosdelivery. Qt is left out:
+# it needs a Qt 5 install.
+bindings-examples: | gowaku_example rustwaku_example nodejswaku pywaku_example
 
 #####################
 ## Mobile Bindings ##
