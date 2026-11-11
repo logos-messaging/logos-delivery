@@ -587,7 +587,7 @@ suite "Waku Sync: reconciliation":
         ],
       )
 
-    let processed = server.preProcessPayload(payload, lowerBound).get()
+    let processed = server.preProcessPayload(payload, lowerBound)
 
     check:
       processed.ranges ==
@@ -625,7 +625,7 @@ suite "Waku Sync: reconciliation":
         ],
       )
 
-    let processed = server.preProcessPayload(payload, lowerBound).get()
+    let processed = server.preProcessPayload(payload, lowerBound)
 
     check:
       processed.ranges ==
@@ -695,7 +695,7 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((serverPeerInfo.peerId, hash3)) == true
       remoteNeeds.contains((clientPeerInfo.peerId, hash2)) == true
 
-  asyncTest "sync 2 nodes different shards":
+  asyncTest "sync 2 nodes with different shard sets fails and exchanges nothing":
     server = await newTestWakuRecon(
       serverSwitch,
       @[1'u16, 2, 3, 4],
@@ -742,14 +742,12 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.len == 0
 
     var syncRes = await client.storeSynchronization(Opt.some(serverPeerInfo))
-    assert syncRes.isOk(), $syncRes.error
 
     check:
-      remoteNeeds.len == 2
-      remoteNeeds.contains((clientPeerInfo.peerId, hash3)) == true
-      remoteNeeds.contains((serverPeerInfo.peerId, hash4)) == true
+      syncRes.isErr()
+      remoteNeeds.len == 0
 
-  asyncTest "two nodes with no message on their shared shards exchange nothing":
+  asyncTest "two nodes with the same shards in a different order sync their differences":
     server = await newTestWakuRecon(
       serverSwitch,
       @[1'u16, 2, 3, 4],
@@ -761,7 +759,7 @@ suite "Waku Sync: reconciliation":
     )
     client = await newTestWakuRecon(
       clientSwitch,
-      @[3'u16, 4, 5, 6],
+      @[4'u16, 3, 2, 1],
       DefaultSyncRange,
       idsChannel,
       localWants,
@@ -769,21 +767,22 @@ suite "Waku Sync: reconciliation":
       cluster = 2,
     )
 
-    # Each holds one message on a shard the other does not share.
     let
       serverMsg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       clientMsg = fakeWakuMessage(ts = now() + 1, contentTopic = DefaultContentTopic)
       serverHash = computeMessageHash("/waku/2/rs/2/1", serverMsg)
-      clientHash = computeMessageHash("/waku/2/rs/2/5", clientMsg)
+      clientHash = computeMessageHash("/waku/2/rs/2/4", clientMsg)
 
     server.messageIngress(serverHash, "/waku/2/rs/2/1", serverMsg)
-    client.messageIngress(clientHash, "/waku/2/rs/2/5", clientMsg)
+    client.messageIngress(clientHash, "/waku/2/rs/2/4", clientMsg)
 
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
 
     check:
       res.isOk()
-      remoteNeeds.len == 0
+      remoteNeeds.len == 2
+      remoteNeeds.contains((clientPeerInfo.peerId, serverHash)) == true
+      remoteNeeds.contains((serverPeerInfo.peerId, clientHash)) == true
 
   asyncTest "sync 2 nodes on different clusters fails and exchanges nothing":
     server = await newTestWakuRecon(
@@ -855,7 +854,7 @@ suite "Waku Sync: reconciliation":
       res.isErr()
       remoteNeeds.len == 0
 
-  asyncTest "a reply advertises the shards both peers share":
+  asyncTest "a peer with a different shard set gets an empty payload carrying the responder's own cluster and shards":
     server = await newTestWakuRecon(
       serverSwitch,
       @[1'u16, 2, 3],
@@ -892,13 +891,107 @@ suite "Waku Sync: reconciliation":
     )
     await conn.writeLp(payload.deltaEncode())
 
-    # Then the reply advertises the shards its ranges cover, 2 and 3
+    # Then the reply has no ranges and carries the server's cluster and shards
     let reply = RangesData.deltaDecode(await conn.readLp(64 * 1024))
     check:
       reply.isOk()
       reply.get().cluster == 2
-      reply.get().shards.sorted() == @[2'u16, 3]
+      reply.get().shards.sorted() == @[1'u16, 2, 3]
+      reply.get().ranges.len == 0
     await conn.close()
+
+  asyncTest "a reply with ranges for another shard set fails the session":
+    server = await newTestWakuRecon(
+      serverSwitch,
+      @[1'u16, 2, 3],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 2,
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[1'u16, 2, 3],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 2,
+    )
+
+    # A peer that answers for the shards that it shares with the client, 2 and 3.
+    var clientAnswer = Opt.none(RangesData)
+    proc answerForSharedShards(
+        conn: Connection, proto: string
+    ) {.async: (raises: [CancelledError]).} =
+      try:
+        let request = RangesData.deltaDecode(await conn.readLp(64 * 1024)).get()
+        let reply = RangesData(
+          cluster: request.cluster,
+          shards: @[2'u16, 3],
+          ranges: request.ranges,
+          fingerprints: @[FullFingerprint],
+        )
+        await conn.writeLp(reply.deltaEncode())
+        clientAnswer =
+          Opt.some(RangesData.deltaDecode(await conn.readLp(64 * 1024)).get())
+      except CancelledError as exc:
+        raise exc
+      except CatchableError:
+        discard
+
+    let peerSwitch = newTestSwitch()
+    peerSwitch.mount(LPProtocol.new(@[WakuReconciliationCodec], answerForSharedShards))
+    await peerSwitch.start()
+
+    let res = await client.storeSynchronization(
+      Opt.some(peerSwitch.peerInfo.toRemotePeerInfo())
+    )
+
+    # Then the session fails, and the client aborts with its own cluster and shards
+    check res.isErr()
+    checkUntilTimeout:
+      clientAnswer.isSome()
+    await peerSwitch.stop()
+    let answer = clientAnswer.get(RangesData())
+    check:
+      answer.cluster == 2
+      answer.shards.sorted() == @[1'u16, 2, 3]
+      answer.ranges.len == 0
+      remoteNeeds.len == 0
+
+  asyncTest "a node with no shards does not sync with a node that has shards":
+    server = await newTestWakuRecon(
+      serverSwitch,
+      @[1'u16, 2],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 2,
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 2,
+    )
+
+    let
+      serverMsg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      serverHash = computeMessageHash("/waku/2/rs/2/1", serverMsg)
+
+    server.messageIngress(serverHash, "/waku/2/rs/2/1", serverMsg)
+
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+
+    check:
+      res.isErr()
+      remoteNeeds.len == 0
 
   asyncTest "a peer on another cluster gets a reply with only the cluster and the shards":
     server = await newTestWakuRecon(
