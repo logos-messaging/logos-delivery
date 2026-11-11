@@ -163,6 +163,10 @@ proc messageIngress*(
 ) =
   self.insertConfirmed(id, pubsubTopic, contentTopic)
 
+func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
+  ## The match of WAKU-SYNC: the same cluster and the same set of shards.
+  payload.cluster == self.cluster and payload.shards.toHashSet() == self.shards
+
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
 ): Opt[RangesData] =
@@ -170,19 +174,8 @@ proc preProcessPayload*(
 
   var payload = payload
 
-  if payload.cluster != self.cluster:
+  if not self.matchesScope(payload):
     return Opt.none(RangesData)
-
-  # Always use the smallest shard scope possible
-  if payload.shards.len > 0 and self.shards.len > 0:
-    let shardIntersection = self.shards * payload.shards.toHashSet()
-
-    if shardIntersection.len < 1:
-      return Opt.none(RangesData)
-
-    payload.shards = shardIntersection.toSeq()
-  elif self.shards.len > 0:
-    payload.shards = self.shards.toSeq()
 
   # for non skip ranges check if they happen before any of our ranges
   # convert to skip range before processing.
@@ -223,14 +216,9 @@ func isFinished(payload: RangesData): bool =
   payload.ranges.len == 0 or payload.ranges.allIt(it[1] == RangeType.Skip)
 
 func isOutOfScope(self: SyncReconciliation, payload: RangesData): bool =
-  ## A peer on another cluster or with no shared shard answers with its header
+  ## A peer on another cluster or with another shard set answers with its header
   ## alone, which would otherwise end the session like one that is in sync.
-  payload.ranges.len == 0 and (
-    payload.cluster != self.cluster or (
-      self.shards.len > 0 and payload.shards.len > 0 and
-      (self.shards * payload.shards.toHashSet()).len == 0
-    )
-  )
+  payload.ranges.len == 0 and not self.matchesScope(payload)
 
 proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.} =
   ## Closes the connection on error.
@@ -309,13 +297,10 @@ proc reconcileRound(
     hashToSend: seq[WakuMessageHash]
     sendPayload: RangesData
     diffs = 0
-    # the scope the reply's ranges cover; ours when there is none
-    replyShards = self.shards.toSeq()
 
   let preProcessedPayloadRes = self.preProcessPayload(recvPayload, lowerBound)
   if preProcessedPayloadRes.isSome():
     let preProcessedPayload = preProcessedPayloadRes.get()
-    replyShards = preProcessedPayload.shards
 
     trace "pre-processed payload",
       local = self.peerManager.switch.peerInfo.peerId,
@@ -338,10 +323,10 @@ proc reconcileRound(
       local_cluster = self.cluster,
       local_shards = self.shards
 
-  # On another cluster or with no shared shard, the reply has no ranges: the
+  # On another cluster or with another shard set, the reply has no ranges: the
   # header alone is the empty payload of WAKU-SYNC.
   sendPayload.cluster = self.cluster
-  sendPayload.shards = replyShards
+  sendPayload.shards = self.shards.toSeq()
 
   return (sendPayload, diffs)
 
