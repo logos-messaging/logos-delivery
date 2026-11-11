@@ -13,7 +13,6 @@ import com.facebook.react.bridge.WritableNativeArray
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.gson.Gson
 import java.math.BigInteger
-import org.json.JSONArray
 
 class EventCallbackManager {
   companion object {
@@ -35,12 +34,10 @@ class EventCallbackManager {
   }
 }
 
+// The library answers a comma-separated list.
 fun convertStringToArray(stringArray: String): WritableNativeArray {
   val writableArray = WritableNativeArray()
-  val jsonArray = JSONArray(stringArray)
-  for (i in 0 until jsonArray.length()) {
-    writableArray.pushString(jsonArray.getString(i))
-  }
+  stringArray.split(",").filter { it.isNotEmpty() }.forEach { writableArray.pushString(it) }
   return writableArray
 }
 
