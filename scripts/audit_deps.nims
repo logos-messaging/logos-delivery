@@ -1,7 +1,7 @@
 # Checks the installed packages against nimble.lock: every lock entry must be
 # present at its vcsRevision, and nothing else may be installed. `nim` is
 # skipped: Nimble installs it as a binary, not a git checkout. The Nim running
-# the script must report the locked version. The script reads files, writes
+# the script must report the locked version, when the lock pins one. The script reads files, writes
 # nothing and exits 1 on any problem.
 #
 #   make audit-deps
@@ -77,7 +77,12 @@ proc installedMismatches(lock: JsonNode, pkgs2: string, ok: var int, total: var 
   for p in inst:
     dirs.add(p.dir)
   dirs.sort()
+  # A lock without a nim entry lets Nimble pick the newest Nim `requires`
+  # allows (CI's nim-latest config), so that Nim's directory is not an extra.
+  let unlockedNim = not lock.hasKey("nim")
   for d in dirs:
+    if unlockedNim and d.startsWith("nim-") and d.len > 4 and d[4] in Digits:
+      continue
     if d notin matchedDirs:
       result.add(d & ": installed but not in nimble.lock")
   metaless.sort()
@@ -99,7 +104,7 @@ proc main() =
   # The Nim running this script must be the locked one.
   let lockedNim = lock{"nim", "version"}.getStr()
   if lockedNim.len == 0:
-    bad.add("nimble.lock has no nim entry")
+    echo "audit: nimble.lock pins no Nim, running " & NimVersion
   elif NimVersion != lockedNim:
     bad.add("nim: lock has " & lockedNim & ", running " & NimVersion)
 
