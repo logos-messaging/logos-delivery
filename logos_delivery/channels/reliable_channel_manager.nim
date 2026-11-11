@@ -9,7 +9,6 @@ import std/tables
 import results
 import chronos
 import chronicles
-import stew/byteutils
 
 import brokers/broker_context
 
