@@ -655,6 +655,55 @@ jobs:
             }" \
             "$DISCORD_WEBHOOK_URL"
 
+  # The React Native example's JNI module, against the arm64 library.
+  build-android-example:
+    if: ${{ inputs.full }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Cache cross
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/cross
+          key: ${{ runner.os }}-cross-${{ hashFiles('scripts/build_rln_android.sh') }}
+
+      - name: Install nimble deps
+        uses: ./.github/actions/nimble-deps
+        with:
+          # See build-android: the NDK compiler rewrites the nimbledeps archives.
+          cache: 'false'
+
+      - name: Build the Android example
+        # -j1: see the build job.
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: make V=1 -j1 android_example
+
+  # The SwiftUI example, for the simulator. There is no iOS librln.
+  build-ios-example:
+    if: ${{ inputs.full }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install nimble deps
+        uses: ./.github/actions/nimble-deps
+
+      - name: Build the iOS example
+        # -j1: see the build job.
+        run: make V=1 -j1 DISABLE_RLN=true ios_example
+
   # RLN end-to-end against the simulator. Defaults from tests/simulator/rln-sim.env.
   tests-e2e-rln-simulator:
     needs: build-docker-image

@@ -663,6 +663,7 @@ bindings-examples: | gowaku_example rustwaku_example nodejswaku pywaku_example
 ## Mobile Bindings ##
 #####################
 .PHONY: liblogosdelivery-android \
+		android_example \
 		liblogosdelivery-android-precheck \
 		liblogosdelivery-android-arm64 \
 		liblogosdelivery-android-amd64 \
@@ -737,10 +738,23 @@ liblogosdelivery-android:
 	$(MAKE) liblogosdelivery-android-arm64
 	$(MAKE) liblogosdelivery-android-x86
 
+# Builds the React Native example's JNI module for arm64 only: the Gradle app
+# around it is not built here.
+ANDROID_EXAMPLE_DIR := examples/mobile/android/app/src/main
+android_example: | liblogosdelivery-android-arm64
+	mkdir -p $(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a
+	cp build/android/arm64-v8a/liblogosdelivery.so $(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a/
+	"$(ANDROID_NDK_HOME)/ndk-build" -C $(ANDROID_EXAMPLE_DIR) APP_ABI=arm64-v8a \
+		APP_PLATFORM=android-$(ANDROID_TARGET) TINYCBOR_DIR="$(TINYCBOR_VENDOR_DIR)" \
+		LOGOSDELIVERY_INCLUDE=$(CURDIR)/build/android/arm64-v8a \
+		NDK_OUT=$(CURDIR)/build/android/example/obj NDK_LIBS_OUT=$(CURDIR)/build/android/example/libs
+
 #################
 ## iOS Bindings #
 #################
 .PHONY: liblogosdelivery-ios-precheck \
+		tinycbor-ios-simulator \
+		ios_example \
 		liblogosdelivery-ios-device \
 		liblogosdelivery-ios-simulator \
 		liblogosdelivery-ios
@@ -786,6 +800,29 @@ liblogosdelivery-ios-simulator: | liblogosdelivery-ios-precheck build-deps build
 liblogosdelivery-ios:
 	$(MAKE) liblogosdelivery-ios-device
 	$(MAKE) liblogosdelivery-ios-simulator
+
+# The example's Xcode project finds the library, its headers and TinyCBOR in
+# build/ios/iphonesimulator-arm64, so TinyCBOR is built for that target too.
+IOS_SIM_DIR := build/ios/iphonesimulator-arm64
+IOS_SIM_CC = xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=$(IOS_DEPLOYMENT_TARGET)
+
+tinycbor-ios-simulator: | build-deps
+	@test -f "$(TINYCBOR_VENDOR_DIR)/tinycbor/cbor.h" || \
+		{ echo "No vendored TinyCBOR in the ffi package under nimbledeps/pkgs2/ -- run 'make build-deps' first" >&2; exit 1; }
+	mkdir -p $(IOS_SIM_DIR)/tinycbor-obj $(IOS_SIM_DIR)/tinycbor
+	$(foreach src,$(TINYCBOR_SRCS),$(IOS_SIM_CC) -c -O2 -std=gnu99 -I"$(TINYCBOR_VENDOR_DIR)/tinycbor" \
+		"$(TINYCBOR_VENDOR_DIR)/tinycbor/$(src)" -o $(IOS_SIM_DIR)/tinycbor-obj/$(src:.c=.o) &&) true
+	rm -f $(IOS_SIM_DIR)/libtinycbor.a
+	xcrun ar rcs $(IOS_SIM_DIR)/libtinycbor.a $(TINYCBOR_SRCS:%.c=$(IOS_SIM_DIR)/tinycbor-obj/%.o)
+	cp "$(TINYCBOR_VENDOR_DIR)"/tinycbor/*.h $(IOS_SIM_DIR)/tinycbor/
+
+# A static library leaves Leopard-RS in its own archive, and librln to the
+# app: run it as `make DISABLE_RLN=true ios_example`, there is no iOS librln.
+ios_example: | liblogosdelivery-ios-simulator tinycbor-ios-simulator
+	cp $(IOS_SIM_DIR)/nimcache/vendor_leopard/liblibleopard.a $(IOS_SIM_DIR)/libleopard.a
+	xcodebuild -project examples/ios/WakuExample.xcodeproj -target WakuExample \
+		-sdk iphonesimulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
+		SYMROOT=$(CURDIR)/build/ios/xcode build
 
 ###################
 # Release Targets #
