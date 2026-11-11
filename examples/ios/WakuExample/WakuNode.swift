@@ -141,7 +141,7 @@ actor WakuActor {
         @convention(c) (Int32, UnsafePointer<UnsafePointer<CChar>?>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
             ret, reply, errMsg, userData in
             guard let userData = userData else { return }
-            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeRetainedValue()
             let success = (ret == RET_OK)
             let text = reply?.pointee ?? errMsg
             context.resumeOnce(returning: (success, text.map { String(cString: $0) }))
@@ -152,7 +152,7 @@ actor WakuActor {
         @convention(c) (Int32, UnsafeMutablePointer<LogosDeliveryCtx>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
             ret, newCtx, errMsg, userData in
             guard let userData = userData else { return }
-            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeRetainedValue()
             context.createdCtx = newCtx
             context.resumeOnce(returning: (ret == RET_OK, errMsg.map { String(cString: $0) }))
         }
@@ -336,9 +336,9 @@ actor WakuActor {
             _ = config.withCString { configPtr in
                 logosdelivery_ctx_create(configPtr, WakuActor.createCallback, userDataPtr)
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+            // The callback releases userDataPtr: a late reply must still find it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
                 callbackCtx.resumeOnce(returning: (false, "Timeout"))
-                Unmanaged<CallbackContext>.fromOpaque(userDataPtr).release()
             }
         }
         let createResult = (ctx: callbackCtx.createdCtx, success: created.success, result: created.result)
@@ -586,13 +586,13 @@ actor WakuActor {
             work(userDataPtr)
 
             // Set a timeout to avoid hanging forever
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+            // The callback releases userDataPtr: a late reply must still find it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
                 // Try to resume with timeout - will be ignored if callback already resumed
                 let didTimeout = context.resumeOnce(returning: (false, "Timeout"))
                 if didTimeout {
                     print("[WakuActor] Call timed out")
                 }
-                Unmanaged<CallbackContext>.fromOpaque(userDataPtr).release()
             }
         }
     }
