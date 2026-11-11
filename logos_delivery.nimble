@@ -19,7 +19,7 @@ const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
 ### Dependencies
-requires "nim == 2.2.6",
+requires "nim == 2.2.12",
   # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
   # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
   # solver keeps the name node on the newest tag.
@@ -134,7 +134,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  selfExec "c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  selfExec "c --out:build/" & filepath & ".bin --mm:orc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -143,7 +143,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  selfExec "c --out:build/" & name & " --mm:orc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -172,11 +172,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
 
   if `type` == "static":
     selfExec "c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
     selfExec "c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:lib --opt:speed --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
@@ -317,7 +317,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
 
   let rln = if "disable_rln" in getNimParams(): "" else: " --passL:-lrln"
   selfExec "c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:orc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & rln & " --passL:-llog --cpu:" & cpu & " --nimcache:" & outDir & "/nimcache --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK -d:metrics" & toolchainParams & libFeatureFlags & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
   copyToLibOut outDir / "liblogosdelivery.so"
@@ -370,7 +370,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
       " --app:staticlib --out:" & nimLib &
-      " --noMain --mm:refc" &
+      " --noMain --mm:orc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" & libFeatureFlags &
       " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
