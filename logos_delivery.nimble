@@ -17,6 +17,7 @@ const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
 ### Dependencies
+# Only Nim 2.2.6 is tested; newer releases are accepted for callers that pin their own.
 requires "nim >= 2.2.6",
   # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
   # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
