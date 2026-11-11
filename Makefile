@@ -743,7 +743,8 @@ liblogosdelivery-android:
 ANDROID_EXAMPLE_DIR := examples/mobile/android/app/src/main
 android_example: | liblogosdelivery-android-arm64
 	mkdir -p $(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a
-	cp build/android/arm64-v8a/liblogosdelivery.so $(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a/
+	cp build/android/arm64-v8a/liblogosdelivery.so build/android/arm64-v8a/librln.so \
+		$(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a/
 	"$(ANDROID_NDK_HOME)/ndk-build" -C $(ANDROID_EXAMPLE_DIR) APP_ABI=arm64-v8a \
 		APP_PLATFORM=android-$(ANDROID_TARGET) TINYCBOR_DIR="$(TINYCBOR_VENDOR_DIR)" \
 		LOGOSDELIVERY_INCLUDE=$(CURDIR)/build/android/arm64-v8a \

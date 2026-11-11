@@ -10,7 +10,7 @@ class MainActivity : ReactActivity() {
     companion object {
         init {
             System.loadLibrary("rln")
-            System.loadLibrary("waku")
+            System.loadLibrary("logosdelivery")
             System.loadLibrary("waku_jni");
         }
     }
