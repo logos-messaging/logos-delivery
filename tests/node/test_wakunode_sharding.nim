@@ -1372,3 +1372,12 @@ suite "Sharding":
           archiveMessages1[0 ..< 1]
         queryResponse2.get().messages.mapIt(it.message.get()) ==
           archiveMessages2[0 ..< 1]
+
+suite "Waku Node - mount auto sharding with no shards":
+  test "mountAutoSharding rejects an empty shard list":
+    let node = newTestWakuNode(generateSecp256k1Key(), listenIp, listenPort)
+
+    check:
+      node.mountAutoSharding(DefaultClusterId, 0'u32).isErr()
+      node.mountAutoSharding(DefaultClusterId, newSeq[uint16]()).isErr()
+      node.wakuAutoSharding.isNone()
