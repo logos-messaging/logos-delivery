@@ -29,8 +29,8 @@ import ffi/cbor_serial
 const
   RetOk = 0
   RetStaleWarn = 3
-  ReverseAccepted = 0
-  ReverseInvalidCtx = 1
+  ReverseAccepted = 0 ## NIMFFI_RET_OK: reverse calls share the RET_* codes
+  ReverseInvalidCtx = 6 ## NIMFFI_RET_INVALID_CTX
   EmptyReq = [0xa0'u8] ## a parameterless request: an empty CBOR map
   SdWires = [
     "sd_start", "sd_stop", "sd_lookup", "sd_random_lookup", "sd_start_advertising",
