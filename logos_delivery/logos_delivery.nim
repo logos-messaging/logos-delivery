@@ -253,22 +253,20 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## during a start or a stop returns an error. A start that fails stops the
   ## transport and messaging layers. The channel layer cannot fail, and its
   ## `stop` closes the channels made before `start`, so the rollback does not
-  ## stop it. After a failed stop, a start returns an error while the messaging
-  ## layer is down. A start on a stopped node with a layer still up returns an
+  ## stop it. After a failed stop, a start returns an error until a stop
+  ## succeeds. A start on a stopped node with a layer still up returns an
   ## error too.
   if self.waku.isNil():
     return err("Waku node is not initialized")
 
   case self.state
   of LifecycleState.Running:
-    # A failed stop keeps `Running` with the messaging layer already stopped.
-    if not self.messagingClient.isNil() and not self.messagingClient.started:
-      return err("cannot start a node with one layer already up")
     return ok()
   of LifecycleState.Starting:
     return err("cannot start while a start is in progress")
   of LifecycleState.Stopping:
-    return err("cannot start while a stop is in progress")
+    # A failed stop also leaves this state.
+    return err("cannot start before a stop completes")
   of LifecycleState.Stopped:
     # A layer can be up on a `Stopped` node: after a failed rollback, or when
     # the layer was started on its own.
@@ -321,9 +319,10 @@ proc stop*(
   self.state = LifecycleState.Stopping
   var stopSucceeded = false
   defer:
-    # After a failed stop the transport can still be up, so the next stop
-    # retries. `start` refuses the node while its messaging layer is down.
-    self.state = if stopSucceeded: LifecycleState.Stopped else: LifecycleState.Running
+    # After a failed stop the transport can still be up. The state stays
+    # `Stopping`, so that a start returns an error until a stop succeeds.
+    if stopSucceeded:
+      self.state = LifecycleState.Stopped
     self.lifecycle.release2()
 
   if not beforeLayers.isNil():

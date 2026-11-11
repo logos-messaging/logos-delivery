@@ -433,26 +433,17 @@ suite "LogosDelivery - broker lifecycle":
         raiseAssert "second stop: " & error
       check not node.isRunning()
 
-  asyncTest "a failed stop leaves the node running, and the next stop retries":
+  asyncTest "a failed stop refuses a start and the next stop retries":
     lockNewGlobalBrokerContext:
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert error
-      # The transport stop awaits the RLN plugin stop, so this failure fails it.
-      node.waku.node.rlnPlugin = Opt.some(
-        RlnPlugin(
-          name: "failing-stop",
-          stop: proc(): Future[void] {.gcsafe, raises: [].} =
-            let fut = newFuture[void]("failing-stop")
-            fut.fail(newException(CatchableError, "stop failed"))
-            fut,
-        )
-      )
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
 
       check:
         (await node.stop()).isErr()
-        node.lifecycleState == LifecycleState.Running
+        node.lifecycleState == LifecycleState.Stopping
         node.isRunning()
         (await node.start()).isErr()
 
@@ -460,6 +451,24 @@ suite "LogosDelivery - broker lifecycle":
       check:
         (await node.stop()).isOk()
         node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+
+  asyncTest "a kernel node refuses a start after a failed stop":
+    lockNewGlobalBrokerContext:
+      let conf = testNodeConf(defaultTestWakuNodeConf(), EntryLayer.kernel)
+      let node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
+
+      check:
+        (await node.stop()).isErr()
+        (await node.start()).isErr()
+
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
         not node.isRunning()
 
   asyncTest "a LogosDelivery built without the stack builder starts and stops":
