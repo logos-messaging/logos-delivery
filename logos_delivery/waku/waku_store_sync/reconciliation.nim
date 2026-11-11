@@ -169,13 +169,10 @@ func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
-): Opt[RangesData] =
-  ## Check the received payload for cluster, shards and/or time mismatch.
+): RangesData =
+  ## Check the received payload for time mismatch.
 
   var payload = payload
-
-  if not self.matchesScope(payload):
-    return Opt.none(RangesData)
 
   # for non skip ranges check if they happen before any of our ranges
   # convert to skip range before processing.
@@ -209,16 +206,11 @@ proc preProcessPayload*(
 
       break
 
-  return Opt.some(payload)
+  return payload
 
 func isFinished(payload: RangesData): bool =
   ## A payload with no range left to reconcile ends the session.
   payload.ranges.len == 0 or payload.ranges.allIt(it[1] == RangeType.Skip)
-
-func isOutOfScope(self: SyncReconciliation, payload: RangesData): bool =
-  ## A peer on another cluster or with another shard set answers with its header
-  ## alone, which would otherwise end the session like one that is in sync.
-  payload.ranges.len == 0 and not self.matchesScope(payload)
 
 proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.} =
   ## Closes the connection on error.
@@ -295,36 +287,23 @@ proc reconcileRound(
   var
     idsToRecv: seq[SyncID]
     hashToSend: seq[WakuMessageHash]
-    sendPayload: RangesData
-    diffs = 0
 
-  let preProcessedPayloadRes = self.preProcessPayload(recvPayload, lowerBound)
-  if preProcessedPayloadRes.isSome():
-    let preProcessedPayload = preProcessedPayloadRes.get()
+  let preProcessedPayload = self.preProcessPayload(recvPayload, lowerBound)
 
-    trace "pre-processed payload",
-      local = self.peerManager.switch.peerInfo.peerId,
-      remote = peerId,
-      payload = preProcessedPayload
+  trace "pre-processed payload",
+    local = self.peerManager.switch.peerInfo.peerId,
+    remote = peerId,
+    payload = preProcessedPayload
 
-    sendPayload =
-      self.storage.processPayload(preProcessedPayload, hashToSend, idsToRecv)
+  var sendPayload =
+    self.storage.processPayload(preProcessedPayload, hashToSend, idsToRecv)
 
-    trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
+  trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
-    self.trackPromised(idsToRecv)
-    # A promise counts as a difference even if its placeholder insert fails.
-    diffs = idsToRecv.len + self.scheduleTransfers(peerId, hashToSend)
-  else:
-    debug "Sync scope mismatch",
-      remote = peerId,
-      remote_cluster = recvPayload.cluster,
-      remote_shards = recvPayload.shards,
-      local_cluster = self.cluster,
-      local_shards = self.shards
+  self.trackPromised(idsToRecv)
+  # A promise counts as a difference even if its placeholder insert fails.
+  let diffs = idsToRecv.len + self.scheduleTransfers(peerId, hashToSend)
 
-  # On another cluster or with another shard set, the reply has no ranges: the
-  # header alone is the empty payload of WAKU-SYNC.
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
 
@@ -357,7 +336,14 @@ proc processRequest(
       remote = conn.peerId,
       payload = recvPayload
 
-    if self.isOutOfScope(recvPayload):
+    if not self.matchesScope(recvPayload):
+      # The empty payload of WAKU-SYNC aborts the session.
+      # A peer that sent an empty payload already aborted it, and gets no reply.
+      if recvPayload.ranges.len > 0:
+        let abortPayload =
+          RangesData(cluster: self.cluster, shards: self.shards.toSeq())
+        (await writePayload(conn, abortPayload)).isOkOr:
+          return err(error)
       await conn.close()
       return err(
         "remote " & $conn.peerId & " is outside the sync scope: cluster " &
@@ -397,11 +383,11 @@ proc initiate(
     connection: Connection,
     offset: Duration,
     syncRange: Duration,
-    shards: seq[uint16],
 ): Future[Result[void, string]] {.async.} =
   self.expirePending()
 
   let
+    shards = self.shards.toSeq()
     timeRange = calculateTimeRange(self.clock(), offset, syncRange)
     lower = SyncID(time: timeRange.a, hash: EmptyFingerprint)
     upper = SyncID(time: timeRange.b, hash: FullFingerprint)
@@ -444,7 +430,6 @@ proc storeSynchronization*(
     peerInfo: Opt[RemotePeerInfo] = Opt.none(RemotePeerInfo),
     offset: Duration = self.relayJitter,
     syncRange: Duration = self.syncRange,
-    shards: HashSet[uint16] = self.shards,
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
     self.peerManager.selectPeer(WakuReconciliationCodec).valueOr:
@@ -458,7 +443,7 @@ proc storeSynchronization*(
   debug "Sync session initialized",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
 
-  (await self.initiate(conn, offset, syncRange, shards.toSeq())).isOkOr:
+  (await self.initiate(conn, offset, syncRange)).isOkOr:
     debug "Sync session failed",
       local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId, err = error
 
