@@ -26,9 +26,6 @@ import
   ]
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
-import logos_delivery/api/conf/logos_delivery_conf
-import logos_delivery/waku/api/events/filter_subscribe_events
-import logos_delivery/waku/waku_filter_v2/subscriptions
 
 const TestTimeout = chronos.seconds(10)
 const NegativeTestTimeout = chronos.seconds(2)
