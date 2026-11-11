@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import results, eth/keys as eth_keys, libp2p/crypto/crypto as libp2p_crypto
+import results, eth/common/keys as eth_keys, libp2p/crypto/crypto as libp2p_crypto
 
 import eth/p2p/discoveryv5/enr except TypedRecord, toTypedRecord
 

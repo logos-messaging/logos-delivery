@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tempfiles, strutils],
+  std/strutils,
   testutils/unittests,
   chronos,
   std/strformat,
@@ -15,10 +15,11 @@ import
     node/peer_manager,
     waku_node,
     waku_lightpush,
+    waku_filter_v2/client,
     rln,
     rln/rln_plugin,
   ],
-  ../testlib/[wakucore, wakunode, testasync, futures],
+  ../testlib/[wakucore, wakunode, testasync],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 
@@ -446,6 +447,64 @@ suite "Waku Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
+
+  asyncTest "A lightpushed message is pushed to a filter subscriber of the service node":
+    ## Setup
+    let
+      lightNode = newTestWakuNode(generateSecp256k1Key())
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
+      filterNode = newTestWakuNode(generateSecp256k1Key())
+
+    await allFutures(lightNode.start(), serviceNode.start(), filterNode.start())
+
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+    await serviceNode.mountFilter()
+    lightNode.mountLightPushClient()
+    await filterNode.mountFilterClient()
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let
+      message = fakeWakuMessage(contentTopic = DefaultContentTopic)
+      serviceRemotePeerInfo = serviceNode.peerInfo.toRemotePeerInfo()
+
+    proc noopHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      discard
+
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), noopHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+
+    var pushHandlerFuture = newFuture[(string, WakuMessage)]()
+    filterNode.wakuFilterClient.registerPushHandler(
+      proc(
+          pubsubTopic: PubsubTopic, msg: WakuMessage
+      ): Future[void] {.async, closure, gcsafe.} =
+        pushHandlerFuture.complete((pubsubTopic, msg))
+    )
+
+    discard
+      await lightNode.peerManager.dialPeer(serviceRemotePeerInfo, WakuLightPushCodec)
+    let subscribeResponse = await filterNode.filterSubscribe(
+      Opt.some(CustomPubsubTopic), @[DefaultContentTopic], serviceRemotePeerInfo
+    )
+    check subscribeResponse.isOk()
+
+    ## When the light node lightpushes a message through the service node, which
+    ## has no relay peer
+    discard await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+
+    ## Then the filter subscriber of the service node gets it
+    require await pushHandlerFuture.withTimeout(5.seconds)
+    let (pushedPubsubTopic, pushedMsg) = pushHandlerFuture.read()
+    check:
+      pushedPubsubTopic == CustomPubsubTopic
+      pushedMsg == message
+
+    ## Cleanup
+    await allFutures(lightNode.stop(), serviceNode.stop(), filterNode.stop())
 
   asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
     ## Setup

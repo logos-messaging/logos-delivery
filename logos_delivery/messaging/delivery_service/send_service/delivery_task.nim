@@ -56,6 +56,9 @@ type DeliveryTask* = ref object
     ## does not wait for a Store confirmation of this task.
   resendCount*: int
     ## How many times the send service sent the message again after a Store miss.
+  storeMissed*: bool
+    ## A Store node answered without the message. Each later Store query for
+    ## this task can ask each Store node.
   errorDesc*: string
 
 proc new*(

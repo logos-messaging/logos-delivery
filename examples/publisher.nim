@@ -6,7 +6,7 @@ import
   chronos,
   confutils,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr
 
 import
@@ -18,6 +18,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
+    net/net_config,
   ]
 
 proc now*(): Timestamp =
@@ -57,11 +58,10 @@ proc setupAndPublish(rng: crypto.Rng) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(wakuPort)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(wakuPort)).tryGet())
   let node = builder.build().tryGet()
 
-  var bootstrapNodeEnr: enr.Record
-  discard bootstrapNodeEnr.fromURI(bootstrapNode)
+  let bootstrapNodeEnr = enr.Record.fromURI(bootstrapNode).tryGet()
 
   let discv5Conf = WakuDiscoveryV5Config(
     discv5Config: Opt.none(DiscoveryConfig),
@@ -97,7 +97,7 @@ proc setupAndPublish(rng: crypto.Rng) {.async.} =
       notice "publisher is ready", connectedPeers = numConnectedPeers, required = 6
       break
     notice "waiting to be ready", connectedPeers = numConnectedPeers, required = 6
-    await sleepAsync(5000)
+    await sleepAsync(5000.millis)
 
   # Make sure it matches the publisher. Use default value
   # see spec: https://rfc.vac.dev/spec/23/
@@ -127,7 +127,7 @@ proc setupAndPublish(rng: crypto.Rng) {.async.} =
     else:
       error "failed to publish message", error = res.error
 
-    await sleepAsync(5000)
+    await sleepAsync(5000.millis)
 
 when isMainModule:
   let rng = crypto.newRng()

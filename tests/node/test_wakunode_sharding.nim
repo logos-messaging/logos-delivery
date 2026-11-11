@@ -1,9 +1,9 @@
 {.used.}
 
-import results, std/[sequtils, tempfiles], testutils/unittests, chronos, chronicles
+import results, std/sequtils, testutils/unittests, chronos
 
 import
-  std/[sequtils, sets, tables, tempfiles],
+  std/[sequtils, sets, tables],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -25,9 +25,7 @@ import
   ],
   ../waku_relay/utils,
   ../waku_archive/archive_utils,
-  ../testlib/[assertions, common, wakucore, wakunode, testasync, futures, testutils]
-
-import logos_delivery/waku/waku_relay/protocol
+  ../testlib/[assertions, wakucore, wakunode, testasync, futures, testutils]
 
 const
   listenIp = parseIpAddress("0.0.0.0")
@@ -129,7 +127,7 @@ suite "Sharding":
         clientResult1 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
       assertResultOk(serverResult1)
-      assertResultOk(clientResult1)
+      check clientResult1.isErr()
 
       # When the server publishes a message in the subscribed topic
       serverHandler.reset()
@@ -144,7 +142,7 @@ suite "Sharding":
         serverResult2 = await serverHandler.waitForResult(FUTURE_TIMEOUT)
         clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
-      assertResultOk(serverResult2)
+      check serverResult2.isErr()
       assertResultOk(clientResult2)
 
     asyncTest "Exclusion of Non-Subscribed Service Nodes":
@@ -305,7 +303,7 @@ suite "Sharding":
 
       # Then the server and client receive the message
       assertResultOk(serverResult1)
-      assertResultOk(clientResult1)
+      check clientResult1.isErr()
 
       # When the server publishes a message
       serverHandler.reset()
@@ -319,7 +317,7 @@ suite "Sharding":
         clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
       # Then the client and server receive the message
-      assertResultOk(serverResult2)
+      check serverResult2.isErr()
       assertResultOk(clientResult2)
 
     asyncTest "Exclusion of Irrelevant Autosharded Topics":
@@ -350,7 +348,7 @@ suite "Sharding":
         clientResult1 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
       # Then the server receives the message but the client does not
-      assertResultOk(serverResult1)
+      check serverResult1.isErr()
       check clientResult1.isErr()
 
       # When the client publishes a message in the client's subscribed topic
@@ -365,7 +363,7 @@ suite "Sharding":
         clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
       # Then the client receives the message but the server does not
-      assertResultOk(clientResult2)
+      check clientResult2.isErr()
       check serverResult2.isErr()
 
     asyncTest "Unsubscribing from some content topics keeps the others delivering":
@@ -514,7 +512,7 @@ suite "Sharding":
 
         # Then the server and client receive the message
         assertResultOk(serverResult1)
-        assertResultOk(clientResult1)
+        check clientResult1.isErr()
 
       asyncTest "filter":
         # Given a connected server and client using the same pubsub topic
@@ -597,7 +595,7 @@ suite "Sharding":
 
         # Then the server and client receive the message
         assertResultOk(serverResult1)
-        assertResultOk(clientResult1)
+        check clientResult1.isErr()
 
         # When the server publishes a message
         serverHandler.reset()
@@ -611,7 +609,7 @@ suite "Sharding":
           clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
         # Then the server and client receive the message
-        assertResultOk(serverResult2)
+        check serverResult2.isErr()
         assertResultOk(clientResult2)
 
       asyncTest "filter (automatic sharding filtering)":
@@ -816,7 +814,7 @@ suite "Sharding":
 
         # Then the client receives the message but the server does not
         check serverResult1.isErr()
-        assertResultOk(clientResult1)
+        check clientResult1.isErr()
 
         # When the server publishes a message in the server's subscribed topic
         serverHandler.reset()
@@ -830,7 +828,7 @@ suite "Sharding":
           clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
 
         # Then the server receives the message but the client does not
-        assertResultOk(serverResult2)
+        check serverResult2.isErr()
         check clientResult2.isErr()
 
       asyncTest "filter - exclusion (automatic sharding filtering)":
@@ -981,7 +979,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [serverHandler2, clientHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1000,7 +998,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler2.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [serverHandler1, clientHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1033,7 +1031,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in contentTopic1's handlers, but not in contentTopic2's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [serverHandler2, clientHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1052,7 +1050,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in contentTopic2's handlers, but not in contentTopic1's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler2.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [serverHandler1, clientHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1092,7 +1090,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic1's handlers, but not in topic234's
       assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [
@@ -1118,7 +1116,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic2's handlers, but not in topic134's
       assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler2.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [
@@ -1144,7 +1142,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic3's handlers, but not in topic124's
       assertResultOk(await serverHandler3.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler3.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler3.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [
@@ -1170,7 +1168,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic4's handlers, but not in topic123's
       assertResultOk(await serverHandler4.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await clientHandler4.waitForResult(FUTURE_TIMEOUT))
+      check (await clientHandler4.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [
@@ -1235,7 +1233,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
+      check (await serverHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [clientHandler2, serverHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1255,7 +1253,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
-      assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
+      check (await serverHandler2.waitForResult(FUTURE_TIMEOUT)).isErr()
       check (
         await allFinished(
           [clientHandler1, serverHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1374,3 +1372,12 @@ suite "Sharding":
           archiveMessages1[0 ..< 1]
         queryResponse2.get().messages.mapIt(it.message.get()) ==
           archiveMessages2[0 ..< 1]
+
+suite "Waku Node - mount auto sharding with no shards":
+  test "mountAutoSharding rejects an empty shard list":
+    let node = newTestWakuNode(generateSecp256k1Key(), listenIp, listenPort)
+
+    check:
+      node.mountAutoSharding(DefaultClusterId, 0'u32).isErr()
+      node.mountAutoSharding(DefaultClusterId, newSeq[uint16]()).isErr()
+      node.wakuAutoSharding.isNone()

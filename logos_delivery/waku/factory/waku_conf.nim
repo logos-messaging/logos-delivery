@@ -26,8 +26,7 @@ import
   ../common/rate_limit/setting,
   ../waku_enr/capabilities,
   ./networks_config,
-  ../waku_mix,
-  ./conf_builder/kademlia_discovery_conf_builder
+  ../waku_mix
 
 export RlnConf, RlnCreds, RlnCommonConf, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.
@@ -192,10 +191,6 @@ type WakuConf* {.requiresInit.} = ref object
   agentString*: string
 
   colocationLimit*: int
-
-  maxPureLibp2pPeers*: int
-    ## Inbound budget for peers that are not waku nodes but offer a protocol
-    ## this node consumes. 0 admits none.
 
   rateLimit*: ProtocolRateLimitSettings
 

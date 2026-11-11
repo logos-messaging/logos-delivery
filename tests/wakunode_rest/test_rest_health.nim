@@ -2,7 +2,6 @@
 
 import
   results,
-  std/[tempfiles],
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -24,7 +23,6 @@ import
     rln,
     node/health_monitor,
   ],
-  ../testlib/common,
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]

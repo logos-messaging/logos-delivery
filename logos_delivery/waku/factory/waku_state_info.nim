@@ -4,7 +4,7 @@
 ## this information, but any other module can populate the information it needs to be
 ## accessible through the debug API.
 
-import std/[json, tables, sequtils, strutils]
+import std/[json, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
 import logos_delivery/waku/factory/waku_conf
@@ -72,8 +72,6 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.StoreNodes:
     ## The preset's store nodes and `storenode`, as a JSON array of multiaddrs.
     return $(%self.conf.configuredStoreNodes())
-  else:
-    return "unknown info item id"
 
 proc init*(T: typedesc[WakuStateInfo], node: WakuNode, conf: WakuConf): T =
   return WakuStateInfo(node: node, conf: conf)

@@ -378,9 +378,6 @@ proc getSyncProtocolHealthInfo*(
     # Could also return a cached value from a previous check.
     var p = ProtocolHealth.init(protocol)
     return p.notReady("RLN Relay health check is async")
-  else:
-    var p = ProtocolHealth.init(protocol)
-    return p.notMounted()
 
 proc getProtocolHealthInfo*(
     hm: NodeHealthMonitor, protocol: WakuProtocol

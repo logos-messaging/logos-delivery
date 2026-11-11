@@ -3,8 +3,6 @@
 import results, chronos, testutils/unittests
 import brokers/broker_context
 
-import ../testlib/[common, testasync]
-
 import logos_delivery/api/conf/channels_conf
 import logos_delivery/api/messaging_client_api
 import logos_delivery/channels/reliable_channel_manager

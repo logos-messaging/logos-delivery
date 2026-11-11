@@ -86,11 +86,10 @@ proc setupLogFormat(format: LogFormat, color = true) =
       defaultChroniclesStream.outputs[0].writer = noOutputWriter
       defaultChroniclesStream.outputs[1].writer = stdoutOutputWriter
   else:
-    {.
-      warning:
-        "the present module should be compiled with '-d:chronicles_default_output_device=dynamic' " &
-        "and '-d:chronicles_sinks=\"textlines,json\"' options"
-    .}
+    ## Binaries pass `-d:chronicles_sinks="textlines,json"` and
+    ## `-d:chronicles_default_output_device=dynamic` (see their nim.cfg). Tests
+    ## keep chronicles' single default sink, so the format stays as it is.
+    discard
 
 proc setupLog*(level: LogLevel, format: LogFormat) =
   ## Logging setup

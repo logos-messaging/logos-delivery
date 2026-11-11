@@ -3,13 +3,17 @@ import
   results,
   stew/byteutils,
   chronos,
+  chronicles,
   libp2p/switch,
   libp2p/builders,
   libp2p/crypto/crypto as libp2p_keys,
-  eth/keys as eth_keys
+  eth/common/keys as eth_keys
 import logos_delivery/waku/waku_core, ./common
 
-export switch
+# Logging in a generic library proc (e.g. a `T: type X` constructor) binds
+# chronicles where it is instantiated, so tests need it in scope even when they
+# never log.
+export switch, chronicles
 
 # Time
 

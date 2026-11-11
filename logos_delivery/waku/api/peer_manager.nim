@@ -2,8 +2,8 @@
 {.push raises: [].}
 
 import std/[sequtils, strutils]
-import results, chronos, chronicles
-import libp2p/[peerid, peerstore]
+import results, chronos
+import libp2p/peerid
 
 import logos_delivery/waku/waku
 import logos_delivery/waku/[waku_core, node/waku_node, node/peer_manager]

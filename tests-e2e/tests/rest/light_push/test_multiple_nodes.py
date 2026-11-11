@@ -50,7 +50,7 @@ class TestLightPushMultipleNodes(StepsLightPush, StepsStore):
         self.subscribe_to_pubsub_topics_via_filter(node=self.edge_node2)
 
         message = self.create_message()
-        self.check_light_pushed_message_reaches_receiving_peer(sender=self.edge_node1, peer_list=[self.service_node1], message=message)
+        self.check_light_pushed_message_reaches_receiving_peer(sender=self.edge_node1, peer_list=[self.service_node2], message=message)
         self.wait_for_published_message_is_stored(
             store_node=[self.edge_node2, self.service_node3], messages_to_check=[message], page_size=50, ascending="true"
         )

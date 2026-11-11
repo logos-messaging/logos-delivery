@@ -6,7 +6,7 @@ import
   chronicles,
   metrics,
   results,
-  eth/keys,
+  eth/common/keys,
   nimcrypto,
   bearssl/rand,
   stew/byteutils,
@@ -457,7 +457,18 @@ proc mountMetadata*(
   if not node.wakuMetadata.isNil():
     return err("Waku metadata already mounted, skipping")
 
-  let metadata = WakuMetadata.new(clusterId, node.getShardsGetter(shards))
+  let relayShards = node.getShardsGetter(shards)
+  let advertisedShards: GetShards = proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
+    ## The metadata spec says edge nodes do not advertise shards: it would
+    ## leak their interests. Service nodes do, so edges can pick them by shard.
+    let servesShards =
+      not node.wakuRelay.isNil() or not node.wakuStore.isNil() or
+      not node.wakuFilter.isNil() or not node.wakuLightPush.isNil() or
+      not node.wakuLegacyLightPush.isNil()
+    if not servesShards:
+      return @[]
+    return relayShards()
+  let metadata = WakuMetadata.new(clusterId, advertisedShards)
 
   node.wakuMetadata = metadata
   node.peerManager.wakuMetadata = metadata
@@ -473,6 +484,9 @@ proc mountMetadata*(
 proc mountAutoSharding*(
     node: WakuNode, clusterId: uint16, shards: seq[uint16]
 ): Result[void, string] =
+  if shards.len == 0:
+    return err("could not mount auto sharding: no shards")
+
   info "Mounting auto sharding", clusterId = clusterId, shards = shards
   node.wakuAutoSharding = Opt.some(Sharding.init(clusterId, shards))
 
@@ -882,7 +896,15 @@ proc start*(node: WakuNode) {.async.} =
 
   ## Binds the transports, resolves peerInfo.addrs, then starts the protocols.
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
-  await node.switch.start()
+  try:
+    await node.switch.start()
+  except CatchableError as exc:
+    ## `started` stays false, so no `stop` follows: stop the loops started above.
+    if not node.wakuStoreResume.isNil():
+      await node.wakuStoreResume.stopWait()
+    if not node.wakuRendezvousClient.isNil():
+      await node.wakuRendezvousClient.stopWait()
+    raise exc
 
   ## Copy again: the observer skips an unchanged restart.
   node.copyCommittedAddresses()

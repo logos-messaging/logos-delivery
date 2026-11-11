@@ -169,7 +169,6 @@ type WakuConfBuilder* = object
   peerStoreCapacity: Opt[int]
   maxConnections: Opt[int]
   colocationLimit: Opt[int]
-  maxPureLibp2pPeers: Opt[int]
 
   agentString: Opt[string]
 
@@ -320,9 +319,6 @@ proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
 
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
   b.colocationLimit = Opt.some(colocationLimit)
-
-proc withMaxPureLibp2pPeers*(b: var WakuConfBuilder, maxPureLibp2pPeers: int) =
-  b.maxPureLibp2pPeers = Opt.some(maxPureLibp2pPeers)
 
 proc withRelayServiceRatio*(b: var WakuConfBuilder, relayServiceRatio: string) =
   b.relayServiceRatio = Opt.some(relayServiceRatio)
@@ -556,11 +552,6 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       continue
     presetMixNodes.add(mixNode)
   builder.mixConf.withMixNodes(presetMixNodes)
-
-  checkSetPresetValueToField(
-    builder.maxPureLibp2pPeers, networkPresetConf.maxPureLibp2pPeers,
-    "Max pure-libp2p peers was provided alongside a network conf",
-  )
 
   # Process entry nodes from network config - classify and distribute
   if networkPresetConf.entryNodes.len > 0:
@@ -896,10 +887,6 @@ proc build*(
 
   let colocationLimit = builder.colocationLimit.get(DefaultColocationLimit)
 
-  let maxPureLibp2pPeers = builder.maxPureLibp2pPeers.get(0)
-  if maxPureLibp2pPeers < 0:
-    return err("max-pure-libp2p-peers must be 0 or more, got " & $maxPureLibp2pPeers)
-
   # TODO: is there a strategy for experimental features? delete vs promote
   let relayShardedPeerManagement =
     builder.relayShardedPeerManagement.get(DefaultRelayShardedPeerManagement)
@@ -993,7 +980,6 @@ proc build*(
     maxConnections: maxConnections,
     agentString: agentString,
     colocationLimit: colocationLimit,
-    maxPureLibp2pPeers: maxPureLibp2pPeers,
     maxRelayPeers: builder.maxRelayPeers,
     relayServiceRatio: builder.relayServiceRatio.get(DefaultRelayServiceRatio),
     rateLimit: rateLimit,

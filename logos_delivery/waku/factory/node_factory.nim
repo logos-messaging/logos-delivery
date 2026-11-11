@@ -9,7 +9,6 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
-  libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
   mix_rln_spam_protection/module_api
 
@@ -38,7 +37,6 @@ import
   ../waku_store/common as store_common,
   ../waku_filter_v2,
   ../waku_peer_exchange,
-  ../discovery/waku_kademlia,
   ../discovery/service_discovery,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
@@ -119,7 +117,6 @@ proc initNode(
         natStrategy = $conf.endpointConf.natStrategy
   else:
     builder.withNatConfig(natConf)
-  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let

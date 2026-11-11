@@ -40,7 +40,7 @@ proc issueRequest*(
 ): Future[TestResponseTuple] {.async.} =
   ## Sends the body as given, so an invalid one reaches the handler.
   var
-    session = HttpSessionRef.new({HttpClientFlag.Http11Pipeline})
+    session = HttpSessionRef.new()
     data: TestResponseTuple
 
   var request = HttpClientRequestRef.new(

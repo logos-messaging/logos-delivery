@@ -398,6 +398,10 @@ suite "Receive backfill":
     check coveredFrom(now, Base) == now + DelayExtra + variance
     # The archive has every message from before this time.
     check archivedBefore(now) == now - variance - ArchiveTime
+    # The last part of a gap starts at what the archive has at the later of
+    # the last recovery and the subscribe.
+    check lastPartFrom(Base, now) == archivedBefore(now)
+    check lastPartFrom(now, Base) == archivedBefore(now)
 
   asyncTest "topic records: the codec, the writes and the deletes":
     let root = createTempDir("recv-records-", "")

@@ -1,4 +1,4 @@
-import std/random, chronos, chronicles, metrics
+import std/random, chronos, metrics
 
 import
   logos_delivery/waku/[

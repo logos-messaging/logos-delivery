@@ -26,7 +26,6 @@ import
     waku_core,
     waku_core/topics/sharding,
     waku_node,
-    node/node_telemetry,
     node/peer_manager,
     waku_relay,
     waku_filter_v2/subscriptions,

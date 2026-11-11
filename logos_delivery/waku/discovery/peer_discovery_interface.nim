@@ -49,6 +49,10 @@ type DiscoveryBackendInfo* = object
   keyKinds*: seq[string] ## supported criteria key prefixes, e.g. @["service", ""]
   boundPorts*: seq[uint16] ## e.g. discv5 UDP port after auto-port; empty if n/a
 
+# BrokerInterface derives a proc from each broker's verb, so a Capitalized
+# verb collides with the broker type and the naming warning cannot be
+# silenced the way RequestBroker suggests.
+{.push warning[User]: off.}
 BrokerInterface(IPeerDiscovery):
   EventBroker:
     # Observability hook — peers already reached the PeerManager internally.
@@ -108,3 +112,5 @@ BrokerInterface(IPeerDiscovery):
     proc addBootstrapEntries(
       entries: seq[string]
     ): Future[Result[void, string]] {.async.}
+
+{.pop.}

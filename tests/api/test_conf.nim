@@ -86,11 +86,6 @@ suite "LogosDeliveryConf - library kernel defaults":
       kc.nat == cli.nat
       kc.localStoragePath == cli.localStoragePath
 
-  test "an unset pure-libp2p peers budget stays unset":
-    # The kernel default (0) and any network preset (50) are decided further
-    # down the chain.
-    check kernelOf().maxPureLibp2pPeers.isNone()
-
   test "choosing the plugin-hosted kademlia turns the in-process one off":
     var kernel = libraryKernel()
     kernel.pluginKadDiscovery = Opt.some(true)
@@ -606,11 +601,6 @@ suite "parseLogosDeliveryConf - flat shape":
     let lc = parseLogosDeliveryConf("""{"tcp-port": 0}""").valueOr:
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).tcpPort == Port(0)
-
-  test "a set pure-libp2p peers budget reaches the kernel conf":
-    let lc = parseLogosDeliveryConf("""{"max-pure-libp2p-peers": 7}""").valueOr:
-      raiseAssert error
-    check WakuNodeConf(lc.kernelConf).maxPureLibp2pPeers == Opt.some(7)
 
 proc optionNames[T](conf: T): seq[string] =
   ## Every JSON key that sets a field of `conf`: field names and switch names.

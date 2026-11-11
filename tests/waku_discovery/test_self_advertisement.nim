@@ -8,7 +8,6 @@ import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/waku_enr/capabilities
-import logos_delivery/waku/waku_core/codecs
 import tools/confutils/cli_args
 
 ## A backend that records what it was asked to do, so the fan-out rules can be

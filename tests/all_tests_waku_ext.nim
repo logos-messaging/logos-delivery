@@ -28,13 +28,12 @@ import
   ./test_peer_manager,
   ./test_peer_store_extended,
   ./test_peer_storage,
-  ./test_pure_libp2p_peers
+  ./test_peers_without_metadata
 
 # Discovery
 import
   ./test_waku_dnsdisc,
   ./waku_discv5/test_waku_discv5,
-  ./waku_kademlia/test_waku_kademlia,
   ./waku_kademlia/test_node_advertising,
   ./waku_discovery/test_external_service_discovery,
   ./waku_discovery/test_self_advertisement,

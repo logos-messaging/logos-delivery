@@ -17,8 +17,7 @@ import
   ../../logos_delivery/waku/factory/networks_config,
   ../../logos_delivery/waku/factory/waku_conf,
   ../../logos_delivery/waku/common/logging,
-  ../../logos_delivery/waku/common/utils/parse_size_units,
-  ../../logos_delivery/waku/waku_core/message/default_values
+  ../../logos_delivery/waku/common/utils/parse_size_units
 
 suite "Waku external config - default values":
   test "Default sharding value":
@@ -53,35 +52,6 @@ suite "Waku external config - default values":
     ## Then
     let conf = res.get()
     check conf.subscribeShards == defaultSubscribeShards
-
-  test "Default max pure-libp2p peers without a preset":
-    ## Given
-    let preConfig = defaultKernelConf().get()
-
-    ## When
-    let res = preConfig.toWakuConf()
-    assert res.isOk(), $res.error
-
-    ## Then
-    check res.get().maxPureLibp2pPeers == 20
-
-  test "Max pure-libp2p peers follows the preset":
-    ## Given
-    var devConfig = defaultKernelConf().get()
-    devConfig.preset = "logos.dev"
-    var twnConfig = defaultKernelConf().get()
-    twnConfig.preset = "twn"
-
-    ## When
-    let devRes = devConfig.toWakuConf()
-    assert devRes.isOk(), $devRes.error
-    let twnRes = twnConfig.toWakuConf()
-    assert twnRes.isOk(), $twnRes.error
-
-    ## Then
-    check:
-      devRes.get().maxPureLibp2pPeers == 50
-      twnRes.get().maxPureLibp2pPeers == 0
 
   test "Max message size follows the preset when not given":
     ## Given

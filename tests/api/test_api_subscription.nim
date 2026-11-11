@@ -1,10 +1,10 @@
 {.used.}
 
-import results, std/[strutils, sequtils, net, sets, tables]
+import results, std/[sequtils, net, sets, tables]
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, peerstore, multiaddress, crypto/crypto]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
+import ../testlib/[wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
 
@@ -24,7 +24,6 @@ import
     waku_lightpush/common,
     api/events/peer_events,
   ]
-import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
 import logos_delivery/api/conf/logos_delivery_conf

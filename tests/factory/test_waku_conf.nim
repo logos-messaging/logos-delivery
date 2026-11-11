@@ -8,7 +8,6 @@ import
   chronos/timer,
   std/[net, random, sequtils, strutils],
   results,
-  stew/byteutils,
   testutils/unittests
 import
   logos_delivery/waku/factory/waku_conf,
@@ -512,30 +511,6 @@ suite "Waku Conf Builder - rate limits":
     check:
       limits.getSetting(LIGHTPUSH).isUnlimited()
       limits.getSetting(FILTER) == (100, 1.seconds)
-
-suite "Waku Conf - pure-libp2p peers budget":
-  test "off by default":
-    var builder = WakuConfBuilder.init()
-    let conf = builder.build().expect("build should succeed")
-    check conf.maxPureLibp2pPeers == 0
-
-  test "logos.dev preset carries 50":
-    var builder = WakuConfBuilder.init()
-    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
-    let conf = builder.build().expect("build should succeed")
-    check conf.maxPureLibp2pPeers == 50
-
-  test "explicit value wins over the preset":
-    var builder = WakuConfBuilder.init()
-    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
-    builder.withMaxPureLibp2pPeers(0)
-    let conf = builder.build().expect("build should succeed")
-    check conf.maxPureLibp2pPeers == 0
-
-  test "negative value is rejected":
-    var builder = WakuConfBuilder.init()
-    builder.withMaxPureLibp2pPeers(-1)
-    check builder.build().isErr()
 
 suite "Waku Conf - mix nodes from a network preset":
   ## A preset that turns mix on seeds at least `MinMixPoolSize` nodes, the fewest

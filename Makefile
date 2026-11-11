@@ -451,6 +451,12 @@ print-nph-path:
 lint: | build-nph
 	scripts/lint.sh
 
+# Builds the node and the library and fails on any compiler warning raised in
+# this repo's code. CI runs the same check on every build and test log.
+.PHONY: check-warnings
+check-warnings:
+	scripts/check_compile_warnings.sh
+
 clean:
 
 ###################
