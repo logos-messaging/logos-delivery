@@ -4,19 +4,11 @@
 
 #include "waku_handler.h"
 
-// LogosDeliveryCreateRawFn: node creation reports the context address, and any
-// failure text in its own argument.
-void event_handler(int errCode, const char* reply, const char* errMsg, void* userData) {
-    const char* msg = reply != nullptr ? reply : (errMsg != nullptr ? errMsg : "");
-    printf("Receiving message %s\n", msg);
-}
-
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     QQmlApplicationEngine engine;
 
     WakuHandler wakuHandler;
-    void* userData = nullptr;
 
     QString jsonConfig = R"(
         {
@@ -33,7 +25,7 @@ int main(int argc, char *argv[]) {
         }
         )";
 
-    wakuHandler.initialize(jsonConfig, event_handler, userData);
+    wakuHandler.initialize(jsonConfig);
 
     engine.rootContext()->setContextProperty("wakuHandler", &wakuHandler);
 

@@ -1,10 +1,10 @@
 package main
 
 /*
-	#cgo LDFLAGS: -L../../build/ -llogosdelivery
-	#cgo LDFLAGS: -L../../ -Wl,-rpath,../../
+	#cgo CFLAGS: -I${SRCDIR}/../../build
+	#cgo LDFLAGS: -L${SRCDIR}/../../build -llogosdelivery -Wl,-rpath,${SRCDIR}/../../build
 
-	#include "../../library/liblogosdelivery_kernel.h"
+	#include "liblogosdelivery_kernel.h"
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <string.h>
@@ -96,22 +96,25 @@ package main
 		return m->ret;
 	}
 
-	// LogosDeliveryScalarRawFn. resp must be set != NULL in case interest on
-	// retrieving data from the callback
-	static void callback(int ret, char* msg, size_t len, void* resp) {
+	// LogosDelivery*ReplyFn: `reply` points at the reply text, or is NULL on
+	// failure, which `errMsg` then describes.
+	static void replyCallback(int errCode, const char* const* reply, const char* errMsg, void* resp) {
 		if (resp != NULL) {
-			completeResp((Resp*) resp, ret, msg, len);
+			const char* text = (reply != NULL && *reply != NULL) ? *reply : (errMsg != NULL ? errMsg : "");
+			completeResp((Resp*) resp, errCode, text, strlen(text));
 		}
 	}
 
-	// LogosDelivery*ReplyFn (and CreateRawFn, same signature): entry points
-	// taking a request struct report failure in its own argument rather than
-	// in msg, so they need their own shim onto the same Resp.
-	static void replyCallback(int errCode, const char* reply, const char* errMsg, void* resp) {
-		if (resp != NULL) {
-			const char* text = reply != NULL ? reply : (errMsg != NULL ? errMsg : "");
-			completeResp((Resp*) resp, errCode, text, strlen(text));
-		}
+	typedef struct {
+		Resp* resp;
+		LogosDeliveryCtx* ctx;
+	} CreateResp;
+
+	static void createCallback(int errCode, LogosDeliveryCtx* ctx, const char* errMsg, void* userData) {
+		CreateResp* c = (CreateResp*) userData;
+		c->ctx = ctx;
+		const char* text = errMsg != NULL ? errMsg : "";
+		completeResp(c->resp, errCode, text, strlen(text));
 	}
 
 	#define WAKU_CALL(call)                                                        \
@@ -123,40 +126,42 @@ package main
 		}                                                                            \
 	} while (0)
 
+	// The Go side keeps the LogosDeliveryCtx* as an opaque void*.
+	#define CTX(p) ((const LogosDeliveryCtx*) (p))
+
 	static void* cGoWakuNew(const char* configJson, void* resp) {
-		// We pass NULL because we are not interested in retrieving data from this callback
-		void* ret = logosdelivery_create_node(
-			&(LogosdeliveryCreateNodeCtorReq){.configJson = configJson}, replyCallback, resp);
+		CreateResp c = {.resp = (Resp*) resp, .ctx = NULL};
+		WAKU_CALL(logosdelivery_ctx_create(configJson, createCallback, &c));
 		waitResp(resp);
-		return ret;
+		return c.ctx;
 	}
 
 	static void cGoWakuStart(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_start_node(wakuCtx, callback, resp));
+		WAKU_CALL(logosdelivery_ctx_start_node(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
 	static void cGoWakuStop(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_stop_node(wakuCtx, callback, resp));
+		WAKU_CALL(logosdelivery_ctx_stop_node(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
 	static void cGoWakuDestroy(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_destroy(wakuCtx));
+		WAKU_CALL(logosdelivery_ctx_destroy((LogosDeliveryCtx*) wakuCtx));
 	}
 
 	static void cGoWakuStartDiscV5(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_start_discv5(wakuCtx, callback, resp));
+		WAKU_CALL(logosdelivery_ctx_waku_start_discv5(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
 	static void cGoWakuStopDiscV5(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_stop_discv5(wakuCtx, callback, resp));
+		WAKU_CALL(logosdelivery_ctx_waku_stop_discv5(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
 	static void cGoWakuVersion(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_version(wakuCtx, callback, resp));
+		WAKU_CALL(logosdelivery_ctx_waku_version(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -179,7 +184,7 @@ package main
 			"onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
 			"onChannelMessageSent", "onChannelMessageError"};
 		for (size_t i = 0; i < sizeof(eventNames) / sizeof(eventNames[0]); i++) {
-			logosdelivery_add_event_listener(wakuCtx, eventNames[i], (FFICallBack) globalEventCallback, wakuCtx);
+			logosdelivery_add_event_listener(CTX(wakuCtx)->ptr, eventNames[i], (FFICallBack) globalEventCallback, wakuCtx);
 		}
 	}
 
@@ -190,17 +195,17 @@ package main
 							char* encoding,
 							void* resp) {
 
-		WAKU_CALL( waku_content_topic(wakuCtx, replyCallback, resp, &(WakuContentTopicReq){.appName = appName, .appVersion = appVersion, .contentTopicName = contentTopicName, .encoding = encoding}) );
+		WAKU_CALL( logosdelivery_ctx_waku_content_topic(CTX(wakuCtx), appName, appVersion, contentTopicName, encoding, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuPubsubTopic(void* wakuCtx, char* topicName, void* resp) {
-		WAKU_CALL( waku_pubsub_topic(wakuCtx, replyCallback, resp, &(WakuPubsubTopicReq){.topicName = topicName}) );
+		WAKU_CALL( logosdelivery_ctx_waku_pubsub_topic(CTX(wakuCtx), topicName, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuDefaultPubsubTopic(void* wakuCtx, void* resp) {
-		WAKU_CALL (waku_default_pubsub_topic(wakuCtx, callback, resp));
+		WAKU_CALL (logosdelivery_ctx_waku_default_pubsub_topic(CTX(wakuCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -210,23 +215,22 @@ package main
                        int timeoutMs,
 					   void* resp) {
 
-		WAKU_CALL (waku_relay_publish(wakuCtx, replyCallback, resp, &(WakuRelayPublishReq){.pubSubTopic = pubSubTopic, .jsonWakuMessage = jsonWakuMessage, .timeoutMs = timeoutMs}));
+		WAKU_CALL (logosdelivery_ctx_waku_relay_publish(CTX(wakuCtx), pubSubTopic, jsonWakuMessage, timeoutMs, replyCallback, resp));
 		waitResp(resp);
 	}
 
 	static void cGoWakuRelaySubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
-		WAKU_CALL ( waku_relay_subscribe(wakuCtx, replyCallback, resp, &(WakuRelaySubscribeReq){.pubSubTopic = pubSubTopic}) );
+		WAKU_CALL ( logosdelivery_ctx_waku_relay_subscribe(CTX(wakuCtx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuRelayUnsubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
-
-		WAKU_CALL ( waku_relay_unsubscribe(wakuCtx, replyCallback, resp, &(WakuRelayUnsubscribeReq){.pubSubTopic = pubSubTopic}) );
+		WAKU_CALL ( logosdelivery_ctx_waku_relay_unsubscribe(CTX(wakuCtx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuConnect(void* wakuCtx, char* peerMultiAddr, int timeoutMs, void* resp) {
-		WAKU_CALL( waku_connect(wakuCtx, replyCallback, resp, &(WakuConnectReq){.peerMultiAddr = peerMultiAddr, .timeoutMs = timeoutMs}) );
+		WAKU_CALL( logosdelivery_ctx_waku_connect(CTX(wakuCtx), peerMultiAddr, timeoutMs, replyCallback, resp) );
 		waitResp(resp);
 	}
 
@@ -236,42 +240,42 @@ package main
 									int timeoutMs,
 									void* resp) {
 
-		WAKU_CALL( waku_dial_peer_by_id(wakuCtx, replyCallback, resp, &(WakuDialPeerByIdReq){.peerId = peerId, .protocol = protocol, .timeoutMs = timeoutMs}) );
+		WAKU_CALL( logosdelivery_ctx_waku_dial_peer_by_id(CTX(wakuCtx), peerId, protocol, timeoutMs, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuDisconnectPeerById(void* wakuCtx, char* peerId, void* resp) {
-		WAKU_CALL( waku_disconnect_peer_by_id(wakuCtx, replyCallback, resp, &(WakuDisconnectPeerByIdReq){.peerId = peerId}) );
+		WAKU_CALL( logosdelivery_ctx_waku_disconnect_peer_by_id(CTX(wakuCtx), peerId, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuListenAddresses(void* wakuCtx, void* resp) {
-		WAKU_CALL (waku_listen_addresses(wakuCtx, callback, resp) );
+		WAKU_CALL (logosdelivery_ctx_waku_listen_addresses(CTX(wakuCtx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuGetMyENR(void* ctx, void* resp) {
-		WAKU_CALL (waku_get_my_enr(ctx, callback, resp) );
+		WAKU_CALL (logosdelivery_ctx_waku_get_my_enr(CTX(ctx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuGetMyPeerId(void* ctx, void* resp) {
-		WAKU_CALL (waku_get_my_peerid(ctx, callback, resp) );
+		WAKU_CALL (logosdelivery_ctx_waku_get_my_peerid(CTX(ctx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuListPeersInMesh(void* ctx, char* pubSubTopic, void* resp) {
-		WAKU_CALL (waku_relay_get_num_peers_in_mesh(ctx, replyCallback, resp, &(WakuRelayGetNumPeersInMeshReq){.pubSubTopic = pubSubTopic}) );
+		WAKU_CALL (logosdelivery_ctx_waku_relay_get_num_peers_in_mesh(CTX(ctx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuGetNumConnectedPeers(void* ctx, char* pubSubTopic, void* resp) {
-		WAKU_CALL (waku_relay_get_num_connected_peers(ctx, replyCallback, resp, &(WakuRelayGetNumConnectedPeersReq){.pubSubTopic = pubSubTopic}) );
+		WAKU_CALL (logosdelivery_ctx_waku_relay_get_num_connected_peers(CTX(ctx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
 	static void cGoWakuGetPeerIdsFromPeerStore(void* wakuCtx, void* resp) {
-		WAKU_CALL (waku_get_peerids_from_peerstore(wakuCtx, callback, resp) );
+		WAKU_CALL (logosdelivery_ctx_waku_get_peerids_from_peerstore(CTX(wakuCtx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
@@ -280,7 +284,7 @@ package main
 					const char* jsonWakuMessage,
 					void* resp) {
 
-		WAKU_CALL (waku_lightpush_publish(wakuCtx, replyCallback, resp, &(WakuLightpushPublishReq){.pubSubTopic = pubSubTopic, .jsonWakuMessage = jsonWakuMessage}));
+		WAKU_CALL (logosdelivery_ctx_waku_lightpush_publish(CTX(wakuCtx), pubSubTopic, jsonWakuMessage, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -290,7 +294,7 @@ package main
 					int timeoutMs,
 					void* resp) {
 
-		WAKU_CALL (waku_store_query(wakuCtx, replyCallback, resp, &(WakuStoreQueryReq){.jsonQuery = jsonQuery, .peerAddr = peerAddr, .timeoutMs = timeoutMs}));
+		WAKU_CALL (logosdelivery_ctx_waku_store_query(CTX(wakuCtx), jsonQuery, peerAddr, timeoutMs, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -298,7 +302,7 @@ package main
 								uint64_t numPeers,
 								void* resp) {
 
-		WAKU_CALL (waku_peer_exchange_request(wakuCtx, callback, resp, numPeers));
+		WAKU_CALL (logosdelivery_ctx_waku_peer_exchange_request(CTX(wakuCtx), numPeers, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -306,7 +310,7 @@ package main
 									 const char* protocol,
 									 void* resp) {
 
-		WAKU_CALL (waku_get_peerids_by_protocol(wakuCtx, replyCallback, resp, &(WakuGetPeeridsByProtocolReq){.protocol = protocol}));
+		WAKU_CALL (logosdelivery_ctx_waku_get_peerids_by_protocol(CTX(wakuCtx), protocol, replyCallback, resp));
 		waitResp(resp);
 	}
 

@@ -24,8 +24,10 @@ brew install libpq
 From the nwaku root folder:
 
 ```code
-go build -o waku-go examples/golang/waku.go
+make gowaku_example
 ```
+
+It passes the TinyCBOR include path and archive that the generated header needs.
 
 ## Run
 From the nwaku root folder:
@@ -36,5 +38,5 @@ export LD_LIBRARY_PATH=build
 ```
 
 ```code
-./waku-go
+./build/gowaku_example
 ```
