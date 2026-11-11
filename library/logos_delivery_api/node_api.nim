@@ -222,8 +222,13 @@ proc logosdelivery_create_node(
   return ok(lib)
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  await self.restOf().stop(self)
-  return await self.stop()
+  # The REST stop runs inside `stop`, after the state is `Stopping`, so that a
+  # start during the REST stop returns an error.
+  let rest = self.restOf()
+  return await self.stop(
+    proc() {.async: (raises: []).} =
+      await rest.stop(self)
+  )
 
 proc logosdelivery_start_node(
     self: LogosDelivery

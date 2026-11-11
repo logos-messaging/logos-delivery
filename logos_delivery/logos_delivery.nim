@@ -82,6 +82,8 @@ type
       ## Held for the whole of `start` and `stop`, so that a stop waits for a
       ## start in progress.
 
+  StopHook* = proc(): Future[void] {.async: (raises: []), gcsafe.}
+
 proc buildLogosDeliveryStack(
     wakuConf: WakuConf,
     messagingConf: Opt[MessagingClientConf],
@@ -307,10 +309,14 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   startSucceeded = true
   return ok()
 
-proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+proc stop*(
+    self: LogosDelivery, beforeLayers: StopHook = nil
+): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
   ## A stop during a start waits for the start to end, then stops. The layers
   ## below the channels are stopped only when one of them runs.
+  ## `beforeLayers` runs under the lock, before the first layer stops, so a
+  ## start that comes while it runs returns an error.
   await self.lifecycle.acquire()
   self.state = LifecycleState.Stopping
   var stopSucceeded = false
@@ -319,6 +325,9 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
     # retries. `start` refuses the node while its messaging layer is down.
     self.state = if stopSucceeded: LifecycleState.Stopped else: LifecycleState.Running
     self.lifecycle.release2()
+
+  if not beforeLayers.isNil():
+    await beforeLayers()
 
   if not self.reliableChannelManager.isNil():
     await self.reliableChannelManager.stop()

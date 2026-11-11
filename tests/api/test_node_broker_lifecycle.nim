@@ -503,3 +503,27 @@ suite "LogosDelivery - broker lifecycle":
         not node.isRunning()
         (await node.start()).isOk()
         (await node.stop()).isOk()
+
+  asyncTest "a start during the REST stop of a stop returns an error":
+    ## `stop_node` passes the REST stop to `stop`, which runs it under the lock.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
+        raiseAssert error
+      let rest = (await node.startWithRest()).valueOr:
+        raiseAssert error
+
+      let stopping = node.stop(
+        proc() {.async: (raises: []).} =
+          await rest.stop(node)
+      )
+      check:
+        node.lifecycleState == LifecycleState.Stopping
+        rest.server.isNil()
+        node.messagingClient.started
+        (await node.start()).isErr()
+
+      check:
+        (await stopping).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        not rest.isListeningToMessagingEvents()
