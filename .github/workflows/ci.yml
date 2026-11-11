@@ -614,7 +614,7 @@ jobs:
       - name: Build FFI and bindings examples
         env:
           MOC: /usr/lib/qt5/bin/moc
-        run: make V=1 -j1 ffi-examples bindings-examples ${{ runner.os == 'Linux' && 'qtwaku_example' || '' }}
+        run: make V=1 -j1 ffi-examples bindings-examples ${{ runner.os == 'Linux' && 'qt-logos-delivery-example' || '' }}
 
       - name: Audit installed deps
         run: make audit-deps

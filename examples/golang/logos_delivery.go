@@ -117,7 +117,7 @@ package main
 		completeResp(c->resp, errCode, text, strlen(text));
 	}
 
-	#define WAKU_CALL(call)                                                        \
+	#define LOGOS_DELIVERY_CALL(call)                                                        \
 	do {                                                                           \
 		int ret = call;                                                              \
 		if (ret != 0) {                                                              \
@@ -129,50 +129,50 @@ package main
 	// The Go side keeps the LogosDeliveryCtx* as an opaque void*.
 	#define CTX(p) ((const LogosDeliveryCtx*) (p))
 
-	static void* cGoWakuNew(const char* configJson, void* resp) {
+	static void* cGoLogosDeliveryNew(const char* configJson, void* resp) {
 		CreateResp c = {.resp = (Resp*) resp, .ctx = NULL};
-		WAKU_CALL(logosdelivery_ctx_create(configJson, createCallback, &c));
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_create(configJson, createCallback, &c));
 		waitResp(resp);
 		return c.ctx;
 	}
 
-	static void cGoWakuStart(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_start_node(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryStart(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_start_node(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuStop(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_stop_node(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryStop(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_stop_node(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuDestroy(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_destroy((LogosDeliveryCtx*) wakuCtx));
+	static void cGoLogosDeliveryDestroy(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_destroy((LogosDeliveryCtx*) logosDeliveryCtx));
 	}
 
-	static void cGoWakuStartDiscV5(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_waku_start_discv5(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryStartDiscV5(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_start_discv5(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuStopDiscV5(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_waku_stop_discv5(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryStopDiscV5(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_stop_discv5(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuVersion(void* wakuCtx, void* resp) {
-		WAKU_CALL(logosdelivery_ctx_waku_version(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryVersion(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_version(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuSetEventCallback(void* wakuCtx) {
-		// The 'globalEventCallback' Go function is shared amongst all possible Waku instances.
+	static void cGoLogosDeliverySetEventCallback(void* logosDeliveryCtx) {
+		// The 'globalEventCallback' Go function is shared amongst all possible Logos Delivery instances.
 
 		// Given that the 'globalEventCallback' is shared, we pass again the
-		// wakuCtx instance but in this case is needed to pick up the correct method
+		// logosDeliveryCtx instance but in this case is needed to pick up the correct method
 		// that will handle the event.
 
-		// In other words, for every call the libwaku makes to globalEventCallback,
+		// In other words, for every call the liblogosdelivery makes to globalEventCallback,
 		// the 'userData' parameter will bring the context of the node that registered
 		// that globalEventCallback.
 
@@ -184,133 +184,133 @@ package main
 			"onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
 			"onChannelMessageSent", "onChannelMessageError"};
 		for (size_t i = 0; i < sizeof(eventNames) / sizeof(eventNames[0]); i++) {
-			logosdelivery_add_event_listener(CTX(wakuCtx)->ptr, eventNames[i], (FFICallBack) globalEventCallback, wakuCtx);
+			logosdelivery_add_event_listener(CTX(logosDeliveryCtx)->ptr, eventNames[i], (FFICallBack) globalEventCallback, logosDeliveryCtx);
 		}
 	}
 
-	static void cGoWakuContentTopic(void* wakuCtx,
+	static void cGoLogosDeliveryContentTopic(void* logosDeliveryCtx,
 							char* appName,
 							int appVersion,
 							char* contentTopicName,
 							char* encoding,
 							void* resp) {
 
-		WAKU_CALL( logosdelivery_ctx_waku_content_topic(CTX(wakuCtx), appName, appVersion, contentTopicName, encoding, replyCallback, resp) );
+		LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_content_topic(CTX(logosDeliveryCtx), appName, appVersion, contentTopicName, encoding, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuPubsubTopic(void* wakuCtx, char* topicName, void* resp) {
-		WAKU_CALL( logosdelivery_ctx_waku_pubsub_topic(CTX(wakuCtx), topicName, replyCallback, resp) );
+	static void cGoLogosDeliveryPubsubTopic(void* logosDeliveryCtx, char* topicName, void* resp) {
+		LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_pubsub_topic(CTX(logosDeliveryCtx), topicName, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuDefaultPubsubTopic(void* wakuCtx, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_default_pubsub_topic(CTX(wakuCtx), replyCallback, resp));
+	static void cGoLogosDeliveryDefaultPubsubTopic(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_default_pubsub_topic(CTX(logosDeliveryCtx), replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuRelayPublish(void* wakuCtx,
+	static void cGoLogosDeliveryRelayPublish(void* logosDeliveryCtx,
                        const char* pubSubTopic,
-                       const char* jsonWakuMessage,
+                       const char* jsonLogosDeliveryMessage,
                        int timeoutMs,
 					   void* resp) {
 
-		WAKU_CALL (logosdelivery_ctx_waku_relay_publish(CTX(wakuCtx), pubSubTopic, jsonWakuMessage, timeoutMs, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_relay_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonLogosDeliveryMessage, timeoutMs, replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuRelaySubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
-		WAKU_CALL ( logosdelivery_ctx_waku_relay_subscribe(CTX(wakuCtx), pubSubTopic, replyCallback, resp) );
+	static void cGoLogosDeliveryRelaySubscribe(void* logosDeliveryCtx, char* pubSubTopic, void* resp) {
+		LOGOS_DELIVERY_CALL ( logosdelivery_ctx_waku_relay_subscribe(CTX(logosDeliveryCtx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuRelayUnsubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
-		WAKU_CALL ( logosdelivery_ctx_waku_relay_unsubscribe(CTX(wakuCtx), pubSubTopic, replyCallback, resp) );
+	static void cGoLogosDeliveryRelayUnsubscribe(void* logosDeliveryCtx, char* pubSubTopic, void* resp) {
+		LOGOS_DELIVERY_CALL ( logosdelivery_ctx_waku_relay_unsubscribe(CTX(logosDeliveryCtx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuConnect(void* wakuCtx, char* peerMultiAddr, int timeoutMs, void* resp) {
-		WAKU_CALL( logosdelivery_ctx_waku_connect(CTX(wakuCtx), peerMultiAddr, timeoutMs, replyCallback, resp) );
+	static void cGoLogosDeliveryConnect(void* logosDeliveryCtx, char* peerMultiAddr, int timeoutMs, void* resp) {
+		LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_connect(CTX(logosDeliveryCtx), peerMultiAddr, timeoutMs, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuDialPeerById(void* wakuCtx,
+	static void cGoLogosDeliveryDialPeerById(void* logosDeliveryCtx,
 									char* peerId,
 									char* protocol,
 									int timeoutMs,
 									void* resp) {
 
-		WAKU_CALL( logosdelivery_ctx_waku_dial_peer_by_id(CTX(wakuCtx), peerId, protocol, timeoutMs, replyCallback, resp) );
+		LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_dial_peer_by_id(CTX(logosDeliveryCtx), peerId, protocol, timeoutMs, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuDisconnectPeerById(void* wakuCtx, char* peerId, void* resp) {
-		WAKU_CALL( logosdelivery_ctx_waku_disconnect_peer_by_id(CTX(wakuCtx), peerId, replyCallback, resp) );
+	static void cGoLogosDeliveryDisconnectPeerById(void* logosDeliveryCtx, char* peerId, void* resp) {
+		LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_disconnect_peer_by_id(CTX(logosDeliveryCtx), peerId, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuListenAddresses(void* wakuCtx, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_listen_addresses(CTX(wakuCtx), replyCallback, resp) );
+	static void cGoLogosDeliveryListenAddresses(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_listen_addresses(CTX(logosDeliveryCtx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuGetMyENR(void* ctx, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_get_my_enr(CTX(ctx), replyCallback, resp) );
+	static void cGoLogosDeliveryGetMyENR(void* ctx, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_get_my_enr(CTX(ctx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuGetMyPeerId(void* ctx, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_get_my_peerid(CTX(ctx), replyCallback, resp) );
+	static void cGoLogosDeliveryGetMyPeerId(void* ctx, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_get_my_peerid(CTX(ctx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuListPeersInMesh(void* ctx, char* pubSubTopic, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_relay_get_num_peers_in_mesh(CTX(ctx), pubSubTopic, replyCallback, resp) );
+	static void cGoLogosDeliveryListPeersInMesh(void* ctx, char* pubSubTopic, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_relay_get_num_peers_in_mesh(CTX(ctx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuGetNumConnectedPeers(void* ctx, char* pubSubTopic, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_relay_get_num_connected_peers(CTX(ctx), pubSubTopic, replyCallback, resp) );
+	static void cGoLogosDeliveryGetNumConnectedPeers(void* ctx, char* pubSubTopic, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_relay_get_num_connected_peers(CTX(ctx), pubSubTopic, replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuGetPeerIdsFromPeerStore(void* wakuCtx, void* resp) {
-		WAKU_CALL (logosdelivery_ctx_waku_get_peerids_from_peerstore(CTX(wakuCtx), replyCallback, resp) );
+	static void cGoLogosDeliveryGetPeerIdsFromPeerStore(void* logosDeliveryCtx, void* resp) {
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_get_peerids_from_peerstore(CTX(logosDeliveryCtx), replyCallback, resp) );
 		waitResp(resp);
 	}
 
-	static void cGoWakuLightpushPublish(void* wakuCtx,
+	static void cGoLogosDeliveryLightpushPublish(void* logosDeliveryCtx,
 					const char* pubSubTopic,
-					const char* jsonWakuMessage,
+					const char* jsonLogosDeliveryMessage,
 					void* resp) {
 
-		WAKU_CALL (logosdelivery_ctx_waku_lightpush_publish(CTX(wakuCtx), pubSubTopic, jsonWakuMessage, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_lightpush_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonLogosDeliveryMessage, replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuStoreQuery(void* wakuCtx,
+	static void cGoLogosDeliveryStoreQuery(void* logosDeliveryCtx,
 					const char* jsonQuery,
 					const char* peerAddr,
 					int timeoutMs,
 					void* resp) {
 
-		WAKU_CALL (logosdelivery_ctx_waku_store_query(CTX(wakuCtx), jsonQuery, peerAddr, timeoutMs, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_store_query(CTX(logosDeliveryCtx), jsonQuery, peerAddr, timeoutMs, replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuPeerExchangeQuery(void* wakuCtx,
+	static void cGoLogosDeliveryPeerExchangeQuery(void* logosDeliveryCtx,
 								uint64_t numPeers,
 								void* resp) {
 
-		WAKU_CALL (logosdelivery_ctx_waku_peer_exchange_request(CTX(wakuCtx), numPeers, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_peer_exchange_request(CTX(logosDeliveryCtx), numPeers, replyCallback, resp));
 		waitResp(resp);
 	}
 
-	static void cGoWakuGetPeerIdsByProtocol(void* wakuCtx,
+	static void cGoLogosDeliveryGetPeerIdsByProtocol(void* logosDeliveryCtx,
 									 const char* protocol,
 									 void* resp) {
 
-		WAKU_CALL (logosdelivery_ctx_waku_get_peerids_by_protocol(CTX(wakuCtx), protocol, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_get_peerids_by_protocol(CTX(logosDeliveryCtx), protocol, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -327,9 +327,9 @@ import (
 	"unsafe"
 )
 
-type WakuMessageHash = string
-type WakuPubsubTopic = string
-type WakuContentTopic = string
+type LogosDeliveryMessageHash = string
+type LogosDeliveryPubsubTopic = string
+type LogosDeliveryContentTopic = string
 
 type MessagingOverrides struct {
 	ListenAddress string `json:"listen-address,omitempty"`
@@ -338,16 +338,16 @@ type MessagingOverrides struct {
 	LogLevel      string `json:"log-level,omitempty"`
 }
 
-type WakuConfig struct {
+type LogosDeliveryConfig struct {
 	Mode               string             `json:"mode"`
 	MessagingOverrides MessagingOverrides `json:"messagingOverrides"`
 }
 
-type WakuNode struct {
+type LogosDeliveryNode struct {
 	ctx unsafe.Pointer
 }
 
-func WakuNew(config WakuConfig) (*WakuNode, error) {
+func LogosDeliveryNew(config LogosDeliveryConfig) (*LogosDeliveryNode, error) {
 	jsonConfig, err := json.Marshal(config)
 	if err != nil {
 		return nil, err
@@ -359,63 +359,63 @@ func WakuNew(config WakuConfig) (*WakuNode, error) {
 	defer C.free(unsafe.Pointer(cJsonConfig))
 	defer C.freeResp(resp)
 
-	ctx := C.cGoWakuNew(cJsonConfig, resp)
+	ctx := C.cGoLogosDeliveryNew(cJsonConfig, resp)
 	if C.getRet(resp) == C.RET_OK {
-		return &WakuNode{ctx: ctx}, nil
+		return &LogosDeliveryNode{ctx: ctx}, nil
 	}
 
-	errMsg := "error WakuNew: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
+	errMsg := "error LogosDeliveryNew: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return nil, errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuStart() error {
+func (self *LogosDeliveryNode) LogosDeliveryStart() error {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuStart(self.ctx, resp)
+	C.cGoLogosDeliveryStart(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuStart: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
+	errMsg := "error LogosDeliveryStart: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuStop() error {
+func (self *LogosDeliveryNode) LogosDeliveryStop() error {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuStop(self.ctx, resp)
+	C.cGoLogosDeliveryStop(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuStop: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
+	errMsg := "error LogosDeliveryStop: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuDestroy() error {
+func (self *LogosDeliveryNode) LogosDeliveryDestroy() error {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuDestroy(self.ctx, resp)
+	C.cGoLogosDeliveryDestroy(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuDestroy: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
+	errMsg := "error LogosDeliveryDestroy: " + C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuVersion() (string, error) {
+func (self *LogosDeliveryNode) LogosDeliveryVersion() (string, error) {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
 
-	C.cGoWakuVersion(self.ctx, resp)
+	C.cGoLogosDeliveryVersion(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		var version = C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return version, nil
 	}
 
-	errMsg := "error WakuVersion: " +
+	errMsg := "error LogosDeliveryVersion: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return "", errors.New(errMsg)
 }
@@ -424,24 +424,24 @@ func (self *WakuNode) WakuVersion() (string, error) {
 func globalEventCallback(callerRet C.int, msg *C.char, len C.size_t, userData unsafe.Pointer) {
 	// This is shared among all Golang instances
 
-	self := WakuNode{ctx: userData}
+	self := LogosDeliveryNode{ctx: userData}
 	self.MyEventCallback(callerRet, msg, len)
 }
 
-func (self *WakuNode) MyEventCallback(callerRet C.int, msg *C.char, len C.size_t) {
+func (self *LogosDeliveryNode) MyEventCallback(callerRet C.int, msg *C.char, len C.size_t) {
 	fmt.Println("Event received:", C.GoStringN(msg, C.int(len)))
 }
 
-func (self *WakuNode) WakuSetEventCallback() {
+func (self *LogosDeliveryNode) LogosDeliverySetEventCallback() {
 	// Notice that the events for self node are handled by the 'MyEventCallback' method
-	C.cGoWakuSetEventCallback(self.ctx)
+	C.cGoLogosDeliverySetEventCallback(self.ctx)
 }
 
-func (self *WakuNode) FormatContentTopic(
+func (self *LogosDeliveryNode) FormatContentTopic(
 	appName string,
 	appVersion int,
 	contentTopicName string,
-	encoding string) (WakuContentTopic, error) {
+	encoding string) (LogosDeliveryContentTopic, error) {
 
 	var cAppName = C.CString(appName)
 	var cContentTopicName = C.CString(contentTopicName)
@@ -453,7 +453,7 @@ func (self *WakuNode) FormatContentTopic(
 	defer C.free(unsafe.Pointer(cEncoding))
 	defer C.freeResp(resp)
 
-	C.cGoWakuContentTopic(self.ctx,
+	C.cGoLogosDeliveryContentTopic(self.ctx,
 		cAppName,
 		C.int(appVersion),
 		cContentTopicName,
@@ -471,14 +471,14 @@ func (self *WakuNode) FormatContentTopic(
 	return "", errors.New(errMsg)
 }
 
-func (self *WakuNode) FormatPubsubTopic(topicName string) (WakuPubsubTopic, error) {
+func (self *LogosDeliveryNode) FormatPubsubTopic(topicName string) (LogosDeliveryPubsubTopic, error) {
 	var cTopicName = C.CString(topicName)
 	var resp = C.allocResp()
 
 	defer C.free(unsafe.Pointer(cTopicName))
 	defer C.freeResp(resp)
 
-	C.cGoWakuPubsubTopic(self.ctx, cTopicName, resp)
+	C.cGoLogosDeliveryPubsubTopic(self.ctx, cTopicName, resp)
 	if C.getRet(resp) == C.RET_OK {
 		var pubsubTopic = C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return pubsubTopic, nil
@@ -490,25 +490,25 @@ func (self *WakuNode) FormatPubsubTopic(topicName string) (WakuPubsubTopic, erro
 	return "", errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuDefaultPubsubTopic() (WakuPubsubTopic, error) {
+func (self *LogosDeliveryNode) LogosDeliveryDefaultPubsubTopic() (LogosDeliveryPubsubTopic, error) {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuDefaultPubsubTopic(self.ctx, resp)
+	C.cGoLogosDeliveryDefaultPubsubTopic(self.ctx, resp)
 	if C.getRet(resp) == C.RET_OK {
 		var defaultPubsubTopic = C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return defaultPubsubTopic, nil
 	}
 
-	errMsg := "error WakuDefaultPubsubTopic: " +
+	errMsg := "error LogosDeliveryDefaultPubsubTopic: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 
 	return "", errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuRelayPublish(
+func (self *LogosDeliveryNode) LogosDeliveryRelayPublish(
 	pubsubTopic string,
 	message string,
-	timeoutMs int) (WakuMessageHash, error) {
+	timeoutMs int) (LogosDeliveryMessageHash, error) {
 
 	var cPubsubTopic = C.CString(pubsubTopic)
 	var msg = C.CString(message)
@@ -518,93 +518,93 @@ func (self *WakuNode) WakuRelayPublish(
 	defer C.free(unsafe.Pointer(cPubsubTopic))
 	defer C.free(unsafe.Pointer(msg))
 
-	C.cGoWakuRelayPublish(self.ctx, cPubsubTopic, msg, C.int(timeoutMs), resp)
+	C.cGoLogosDeliveryRelayPublish(self.ctx, cPubsubTopic, msg, C.int(timeoutMs), resp)
 	if C.getRet(resp) == C.RET_OK {
 		msgHash := C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return msgHash, nil
 	}
-	errMsg := "error WakuRelayPublish: " +
+	errMsg := "error LogosDeliveryRelayPublish: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return "", errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuRelaySubscribe(pubsubTopic string) error {
+func (self *LogosDeliveryNode) LogosDeliveryRelaySubscribe(pubsubTopic string) error {
 	var resp = C.allocResp()
 	var cPubsubTopic = C.CString(pubsubTopic)
 
 	defer C.freeResp(resp)
 	defer C.free(unsafe.Pointer(cPubsubTopic))
-	C.cGoWakuRelaySubscribe(self.ctx, cPubsubTopic, resp)
+	C.cGoLogosDeliveryRelaySubscribe(self.ctx, cPubsubTopic, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuRelaySubscribe: " +
+	errMsg := "error LogosDeliveryRelaySubscribe: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuRelayUnsubscribe(pubsubTopic string) error {
+func (self *LogosDeliveryNode) LogosDeliveryRelayUnsubscribe(pubsubTopic string) error {
 	var resp = C.allocResp()
 	var cPubsubTopic = C.CString(pubsubTopic)
 	defer C.freeResp(resp)
 	defer C.free(unsafe.Pointer(cPubsubTopic))
-	C.cGoWakuRelayUnsubscribe(self.ctx, cPubsubTopic, resp)
+	C.cGoLogosDeliveryRelayUnsubscribe(self.ctx, cPubsubTopic, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuRelayUnsubscribe: " +
+	errMsg := "error LogosDeliveryRelayUnsubscribe: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuConnect(peerMultiAddr string, timeoutMs int) error {
+func (self *LogosDeliveryNode) LogosDeliveryConnect(peerMultiAddr string, timeoutMs int) error {
 	var resp = C.allocResp()
 	var cPeerMultiAddr = C.CString(peerMultiAddr)
 	defer C.freeResp(resp)
 	defer C.free(unsafe.Pointer(cPeerMultiAddr))
 
-	C.cGoWakuConnect(self.ctx, cPeerMultiAddr, C.int(timeoutMs), resp)
+	C.cGoLogosDeliveryConnect(self.ctx, cPeerMultiAddr, C.int(timeoutMs), resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		return nil
 	}
-	errMsg := "error WakuConnect: " +
+	errMsg := "error LogosDeliveryConnect: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuListenAddresses() (string, error) {
+func (self *LogosDeliveryNode) LogosDeliveryListenAddresses() (string, error) {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuListenAddresses(self.ctx, resp)
+	C.cGoLogosDeliveryListenAddresses(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		var listenAddresses = C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return listenAddresses, nil
 	}
-	errMsg := "error WakuListenAddresses: " +
+	errMsg := "error LogosDeliveryListenAddresses: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return "", errors.New(errMsg)
 }
 
-func (self *WakuNode) WakuGetMyENR() (string, error) {
+func (self *LogosDeliveryNode) LogosDeliveryGetMyENR() (string, error) {
 	var resp = C.allocResp()
 	defer C.freeResp(resp)
-	C.cGoWakuGetMyENR(self.ctx, resp)
+	C.cGoLogosDeliveryGetMyENR(self.ctx, resp)
 
 	if C.getRet(resp) == C.RET_OK {
 		var myENR = C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 		return myENR, nil
 	}
-	errMsg := "error WakuGetMyENR: " +
+	errMsg := "error LogosDeliveryGetMyENR: " +
 		C.GoStringN(C.getMyCharPtr(resp), C.int(C.getMyCharLen(resp)))
 	return "", errors.New(errMsg)
 }
 
 func main() {
-	config := WakuConfig{
+	config := LogosDeliveryConfig{
 		Mode: "Core",
 		MessagingOverrides: MessagingOverrides{
 			ListenAddress: "0.0.0.0",
@@ -614,27 +614,27 @@ func main() {
 		},
 	}
 
-	node, err := WakuNew(config)
+	node, err := LogosDeliveryNew(config)
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	node.WakuSetEventCallback()
+	node.LogosDeliverySetEventCallback()
 
-	defaultPubsubTopic, err := node.WakuDefaultPubsubTopic()
+	defaultPubsubTopic, err := node.LogosDeliveryDefaultPubsubTopic()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	err = node.WakuRelaySubscribe(defaultPubsubTopic)
+	err = node.LogosDeliveryRelaySubscribe(defaultPubsubTopic)
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	err = node.WakuConnect(
+	err = node.LogosDeliveryConnect(
 		// tries to connect to a localhost node with key: 0d714a1fada214dead6dc9c7274585eca0ff292451866e7d6d677dc818e8ccd2
 		"/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN",
 		10000)
@@ -643,13 +643,13 @@ func main() {
 		return
 	}
 
-	err = node.WakuStart()
+	err = node.LogosDeliveryStart()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	version, err := node.WakuVersion()
+	version, err := node.LogosDeliveryVersion()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
@@ -667,13 +667,13 @@ func main() {
 		return
 	}
 
-	listenAddresses, err := node.WakuListenAddresses()
+	listenAddresses, err := node.LogosDeliveryListenAddresses()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	myENR, err := node.WakuGetMyENR()
+	myENR, err := node.LogosDeliveryGetMyENR()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
@@ -691,13 +691,13 @@ func main() {
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 
-	err = node.WakuStop()
+	err = node.LogosDeliveryStop()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return
 	}
 
-	err = node.WakuDestroy()
+	err = node.LogosDeliveryDestroy()
 	if err != nil {
 		fmt.Println("Error happened:", err.Error())
 		return

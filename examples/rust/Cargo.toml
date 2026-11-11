@@ -1,5 +1,5 @@
 [package]
-name = "waku-rust-simple-example"
+name = "logos-delivery-rust-simple-example"
 version = "0.1.0"
 edition = "2021"
 

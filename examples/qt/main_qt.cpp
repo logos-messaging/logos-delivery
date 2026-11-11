@@ -2,13 +2,13 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
-#include "waku_handler.h"
+#include "logos_delivery_handler.h"
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     QQmlApplicationEngine engine;
 
-    WakuHandler wakuHandler;
+    LogosDeliveryHandler logosDeliveryHandler;
 
     QString jsonConfig = R"(
         {
@@ -25,9 +25,9 @@ int main(int argc, char *argv[]) {
         }
         )";
 
-    wakuHandler.initialize(jsonConfig);
+    logosDeliveryHandler.initialize(jsonConfig);
 
-    engine.rootContext()->setContextProperty("wakuHandler", &wakuHandler);
+    engine.rootContext()->setContextProperty("logosDeliveryHandler", &logosDeliveryHandler);
 
     engine.load(QUrl::fromLocalFile("main.qml"));
     

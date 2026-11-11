@@ -27,8 +27,8 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES := waku_ffi.c
-LOCAL_MODULE := waku_jni
+LOCAL_SRC_FILES := logos_delivery_ffi.c
+LOCAL_MODULE := logos_delivery_jni
 LOCAL_C_INCLUDES := $(LOGOSDELIVERY_INCLUDE) $(TINYCBOR_DIR)
 LOCAL_LDLIBS := -llog
 LOCAL_SHARED_LIBRARIES := logosdelivery

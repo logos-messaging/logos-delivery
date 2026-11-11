@@ -13,8 +13,8 @@ MOC ?= moc
 
 TARGET = main-qt
 SRC = main_qt.cpp
-MOC_SRC = waku_handler.moc.cpp
-HEADERS = waku_handler.h
+MOC_SRC = logos_delivery_handler.moc.cpp
+HEADERS = logos_delivery_handler.h
 
 all: $(TARGET)
 

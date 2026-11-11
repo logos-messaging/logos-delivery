@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <pthread.h>
 
-#define APPNAME "waku-jni"
+#define APPNAME "logos-delivery-jni"
 #define LOGD(TAG) __android_log_print(ANDROID_LOG_DEBUG , APPNAME,TAG);
 
 // cb_result represents a response received when executing a callback.
@@ -21,10 +21,10 @@ typedef struct {
 
 // cb_env is a struct passed as userdata when setting up the event callback.
 // This is so we can pass the pointer back to kotlin to indicate which instance
-// of waku received the message, and also so we can have access to `env` from
+// of logosDelivery received the message, and also so we can have access to `env` from
 // within the event callback
 typedef struct {
-  jlong wakuPtr;
+  jlong logosDeliveryPtr;
   JNIEnv *env;
 } cb_env;
 
@@ -113,9 +113,9 @@ static void on_created(int errCode, LogosDeliveryCtx *ctx, const char *errMsg,
 // fails up front has already replied through the callback.
 static jobject finish_call(JNIEnv *env, cb_wait *w);
 
-// converts a cb_result into an instance of the kotlin WakuResult class
+// converts a cb_result into an instance of the kotlin LogosDeliveryResult class
 jobject to_jni_result(JNIEnv *env, cb_result *result) {
-  jclass myStructClass = (*env)->FindClass(env, "com/mobile/WakuResult");
+  jclass myStructClass = (*env)->FindClass(env, "com/mobile/LogosDeliveryResult");
   jmethodID constructor = (*env)->GetMethodID(env, myStructClass, "<init>",
                                               "(ZLjava/lang/String;)V");
 
@@ -138,27 +138,27 @@ jobject to_jni_result(JNIEnv *env, cb_result *result) {
   return response;
 }
 
-// converts a cb_result into an instance of the kotlin WakuPtr class
+// converts a cb_result into an instance of the kotlin LogosDeliveryPtr class
 jobject to_jni_ptr(JNIEnv *env, cb_result *result, void *ptr) {
-  jclass myStructClass = (*env)->FindClass(env, "com/mobile/WakuPtr");
+  jclass myStructClass = (*env)->FindClass(env, "com/mobile/LogosDeliveryPtr");
   jmethodID constructor = (*env)->GetMethodID(env, myStructClass, "<init>",
                                               "(ZLjava/lang/String;J)V");
 
   jboolean error;
   jstring message;
-  jlong wakuPtr;
+  jlong logosDeliveryPtr;
   if (result != NULL) {
     error = result->error;
     message = (*env)->NewStringUTF(env, result->message);
-    wakuPtr = -1;
+    logosDeliveryPtr = -1;
   } else {
     error = false;
     message = (*env)->NewStringUTF(env, "ok");
-    wakuPtr = (jlong)ptr;
+    logosDeliveryPtr = (jlong)ptr;
   }
 
   jobject response = (*env)->NewObject(env, myStructClass, constructor, error,
-                                       message, wakuPtr);
+                                       message, logosDeliveryPtr);
 
   // Free the intermediate message var
   (*env)->DeleteLocalRef(env, message);
@@ -166,7 +166,7 @@ jobject to_jni_ptr(JNIEnv *env, cb_result *result, void *ptr) {
   return response;
 }
 
-// libwaku functions
+// liblogosdelivery functions
 // ============================================================================
 
 // JVM, required for executing JNI functions in a third party thread.
@@ -217,7 +217,7 @@ jclass loadClass(JNIEnv *env, const char *className) {
   return jClass;
 }
 
-void Java_com_mobile_WakuModule_wakuSetup(JNIEnv *env, jobject thiz) {
+void Java_com_mobile_LogosDeliveryModule_logosDeliverySetup(JNIEnv *env, jobject thiz) {
   LOGD("log example for debugging purposes...")
 }
 
@@ -230,7 +230,7 @@ static jobject finish_call(JNIEnv *env, cb_wait *w) {
 
 #define CTX(p) ((const LogosDeliveryCtx *)(p))
 
-jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryNew(JNIEnv *env, jobject thiz,
                                            jstring configJson) {
   const char *config = (*env)->GetStringUTFChars(env, configJson, 0);
   cb_wait w;
@@ -243,96 +243,96 @@ jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
   return response;
 }
 
-jobject Java_com_mobile_WakuModule_wakuStart(JNIEnv *env, jobject thiz,
-                                             jlong wakuPtr) {
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryStart(JNIEnv *env, jobject thiz,
+                                             jlong logosDeliveryPtr) {
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_start_node(CTX(wakuPtr), on_reply, &w);
+  logosdelivery_ctx_start_node(CTX(logosDeliveryPtr), on_reply, &w);
   return finish_call(env, &w);
 }
 
-jobject Java_com_mobile_WakuModule_wakuVersion(JNIEnv *env, jobject thiz,
-                                               jlong wakuPtr) {
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryVersion(JNIEnv *env, jobject thiz,
+                                               jlong logosDeliveryPtr) {
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_version(CTX(wakuPtr), on_reply, &w);
+  logosdelivery_ctx_waku_version(CTX(logosDeliveryPtr), on_reply, &w);
   return finish_call(env, &w);
 }
 
-jobject Java_com_mobile_WakuModule_wakuStop(JNIEnv *env, jobject thiz,
-                                            jlong wakuPtr) {
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryStop(JNIEnv *env, jobject thiz,
+                                            jlong logosDeliveryPtr) {
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_stop_node(CTX(wakuPtr), on_reply, &w);
+  logosdelivery_ctx_stop_node(CTX(logosDeliveryPtr), on_reply, &w);
   return finish_call(env, &w);
 }
 
-jobject Java_com_mobile_WakuModule_wakuDestroy(JNIEnv *env, jobject thiz,
-                                               jlong wakuPtr) {
-  logosdelivery_ctx_destroy((LogosDeliveryCtx *)wakuPtr);
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryDestroy(JNIEnv *env, jobject thiz,
+                                               jlong logosDeliveryPtr) {
+  logosdelivery_ctx_destroy((LogosDeliveryCtx *)logosDeliveryPtr);
   return to_jni_result(env, NULL);
 }
 
-jobject Java_com_mobile_WakuModule_wakuConnect(JNIEnv *env, jobject thiz,
-                                               jlong wakuPtr,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryConnect(JNIEnv *env, jobject thiz,
+                                               jlong logosDeliveryPtr,
                                                jstring peerMultiAddr,
                                                jint timeoutMs) {
   const char *peer = (*env)->GetStringUTFChars(env, peerMultiAddr, 0);
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_connect(CTX(wakuPtr), peer, (uint32_t)timeoutMs,
+  logosdelivery_ctx_waku_connect(CTX(logosDeliveryPtr), peer, (uint32_t)timeoutMs,
                                  on_reply, &w);
   jobject response = finish_call(env, &w);
   (*env)->ReleaseStringUTFChars(env, peerMultiAddr, peer);
   return response;
 }
 
-jobject Java_com_mobile_WakuModule_wakuListenAddresses(JNIEnv *env,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryListenAddresses(JNIEnv *env,
                                                        jobject thiz,
-                                                       jlong wakuPtr) {
+                                                       jlong logosDeliveryPtr) {
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_listen_addresses(CTX(wakuPtr), on_reply, &w);
+  logosdelivery_ctx_waku_listen_addresses(CTX(logosDeliveryPtr), on_reply, &w);
   return finish_call(env, &w);
 }
 
-jobject Java_com_mobile_WakuModule_wakuRelayPublish(JNIEnv *env, jobject thiz,
-                                                    jlong wakuPtr,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryRelayPublish(JNIEnv *env, jobject thiz,
+                                                    jlong logosDeliveryPtr,
                                                     jstring pubsubTopic,
-                                                    jstring jsonWakuMessage,
+                                                    jstring jsonLogosDeliveryMessage,
                                                     jint timeoutMs) {
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
-  const char *msg = (*env)->GetStringUTFChars(env, jsonWakuMessage, 0);
+  const char *msg = (*env)->GetStringUTFChars(env, jsonLogosDeliveryMessage, 0);
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_relay_publish(CTX(wakuPtr), topic, msg,
+  logosdelivery_ctx_waku_relay_publish(CTX(logosDeliveryPtr), topic, msg,
                                        (uint32_t)timeoutMs, on_reply, &w);
   jobject response = finish_call(env, &w);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
-  (*env)->ReleaseStringUTFChars(env, jsonWakuMessage, msg);
+  (*env)->ReleaseStringUTFChars(env, jsonLogosDeliveryMessage, msg);
   return response;
 }
 
-jobject Java_com_mobile_WakuModule_wakuRelaySubscribe(JNIEnv *env, jobject thiz,
-                                                      jlong wakuPtr,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryRelaySubscribe(JNIEnv *env, jobject thiz,
+                                                      jlong logosDeliveryPtr,
                                                       jstring pubsubTopic) {
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_relay_subscribe(CTX(wakuPtr), topic, on_reply, &w);
+  logosdelivery_ctx_waku_relay_subscribe(CTX(logosDeliveryPtr), topic, on_reply, &w);
   jobject response = finish_call(env, &w);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
   return response;
 }
 
-jobject Java_com_mobile_WakuModule_wakuRelayUnsubscribe(JNIEnv *env,
+jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryRelayUnsubscribe(JNIEnv *env,
                                                         jobject thiz,
-                                                        jlong wakuPtr,
+                                                        jlong logosDeliveryPtr,
                                                         jstring pubsubTopic) {
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
   cb_wait w;
   wait_init(&w);
-  logosdelivery_ctx_waku_relay_unsubscribe(CTX(wakuPtr), topic, on_reply, &w);
+  logosdelivery_ctx_waku_relay_unsubscribe(CTX(logosDeliveryPtr), topic, on_reply, &w);
   jobject response = finish_call(env, &w);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
   return response;
@@ -353,7 +353,7 @@ void wk_callback(int callerRet, const char *msg, size_t len, void *userData) {
           ->GetStaticMethodID(attachedEnv, clazz, "execEventCallback", "(JLjava/lang/String;)V");
 
   jstring message = (*attachedEnv)->NewStringUTF(attachedEnv, msg);
-  (*attachedEnv)->CallStaticVoidMethod(attachedEnv, clazz, methodID, c->wakuPtr, message);
+  (*attachedEnv)->CallStaticVoidMethod(attachedEnv, clazz, methodID, c->logosDeliveryPtr, message);
 
   (*attachedEnv)->DeleteLocalRef(attachedEnv, clazz);
 
@@ -362,10 +362,10 @@ void wk_callback(int callerRet, const char *msg, size_t len, void *userData) {
   (*jvm)->DetachCurrentThread(jvm);
 }
 
-void Java_com_mobile_WakuModule_wakuSetEventCallback(JNIEnv *env, jobject thiz,
-                                                     jlong wakuPtr) {
+void Java_com_mobile_LogosDeliveryModule_logosDeliverySetEventCallback(JNIEnv *env, jobject thiz,
+                                                     jlong logosDeliveryPtr) {
   cb_env *c = (cb_env *)malloc(sizeof(cb_env));
-  c->wakuPtr = wakuPtr;
+  c->logosDeliveryPtr = logosDeliveryPtr;
   c->env = env;
   static const char *kEventNames[] = {
       "onMessageSent",            "onMessageError",
@@ -375,6 +375,6 @@ void Java_com_mobile_WakuModule_wakuSetEventCallback(JNIEnv *env, jobject thiz,
       "onChannelMessageReceived", "onChannelMessageSent",
       "onChannelMessageError"};
   for (size_t i = 0; i < sizeof(kEventNames) / sizeof(kEventNames[0]); i++)
-    logosdelivery_add_event_listener(CTX(wakuPtr)->ptr, kEventNames[i], wk_callback,
+    logosdelivery_add_event_listener(CTX(logosDeliveryPtr)->ptr, kEventNames[i], wk_callback,
                                      (void *)c);
 }

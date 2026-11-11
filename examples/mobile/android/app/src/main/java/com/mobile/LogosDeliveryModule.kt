@@ -20,16 +20,16 @@ class EventCallbackManager {
     lateinit var reactContext: ReactContext
 
     @JvmStatic
-    fun execEventCallback(wakuPtr: Long, evt: String) {
+    fun execEventCallback(logosDeliveryPtr: Long, evt: String) {
       val params =
           Arguments.createMap().apply {
-            putString("wakuPtr", wakuPtr.toString())
+            putString("logosDeliveryPtr", logosDeliveryPtr.toString())
             putString("event", evt)
           }
 
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-          .emit("wakuEvent", params)
+          .emit("logosDeliveryEvent", params)
     }
   }
 }
@@ -78,32 +78,32 @@ fun readableArrayToList(readableArray: ReadableArray): List<Any?> {
   return list
 }
 
-class WakuPtr(val error: Boolean, val errorMessage: String, val ptr: Long)
+class LogosDeliveryPtr(val error: Boolean, val errorMessage: String, val ptr: Long)
 
-class WakuResult(val error: Boolean, val message: String)
+class LogosDeliveryResult(val error: Boolean, val message: String)
 
-class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class LogosDeliveryModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
   var reactContext = reactContext
 
-  override fun getName() = "WakuModule"
+  override fun getName() = "LogosDeliveryModule"
 
-  external fun wakuSetup()
-  external fun wakuNew(configJson: String): WakuPtr
-  external fun wakuStart(ctx: Long): WakuResult
-  external fun wakuVersion(ctx: Long): WakuResult
-  external fun wakuStop(ctx: Long): WakuResult
-  external fun wakuDestroy(ctx: Long): WakuResult
-  external fun wakuConnect(ctx: Long, peerMultiAddr: String, timeoutMs: Int): WakuResult
-  external fun wakuListenAddresses(ctx: Long): WakuResult
-  external fun wakuRelayPublish(
+  external fun logosDeliverySetup()
+  external fun logosDeliveryNew(configJson: String): LogosDeliveryPtr
+  external fun logosDeliveryStart(ctx: Long): LogosDeliveryResult
+  external fun logosDeliveryVersion(ctx: Long): LogosDeliveryResult
+  external fun logosDeliveryStop(ctx: Long): LogosDeliveryResult
+  external fun logosDeliveryDestroy(ctx: Long): LogosDeliveryResult
+  external fun logosDeliveryConnect(ctx: Long, peerMultiAddr: String, timeoutMs: Int): LogosDeliveryResult
+  external fun logosDeliveryListenAddresses(ctx: Long): LogosDeliveryResult
+  external fun logosDeliveryRelayPublish(
       ctx: Long,
       topic: String,
-      wakuMsg: String,
+      logosDeliveryMsg: String,
       timeoutMs: Int
-  ): WakuResult
-  external fun wakuRelaySubscribe(ctx: Long, topic: String): WakuResult
-  external fun wakuRelayUnsubscribe(ctx: Long, topic: String): WakuResult
-  external fun wakuSetEventCallback(ctx: Long)
+  ): LogosDeliveryResult
+  external fun logosDeliveryRelaySubscribe(ctx: Long, topic: String): LogosDeliveryResult
+  external fun logosDeliveryRelayUnsubscribe(ctx: Long, topic: String): LogosDeliveryResult
+  external fun logosDeliverySetEventCallback(ctx: Long)
 
   init {
     EventCallbackManager.reactContext = reactContext
@@ -111,22 +111,22 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun setup(promise: Promise) {
-    wakuSetup()
+    logosDeliverySetup()
     promise.resolve(null)
   }
 
   @ReactMethod
   fun new(config: ReadableMap, promise: Promise) {
     val configStr = stringifyReadableMap(config)
-    val response = wakuNew(configStr)
+    val response = logosDeliveryNew(configStr)
     if (response.error) {
       promise.reject("logosdelivery_create_node", response.errorMessage)
     } else {
-      // With this we just indicate to waku_ffi that we have registered a
-      // closure, for this wakuPtr. Later once a message is received the
-      // callback manager will receive both the wakuPtr and the message,
+      // With this we just indicate to logos_delivery_ffi that we have registered a
+      // closure, for this logosDeliveryPtr. Later once a message is received the
+      // callback manager will receive both the logosDeliveryPtr and the message,
       // and it will use these values to emit a JS event
-      wakuSetEventCallback(response.ptr)
+      logosDeliverySetEventCallback(response.ptr)
 
       promise.resolve(BigInteger.valueOf(response.ptr).toString())
     }
@@ -134,8 +134,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun start(ctx: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuStart(wakuPtr)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryStart(logosDeliveryPtr)
     if (response.error) {
       promise.reject("logosdelivery_start_node", response.message)
     } else {
@@ -145,8 +145,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun version(ctx: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuVersion(wakuPtr)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryVersion(logosDeliveryPtr)
     if (response.error) {
       promise.reject("waku_version", response.message)
     } else {
@@ -156,8 +156,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun stop(ctx: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuStop(wakuPtr)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryStop(logosDeliveryPtr)
     if (response.error) {
       promise.reject("logosdelivery_stop_node", response.message)
     } else {
@@ -167,8 +167,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun destroy(ctx: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuDestroy(wakuPtr)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryDestroy(logosDeliveryPtr)
     if (response.error) {
       promise.reject("logosdelivery_destroy", response.message)
     } else {
@@ -178,8 +178,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun listenAddresses(ctx: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuListenAddresses(wakuPtr)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryListenAddresses(logosDeliveryPtr)
     if (response.error) {
       promise.reject("waku_listen_addresses", response.message)
     } else {
@@ -189,8 +189,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun connect(ctx: String, peerMultiAddr: String, timeoutMs: Int, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuConnect(wakuPtr, peerMultiAddr, timeoutMs)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryConnect(logosDeliveryPtr, peerMultiAddr, timeoutMs)
     if (response.error) {
       promise.reject("waku_connect", response.message)
     } else {
@@ -200,8 +200,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun relaySubscribe(ctx: String, topic: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuRelaySubscribe(wakuPtr, topic)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryRelaySubscribe(logosDeliveryPtr, topic)
     if (response.error) {
       promise.reject("waku_relay_subscribe", response.message)
     } else {
@@ -211,8 +211,8 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun relayUnsubscribe(ctx: String, topic: String, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
-    val response = wakuRelayUnsubscribe(wakuPtr, topic)
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
+    val response = logosDeliveryRelayUnsubscribe(logosDeliveryPtr, topic)
     if (response.error) {
       promise.reject("waku_relay_unsubscribe", response.message)
     } else {
@@ -222,9 +222,9 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
 
   @ReactMethod
   fun relayPublish(ctx: String, topic: String, msg: ReadableMap, timeoutMs: Int, promise: Promise) {
-    val wakuPtr = BigInteger(ctx).toLong()
+    val logosDeliveryPtr = BigInteger(ctx).toLong()
     val msgStr = stringifyReadableMap(msg)
-    val response = wakuRelayPublish(wakuPtr, topic, msgStr, timeoutMs)
+    val response = logosDeliveryRelayPublish(logosDeliveryPtr, topic, msgStr, timeoutMs)
     if (response.error) {
       promise.reject("waku_relay_publish", response.message)
     } else {

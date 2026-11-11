@@ -107,14 +107,14 @@ endif
 ## Main ##
 ##########
 # The Makefile automatically bootstraps dependency setup when needed for build and test targets.
-.PHONY: all test clean examples ffi-examples bindings-examples gowaku_example rustwaku_example qtwaku_example pywaku_example nodejswaku deps nimble install-nimble print-nimble-path print-nim-path
+.PHONY: all test clean examples ffi-examples bindings-examples go-logos-delivery-example rust-logos-delivery-example qt-logos-delivery-example py-logos-delivery-example nodejs-logos-delivery-example deps nimble install-nimble print-nimble-path print-nim-path
 
 # default target
 all: | logosdeliverynode liblogosdelivery
 
 examples: | example2 chat2 chat2bridge chat2mix lightpushwithmix
 
-ffi-examples: | cwaku_example cppwaku_example logosdelivery_example
+ffi-examples: | c-logos-delivery-example cpp-logos-delivery-example logosdelivery_example
 
 test_file := $(word 2,$(MAKECMDGOALS))
 define test_name
@@ -530,7 +530,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings c-logos-delivery-example liblogosdelivery liblogosdelivery_example
 
 # The library builds with plain `nim c`, as an embedder builds it: the build's
 # own flags first, then NIM_PARAMS, so the caller wins. No --skipParentCfg, so
@@ -612,20 +612,20 @@ else ifeq ($(detected_OS),Windows)
 		-lws2_32
 endif
 
-cwaku_example: | build liblogosdelivery tinycbor
+c-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
-		./examples/cbindings/waku_example.c \
+		./examples/cbindings/logos_delivery_example.c \
 		./examples/cbindings/base64.c \
 		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
-cppwaku_example: | build liblogosdelivery tinycbor
+cpp-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		g++ -o "build/$@" \
-		./examples/cpp/waku.cpp \
+		./examples/cpp/logos_delivery.cpp \
 		./examples/cpp/base64.cpp \
 		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
@@ -633,31 +633,31 @@ cppwaku_example: | build liblogosdelivery tinycbor
 		-pthread -ldl -lm
 
 # binding.gyp finds TinyCBOR under nimbledeps/ itself.
-nodejswaku: | build liblogosdelivery tinycbor
+nodejs-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		npx --yes node-gyp rebuild --directory=examples/nodejs/
 
-gowaku_example: | build liblogosdelivery tinycbor
+go-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		CGO_CFLAGS="-I$(TINYCBOR_VENDOR_DIR)" CGO_LDFLAGS="$(CURDIR)/$(TINYCBOR_LIB)" \
-		go build -o "build/$@" ./examples/golang/waku.go
+		go build -o "build/$@" ./examples/golang/logos_delivery.go
 
-rustwaku_example: | build liblogosdelivery
+rust-logos-delivery-example: | build liblogosdelivery
 	echo -e $(BUILD_MSG) "build/$@" && \
-		cd examples/rust && cargo build && cp target/debug/waku-rust-simple-example ../../build/$@
+		cd examples/rust && cargo build && cp target/debug/logos-delivery-rust-simple-example ../../build/$@
 
 # Needs Qt 5 (qtdeclarative5-dev on Ubuntu) and moc on PATH.
-qtwaku_example: | build liblogosdelivery tinycbor
+qt-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(MAKE) -C examples/qt && cp examples/qt/main-qt build/$@
 
 # ctypes binds by name at run time, so only the syntax can be checked here.
-pywaku_example:
-	python3 -m py_compile examples/python/waku.py
+py-logos-delivery-example:
+	python3 -m py_compile examples/python/logos_delivery.py
 
 # The examples in other languages that bind liblogosdelivery. Qt is left out:
 # it needs a Qt 5 install.
-bindings-examples: | gowaku_example rustwaku_example nodejswaku pywaku_example
+bindings-examples: | go-logos-delivery-example rust-logos-delivery-example nodejs-logos-delivery-example py-logos-delivery-example
 
 #####################
 ## Mobile Bindings ##
@@ -821,7 +821,7 @@ tinycbor-ios-simulator: | build-deps
 # app: run it as `make DISABLE_RLN=true ios_example`, there is no iOS librln.
 ios_example: | liblogosdelivery-ios-simulator tinycbor-ios-simulator
 	cp $(IOS_SIM_DIR)/nimcache/vendor_leopard/liblibleopard.a $(IOS_SIM_DIR)/libleopard.a
-	xcodebuild -project examples/ios/WakuExample.xcodeproj -target WakuExample \
+	xcodebuild -project examples/ios/LogosDeliveryExample.xcodeproj -target LogosDeliveryExample \
 		-sdk iphonesimulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
 		SYMROOT=$(CURDIR)/build/ios/xcode build
 

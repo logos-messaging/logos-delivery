@@ -11,7 +11,7 @@ class MainActivity : ReactActivity() {
         init {
             System.loadLibrary("rln")
             System.loadLibrary("logosdelivery")
-            System.loadLibrary("waku_jni");
+            System.loadLibrary("logos_delivery_jni");
         }
     }
   /**

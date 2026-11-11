@@ -121,7 +121,7 @@ fn main() {
     }";
 
     unsafe {
-        // Create the waku node
+        // Create the logosDelivery node
         let (tx, rx) = channel::<(i32, String)>();
         let mut closure = reply_sender(tx);
         let cb = get_create_trampoline(&closure);
@@ -135,7 +135,7 @@ fn main() {
             wait_reply(&rx, "logosdelivery_create_node")
         );
 
-        // Extracting the current waku version
+        // Extracting the current logosDelivery version
         let (tx, rx) = channel::<(i32, String)>();
         let mut closure = reply_sender(tx);
         let cb = get_trampoline(&closure);
@@ -154,7 +154,7 @@ fn main() {
         println!("Version: {version}");
         println!("Default pubsubTopic: {default_pubsub_topic}");
 
-        // Start the Waku node
+        // Start the Logos Delivery node
         let (tx, rx) = channel::<(i32, String)>();
         let mut closure = reply_sender(tx);
         let cb = get_trampoline(&closure);

@@ -90,7 +90,7 @@ android {
         versionName "1.0"
         ndk {
             abiFilters(*reactNativeArchitectures())
-            moduleName "waku_jni"
+            moduleName "logos_delivery_jni"
             ldLibs "log"
             cFlags "-std=c99"
         }

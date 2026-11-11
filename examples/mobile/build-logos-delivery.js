@@ -5,7 +5,7 @@ const {spawn} = require('child_process');
 const args = process.argv.slice(2);
 const forceFlagIndex = args.indexOf('--force');
 
-const nwakuRootFolder = '../../';
+const repoRootFolder = '../../';
 // The headers stay in build/android/<abi>/, where Android.mk reads them: they
 // include the generated/ header written next to the library.
 
@@ -39,7 +39,7 @@ if (!filesExist || forceFlagIndex !== -1) {
         androidFilesToCheck.forEach(file => {
           androidDstFiles.push(`${androidDstFolder}/${architecture}/${file}`);
           fs.copyFile(
-            `${nwakuRootFolder}/${androidSrcFolder}/${architecture}/${file}`,
+            `${repoRootFolder}/${androidSrcFolder}/${architecture}/${file}`,
             `${androidDstFolder}/${architecture}/${file}`,
             err => {
               if (err) throw err;

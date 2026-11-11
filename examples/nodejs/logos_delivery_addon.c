@@ -8,7 +8,7 @@
 #include "../cbindings/base64.h"
 #include "liblogosdelivery_kernel.h"
 
-// Reference to the NodeJs function to be called when a waku event occurs.
+// Reference to the NodeJs function to be called when a logosDelivery event occurs.
 // static napi_ref ref_event_callback = NULL;
 static napi_ref ref_version_callback = NULL;
 static napi_ref ref_def_pubsub_topic_callback = NULL;
@@ -25,17 +25,17 @@ do {                                                                       \
   }                                                                        \
 } while (0)
 
-#define WAKU_CALL(call)                                                        \
+#define LOGOS_DELIVERY_CALL(call)                                                        \
 do {                                                                           \
   int ret = call;                                                              \
   if (ret != 0) {                                                              \
     char msg[128];                                                             \
-    snprintf(msg, 128, "WAKU_CALL failed with code %d", ret);                  \
+    snprintf(msg, 128, "LOGOS_DELIVERY_CALL failed with code %d", ret);                  \
     napi_fatal_error(#call, NAPI_AUTO_LENGTH, "failed", NAPI_AUTO_LENGTH);     \
   }                                                                            \
 } while (0)
 
-// libwaku Context, handed over by event_handler_create.
+// liblogosdelivery Context, handed over by event_handler_create.
 LogosDeliveryCtx* ctx = NULL;
 static pthread_mutex_t ctx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t ctx_cond = PTHREAD_COND_INITIALIZER;
@@ -91,7 +91,7 @@ static void CallJs(napi_env env, napi_value js_cb, void* context, void* data) {
 }
 
 // LogosDeliveryWakuVersionReplyFn
-void handle_waku_version(int errCode, const char* const* reply, const char* errMsg, void* userData) {
+void handle_logos_delivery_version(int errCode, const char* const* reply, const char* errMsg, void* userData) {
   const char* msg = (reply != NULL && *reply != NULL) ? *reply : (errMsg != NULL ? errMsg : "");
   size_t len = strlen(msg);
   if (ref_version_callback == NULL) {
@@ -117,7 +117,7 @@ void handle_waku_version(int errCode, const char* const* reply, const char* errM
   NAPI_CALL(napi_call_function(my_env, global, callback, argc, &napi_msg, NULL));
 }
 
-// This function is directly passed as a callback to the libwaku and it
+// This function is directly passed as a callback to the liblogosdelivery and it
 // calls a NodeJs function if it has been set.
 // FFICallback: the event-listener registry shape.
 void event_handler(int callerRet, const char* msg, size_t len, void* userData) {
@@ -138,7 +138,7 @@ void event_handler_reply(int errCode, const char* const* reply, const char* errM
   event_handler(errCode, text, strlen(text), userData);
 }
 
-// LogosDeliveryCreateFn: WakuNew blocks on it, so later calls see the context.
+// LogosDeliveryCreateFn: LogosDeliveryNew blocks on it, so later calls see the context.
 void event_handler_create(int errCode, LogosDeliveryCtx* newCtx, const char* errMsg, void* userData) {
   if (errCode != RET_OK) {
     fprintf(stderr, "failed to create the node: %s\n", errMsg != NULL ? errMsg : "");
@@ -212,7 +212,7 @@ void handle_default_pubsub_topic(int errCode, const char* const* reply, const ch
 }
 
 // The next should be called always, at the beginning
-static napi_value WakuNew(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryNew(napi_env env, napi_callback_info info) {
 
   size_t argc = 1;
   napi_value args[1];
@@ -232,7 +232,7 @@ static napi_value WakuNew(napi_env env, napi_callback_info info) {
   napi_get_value_string_utf8(env, args[0], jsonConfig, str_size, &str_size_read);
 
   ctx_ready = 0;
-  WAKU_CALL(logosdelivery_ctx_create(jsonConfig, event_handler_create, userData));
+  LOGOS_DELIVERY_CALL(logosdelivery_ctx_create(jsonConfig, event_handler_create, userData));
   pthread_mutex_lock(&ctx_mutex);
   while (!ctx_ready) {
     pthread_cond_wait(&ctx_cond, &ctx_mutex);
@@ -244,7 +244,7 @@ static napi_value WakuNew(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
-static napi_value WakuVersion(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryVersion(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
   NAPI_CALL(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -271,12 +271,12 @@ static napi_value WakuVersion(napi_env env, napi_callback_info info) {
 
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_version_callback));
 
-  WAKU_CALL( logosdelivery_ctx_waku_version(ctx, handle_waku_version, userData) );
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_version(ctx, handle_logos_delivery_version, userData) );
 
   return NULL;
 }
 
-static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliverySetEventCallback(napi_env env, napi_callback_info info) {
 
   size_t argc = 1;
   napi_value args[1];
@@ -334,12 +334,12 @@ static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
-static napi_value WakuStart(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryStart(napi_env env, napi_callback_info info) {
   logosdelivery_ctx_start_node(ctx, event_handler_reply, userData);
   return NULL;
 }
 
-static napi_value WakuConnect(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryConnect(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value args[3];
   NAPI_CALL(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -392,7 +392,7 @@ static napi_value WakuConnect(napi_env env, napi_callback_info info) {
   my_env = env;
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
-  WAKU_CALL(logosdelivery_ctx_waku_connect(ctx, peers, timeoutMs,
+  LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_connect(ctx, peers, timeoutMs,
                                           handle_error, userData));
 
   // Free allocated memory
@@ -401,7 +401,7 @@ static napi_value WakuConnect(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
-static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryRelayPublish(napi_env env, napi_callback_info info) {
   size_t argc = 5;
   napi_value args[5];
   NAPI_CALL(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -460,14 +460,14 @@ static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
                                        msg,
                                        2048,
                                        &lengthMsg));
-  char jsonWakuMsg[1024];
+  char jsonLogosDeliveryMsg[1024];
   char *msgPayload = b64_encode((unsigned char*) msg, strlen(msg));
 
-  // TODO: move all the 'waku_content_topic' logic inside the libwaku
-  WAKU_CALL( logosdelivery_ctx_waku_content_topic(ctx, "appName", 1,
+  // TODO: move all the 'waku_content_topic' logic inside the liblogosdelivery
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_content_topic(ctx, "appName", 1,
                                                    content_topic_name, "encoding",
                                                    handle_content_topic, userData) );
-  snprintf(jsonWakuMsg,
+  snprintf(jsonLogosDeliveryMsg,
            1024,
            "{\"payload\":\"%s\",\"content_topic\":\"%s\"}",
            msgPayload, contentTopic);
@@ -499,7 +499,7 @@ static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
   // Perform the actual 'publish'
-  WAKU_CALL( logosdelivery_ctx_waku_relay_publish(ctx, pubsub_topic, jsonWakuMsg,
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_relay_publish(ctx, pubsub_topic, jsonLogosDeliveryMsg,
                                                   timeoutMs, handle_error, userData) );
   free(pubsub_topic);
   free(content_topic_name);
@@ -507,7 +507,7 @@ static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
-static napi_value WakuDefaultPubsubTopic(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryDefaultPubsubTopic(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
   NAPI_CALL(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -534,12 +534,12 @@ static napi_value WakuDefaultPubsubTopic(napi_env env, napi_callback_info info) 
 
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_def_pubsub_topic_callback));
 
-  WAKU_CALL( logosdelivery_ctx_waku_default_pubsub_topic(ctx, handle_default_pubsub_topic, userData) );
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_default_pubsub_topic(ctx, handle_default_pubsub_topic, userData) );
 
   return NULL;
 }
 
-static napi_value WakuRelaySubscribe(napi_env env, napi_callback_info info) {
+static napi_value LogosDeliveryRelaySubscribe(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value args[2];
   NAPI_CALL(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -580,8 +580,8 @@ static napi_value WakuRelaySubscribe(napi_env env, napi_callback_info info) {
   my_env = env;
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
-  // Calling the actual 'subscribe' waku function
-  WAKU_CALL( logosdelivery_ctx_waku_relay_subscribe(ctx, pubsub_topic,
+  // Calling the actual 'subscribe' logosDelivery function
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_relay_subscribe(ctx, pubsub_topic,
                                                     handle_error, userData) );
 
   free(pubsub_topic);
@@ -593,31 +593,31 @@ static napi_value WakuRelaySubscribe(napi_env env, napi_callback_info info) {
   { name, 0, func, 0, 0, 0, napi_default, 0 }
 
 static napi_value Init(napi_env env, napi_value exports) {
-  // DECLARE_NAPI_METHOD("<function_name_in_NodeJs>", <function_name_in_waku_wrapper.c>);
+  // DECLARE_NAPI_METHOD("<function_name_in_NodeJs>", <function_name_in_logos_delivery_wrapper.c>);
 
-  napi_property_descriptor wakuVersion = DECLARE_NAPI_METHOD("wakuVersion", WakuVersion);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuVersion));
+  napi_property_descriptor logosDeliveryVersion = DECLARE_NAPI_METHOD("logosDeliveryVersion", LogosDeliveryVersion);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryVersion));
 
-  napi_property_descriptor wakuNew = DECLARE_NAPI_METHOD("wakuNew", WakuNew);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuNew));
+  napi_property_descriptor logosDeliveryNew = DECLARE_NAPI_METHOD("logosDeliveryNew", LogosDeliveryNew);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryNew));
 
-  napi_property_descriptor wakuStart = DECLARE_NAPI_METHOD("wakuStart", WakuStart);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuStart));
+  napi_property_descriptor logosDeliveryStart = DECLARE_NAPI_METHOD("logosDeliveryStart", LogosDeliveryStart);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryStart));
 
-  napi_property_descriptor wakuSetEventCallback = DECLARE_NAPI_METHOD("wakuSetEventCallback", WakuSetEventCallback);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuSetEventCallback));
+  napi_property_descriptor logosDeliverySetEventCallback = DECLARE_NAPI_METHOD("logosDeliverySetEventCallback", LogosDeliverySetEventCallback);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliverySetEventCallback));
 
-  napi_property_descriptor wakuDefaultPubsubTopic = DECLARE_NAPI_METHOD("wakuDefaultPubsubTopic", WakuDefaultPubsubTopic);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuDefaultPubsubTopic));
+  napi_property_descriptor logosDeliveryDefaultPubsubTopic = DECLARE_NAPI_METHOD("logosDeliveryDefaultPubsubTopic", LogosDeliveryDefaultPubsubTopic);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryDefaultPubsubTopic));
 
-  napi_property_descriptor wakuRelaySubscribe = DECLARE_NAPI_METHOD("wakuRelaySubscribe", WakuRelaySubscribe);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuRelaySubscribe));
+  napi_property_descriptor logosDeliveryRelaySubscribe = DECLARE_NAPI_METHOD("logosDeliveryRelaySubscribe", LogosDeliveryRelaySubscribe);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryRelaySubscribe));
 
-  napi_property_descriptor wakuConnect = DECLARE_NAPI_METHOD("wakuConnect", WakuConnect);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuConnect));
+  napi_property_descriptor logosDeliveryConnect = DECLARE_NAPI_METHOD("logosDeliveryConnect", LogosDeliveryConnect);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryConnect));
 
-  napi_property_descriptor wakuRelayPublish = DECLARE_NAPI_METHOD("wakuRelayPublish", WakuRelayPublish);
-  NAPI_CALL(napi_define_properties(env, exports, 1, &wakuRelayPublish));
+  napi_property_descriptor logosDeliveryRelayPublish = DECLARE_NAPI_METHOD("logosDeliveryRelayPublish", LogosDeliveryRelayPublish);
+  NAPI_CALL(napi_define_properties(env, exports, 1, &logosDeliveryRelayPublish));
 
   return exports;
 }

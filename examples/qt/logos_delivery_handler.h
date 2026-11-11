@@ -7,7 +7,7 @@
 
 #include "liblogosdelivery_kernel.h"
 
-class WakuHandler : public QObject {
+class LogosDeliveryHandler : public QObject {
     Q_OBJECT
 private:
     // LogosDelivery*ReplyFn: failure text arrives in its own argument.
@@ -28,7 +28,7 @@ private:
 
     // LogosDeliveryCreateFn: initialize() blocks on it, so start() sees the context.
     static void on_created(int errCode, LogosDeliveryCtx* newCtx, const char* errMsg, void* userData) {
-        WakuHandler* self = static_cast<WakuHandler*>(userData);
+        LogosDeliveryHandler* self = static_cast<LogosDeliveryHandler*>(userData);
         if (errCode != RET_OK) {
             printf("Failed to create the node: %s\n", errMsg != nullptr ? errMsg : "");
         }
@@ -39,12 +39,12 @@ private:
     }
 
 public:
-    WakuHandler() : QObject(), ctx(nullptr) {}
+    LogosDeliveryHandler() : QObject(), ctx(nullptr) {}
 
     void initialize(const QString& jsonConfig) {
         const QByteArray config = jsonConfig.toUtf8();
         if (logosdelivery_ctx_create(config.constData(), on_created, this) != RET_OK) {
-            qDebug() << "Failed to create the Waku context.";
+            qDebug() << "Failed to create the Logos Delivery context.";
             return;
         }
         {
@@ -62,13 +62,13 @@ public:
               "onChannelMessageSent", "onChannelMessageError"}) {
             logosdelivery_add_event_listener(ctx->ptr, eventName, on_event_received, nullptr);
         }
-        qDebug() << "Waku context initialized, ready to start.";
+        qDebug() << "Logos Delivery context initialized, ready to start.";
     }
 
     Q_INVOKABLE void start() {
         if (ctx) {
             logosdelivery_ctx_start_node(ctx, on_reply, nullptr);
-            qDebug() << "Waku start called with event_handler and userData.";
+            qDebug() << "Logos Delivery start called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in start.";
         }
@@ -77,13 +77,13 @@ public:
     Q_INVOKABLE void stop() {
         if (ctx) {
             logosdelivery_ctx_stop_node(ctx, on_reply, nullptr);
-            qDebug() << "Waku stop called with event_handler and userData.";
+            qDebug() << "Logos Delivery stop called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in stop.";
         }
     }
 
-    virtual ~WakuHandler() { logosdelivery_ctx_destroy(ctx); }
+    virtual ~LogosDeliveryHandler() { logosdelivery_ctx_destroy(ctx); }
 
 private:
     LogosDeliveryCtx* ctx;

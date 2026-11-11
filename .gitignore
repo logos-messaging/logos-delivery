@@ -74,7 +74,7 @@ coverage_html_report/
 # simple qt example
 .qmake.stash
 main-qt
-waku_handler.moc.cpp
+logos_delivery_handler.moc.cpp
 
 # Nix build result
 result

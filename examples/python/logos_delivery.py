@@ -11,10 +11,10 @@ else:
 
 _lib_path = f"build/liblogosdelivery.{_lib_ext}"
 
-libwaku = object
+liblogosdelivery = object
 try:
     # This python script should be run from the root repo folder
-    libwaku = ctypes.CDLL(_lib_path)
+    liblogosdelivery = ctypes.CDLL(_lib_path)
 except OSError as e:
     print(f"Exception: {e}")
     print(f"""
@@ -31,14 +31,14 @@ contains the '{_lib_path}' library.
 def handle_event(ret, msg, msg_len, user_data):
     print("Event received: %s" % msg)
 
-def call_waku(func):
+def call_logos_delivery(func):
     ret = func()
     if (ret != 0):
         print("Error in %s. Error code: %d" % (locals().keys(), ret))
         exit(1)
 
 # Parse params
-parser = argparse.ArgumentParser(description='libwaku integration in Python.')
+parser = argparse.ArgumentParser(description='liblogosdelivery integration in Python.')
 parser.add_argument('-d', '--host', dest='host', default='0.0.0.0',
                     help='Address this node will listen to. [=0.0.0.0]')
 parser.add_argument('-p', '--port', dest='port', default=60000, required=True,
@@ -93,8 +93,8 @@ class ConnectReq(ctypes.Structure):
 
 
 # Node creation
-libwaku.logosdelivery_create_node.restype = ctypes.c_void_p
-libwaku.logosdelivery_create_node.argtypes = [ctypes.POINTER(CreateNodeCtorReq),
+liblogosdelivery.logosdelivery_create_node.restype = ctypes.c_void_p
+liblogosdelivery.logosdelivery_create_node.argtypes = [ctypes.POINTER(CreateNodeCtorReq),
                              reply_callback_type,
                              ctypes.c_void_p]
 
@@ -104,58 +104,58 @@ on_create_cb = reply_callback_type(
     lambda ret, reply, err, user_data:
       print("Error calling logosdelivery_create_node: %s",
             (err or b"").decode('utf-8')))
-ctx = libwaku.logosdelivery_create_node(ctypes.byref(create_req),
+ctx = liblogosdelivery.logosdelivery_create_node(ctypes.byref(create_req),
                        on_create_cb,
                        ctypes.c_void_p(0))
 
 # Retrieve the current version of the library
-libwaku.waku_version.argtypes = [ctypes.c_void_p,
+liblogosdelivery.waku_version.argtypes = [ctypes.c_void_p,
                                  callback_type,
                                  ctypes.c_void_p]
 on_version_cb = callback_type(lambda ret, msg, len, user_data:
                               print("Git Version: %s" % msg.decode('utf-8')))
-libwaku.waku_version(ctx, on_version_cb, ctypes.c_void_p(0))
+liblogosdelivery.waku_version(ctx, on_version_cb, ctypes.c_void_p(0))
 
 # Retrieve the default pubsub topic
 default_pubsub_topic = ""
-libwaku.waku_default_pubsub_topic.argtypes = [ctypes.c_void_p,
+liblogosdelivery.waku_default_pubsub_topic.argtypes = [ctypes.c_void_p,
                                  callback_type,
                                  ctypes.c_void_p]
 on_default_topic_cb = callback_type(
     lambda ret, msg, len, user_data: (
         globals().update(default_pubsub_topic = msg.decode('utf-8')),
         print("Default pubsub topic: %s" % msg.decode('utf-8'))))
-libwaku.waku_default_pubsub_topic(ctx, on_default_topic_cb, ctypes.c_void_p(0))
+liblogosdelivery.waku_default_pubsub_topic(ctx, on_default_topic_cb, ctypes.c_void_p(0))
 
 print("Bind addr: {}:{}".format(args.host, args.port))
-print("Waku Relay enabled: {}".format(args.relay))
+print("Relay enabled: {}".format(args.relay))
 
 # Set the event callback
 callback = callback_type(handle_event) # This line is important so that the callback is not gc'ed
 
-libwaku.logosdelivery_add_event_listener.argtypes = [ctypes.c_void_p,
+liblogosdelivery.logosdelivery_add_event_listener.argtypes = [ctypes.c_void_p,
                                                      ctypes.c_char_p,
                                                      callback_type,
                                                      ctypes.c_void_p]
-libwaku.logosdelivery_add_event_listener.restype = ctypes.c_uint64
+liblogosdelivery.logosdelivery_add_event_listener.restype = ctypes.c_uint64
 for event_name in [b"onMessageSent", b"onMessageError", b"onMessagePropagated",
                    b"onMessageReceived", b"onConnectionStatusChange",
                    b"onTopicHealthChange", b"onConnectionChange", b"onReceivedMessage",
                    b"onChannelMessageReceived", b"onChannelMessageSent",
                    b"onChannelMessageError"]:
-    libwaku.logosdelivery_add_event_listener(ctx, event_name, callback, ctypes.c_void_p(0))
+    liblogosdelivery.logosdelivery_add_event_listener(ctx, event_name, callback, ctypes.c_void_p(0))
 
 # Start the node
-libwaku.logosdelivery_start_node.argtypes = [ctypes.c_void_p,
+liblogosdelivery.logosdelivery_start_node.argtypes = [ctypes.c_void_p,
                                callback_type,
                                ctypes.c_void_p]
 on_start_cb = callback_type(lambda ret, msg, len, user_data:
                             print("Error in logosdelivery_start_node: %s" %
                                   msg.decode('utf-8')))
-libwaku.logosdelivery_start_node(ctx, on_start_cb, ctypes.c_void_p(0))
+liblogosdelivery.logosdelivery_start_node(ctx, on_start_cb, ctypes.c_void_p(0))
 
 # Subscribe to the default pubsub topic
-libwaku.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
+liblogosdelivery.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
                                          reply_callback_type,
                                          ctypes.c_void_p,
                                          ctypes.POINTER(RelaySubscribeReq)]
@@ -164,10 +164,10 @@ on_subscribe_cb = reply_callback_type(
     #onErrCb
     lambda ret, reply, err, user_data:
         print("Error calling waku_relay_subscribe: %s" % (err or b"").decode('utf-8')))
-libwaku.waku_relay_subscribe(ctx, on_subscribe_cb, ctypes.c_void_p(0),
+liblogosdelivery.waku_relay_subscribe(ctx, on_subscribe_cb, ctypes.c_void_p(0),
                              ctypes.byref(subscribe_req))
 
-libwaku.waku_connect.argtypes = [ctypes.c_void_p,
+liblogosdelivery.waku_connect.argtypes = [ctypes.c_void_p,
                                  reply_callback_type,
                                  ctypes.c_void_p,
                                  ctypes.POINTER(ConnectReq)]
@@ -176,7 +176,7 @@ on_connect_cb = reply_callback_type(
     # onErrCb
     lambda ret, reply, err, user_data:
       print("Error calling waku_connect: %s" % (err or b"").decode('utf-8')))
-libwaku.waku_connect(ctx, on_connect_cb, ctypes.c_void_p(0),
+liblogosdelivery.waku_connect(ctx, on_connect_cb, ctypes.c_void_p(0),
                      ctypes.byref(connect_req))
 
 # app = Flask(__name__)
