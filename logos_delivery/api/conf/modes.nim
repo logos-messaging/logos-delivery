@@ -78,11 +78,5 @@ proc applyMode*[T](conf: var T, mode: LogosDeliveryMode) =
 
 type AnonymityLevel* {.pure.} = enum
   None ## Never use Mix. Send over the plain path, relay then lightpush.
-  Preferred
-    ## Try Mix first. Take the plain path at once when Mix cannot attempt the
-    ## send, or when the message does not fit in one Mix message. Take it after
-    ## the Mix window when Mix gets no answer.
-  Required
-    ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
-    ## keep trying for a short grace (`MixUnusableGrace`), then fail.
-    ## A message that does not fit in one Mix message fails at once.
+  Preferred ## Use Mix when it can send the message, and the plain path when it cannot.
+  Required ## Use Mix only, and never the plain path.

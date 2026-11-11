@@ -9,24 +9,22 @@ type CliArgs = object
 proc periodicSender(logos: LogosDelivery): Future[void] {.async.} =
   let sentListener = MessageSentEvent.listen(
     proc(event: MessageSentEvent) {.async: (raises: []).} =
-      echo "Message sent with request ID: ",
-        event.requestId, " hash: ", event.messageHash
+      echo "Message sent with hash: ", event.messageHash
   ).valueOr:
     echo "Failed to listen to message sent event: ", error
     return
 
   let errorListener = MessageErrorEvent.listen(
     proc(event: MessageErrorEvent) {.async: (raises: []).} =
-      echo "Message failed to send with request ID: ",
-        event.requestId, " error: ", event.error
+      echo "Message failed to send with hash: ",
+        event.messageHash, " error: ", event.kind, ": ", event.error
   ).valueOr:
     echo "Failed to listen to message error event: ", error
     return
 
   let propagatedListener = MessagePropagatedEvent.listen(
     proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-      echo "Message propagated with request ID: ",
-        event.requestId, " hash: ", event.messageHash
+      echo "Message propagated with hash: ", event.messageHash
   ).valueOr:
     echo "Failed to listen to message propagated event: ", error
     return
@@ -44,11 +42,11 @@ proc periodicSender(logos: LogosDelivery): Future[void] {.async.} =
       payload = "Hello Waku! Message number: " & $counter,
     )
 
-    let sendRequestId = (await logos.messagingClient.send(envelope)).valueOr:
+    let messageHash = (await logos.messagingClient.send(envelope)).valueOr:
       echo "Failed to send message: ", error
       quit(QuitFailure)
 
-    echo "Sending message with request ID: ", sendRequestId, " counter: ", counter
+    echo "Sending message with hash: ", messageHash.to0xHex(), " counter: ", counter
 
     counter += 1
     await sleepAsync(30.seconds)

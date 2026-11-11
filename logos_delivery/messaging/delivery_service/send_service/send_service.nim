@@ -1,6 +1,6 @@
-## The send service. It runs one `deliver` for each queued message, with its
-## retries, its admission and its Store confirmation.
-##
+## The send service accepts or refuses each message of `send`.
+## It sends each accepted message one time, and it keeps no message for a later send.
+## The caller sends a message that failed again, with a new `send`.
 
 import std/[algorithm, sequtils, sets, tables, typetraits]
 import chronos, chronicles
@@ -20,28 +20,13 @@ import logos_delivery/messaging/messaging_metrics
 logScope:
   topics = "send service"
 
-const DeliveryWindow* = chronos.minutes(1)
-  ## The delivery window: how long an admitted task tries before it fails with no
-  ## propagation (`Preferred` gets two, see `maxDeliveryTime`). Also the mix
-  ## window of `MixSendProcessor` and the default Store validation window.
+const DeliveryWindow* = chronos.seconds(15)
+  ## How long the send of a task can take, with its RLN proof.
+  ## A task with no result at the end of the window fails.
 
-proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
-  ## `Preferred` gets two windows: one for mix, then one for the plain path.
-  if anonymityLevel == AnonymityLevel.Preferred:
-    DeliveryWindow + DeliveryWindow
-  else:
-    DeliveryWindow
+const StoreValidationWindow* = chronos.minutes(1)
 
-const DefaultMaxParkedAge* = chronos.minutes(30)
-  ## Parked tasks never admitted within this age (from the message timestamp)
-  ## are dropped with a `MessageErrorEvent`. Spans a few default RLN epochs.
-
-const DefaultSendQueueCapacity* = 1000
-  ## Hard cap on tasks tracked by the send service; further sends are rejected.
-
-const RetryInterval* = chronos.seconds(1)
-  ## The pause between two ticks of `retryLoop`, and between two Store validation
-  ## rounds.
+const StoreValidationInterval* = chronos.seconds(1)
 
 const ArchiveTime = chronos.seconds(3)
   ## The time a Store node needs to archive a message. A task is asked about in
@@ -51,59 +36,40 @@ const StoreValidationQueryTimeout = chronos.seconds(15)
   ## Bounds one Store validation query with its dials. It exceeds one
   ## `DefaultDialTimeout`, so a dead Store peer leaves time for another.
 
-const MaxStoreMissResends* = 3 ## The most resends of one message after a Store miss.
-
 const MaxSendsInFlight* = 50
-  ## The number of sends that run at the same time. It bounds the open streams
-  ## of this node independent of `sendQueueCapacity`.
+  ## The most sends that the service has with no last event.
+  ## It bounds the memory of the held messages and the open streams of this node.
+
+const MessageTooLargeReason* = "Message size exceeded"
+  ## The start of the error text of a message above `maxMessageSizeBytes`.
+
+const DeliveryWindowElapsedReason* = "No result of the send within the delivery window"
+
+const ServiceStoppedReason* = "The node stopped before the send ended"
 
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
   deliveryTasks: OrderedTable[WakuMessageHash, DeliveryTask]
-    ## Each task that did not get its last event, by message hash, in queue order.
-    ## A restart starts the tasks in this order.
+    ## Each task that did not get its last event, by message hash.
   running: bool
-    ## True while each task has its `deliver`. While false, `enqueue` keeps each
-    ## task until `startSendService`.
-  admissionLock: AsyncLock
-    ## One task at a time runs `admitAndProve` (see `runAdmission`).
-  sendSlots: AsyncSemaphore
-    ## One slot for each send that runs. `process` runs with a slot held, so at
-    ## most `maxSendsInFlight` sends run at the same time.
-  retryTick: AsyncEvent
-    ## `retryNow` fires it, and each task that waits on it starts its next attempt.
-    ## Chronos wakes the waiters in the order that they started to wait, so the
-    ## parked tasks reach `admissionLock` in the order that they parked.
-  retryLoopHandle: Future[void] ## The `retryLoop`, nil while the service does not run.
-  attempts: int
-    ## The number of attempts that ended, in admission or in a send. Only tests
-    ## read it.
+  maxSendsInFlight: int
+  sendsEnded: int ## Only tests read it.
   sendProcessor: BaseSendProcessor
   rateLimitManager: RateLimitManager
-    ## Charges first transmissions against the per-epoch budget; re-publishes
-    ## are free.
+    ## Charges each accepted message against the per-epoch budget.
 
   waku: Waku
   checkStoreForMessages: bool
   storeValidationHandle: Future[void]
     ## The Store validation loop. Nil when Store-based reliability is off.
-  resends: Table[WakuMessageHash, Future[void]]
-    ## The resend of each task, by message hash, while it runs. The
-    ## Store validation loop does not wait for them, and `stopSendService`
-    ## cancels them.
-  maxDeliveryTime*: timer.Duration
-    ## How long an admitted task may keep trying before it is failed.
-  maxParkedAge*: timer.Duration
-    ## How old a never-admitted (parked) task may get before it is failed.
+  deliveryWindow*: timer.Duration
   maxValidationAge*: timer.Duration
-    ## How long a task may wait for a Store confirmation before it fails. The
-    ## time while the service is stopped does not count.
+    ## How long a task may wait for a Store confirmation before it fails.
   archiveTime*: timer.Duration
     ## A task is asked about in Store only once its propagation and its last
     ## Store query are older than this, giving a Store node time to archive it.
     ## Also the pause of the Store validation loop while no Store peer is available.
-  sendQueueCapacity*: int
-  retryInterval: timer.Duration
+  storeValidationInterval: timer.Duration
 
 proc setupSendProcessorChain*(
     waku: Waku, anonymityLevel: AnonymityLevel
@@ -122,7 +88,7 @@ proc setupSendProcessorChain*(
       return err("Mix sending needs a lightpush client, which is not mounted")
 
     let mixProcessor: BaseSendProcessor =
-      MixSendProcessor.new(waku, brokerCtx, anonymityLevel, DeliveryWindow)
+      MixSendProcessor.new(waku, brokerCtx, anonymityLevel)
     if anonymityLevel == AnonymityLevel.Required:
       return ok(mixProcessor)
 
@@ -153,17 +119,14 @@ proc new*(
     waku: Waku,
     rateLimitManager: RateLimitManager,
     sendProcessor: BaseSendProcessor,
-    anonymityLevel: AnonymityLevel = AnonymityLevel.None,
-    maxParkedAge: timer.Duration = DefaultMaxParkedAge,
-    sendQueueCapacity: int = DefaultSendQueueCapacity,
-    maxValidationAge: timer.Duration = DeliveryWindow,
-    retryInterval: timer.Duration = RetryInterval,
+    deliveryWindow: timer.Duration = DeliveryWindow,
+    maxValidationAge: timer.Duration = StoreValidationWindow,
+    storeValidationInterval: timer.Duration = StoreValidationInterval,
     maxSendsInFlight: int = MaxSendsInFlight,
 ): Result[T, string] =
-  # With zero, `retryLoop` ticks at each turn of the event loop, and the waiting
-  # tasks retry with no pause.
-  if retryInterval <= ZeroDuration:
-    return err("retryInterval must be positive")
+  # With zero, the Store validation loop runs with no pause.
+  if storeValidationInterval <= ZeroDuration:
+    return err("storeValidationInterval must be positive")
   if maxSendsInFlight <= 0:
     return err("maxSendsInFlight must be positive")
 
@@ -172,25 +135,18 @@ proc new*(
   let sendService = SendService(
     brokerCtx: waku.brokerCtx,
     deliveryTasks: initOrderedTable[WakuMessageHash, DeliveryTask](),
-    admissionLock: newAsyncLock(),
-    sendSlots: newAsyncSemaphore(maxSendsInFlight),
-    retryTick: newAsyncEvent(),
+    maxSendsInFlight: maxSendsInFlight,
     sendProcessor: sendProcessor,
     rateLimitManager: rateLimitManager,
     waku: waku,
     checkStoreForMessages: checkStoreForMessages,
-    maxDeliveryTime: maxDeliveryTime(anonymityLevel),
-    maxParkedAge: maxParkedAge,
+    deliveryWindow: deliveryWindow,
     maxValidationAge: maxValidationAge,
     archiveTime: ArchiveTime,
-    sendQueueCapacity: sendQueueCapacity,
-    retryInterval: retryInterval,
+    storeValidationInterval: storeValidationInterval,
   )
 
   return ok(sendService)
-
-func isFull*(self: SendService): bool =
-  return self.deliveryTasks.len >= self.sendQueueCapacity
 
 proc storeConfirmationExpected(self: SendService, task: DeliveryTask): bool =
   ## True when a plain send of this task would wait for a store confirmation:
@@ -242,32 +198,11 @@ func storeAnswerPending(task: DeliveryTask): bool =
   ## True while the `deliver` of the task waits for a Store confirmation.
   return not task.storeAnswer.isNil() and not task.storeAnswer.finished()
 
-proc startResend(self: SendService, task: DeliveryTask) =
-  ## Starts the resend of `task` and does not wait for it. A task gets no second
-  ## resend while its last resend runs, and at most `MaxStoreMissResends` in all,
-  ## so a peer that does not answer holds one resend for each task and a message
-  ## that the Store lags on is not sent again every round.
-  if task.resendCount >= MaxStoreMissResends or self.sendProcessor.isNil():
-    return
-  self.resends.withValue(task.msgHash, resend):
-    if not resend[].finished():
-      return
-  self.resends[task.msgHash] = self.sendProcessor.resend(task)
-
-proc dropFinishedResends(self: SendService) =
-  ## Removes the resends that ended.
-  var ended: seq[WakuMessageHash]
-  for msgHash, resend in self.resends:
-    if resend.finished():
-      ended.add(msgHash)
-  for msgHash in ended:
-    self.resends.del(msgHash)
-
 proc queryStoreForTasks(
     self: SendService, shards: seq[PubsubTopic], tasks: seq[DeliveryTask]
 ) {.async.} =
   ## Sends one Store query about `tasks`, whose messages are in `shards`.
-  ## Confirms the tasks the answer reports and resends the others.
+  ## Confirms the tasks that the answer reports, and marks the others as missed.
   ## With no `shards`, any Store peer can answer.
   # TODO: confirm hash format for store query!!!
   let query = self.waku.storeQueryToAny(
@@ -298,17 +233,12 @@ proc queryStoreForTasks(
     if not task.isNil() and task.storeAnswerPending():
       task.storeAnswer.complete()
 
-  # A resend can wait for its timeout on a lightpush peer that
-  # does not answer. The loop does not wait for the resends, so that a slow
-  # lightpush peer does not stop the Store rounds of the other tasks.
-  self.dropFinishedResends()
   if storeResp.paginationCursor.isSome():
     # The answer is partial: a hash that it lacks can be on the next page.
     return
   for task in tasks:
     if task.msgHash notin reported and task.storeAnswerPending():
       task.storeMissed = true
-      self.startResend(task)
 
 proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   ## Asks Store about one batch. The tasks that a Store peer did not report go
@@ -340,7 +270,7 @@ proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).
   ## Confirms propagated tasks against Store, one batch per round, apart from the
   ## sends, so that a slow Store peer does not delay them.
   while true:
-    var delay = self.retryInterval
+    var delay = self.storeValidationInterval
     try:
       let batch = self.nextStoreValidationBatch(
         toSeq(self.deliveryTasks.values).filterIt(it.storeAnswerPending()), Moment.now()
@@ -358,311 +288,222 @@ proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).
       error "Exception in a Store validation round", error = exc.msg
     await sleepAsync(delay)
 
-func isQueued(self: SendService, task: DeliveryTask): bool =
-  ## True when `task` itself is in the send queue.
+func isInFlight(self: SendService, task: DeliveryTask): bool =
   return self.deliveryTasks.getOrDefault(task.msgHash) == task
 
 func finish(self: SendService, task: DeliveryTask) =
   ## Removes a task that got its last event.
-  if self.isQueued(task):
+  if self.isInFlight(task):
     self.deliveryTasks.del(task.msgHash)
 
-proc fail(self: SendService, task: DeliveryTask, errorDesc: string) =
+proc fail(
+    self: SendService, task: DeliveryTask, kind: MessageErrorKind, errorDesc: string
+) =
   ## Fails the task with `MessageErrorEvent`, its last event.
   task.state = DeliveryState.FailedToDeliver
   task.errorDesc = errorDesc
-  MessageErrorEvent.emit(
-    self.brokerCtx, task.requestId, task.msgHash.to0xHex(), errorDesc
-  )
+  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), kind, errorDesc)
   self.finish(task)
-
-proc failExpired(self: SendService, task: DeliveryTask): bool =
-  ## Fails the task when its delivery window or its parked age ended.
-  if task.isDeliveryTimedOut(self.maxDeliveryTime):
-    # A processor that leaves a task for a retry can write why in `errorDesc`,
-    # as the mix processor does for a `Required` task that mix cannot attempt yet.
-    # Report that reason if set.
-    let errorDesc =
-      if task.errorDesc.len > 0:
-        task.errorDesc
-      else:
-        "Unable to send within retry time window"
-    error "Failed to send message",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      error = errorDesc,
-      age = task.admissionAge()
-    self.fail(task, errorDesc)
-    return true
-  if task.isParkedExpired(self.maxParkedAge):
-    error "Failed to send message",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      error = "Parked message too old",
-      age = task.messageAge()
-    self.fail(
-      task, "No rate-limit budget came within the maximum wait of a queued message"
-    )
-    return true
-  return false
 
 proc reportPropagated(self: SendService, task: DeliveryTask) =
   ## Emits `MessagePropagatedEvent`, and `MessageSentEvent` for a mixed send that
   ## a plain send would confirm in Store.
   # INFO lines reach log collectors, where a hash would tie this node to an
   # anonymized message; `MixSendProcessor` still logs it at DEBUG.
-  info "Message successfully propagated",
-    requestId = task.requestId, msgHash = task.loggedHash()
-  MessagePropagatedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  info "Message successfully propagated", msgHash = task.loggedHash()
+  MessagePropagatedEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
   task.propagatedEventEmitted = true
   if task.propagatedAnonymously and self.storeConfirmationExpected(task):
     # The exit's reply completes a mixed send when a plain send would wait for
     # a store confirmation, so both paths end with the same event. The INFO line
     # omits the hash.
-    info "Message successfully sent over mix", requestId = task.requestId
-    MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+    info "Message successfully sent over mix"
+    MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
-proc reportTaskQueued(self: SendService, task: DeliveryTask) =
-  ## Emits `MessageQueuedEvent` once for a task that waits for epoch budget.
-  if task.queuedEventEmitted:
+proc checkMessageSize(self: SendService, task: DeliveryTask): Result[void, SendError] =
+  ## Refuses a message that is too large with its RLN proof.
+  let message = self.waku.messageForSizeCheck(task.msg).valueOr:
+    debug "No valid proof size, checking the size of the message without its proof",
+      msgHash = task.msgHash.to0xHex(), error = $error
+    task.msg
+  let size = message.encodedSize()
+  if uint64(size) <= self.waku.maxMessageSizeBytes:
+    return ok()
+  return err(
+    SendError.init(
+      SendErrorKind.TooLarge,
+      MessageTooLargeReason & ": the message has " & $size & " bytes",
+    )
+  )
+
+proc rateLimitedError(self: SendService, desc: string): SendError =
+  let retryAfter = self.rateLimitManager.retryAfter()
+  return SendError.init(
+    SendErrorKind.RateLimited,
+    desc & ", retry after " & $retryAfter.seconds & " s",
+    retryAfter,
+  )
+
+proc checkAcceptable(self: SendService, task: DeliveryTask): Result[void, SendError] =
+  if not self.running:
+    return err(SendError.init(SendErrorKind.Other, "The send service does not run"))
+  if task.msgHash in self.deliveryTasks:
+    return err(
+      SendError.init(SendErrorKind.Duplicate, "The node already sends this message")
+    )
+  if self.deliveryTasks.len >= self.maxSendsInFlight:
+    return err(
+      SendError.init(
+        SendErrorKind.QueueFull,
+        "The node has " & $self.maxSendsInFlight & " sends with no last event",
+      )
+    )
+  ?self.sendProcessor.checkBeforeAdmission(task)
+  ?self.checkMessageSize(task)
+  if not self.sendProcessor.chainHasSendPeer(task):
+    let reason = self.sendProcessor.noSendPeerReason(task)
+    return err(
+      SendError.init(
+        SendErrorKind.NotConnected,
+        if reason.len > 0:
+          reason
+        else:
+          "The node has no peer to send the message through",
+      )
+    )
+
+  let quotaState = self.rateLimitManager.quotaState()
+  # Ephemeral traffic is refused near the limit, so it cannot eat into the
+  # budget left for durable messages.
+  if task.isEphemeral() and quotaState != QuotaState.Normal:
     return
+      err(self.rateLimitedError("Ephemeral message refused: rate limit " & $quotaState))
+  return ok()
 
-  info "Message queued for rate-limit budget",
-    requestId = task.requestId, msgHash = task.loggedHash()
-  MessageQueuedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
-  task.queuedEventEmitted = true
-
-proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
-  ## Charges the epoch budget, then attaches the RLN proof, so a message over the
-  ## budget reserves no RLN message id. It charges a task once for each proof. Returns false
-  ## when the task waits for its next attempt or failed.
-  if not self.sendProcessor.checkBeforeAdmission(task):
-    return false
-
-  if task.firstAdmittedTime.isNone():
-    # Ephemeral traffic is shed rather than queued so it cannot eat into the
-    # budget left for durable messages.
-    if task.isEphemeral():
-      let quotaState = await self.rateLimitManager.quotaState()
-      if quotaState != QuotaState.Normal:
-        debug "Dropping ephemeral message as we are approaching rate-limit quota",
-          requestId = task.requestId,
-          msgHash = task.msgHash.to0xHex(),
-          quotaState = quotaState
-        task.state = DeliveryState.FailedToDeliver
-        task.errorDesc = "Ephemeral message dropped: rate limit " & $quotaState
-        return false
-
-    (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-      debug "Over rate-limit budget, task waits for the epoch to roll",
-        requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-      self.reportTaskQueued(task)
-      return false
-    task.firstAdmittedTime = Opt.some(Moment.now())
-
-  # The message timestamp sets its epoch, so a backend past that epoch or out of
-  # budget fails the task. Other errors wait for a retry.
+proc attachProof(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
+  ## Returns false when the task failed.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
-    case error.kind
-    of RlnErrorKind.Permanent, RlnErrorKind.BudgetExhausted:
-      task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = "Failed to attach RLN proof: " & $error
-    of RlnErrorKind.NotReady, RlnErrorKind.Transient:
-      debug "Failed to attach RLN proof, the task waits for a retry",
-        requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = $error
+    self.rateLimitManager.release(task.charge)
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = "Failed to attach RLN proof: " & $error
     return false
-
   return true
 
-func needsAdmission(self: SendService, task: DeliveryTask): bool =
-  ## True when the task needs an epoch budget charge or an RLN proof. A task that
-  ## needs neither does not wait for another task in `admitAndProve`.
-  return task.firstAdmittedTime.isNone() or self.waku.needsRlnProof(task.msg)
-
-proc runAdmission(
+proc sendOnce(
     self: SendService, task: DeliveryTask
-): Future[bool] {.async: (raises: [CancelledError]).} =
-  ## Runs `admitAndProve` with `admissionLock` held. The budget check reads the
-  ## RLN quota, which counts only the message ids that earlier proofs reserved,
-  ## so each task reserves its id before the next task checks the budget.
-  await self.admissionLock.acquire()
+) {.async: (raises: [CancelledError]).} =
   try:
-    return await self.admitAndProve(task)
+    if self.waku.needsRlnProof(task.msg):
+      if not await self.attachProof(task):
+        return
+    await self.sendProcessor.process(task)
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
-    error "Exception in admission",
-      requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
-    return false
-  finally:
-    self.admissionLock.release2()
+    # The send path returns remote errors as results, so an exception is a local fault.
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = "Exception in the send: " & exc.msg
 
-proc retryNow(self: SendService) =
-  ## Starts the next attempt of each task that waits for one.
-  self.retryTick.fire()
-  self.retryTick.clear()
-
-proc retryLoop(self: SendService) {.async: (raises: [CancelledError]).} =
-  ## Runs `retryNow` each `retryInterval`.
-  while true:
-    await sleepAsync(self.retryInterval)
-    self.retryNow()
-
-proc sendUntilPropagated(
+proc propagate(
     self: SendService, task: DeliveryTask
 ): Future[bool] {.async: (raises: [CancelledError]).} =
-  ## Makes the first attempt at once, then one attempt at each tick of
-  ## `retryLoop`, until the task propagates. Returns false when the task failed.
-  while true:
-    if not self.needsAdmission(task) or await self.runAdmission(task):
-      await self.sendSlots.acquire()
-      try:
-        await self.sendProcessor.process(task)
-      except CancelledError as exc:
-        raise exc
-      except CatchableError as exc:
-        # The send path returns remote errors as results, so an exception is a local
-        # fault.
-        error "Exception in a send attempt",
-          requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
-      finally:
-        self.sendSlots.release2()
-    self.attempts.inc()
-    case task.state
-    of DeliveryState.SuccessfullyPropagated:
-      self.reportPropagated(task)
-      return true
-    of DeliveryState.FailedToDeliver:
-      # A mix exit may have published the message even though its reply was lost.
-      error "Failed to send message",
-        requestId = task.requestId, msgHash = task.loggedHash(), error = task.errorDesc
-      self.fail(task, task.errorDesc)
-      return false
-    else:
-      # All other states wait for the next attempt: `process` left `NextRoundRetry`,
-      # the admission did not admit the task, or an exception ended `process` before
-      # it moved `Entry` or `FallbackRetry`.
-      task.state = DeliveryState.NextRoundRetry
-    if self.failExpired(task):
-      return false
-    await self.retryTick.wait()
+  ## Returns false when the task failed.
+  try:
+    await self.sendOnce(task).wait(self.deliveryWindow)
+  except AsyncTimeoutError:
+    if task.state != DeliveryState.SuccessfullyPropagated:
+      task.state = DeliveryState.FailedToDeliver
+      task.errorDesc = DeliveryWindowElapsedReason
+  self.sendsEnded.inc()
+
+  if task.state == DeliveryState.SuccessfullyPropagated:
+    self.reportPropagated(task)
+    return true
+  # A mix exit may have published the message even though its reply was lost.
+  error "Failed to send message", msgHash = task.loggedHash(), error = task.errorDesc
+  self.fail(task, MessageErrorKind.NotPropagated, task.errorDesc)
+  return false
 
 proc waitForStoreValidation(
     self: SendService, task: DeliveryTask
 ) {.async: (raises: [CancelledError]).} =
-  ## Waits for a Store node to report the message, until the waits of the task
-  ## add up to `maxValidationAge`.
-  let left = self.maxValidationAge - task.storeValidationWaited
-  let started = Moment.now()
   task.storeAnswer = newFuture[void]("store confirmation")
   try:
-    if left > ZeroDuration and await task.storeAnswer.withTimeout(left):
+    if await task.storeAnswer.withTimeout(self.maxValidationAge):
       task.state = DeliveryState.SuccessfullyValidated
-      # An anonymized task gets here only through the clear republish of a
-      # `Preferred` send whose mix reply was lost.
-      info "Message successfully sent",
-        requestId = task.requestId, msgHash = task.loggedHash()
-      MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+      info "Message successfully sent", msgHash = task.msgHash.to0xHex()
+      MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
       self.finish(task)
     else:
       info "Message propagated but not validated by a store node within time window; stop trying.",
-        requestId = task.requestId,
-        msgHash = task.msgHash.to0xHex(),
-        waited = task.storeValidationWaited + (Moment.now() - started)
+        msgHash = task.msgHash.to0xHex()
       recordStoreValidationTimeout()
       self.fail(
-        task,
+        task, MessageErrorKind.NotStored,
         "Propagated but not confirmed by a store node within the store validation window",
       )
   finally:
-    task.storeValidationWaited = task.storeValidationWaited + (Moment.now() - started)
     task.storeAnswer = nil
 
 proc deliver(
     self: SendService, task: DeliveryTask
 ) {.async: (raises: [CancelledError]).} =
-  ## Sends the task until it propagates, then waits for a Store confirmation
-  ## when one is expected. Each event goes out when its step ends.
-  try:
-    if not task.propagatedEventEmitted:
-      if not await self.sendUntilPropagated(task):
-        return
-    if self.awaitsStoreValidation(task):
-      await self.waitForStoreValidation(task)
-    else:
-      self.finish(task)
-  except CancelledError as exc:
-    # A cancel can stop `process` before it moves `Entry` or `FallbackRetry`.
-    # The task waits for its next attempt, as after any other attempt.
-    if task.state == DeliveryState.Entry or task.state == DeliveryState.FallbackRetry:
-      task.state = DeliveryState.NextRoundRetry
-    raise exc
+  if not await self.propagate(task):
+    return
+  if self.awaitsStoreValidation(task):
+    await self.waitForStoreValidation(task)
+  else:
+    self.finish(task)
 
 func isRunning(task: DeliveryTask): bool =
   ## True while the `deliver` of the task runs.
   return not task.deliverHandle.isNil() and not task.deliverHandle.finished()
 
 proc startDeliverSoon(self: SendService, task: DeliveryTask) =
-  ## Starts `deliver` in a later turn of the event loop, when the service runs
-  ## then. The caller of `enqueue` gets its result before any event of the task.
+  ## Starts `deliver` in a later turn of the event loop.
+  ## The caller of `enqueue` gets its result before any event of the task.
+  ## A stop before that turn fails the task, so `deliver` must not start then.
   callSoon(
     proc(udata: pointer) {.gcsafe, raises: [].} =
-      if self.running and not task.isRunning() and self.isQueued(task):
+      if self.running and self.isInFlight(task):
         task.deliverHandle = self.deliver(task)
   )
 
-proc enqueue*(self: SendService, task: DeliveryTask): Result[RequestId, string] =
-  ## Puts `task` in the send queue and returns its request id. It makes no
-  ## attempt and emits no event, so the caller gets the result first. The network
-  ## keeps one copy of a message, so a message that the send queue already has
-  ## gets the request id of the queued task.
+proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
   assert(not task.isNil(), "task for enqueue must not be nil")
-  let queued = self.deliveryTasks.getOrDefault(task.msgHash)
-  if not queued.isNil():
-    info "Message already in the send queue, request folded into the queued one",
-      requestId = task.requestId,
-      queuedRequestId = queued.requestId,
-      msgHash = task.msgHash.to0xHex()
-    return ok(queued.requestId)
-  if self.isFull():
-    error "Send queue full, request cannot be enqueued",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-    return err("Send queue full, retry later")
+  self.checkAcceptable(task).isOkOr:
+    debug "Send refused", msgHash = task.msgHash.to0xHex(), error = $error
+    return err(error)
+  task.charge = self.rateLimitManager.admit().valueOr:
+    return err(self.rateLimitedError("The rate-limit budget of the epoch is spent"))
 
-  info "Task added to the send queue",
-    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+  debug "Send accepted", msgHash = task.msgHash.to0xHex()
   self.deliveryTasks[task.msgHash] = task
   self.startDeliverSoon(task)
-  return ok(task.requestId)
+  return ok()
 
 proc startSendService*(self: SendService) =
-  ## Starts each task. Call it after `stopSendService` ends. A call while the
-  ## service runs does nothing.
   if self.running:
     return
   self.running = true
-  for task in self.deliveryTasks.values:
-    self.startDeliverSoon(task)
-  self.retryLoopHandle = self.retryLoop()
   if self.checkStoreForMessages:
     self.storeValidationHandle = self.storeValidationLoop()
 
 proc stopSendService*(self: SendService) {.async: (raises: []).} =
-  ## Cancels each `deliver`, `retryLoop`, the Store validation loop and each
-  ## resend. The tasks stay in the send queue with no event, and
-  ## `startSendService` starts them again.
+  ## Each task that did not get its last event fails.
   self.running = false
   var handles: seq[Future[void]]
-  for handle in [self.retryLoopHandle, self.storeValidationHandle]:
-    if not handle.isNil():
-      handles.add(handle)
-  self.retryLoopHandle = nil
+  if not self.storeValidationHandle.isNil():
+    handles.add(self.storeValidationHandle)
   self.storeValidationHandle = nil
-  for resend in self.resends.values:
-    if not resend.finished():
-      handles.add(resend)
-  self.resends.clear()
   for task in self.deliveryTasks.values:
     if task.isRunning():
       handles.add(task.deliverHandle)
   await cancelAndWait(handles)
+  for task in toSeq(self.deliveryTasks.values):
+    let kind =
+      if task.propagatedEventEmitted:
+        MessageErrorKind.NotStored
+      else:
+        MessageErrorKind.NotPropagated
+    self.fail(task, kind, ServiceStoppedReason)

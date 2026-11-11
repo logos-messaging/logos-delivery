@@ -35,9 +35,7 @@ proc newService(waku: Waku, level: AnonymityLevel): SendService =
   let manager =
     RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
   let chain = setupSendProcessorChain(waku, level).expect("chain")
-  let service = SendService
-    .new(false, waku, manager, chain, level, retryInterval = chronos.hours(1))
-    .expect("SendService.new")
+  let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
   service.startSendService()
   return service
 
@@ -48,12 +46,10 @@ proc sizedTask(id: string, size: int): DeliveryTask =
     let msg = fakeWakuMessage(payload = newSeq[byte](n), contentTopic = contentTopic)
     if mixLightpushSize(DefaultPubsubTopic, msg).size == size:
       return DeliveryTask(
-        requestId: RequestId(id),
         pubsubTopic: DefaultPubsubTopic,
         msg: msg,
         msgHash: computeMessageHash(DefaultPubsubTopic, msg),
         state: DeliveryState.Entry,
-        firstAdmittedTime: Opt.some(Moment.now()), # no budget and no proof
       )
   raiseAssert "no payload gives a request of " & $size & " bytes"
 
@@ -96,16 +92,13 @@ suite "Waku Mix - the size of a mix send":
     let limit = mixLightpushSize(DefaultPubsubTopic, fakeWakuMessage()).limit
 
     let tooLarge = sizedTask("one-byte-too-many", limit + 1)
-    check service.enqueue(tooLarge).isOk()
-    checkUntilTimeout:
-      tooLarge.state == DeliveryState.FailedToDeliver
-    check:
-      tooLarge.state == DeliveryState.FailedToDeliver
-      tooLarge.errorDesc.startsWith(MixTooLargeReason)
-      tooLarge.tryCount == 0
-    checkUntilTimeout:
-      errors.len == 1
-    check errors == @[tooLarge.errorDesc]
+    let refused = service.enqueue(tooLarge)
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.TooLarge
+        refused.error.desc.startsWith(MixTooLargeReason)
+    check tooLarge.tryCount == 0
 
     let fits = sizedTask("largest-that-fits", limit)
     check service.enqueue(fits).isOk()
@@ -114,4 +107,4 @@ suite "Waku Mix - the size of a mix send":
     check:
       fits.state == DeliveryState.SuccessfullyPropagated
       fits.propagatedAnonymously
-      errors.len == 1
+      errors.len == 0 # the refused send got no event

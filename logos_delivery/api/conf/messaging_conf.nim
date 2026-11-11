@@ -91,6 +91,7 @@ type MessagingClientConf* = object
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
     ## Enforce the per-epoch send rate limit (default false).
+    ## With RLN mounted, the RLN budget limits sends also when this is false.
   rateLimitEpochPeriodSec* {.name: "rate-limit-epoch-sec".}: Opt[uint64]
     ## Rate-limit epoch length, in seconds.
   rateLimitMessagesPerEpoch* {.name: "rate-limit-messages-per-epoch".}: Opt[uint64]
@@ -100,12 +101,6 @@ type MessagingClientConf* = object
   .}: Opt[uint64]
     ## Share of the epoch budget, in percent, at which the quota counts as
     ## approached (default 80).
-  maxParkedAgeSec* {.name: "max-parked-age-sec".}: Opt[uint]
-    ## Max age, from the message timestamp, of a send still waiting for
-    ## rate-limit budget before it fails with `MessageErrorEvent` (default 1800).
-  sendQueueCapacity* {.name: "send-queue-capacity".}: Opt[uint]
-    ## Max messages tracked by the send service; sends beyond it are rejected
-    ## (default 1000).
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
     ## Store catch-up of missed messages after a start (default true). A
     ## start with false deletes the saved catch-up state.

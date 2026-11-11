@@ -3,7 +3,7 @@
 ##
 ## Unlike `relay.nim`/`lightpush.nim`, these preserve the rich
 ## `WakuLightPushResult` (status code + description) that the send processors
-## branch on for their retry decisions, and expose relay/lightpush availability
+## read for the error of a failed send, and expose relay/lightpush availability
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
@@ -20,6 +20,7 @@ import
     node/waku_node/lightpush,
     node/peer_manager,
     rln,
+    waku_relay/protocol,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
@@ -51,13 +52,17 @@ proc rlnEpochQuota*(
   ## `timestamp` (Unix seconds). An error without a backend that keeps one.
   return await epochQuota(self.node.rlnPlugin, timestamp)
 
+proc rlnEpochSizeSec*(self: Waku): Opt[uint64] =
+  let plugin = self.node.rlnPlugin.valueOr:
+    return Opt.none(uint64)
+  return plugin.epochSizeSec
+
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
 ): Future[Result[WakuMessage, RlnError]] {.async.} =
-  ## Returns `message` carrying an RLN proof. A message that already has one is
-  ## returned untouched, so retrying a task neither redraws a nonce nor changes
-  ## the bytes. Without RLN mounted the message passes through unproven. The
-  ## error's kind tells the caller whether a retry can succeed.
+  ## Returns `message` carrying an RLN proof.
+  ## A message that already has one is returned untouched.
+  ## Without RLN mounted the message passes through unproven.
   return await attachProof(self.node.rlnPlugin, message)
 
 func needsRlnProof*(self: Waku, message: WakuMessage): bool =
@@ -65,15 +70,17 @@ func needsRlnProof*(self: Waku, message: WakuMessage): bool =
   ## message id.
   return self.node.rlnPlugin.needsProof(message)
 
+func maxMessageSizeBytes*(self: Waku): uint64 =
+  return self.conf.maxMessageSizeBytes
+
 proc messageForSizeCheck*(
     self: Waku, message: WakuMessage
 ): Result[WakuMessage, RlnError] =
   return self.node.rlnPlugin.messageForSizeCheck(message)
 
 func isRlnRejection*(error: ErrorStatus): bool =
-  ## True when a publish failure means "the RLN proof was not accepted", so the
-  ## message is worth retrying with a freshly generated proof rather than being
-  ## failed outright.
+  ## True when a publish failure means "the RLN proof was not accepted".
+  ## The send service then starts the refresh of the RLN backend.
   ##
   ## OUT_OF_RLN_PROOF is always RLN. INVALID_MESSAGE also covers non-RLN
   ## rejections (an oversized message, say), so it additionally has to carry the
@@ -90,6 +97,12 @@ proc onRlnProofRejected*(self: Waku): bool =
   ## backend will refresh what proofs are built against; see
   ## `notifyProofRejected`.
   return self.node.rlnPlugin.notifyProofRejected()
+
+proc relayPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
+  ## True if relay is mounted and a connected peer subscribes to `shard`.
+  if self.node.wakuRelay.isNil():
+    return false
+  return self.node.wakuRelay.getNumConnectedPeers(shard).valueOr(0) > 0
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
@@ -175,8 +188,6 @@ proc lightpushPublishToAny*(
     return
       await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
   except CancelledError as exc:
-    # The send service cancelled this attempt during its stop. Raise the cancel
-    # again, so that `deliver` ends with the cancel and counts no failed attempt.
     raise exc
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)

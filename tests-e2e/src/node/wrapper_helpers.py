@@ -22,13 +22,16 @@ EVENT_TOPIC_HEALTH_CHANGE = "relay_topic_health_change"
 # Topic health a node reports once its relay mesh on the shard has at least one peer.
 MESH_TOPIC_HEALTH = ("MinimallyHealthy", "SufficientlyHealthy")
 
-# MaxTimeInCache from send_service.nim.
+# StoreValidationWindow from send_service.nim.
 MAX_TIME_IN_CACHE_S = 60.0
-# Extra slack to cover the background retry loop tick after the window expires.
+# Extra slack for the Store validation round after the window expires.
 CACHE_EXPIRY_SLACK_S = 10.0
 ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
-RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
 STORE_VALIDATION_TIMEOUT_MSG = "Propagated but not confirmed by a store node within the store validation window"
+# The start of the error of a send that the node refused, by kind.
+SEND_NOT_CONNECTED_MSG = "Send failed: NotConnected"
+SEND_QUEUE_FULL_MSG = "Send failed: QueueFull"
+SEND_TOO_LARGE_MSG = "Send failed: TooLarge"
 
 
 class EventCollector:
@@ -53,8 +56,11 @@ class EventCollector:
             self.events.append(payload)
 
     def get_events_for_request(self, request_id: str) -> list[dict]:
+        """The events of one send. A message event carries the message hash that
+        send() returned. A channel event carries the request id that
+        channel_send() returned."""
         with self._lock:
-            return [e for e in self.events if e.get("requestId") == request_id]
+            return [e for e in self.events if request_id in (e.get("messageHash"), e.get("requestId"))]
 
     def snapshot(self) -> list[dict]:
         """Return a thread-safe copy of all collected events.
@@ -124,6 +130,43 @@ def assert_no_error(collector: EventCollector, request_id: str, context: str = "
     assert event is None, f"Unexpected message_error event{suffix}: {event}"
 
 
+def send_when_connected(node, message: dict, timeout_s: float = 10.0, poll_interval_s: float = 0.2):
+    """Send `message`, and send it again while the node answers NotConnected or QueueFull.
+
+    send() refuses a message while the node has no peer to send it through.
+    A node learns the peers of a shard a short time after it connects to them.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        result = node.send_message(message=message)
+        retryable = result.is_err() and (SEND_NOT_CONNECTED_MSG in result.err() or SEND_QUEUE_FULL_MSG in result.err())
+        if not retryable or time.monotonic() >= deadline:
+            return result
+        time.sleep(poll_interval_s)
+
+
+def send_until_propagated(node, collector: EventCollector, message: dict, timeout_s: float = 45.0, poll_interval_s: float = 0.2) -> Optional[str]:
+    """Send `message` as a new send until one send propagates, and return the hash of that send.
+
+    The node sends each message one time. A send that fails ends with message_error,
+    and the app makes a new send, which gets a new timestamp and a new hash.
+    Returns None when no send propagates within `timeout_s`.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        result = send_when_connected(node, message)
+        if result.is_ok():
+            message_hash = result.ok_value
+            while time.monotonic() < deadline:
+                if wait_for_propagated(collector, message_hash, timeout_s=0) is not None:
+                    return message_hash
+                if wait_for_error(collector, message_hash, timeout_s=0) is not None:
+                    break
+                time.sleep(poll_interval_s)
+        time.sleep(poll_interval_s)
+    return None
+
+
 def wait_for_connected(
     collector: EventCollector,
     timeout_s: float = 10.0,
@@ -162,7 +205,7 @@ TERMINAL_EVENT_TYPES = {EVENT_PROPAGATED, EVENT_SENT, EVENT_ERROR}
 
 def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
     """Check per-request event invariants (issue #163):
-    - All events carry the correct requestId.
+    - All events carry the message hash that send() returned.
     - No duplicate terminal events (Propagated, Sent, Error).
     - Sent never appears before Propagated.
     """
@@ -172,8 +215,8 @@ def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
     counts: dict[str, int] = {}
     first_index: dict[str, int] = {}
     for i, event in enumerate(events):
-        assert event.get("requestId") == request_id, (
-            f"Event at index {i} has wrong requestId: " f"expected {request_id!r}, got {event.get('requestId')!r}"
+        assert event.get("messageHash") == request_id, (
+            f"Event at index {i} has wrong messageHash: " f"expected {request_id!r}, got {event.get('messageHash')!r}"
         )
         event_type = event.get("eventType", "")
         if event_type in TERMINAL_EVENT_TYPES:

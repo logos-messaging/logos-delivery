@@ -22,10 +22,7 @@ proc new*(
     brokerCtx: BrokerContext,
 ): RelaySendProcessor =
   let fallbackStateToSet =
-    if lightpushAvailable:
-      DeliveryState.FallbackRetry
-    else:
-      DeliveryState.FailedToDeliver
+    if lightpushAvailable: DeliveryState.Fallback else: DeliveryState.FailedToDeliver
 
   return RelaySendProcessor(
     waku: waku,
@@ -53,37 +50,38 @@ method isValidProcessor*(
   # return self.isTopicHealthy(task.pubsubTopic)
   return true
 
+method hasSendPeer*(
+    self: RelaySendProcessor, task: DeliveryTask
+): bool {.gcsafe, raises: [].} =
+  return self.waku.relayPeerAvailable(task.pubsubTopic)
+
 method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   task.tryCount.inc()
   debug "Trying message delivery via Relay",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
-    let errorMessage = error.desc.get($error.code)
+    let errorMessage = error.sendErrorDesc()
     error "Failed to publish message with relay",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
+      msgHash = task.msgHash.to0xHex(), error = errorMessage
 
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, errorMessage)
+      task.failRlnRejected(self.waku, errorMessage)
       return
 
+    task.errorDesc = errorMessage
     if error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
       task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = errorMessage
     else:
       task.state = self.fallbackStateToSet
     return
 
   if noOfPublishedPeers > 0:
     debug "Message propagated via Relay",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      noOfPeers = noOfPublishedPeers
+      msgHash = task.msgHash.to0xHex(), noOfPeers = noOfPublishedPeers
     task.state = DeliveryState.SuccessfullyPropagated
-    if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = Opt.some(Moment.now())
+    task.firstPropagatedTime = Opt.some(Moment.now())
   else:
     # It shall not happen, but still covering it
+    task.errorDesc = NoSendPeerReason
     task.state = self.fallbackStateToSet

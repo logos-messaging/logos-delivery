@@ -3,6 +3,7 @@ import logos_delivery/waku/waku_core, logos_delivery/waku/waku
 import logos_delivery/waku/api/publish
 import logos_delivery/waku/waku_mix
 import logos_delivery/api/conf/modes
+import logos_delivery/api/types
 
 import ./[delivery_task, send_processor]
 
@@ -22,10 +23,6 @@ const MixNoExitReason* = "no mix node serves lightpush on the shard of the messa
 const MixTooLargeReason* = "message too large for mix"
   ## One mix message carries much less than the plain path.
 
-const MixUnusableGrace* = chronos.seconds(3)
-  ## How long after its admission a `Required` task waits for a mounted mix that
-  ## cannot attempt it. Retries come `RetryInterval` apart.
-
 type
   MixUnusable* {.pure.} = enum
     ## Why mix cannot attempt a task now.
@@ -37,7 +34,6 @@ type
   MixSendProcessor* = ref object of BaseSendProcessor
     waku: Waku
     fallbackAllowed: bool
-    mixWindow: timer.Duration
     fellBackReason: MixUnusable
       ## Why the last task went to the plain path; `None` once mix can attempt
       ## a task again. INFO logs each change.
@@ -60,22 +56,15 @@ proc new*(
     waku: Waku,
     brokerCtx: BrokerContext,
     anonymityLevel: AnonymityLevel,
-    mixWindow: timer.Duration,
 ): T =
   return T(
     waku: waku,
     brokerCtx: brokerCtx,
     fallbackAllowed: anonymityLevel == AnonymityLevel.Preferred,
-    mixWindow: mixWindow,
   )
 
 method isValidProcessor*(self: MixSendProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
-
-proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
-  ## True once `task` has spent its whole mix window, which bounds failed mix
-  ## attempts at either level.
-  return task.admissionAge() > self.mixWindow
 
 proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
   ## Why mix cannot attempt `task` now, with no network call. It splits
@@ -89,21 +78,24 @@ proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
     return MixUnusable.NoExit
   return MixUnusable.None
 
+method hasSendPeer*(
+    self: MixSendProcessor, task: DeliveryTask
+): bool {.gcsafe, raises: [].} =
+  return self.mixUnusable(task) == MixUnusable.None
+
+method noSendPeerReason*(
+    self: MixSendProcessor, task: DeliveryTask
+): string {.gcsafe, raises: [].} =
+  if self.fallbackAllowed:
+    return ""
+  return self.mixUnusable(task).reason()
+
 proc decideWithoutMix(
     self: MixSendProcessor, task: DeliveryTask, unusable: MixUnusable
 ) =
-  ## Hands a `Preferred` task to the plain path at once. Fails a `Required` task
-  ## with the reason, once its admission is older than `MixUnusableGrace` while
-  ## mix is mounted.
   if not self.fallbackAllowed:
-    if self.waku.mixMounted() and task.admissionAge() <= MixUnusableGrace:
-      task.errorDesc = unusable.reason()
-      task.state = DeliveryState.NextRoundRetry
-      return
     debug "Mix cannot attempt the task, and the Required anonymity level allows no send without mix",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      reason = unusable.reason()
+      msgHash = task.msgHash.to0xHex(), reason = unusable.reason()
     task.state = DeliveryState.FailedToDeliver
     task.errorDesc = unusable.reason()
     return
@@ -113,54 +105,51 @@ proc decideWithoutMix(
     info "Mix cannot carry messages, sending them over the plain path instead",
       reason = unusable.reason()
   debug "Mix cannot attempt the task, handing it to the plain send path",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    reason = unusable.reason()
-  task.errorDesc = "" # the plain path reports its own outcome
-  task.state = DeliveryState.FallbackRetry
+    msgHash = task.msgHash.to0xHex(), reason = unusable.reason()
+  task.state = DeliveryState.Fallback
+
+func tooLargeDesc(size, limit: int): string =
+  return
+    MixTooLargeReason & ": the request has " & $size & " bytes, the limit is " & $limit &
+    " bytes"
 
 proc decideTooLarge(self: MixSendProcessor, task: DeliveryTask, size, limit: int) =
-  ## Fails a `Required` task at once, because no later pass can make the message
-  ## fit. Hands a `Preferred` task to the plain path at once.
   if not self.fallbackAllowed:
     debug "Message too large for mix, failing the task",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), size, limit
+      msgHash = task.msgHash.to0xHex(), size, limit
     task.state = DeliveryState.FailedToDeliver
-    task.errorDesc =
-      MixTooLargeReason & ": the request has " & $size & " bytes, the limit is " & $limit &
-      " bytes"
+    task.errorDesc = tooLargeDesc(size, limit)
     return
   debug "Message too large for mix, handing it to the plain send path",
-    requestId = task.requestId, msgHash = task.msgHash.to0xHex(), size, limit
-  task.errorDesc = "" # the plain path reports its own outcome
-  task.state = DeliveryState.FallbackRetry
+    msgHash = task.msgHash.to0xHex(), size, limit
+  task.state = DeliveryState.Fallback
 
 method checkBeforeAdmission*(
     self: MixSendProcessor, task: DeliveryTask
-): bool {.gcsafe, raises: [].} =
+): Result[void, SendError] {.gcsafe, raises: [].} =
+  ## Refuses a `Required` task that is too large for mix.
+  ## A `Preferred` task that is too large goes to the plain path.
   if self.fallbackAllowed:
-    return true
+    return ok()
   let message = self.waku.messageForSizeCheck(task.msg).valueOr:
-    task.state = DeliveryState.FailedToDeliver
-    task.errorDesc = "Failed to determine RLN proof size: " & $error
-    return false
+    return err(
+      SendError.init(
+        SendErrorKind.Other, "Failed to determine RLN proof size: " & $error
+      )
+    )
   let (size, limit) = self.waku.mixLightpushSize(task.pubsubTopic, message)
   if size > limit:
-    self.decideTooLarge(task, size, limit)
-    return false
-  return true
+    return err(SendError.init(SendErrorKind.TooLarge, tooLargeDesc(size, limit)))
+  return ok()
 
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
-  # No wait can make the message fit, so check the size before the reasons that
-  # a wait can clear. A task that is too large has no mix attempt, so it must not
-  # get the `anonymized` mark.
+  # A task that is too large has no mix attempt.
+  # So it must not get the `anonymized` mark.
   let (size, limit) = self.waku.mixLightpushSize(task.pubsubTopic, task.msg)
   if size > limit:
     self.decideTooLarge(task, size, limit)
     return
 
-  # Check the reasons before the window, so that the hand-over of a task that
-  # mix cannot attempt logs its reason at INFO.
   let unusable = self.mixUnusable(task)
   if unusable != MixUnusable.None:
     self.decideWithoutMix(task, unusable)
@@ -170,56 +159,38 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     self.fellBackReason = MixUnusable.None
     info "Mix can carry messages again"
 
-  if self.fallbackAllowed and self.mixWindowElapsed(task):
-    debug "Mix window elapsed, handing the task to the plain send path",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      admissionAge = task.admissionAge()
-    task.errorDesc = ""
-    task.state = DeliveryState.FallbackRetry
-    return
-
   # Mark before the attempt: the exit publishes before it replies, so a message
   # whose reply is lost is still on the network. From here on, the send service
   # logs no hash for this task at INFO or ERROR.
   task.anonymized = true
 
-  task.errorDesc = "" # the attempt reports its own outcome
   task.tryCount.inc()
   debug "Trying message delivery via Mix",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg, mixify = true)
   ).valueOr:
-    debug "MixSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+    debug "MixSendProcessor.sendImpl failed", error = error.sendErrorDesc()
 
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))
+      task.failRlnRejected(self.waku, error.sendErrorDesc())
       return
 
-    case error.code
-    of LightPushErrorCode.NO_PEERS_TO_RELAY, LightPushErrorCode.TOO_MANY_REQUESTS,
-        LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-        LightPushErrorCode.INTERNAL_SERVER_ERROR:
-      task.state = DeliveryState.NextRoundRetry
-    else:
-      task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = error.desc.get($error.code)
+    # The exit can publish the message and its reply can get lost.
+    # So the task does not go to the plain path after a mix attempt.
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = error.sendErrorDesc()
     return
 
   if numLightpushServers > 0:
-    debug "Message propagated via Mix",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Message propagated via Mix", msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
     task.propagatedAnonymously = true
-    if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = Opt.some(Moment.now())
+    task.firstPropagatedTime = Opt.some(Moment.now())
   else:
-    debug "Mix publish returned zero peers, the task waits for a retry",
-      requestId = task.requestId
-    task.state = DeliveryState.NextRoundRetry
+    debug "Mix publish returned zero peers", msgHash = task.msgHash.to0xHex()
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = NoSendPeerReason
 
   return

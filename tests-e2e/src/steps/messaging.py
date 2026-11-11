@@ -57,10 +57,23 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         message.update(kwargs)
         return message
 
-    def send_and_get_request_id(self, node, text=None, **kwargs):
-        response = node.messaging_send(self.messaging_message(text, **kwargs))
-        assert response.get("requestId"), f"no requestId in send response {response}"
-        return response["requestId"]
+    def send_and_get_request_id(self, node, text=None, timeout=10, **kwargs):
+        """Sends a message and returns its message hash, the id of the send events.
+
+        A 503 means that the node has no peer to send through yet. A node learns the
+        peers of a shard a short time after it connects to them, so the send is made again.
+        """
+        deadline = time() + timeout
+        while True:
+            try:
+                response = node.messaging_send(self.messaging_message(text, **kwargs))
+                break
+            except Exception as ex:
+                if not str(ex).startswith("Error: 503 ") or time() >= deadline:
+                    raise
+                sleep(0.2)
+        assert response.get("messageHash"), f"no messageHash in send response {response}"
+        return response["messageHash"]
 
     def collect_received(self, node, count, timeout=30):
         """Polls the received endpoint until it has `count` records."""
@@ -120,7 +133,7 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         while len(sent) < count and time() < deadline:
             for status in node.messaging_send_events():
                 if any(event["kind"] == "sent" for event in status["events"]):
-                    sent.add(status["requestId"])
+                    sent.add(status["messageHash"])
             if len(sent) < count:
                 sleep(1)
         assert len(sent) == count, f"{len(sent)} of {count} sends confirmed 'sent' within {timeout}s"
