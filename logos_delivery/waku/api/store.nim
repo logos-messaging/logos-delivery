@@ -17,14 +17,18 @@ proc hasStorePeer*(self: Waku): bool =
   return self.node.peerManager.hasPeers(WakuStoreCodec)
 
 proc storeQueryToAny*(
-    self: Waku, request: StoreQueryRequest
+    self: Waku, request: StoreQueryRequest, shards: seq[PubsubTopic] = @[]
 ): Future[Result[StoreQueryResponse, string]] {.async.} =
   ## Runs a store query against any available store peer (retries across peers).
+  ## `shards` are the shards of the query. The pubsub topic of the request is
+  ## the default.
   try:
     if self.node.wakuStoreClient.isNil():
       return err("wakuStoreClient is not mounted")
 
-    let queryResponse = (await self.node.wakuStoreClient.queryToAny(request)).valueOr:
+    let queryResponse = (
+      await self.node.wakuStoreClient.queryToAny(request, shards = shards)
+    ).valueOr:
       return err($error)
 
     return ok(queryResponse)

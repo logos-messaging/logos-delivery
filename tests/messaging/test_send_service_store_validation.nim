@@ -29,13 +29,12 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc newTask(id: string): DeliveryTask =
+proc newTask(id: string, pubsubTopic = PubsubTopic("/waku/2/rs/3/0")): DeliveryTask =
   let msg = WakuMessage(
     contentTopic: "/test/1/store-validation/proto",
     payload: id.toBytes(),
     timestamp: 1_700_000_000_000_000_000,
   )
-  let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
     requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
@@ -376,11 +375,18 @@ suite "SendService - Store validation loop":
   var queryStarted {.threadvar.}: Future[void]
   var answered {.threadvar.}: AsyncEvent
   var storedHashes {.threadvar.}: seq[WakuMessageHash]
+  var requests {.threadvar.}: seq[StoreQueryRequest]
+  var otherQueries {.threadvar.}: int
+  var sameShardQueries {.threadvar.}: int
+  var storeFails {.threadvar.}: bool
   var log {.threadvar.}: SendEventLog
 
   proc delayedStoreHandler(
       req: StoreQueryRequest
   ): Future[StoreQueryResult] {.async, gcsafe.} =
+    requests.add(req)
+    if storeFails:
+      return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "test"))
     if not queryStarted.finished():
       queryStarted.complete()
     await allowAnswer
@@ -393,7 +399,35 @@ suite "SendService - Store validation loop":
     answered.fire()
     return ok(resp)
 
+  proc reportingStoreHandler(
+      req: StoreQueryRequest
+  ): Future[StoreQueryResult] {.async, gcsafe.} =
+    ## A second Store node, which lists each hash of the request.
+    inc otherQueries
+    var resp = StoreQueryResponse(
+      requestId: req.requestId, statusCode: uint32(StatusCode.SUCCESS)
+    )
+    for hash in req.messageHashes:
+      resp.messages.add(WakuMessageKeyValue(messageHash: hash))
+    return ok(resp)
+
+  proc sameShardStoreHandler(
+      req: StoreQueryRequest
+  ): Future[StoreQueryResult] {.async, gcsafe.} =
+    ## A Store node of the shard of the tasks, which lists each hash of the
+    ## request.
+    inc sameShardQueries
+    var resp = StoreQueryResponse(
+      requestId: req.requestId, statusCode: uint32(StatusCode.SUCCESS)
+    )
+    for hash in req.messageHashes:
+      resp.messages.add(WakuMessageKeyValue(messageHash: hash))
+    return ok(resp)
+
   asyncSetup:
+    otherQueries = 0
+    sameShardQueries = 0
+    storeFails = false
     waku = (await Waku.new(testConf())).expect("Waku.new")
     (await waku.start()).isOkOr:
       raiseAssert "waku.start: " & error
@@ -401,9 +435,10 @@ suite "SendService - Store validation loop":
     queryStarted = newFuture[void]("query started")
     answered = newAsyncEvent()
     storedHashes = @[]
+    requests = @[]
     log = newSendEventLog(waku.brokerCtx)
     storeNode = newTestWakuNode(generateSecp256k1Key())
-    storeNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+    storeNode.mountMetadata(TestClusterId, @[0'u16, 1]).isOkOr:
       raiseAssert "mountMetadata: " & error
     discard await newTestWakuStore(storeNode.switch, delayedStoreHandler)
     await storeNode.start()
@@ -424,12 +459,15 @@ suite "SendService - Store validation loop":
     return service
 
   proc sendAged(
-      service: SendService, id: string, stored = true
+      service: SendService,
+      id: string,
+      stored = true,
+      pubsubTopic = PubsubTopic("/waku/2/rs/3/0"),
   ): Future[DeliveryTask] {.async.} =
     ## Sends a task, waits for the report of its propagation, and makes it old
     ## enough for the next Store query. Unless `stored` is false, the Store lists
     ## its hash.
-    let task = newTask(id)
+    let task = newTask(id, pubsubTopic)
     check:
       service.enqueue(task).isOk()
       await log.waitEvent(SendEvent.Propagated, task)
@@ -518,9 +556,12 @@ suite "SendService - Store validation loop":
       await service.stopSendService()
     allowAnswer.complete()
 
-    # The first answer does not list the hash.
+    # The first answer does not list the hash, so the next query goes to any
+    # Store node.
     let task = await service.sendAged("not-yet-stored", stored = false)
     check await answered.wait().withTimeout(chronos.seconds(5))
+    checkUntilTimeout:
+      task.storeMissed
 
     # The next answer lists it. Make the task old enough for that query.
     storedHashes.add(task.msgHash)
@@ -529,6 +570,139 @@ suite "SendService - Store validation loop":
       await log.waitEvent(SendEvent.Sent, task)
       task.state == DeliveryState.SuccessfullyValidated
       processor.calls == 1
+
+  proc sendAgedTogether(
+      service: SendService, pubsubTopics: seq[PubsubTopic]
+  ): Future[seq[DeliveryTask]] {.async.} =
+    ## Sends one task for each shard, and makes them old enough for the same
+    ## Store validation batch. The Store lists their hashes.
+    var tasks: seq[DeliveryTask]
+    for i, pubsubTopic in pubsubTopics:
+      let task = newTask("shard-task-" & $i, pubsubTopic)
+      check:
+        service.enqueue(task).isOk()
+        await log.waitEvent(SendEvent.Propagated, task)
+      storedHashes.add(task.msgHash)
+      tasks.add(task)
+    let old = Moment.now() - chronos.seconds(10)
+    for task in tasks:
+      task.firstPropagatedTime = Opt.some(old)
+    return tasks
+
+  proc addStoreNode(
+      shards: seq[uint16], handler: StoreQueryRequestHandler
+  ): Future[WakuNode] {.async.} =
+    ## Starts one more Store node, which the client knows with `shards` and
+    ## has no connection to.
+    let node = newTestWakuNode(generateSecp256k1Key())
+    node.mountMetadata(TestClusterId, shards).isOkOr:
+      raiseAssert "mountMetadata: " & error
+    discard await newTestWakuStore(node.switch, handler)
+    await node.start()
+    let info = node.peerInfo.toRemotePeerInfo()
+    info.protocols = @[WakuStoreCodec]
+    waku.node.switch.peerStore.addPeer(info)
+    waku.node.switch.peerStore.setShardInfo(info.peerId, shards)
+    return node
+
+  const Shard0 = PubsubTopic("/waku/2/rs/3/0")
+  const Shard1 = PubsubTopic("/waku/2/rs/3/1")
+  const Shard2 = PubsubTopic("/waku/2/rs/3/2")
+
+  asyncTest "tasks of two shards get one Store query for each shard":
+    ## The Store node of the suite announced shards 0 and 1.
+    let service = startedService()
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let tasks = await service.sendAgedTogether(@[Shard0, Shard1])
+    check:
+      await log.waitEvent(SendEvent.Sent, tasks[0])
+      await log.waitEvent(SendEvent.Sent, tasks[1])
+      requests.len == 2
+      requests.anyIt(it.messageHashes == @[tasks[0].msgHash])
+      requests.anyIt(it.messageHashes == @[tasks[1].msgHash])
+
+  asyncTest "a shard that no Store node can have gets its own Store query":
+    ## After the first query, the node knows that the Store node announced
+    ## shards 0 and 1 only.
+    let service = startedService()
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    let first = await service.sendAged("known-shards")
+    check await log.waitEvent(SendEvent.Sent, first)
+    checkUntilTimeout:
+      waku.node.switch.peerStore.peers().anyIt(
+        it.peerId == storeNode.peerInfo.peerId and it.shards == @[0'u16, 1]
+      )
+    requests = @[]
+
+    let tasks = await service.sendAgedTogether(@[Shard0, Shard2])
+    check:
+      await log.waitEvent(SendEvent.Sent, tasks[0])
+      await log.waitEvent(SendEvent.Sent, tasks[1])
+      requests.len == 2
+      requests.allIt(it.messageHashes.len == 1)
+
+  asyncTest "a Store node of the shard answers when the connected Store node fails":
+    ## One more Store node announced shard 0, and one announced shard 2. The
+    ## node has a connection to the Store node of the suite, which fails each
+    ## query. So a query goes on to the other Store node of shard 0, and not
+    ## to the one of shard 2.
+    let sameShardStore = await addStoreNode(@[0'u16], sameShardStoreHandler)
+    let otherShardStore = await addStoreNode(@[2'u16], reportingStoreHandler)
+    defer:
+      await allFutures(sameShardStore.stop(), otherShardStore.stop())
+    await waku.node.connectToNodes(@[storeNode.peerInfo.toRemotePeerInfo()])
+    let service = startedService()
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    storeFails = true
+    for i in 0 ..< 5:
+      let task = await service.sendAged("store-fails-" & $i)
+      check await log.waitEvent(SendEvent.Sent, task)
+    check:
+      requests.len >= 1
+      sameShardQueries >= 5
+      otherQueries == 0
+
+  asyncTest "a message that a Store node does not report is asked from any Store node":
+    ## The Store node of the suite announced shards 0 and 1, and it does not
+    ## list the hash. A second Store node announced another shard, and it
+    ## reports each hash. It gets a query only after the miss.
+    let otherStore = await addStoreNode(@[2'u16], reportingStoreHandler)
+    defer:
+      await otherStore.stop()
+    let service = startedService()
+    defer:
+      await service.stopSendService()
+    allowAnswer.complete()
+
+    # Each check of a stored task goes to the Store node of its shard.
+    for i in 0 ..< 5:
+      let stored = await service.sendAged("stored-" & $i)
+      check await log.waitEvent(SendEvent.Sent, stored)
+    check otherQueries == 0
+
+    let task = await service.sendAged("missed", stored = false)
+    checkUntilTimeout:
+      task.storeMissed
+    check otherQueries == 0
+
+    # Each next query goes to one of the two Store nodes at random.
+    for _ in 0 ..< 40:
+      if otherQueries > 0:
+        break
+      task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
+      await sleepAsync(chronos.milliseconds(100))
+    check:
+      otherQueries > 0
+      await log.waitEvent(SendEvent.Sent, task)
 
   asyncTest "a message the Store does not report is sent again through lightpush":
     let lightpushNode = newTestWakuNode(generateSecp256k1Key())

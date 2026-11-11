@@ -268,28 +268,28 @@ proc dropFinishedResends(self: SendService) =
   for msgHash in ended:
     self.resends.del(msgHash)
 
-proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
-  ## Asks a Store peer about one batch, confirms the tasks that it reports, and
-  ## sends the others again.
-  let now = Moment.now()
-  for task in batch:
-    task.lastStoreQueryTime = Opt.some(now)
-
+proc queryStoreForTasks(
+    self: SendService, shards: seq[PubsubTopic], tasks: seq[DeliveryTask]
+) {.async.} =
+  ## Sends one Store query about `tasks`, whose messages are in `shards`.
+  ## Confirms the tasks the answer reports and resends the others.
+  ## With no `shards`, any Store peer can answer.
   # TODO: confirm hash format for store query!!!
   let query = self.waku.storeQueryToAny(
     StoreQueryRequest(
       includeData: false,
-      messageHashes: batch.mapIt(it.msgHash),
-      paginationLimit: Opt.some(uint64(batch.len)),
-    )
+      messageHashes: tasks.mapIt(it.msgHash),
+      paginationLimit: Opt.some(uint64(tasks.len)),
+    ),
+    shards,
   )
   if not await query.withTimeout(StoreValidationQueryTimeout):
-    debug "Store validation query timed out", messageCount = batch.len
+    debug "Store validation query timed out", messageCount = tasks.len
     return
 
   let storeResp: StoreQueryResponse = query.read().valueOr:
     debug "Failed to get store validation for messages",
-      messageCount = batch.len, error = $error
+      messageCount = tasks.len, error = $error
     return
 
   # The Store peer decides which hashes its answer lists, and it can list hashes
@@ -310,9 +310,36 @@ proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
   if storeResp.paginationCursor.isSome():
     # The answer is partial: a hash that it lacks can be on the next page.
     return
-  for task in batch:
+  for task in tasks:
     if task.msgHash notin reported and task.storeAnswerPending():
+      task.storeMissed = true
       self.startResend(task)
+
+proc checkMsgsInStore(self: SendService, batch: seq[DeliveryTask]) {.async.} =
+  ## Asks Store about one batch. The tasks that a Store peer did not report go
+  ## in one query, which can ask each Store peer. The other tasks go in one
+  ## query for each shard.
+  let now = Moment.now()
+  var missed: seq[DeliveryTask]
+  var byShard: OrderedTable[PubsubTopic, seq[DeliveryTask]]
+  for task in batch:
+    task.lastStoreQueryTime = Opt.some(now)
+    if task.storeMissed:
+      missed.add(task)
+    else:
+      byShard.mgetOrPut(task.pubsubTopic, @[]).add(task)
+  var checks: seq[Future[void]]
+  if missed.len > 0:
+    checks.add(self.queryStoreForTasks(@[], missed))
+  for shard, tasks in byShard:
+    checks.add(self.queryStoreForTasks(@[shard], tasks))
+  try:
+    for check in checks:
+      await check
+  finally:
+    let running = checks.filterIt(not it.finished())
+    if running.len > 0:
+      await noCancel allFutures(running.mapIt(it.cancelAndWait()))
 
 proc storeValidationLoop(self: SendService) {.async: (raises: [CancelledError]).} =
   ## Confirms propagated tasks against Store, one batch per round, apart from the
