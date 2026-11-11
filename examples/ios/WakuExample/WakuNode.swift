@@ -54,6 +54,8 @@ private final class CallbackContext: @unchecked Sendable {
     private var _resumed = false
     var success: Bool = false
     var result: String?
+    /// Set by the create callback before it resumes.
+    var createdCtx: UnsafeMutablePointer<LogosDeliveryCtx>?
 
     var continuation: CheckedContinuation<(success: Bool, result: String?), Never>? {
         get {
@@ -94,7 +96,7 @@ actor WakuActor {
 
     // MARK: - State
 
-    private var ctx: UnsafeMutableRawPointer?
+    private var ctx: UnsafeMutablePointer<LogosDeliveryCtx>?
     private var seenMessageHashes: Set<String> = []
     private var isSubscribed: Bool = false
     private var isSubscribing: Bool = false
@@ -133,28 +135,26 @@ actor WakuActor {
         WakuActor.sharedEventContinuation?.yield(str)
     }
 
-    // LogosDeliveryScalarRawFn: `msg` is a byte run of `len` bytes.
-    private static let syncCallback: LogosDeliveryScalarRawFn = { ret, msg, len, userData in
-        guard let userData = userData else { return }
-        let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
-        let success = (ret == RET_OK)
-        var resultStr: String? = nil
-        if let msg = msg {
-            resultStr = String(cString: msg)
-        }
-        context.resumeOnce(returning: (success, resultStr))
-    }
-
-    // LogosDelivery*ReplyFn, shared by every entry point that takes a request
-    // struct: no length, and the failure text arrives in its own argument.
+    // LogosDelivery*ReplyFn: `reply` points at the reply text, or is nil on
+    // failure, which `errMsg` then describes.
     private static let syncReplyCallback:
-        @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
+        @convention(c) (Int32, UnsafePointer<UnsafePointer<CChar>?>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
             ret, reply, errMsg, userData in
             guard let userData = userData else { return }
             let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
             let success = (ret == RET_OK)
-            let text = reply ?? errMsg
+            let text = reply?.pointee ?? errMsg
             context.resumeOnce(returning: (success, text.map { String(cString: $0) }))
+        }
+
+    // LogosDeliveryCreateFn: hands over the context, or the failure text.
+    private static let createCallback:
+        @convention(c) (Int32, UnsafeMutablePointer<LogosDeliveryCtx>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
+            ret, newCtx, errMsg, userData in
+            guard let userData = userData else { return }
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+            context.createdCtx = newCtx
+            context.resumeOnce(returning: (ret == RET_OK, errMsg.map { String(cString: $0) }))
         }
 
     // MARK: - Stream Setup
@@ -250,15 +250,15 @@ actor WakuActor {
         // Unsubscribe and stop in background (fire and forget)
         Task.detached {
             // Unsubscribe
-            _ = await self.callWakuSync { waku_filter_unsubscribe_all(ctxToStop, WakuActor.syncCallback, $0) }
+            _ = await self.callWakuSync { logosdelivery_ctx_waku_filter_unsubscribe_all(ctxToStop, WakuActor.syncReplyCallback, $0) }
             print("[WakuActor] Unsubscribed from filter")
 
             // Stop
-            _ = await self.callWakuSync { logosdelivery_stop_node(ctxToStop, WakuActor.syncCallback, $0) }
+            _ = await self.callWakuSync { logosdelivery_ctx_stop_node(ctxToStop, WakuActor.syncReplyCallback, $0) }
             print("[WakuActor] Node stopped")
 
             // Destroy
-            logosdelivery_destroy(ctxToStop)
+            logosdelivery_ctx_destroy(ctxToStop)
             print("[WakuActor] Node destroyed")
         }
     }
@@ -286,10 +286,8 @@ actor WakuActor {
         let result = await callWakuSync { userData in
             _ = self.defaultPubsubTopic.withCString { topicPtr in
                 jsonMessage.withCString { msgPtr in
-                    var req = WakuLightpushPublishReq(
-                        pubSubTopic: topicPtr, jsonWakuMessage: msgPtr)
-                    return waku_lightpush_publish(
-                        context, WakuActor.syncReplyCallback, userData, &req)
+                    logosdelivery_ctx_waku_lightpush_publish(
+                        context, topicPtr, msgPtr, WakuActor.syncReplyCallback, userData)
                 }
             }
         }
@@ -329,30 +327,21 @@ actor WakuActor {
         }
         """
 
-        // Create node - logosdelivery_create_node is special, it returns the context directly
-        let createResult = await withCheckedContinuation { (continuation: CheckedContinuation<(ctx: UnsafeMutableRawPointer?, success: Bool, result: String?), Never>) in
-            let callbackCtx = CallbackContext()
+        // Create node: the context arrives in the create callback.
+        let callbackCtx = CallbackContext()
+        let created = await withCheckedContinuation { (continuation: CheckedContinuation<(success: Bool, result: String?), Never>) in
+            callbackCtx.continuation = continuation
             let userDataPtr = Unmanaged.passRetained(callbackCtx).toOpaque()
-
-            // Set up a simple callback for logosdelivery_create_node
-            let newCtx = config.withCString { configPtr -> UnsafeMutableRawPointer? in
-                var req = LogosdeliveryCreateNodeCtorReq(configJson: configPtr)
-                return logosdelivery_create_node(&req, { ret, reply, errMsg, userData in
-                    guard let userData = userData else { return }
-                    let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
-                    context.success = (ret == RET_OK)
-                    if let text = reply ?? errMsg {
-                        context.result = String(cString: text)
-                    }
-                }, userDataPtr)
+            // A failed call has already reported through the callback.
+            _ = config.withCString { configPtr in
+                logosdelivery_ctx_create(configPtr, WakuActor.createCallback, userDataPtr)
             }
-
-            // Small delay to ensure callback completes
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                callbackCtx.resumeOnce(returning: (false, "Timeout"))
                 Unmanaged<CallbackContext>.fromOpaque(userDataPtr).release()
-                continuation.resume(returning: (newCtx, callbackCtx.success, callbackCtx.result))
             }
         }
+        let createResult = (ctx: callbackCtx.createdCtx, success: created.success, result: created.result)
 
         guard createResult.ctx != nil else {
             statusContinuation?.yield(.statusChanged(.error))
@@ -370,12 +359,12 @@ actor WakuActor {
             "onChannelMessageSent", "onChannelMessageError",
         ]
         for name in eventNames {
-            _ = logosdelivery_add_event_listener(ctx, name, WakuActor.eventCallback, nil)
+            _ = logosdelivery_add_event_listener(createResult.ctx!.pointee.ptr, name, WakuActor.eventCallback, nil)
         }
 
         // Start node
         let startResult = await callWakuSync { userData in
-            logosdelivery_start_node(self.ctx, WakuActor.syncCallback, userData)
+            _ = logosdelivery_ctx_start_node(self.ctx, WakuActor.syncReplyCallback, userData)
         }
 
         guard startResult.success else {
@@ -396,8 +385,8 @@ actor WakuActor {
 
         let result = await callWakuSync { userData in
             _ = self.staticPeer.withCString { peerPtr in
-                var req = WakuConnectReq(peerMultiAddr: peerPtr, timeoutMs: 10000)
-                return waku_connect(context, WakuActor.syncReplyCallback, userData, &req)
+                logosdelivery_ctx_waku_connect(
+                    context, peerPtr, 10000, WakuActor.syncReplyCallback, userData)
             }
         }
 
@@ -420,10 +409,8 @@ actor WakuActor {
         let result = await callWakuSync { userData in
             _ = self.defaultPubsubTopic.withCString { topicPtr in
                 topic.withCString { contentPtr in
-                    var req = WakuFilterSubscribeReq(
-                        pubSubTopic: topicPtr, contentTopics: contentPtr)
-                    return waku_filter_subscribe(
-                        context, WakuActor.syncReplyCallback, userData, &req)
+                    logosdelivery_ctx_waku_filter_subscribe(
+                        context, topicPtr, contentPtr, WakuActor.syncReplyCallback, userData)
                 }
             }
         }
@@ -447,8 +434,8 @@ actor WakuActor {
 
         let result = await callWakuSync { userData in
             _ = self.staticPeer.withCString { peerPtr in
-                var req = WakuPingPeerReq(peerAddr: peerPtr, timeoutMs: 10000)
-                return waku_ping_peer(context, WakuActor.syncReplyCallback, userData, &req)
+                logosdelivery_ctx_waku_ping_peer(
+                    context, peerPtr, 10000, WakuActor.syncReplyCallback, userData)
             }
         }
 
