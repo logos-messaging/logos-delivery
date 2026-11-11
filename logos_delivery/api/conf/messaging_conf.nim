@@ -52,8 +52,7 @@ type MessagingClientConf* = object
   kadServiceLookupIntervalSec* {.name: "kad-service-lookup-interval".}: Opt[uint32]
     ## Applies to whichever kademlia host is running.
   maxPureLibp2pPeers* {.name: "max-pure-libp2p-peers".}: Opt[int]
-    ## Inbound budget for peers that are not waku nodes but offer a protocol we
-    ## consume (a plugin-hosted kademlia or mix). 0 admits none.
+    ## Deprecated and ignored.
     ## Bootstrap / connectivity nodes (enrtree or multiaddr).
   ethRpcEndpoints* {.name: "rln-relay-eth-client-address".}: Opt[seq[EthRpcUrl]]
     ## Ethereum RPC endpoints (required for RLN validation); multiple for fail-over.
