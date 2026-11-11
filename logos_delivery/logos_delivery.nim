@@ -232,6 +232,14 @@ proc new*(
 func lifecycleState*(self: LogosDelivery): LifecycleState =
   self.state
 
+func isRunning*(self: LogosDelivery): bool =
+  ## True while a layer still holds what `stop` releases; the channel manager
+  ## needs no test, its `stop` is already a no-op when empty.
+  let transportUp =
+    not self.waku.isNil() and not self.waku.node.isNil() and self.waku.node.started
+  let messagingUp = not self.messagingClient.isNil() and self.messagingClient.started
+  transportUp or messagingUp
+
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each present layer bottom-up: transport, then messaging, then channels.
   ## Only a stopped node starts. A start on a running node is a no-op. A start
@@ -252,10 +260,10 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   of LifecycleState.Stopped:
     discard
 
-  # Set before the lock, so that a start or a stop that comes while this one
-  # waits sees it. A stop that held the lock overwrites it, so set it again.
-  self.state = LifecycleState.Starting
-  await self.lifecycleLock.acquire()
+  # A start does not wait for the lock. On a stopped node, only a stop that
+  # waits to run holds it.
+  if not self.lifecycleLock.tryAcquire():
+    return err("cannot start while a stop is in progress")
   self.state = LifecycleState.Starting
 
   var startSucceeded = false
@@ -288,7 +296,8 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
 proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
-  ## A stop during a start waits for the start to end, then stops.
+  ## A stop during a start waits for the start to end, then stops. The layers
+  ## below the channels are stopped only when one of them runs.
   await self.lifecycleLock.acquire()
   self.state = LifecycleState.Stopping
   var stopSucceeded = false
@@ -300,22 +309,16 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   if not self.reliableChannelManager.isNil():
     await self.reliableChannelManager.stop()
-  if not self.messagingClient.isNil():
-    await self.messagingClient.stop()
-  if not self.waku.isNil():
-    (await self.waku.stop()).isOkOr:
-      return err("failed to stop Waku: " & error)
+  # A stop of a stopped transport logs libp2p warnings.
+  if self.isRunning():
+    if not self.messagingClient.isNil():
+      await self.messagingClient.stop()
+    if not self.waku.isNil():
+      (await self.waku.stop()).isOkOr:
+        return err("failed to stop Waku: " & error)
 
   stopSucceeded = true
   return ok()
-
-func isRunning*(self: LogosDelivery): bool =
-  ## True while a layer still holds what `stop` releases; the channel manager
-  ## needs no test, its `stop` is already a no-op when empty.
-  let transportUp =
-    not self.waku.isNil() and not self.waku.node.isNil() and self.waku.node.started
-  let messagingUp = not self.messagingClient.isNil() and self.messagingClient.started
-  transportUp or messagingUp
 
 proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():

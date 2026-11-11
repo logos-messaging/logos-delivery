@@ -17,7 +17,9 @@ import
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
   logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery],
-  logos_delivery/waku/waku_rendezvous/client
+  logos_delivery/waku/waku_rendezvous/client,
+  logos_delivery/waku/node/health_monitor/[health_status, node_health_monitor],
+  logos_delivery/waku/rln/rln_plugin
 import tests/testlib/[wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
@@ -153,6 +155,25 @@ suite "LogosDelivery - broker lifecycle":
       (await node.stop()).isOkOr:
         raiseAssert error
       check not rest.isListeningToMessagingEvents()
+
+  asyncTest "a REST mount during a REST stop starts no listener":
+    ## `stop_node` stops REST while `start_node` can still mount it.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
+        raiseAssert error
+      let rest = RestService.new()
+      rest.start(node).isOkOr:
+        raiseAssert "REST start: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+
+      let restStopping = rest.stop(node)
+      discard rest.mount(node)
+      await restStopping
+      check not rest.isListeningToMessagingEvents()
+
+      (await node.stop()).isOkOr:
+        raiseAssert error
 
   asyncTest "REST binds its port again after a stop":
     lockNewGlobalBrokerContext:
@@ -378,6 +399,18 @@ suite "LogosDelivery - broker lifecycle":
         raiseAssert "stop after the failed start: " & error
       held.close()
 
+  asyncTest "a stop before start does not stop the transport":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.stop()).isOkOr:
+        raiseAssert error
+      # The transport stop sets the node health to SHUTTING_DOWN.
+      check:
+        (await node.waku.healthMonitor.getNodeHealthReport()).nodeHealth ==
+          HealthStatus.INITIALIZING
+        node.lifecycleState == LifecycleState.Stopped
+
   asyncTest "a second stop returns ok":
     lockNewGlobalBrokerContext:
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
@@ -389,3 +422,31 @@ suite "LogosDelivery - broker lifecycle":
       (await node.stop()).isOkOr:
         raiseAssert "second stop: " & error
       check not node.isRunning()
+
+  asyncTest "a failed stop leaves the node running, and the next stop retries":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      # The transport stop awaits the RLN plugin stop, so this failure fails it.
+      node.waku.node.rlnPlugin = Opt.some(
+        RlnPlugin(
+          name: "failing-stop",
+          stop: proc(): Future[void] {.gcsafe, raises: [].} =
+            let fut = newFuture[void]("failing-stop")
+            fut.fail(newException(CatchableError, "stop failed"))
+            fut,
+        )
+      )
+
+      check:
+        (await node.stop()).isErr()
+        node.lifecycleState == LifecycleState.Running
+        node.isRunning()
+
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
