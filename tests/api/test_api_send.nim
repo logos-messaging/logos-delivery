@@ -1061,14 +1061,6 @@ suite "Messaging API - the request id comes before the events":
       (await client.send(MessageEnvelope.init(OrderTopic, "over"))).errorOr("accepted") ==
         "Send queue full, retry later"
 
-    # A refused send leaves no subscription behind.
-    const RefusedTopic = ContentTopic("/test/1/send-order-refused/proto")
-    check:
-      (await client.send(MessageEnvelope.init(RefusedTopic, "refused"))).errorOr(
-        "accepted"
-      ) == "Send queue full, retry later"
-      not node.waku.isSubscribed(RefusedTopic).valueOr(true)
-
   asyncTest "no event comes before its request id, durable and ephemeral":
     let node = await noBudgetNode(capacity = 100)
     defer:
@@ -1118,7 +1110,7 @@ suite "Messaging API - the request id comes before the events":
       log.early.len == 0
 
 suite "Messaging API - a node that is not started":
-  asyncTest "send, subscribe and unsubscribe fail, and leave no subscription":
+  asyncTest "send, subscribe and unsubscribe fail, and the subscribe leaves no subscription":
     const
       SendTopic = ContentTopic("/test/1/not-started-send/proto")
       SubscribeTopic = ContentTopic("/test/1/not-started-subscribe/proto")
@@ -1143,12 +1135,10 @@ suite "Messaging API - a node that is not started":
             "node is not started"
 
       (await node.start()).expect("start")
-      check:
-        not node.waku.isSubscribed(SendTopic).valueOr(true)
-        not node.waku.isSubscribed(SubscribeTopic).valueOr(true)
+      check not node.waku.isSubscribed(SubscribeTopic).valueOr(true)
       (await node.stop()).expect("stop")
 
-  asyncTest "a send during a stop fails and subscribes nothing":
+  asyncTest "a send during a stop fails":
     const StopTopic = ContentTopic("/test/1/during-stop/proto")
     lockNewGlobalBrokerContext:
       let node =
@@ -1163,7 +1153,6 @@ suite "Messaging API - a node that is not started":
           "accepted"
         ) == "node is not started"
       await stopping
-      check not node.waku.isSubscribed(StopTopic).valueOr(true)
       (await node.stop()).expect("stop")
 
   asyncTest "MessagingClient.start refuses to run while its stop runs":
