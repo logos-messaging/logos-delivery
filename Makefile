@@ -34,6 +34,10 @@ NIMBLE_TASK_FLAGS = $(if $(NIM),--nim:$(NIM))
 # so it resolves after setup has populated nimbledeps/.
 NIM = $(firstword $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim.exe 2>/dev/null) $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim 2>/dev/null))
 
+# The Nim for direct `nim c` calls. Nimble installs none into nimbledeps/ when
+# a Nim of the locked version is already on PATH, and then uses that one.
+NIM_BIN = $(or $(NIM),nim)
+
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
@@ -376,7 +380,7 @@ lightpushwithmix: | build-deps build deps librln
 
 api_example: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIM) api_example $(NIM_PARAMS) logos_delivery.nims
+		$(NIM_BIN) api_example $(NIM_PARAMS) logos_delivery.nims
 
 build/%: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
@@ -541,7 +545,7 @@ docker-liteprotocoltester-push:
 define compile_liblogosdelivery
 mkdir -p "$(1)"
 rm -f "$(1)/$(2)"
-"$(NIM)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
+"$(NIM_BIN)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
 cp library/*.h "$(1)/"
 endef
 
