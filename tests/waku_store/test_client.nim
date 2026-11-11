@@ -47,6 +47,51 @@ proc addStorePeer(client: Switch, store: FakeStore, shards: seq[uint16] = @[]) =
 proc connectTo(client: Switch, store: FakeStore) {.async.} =
   await client.connect(store.switch.peerInfo.peerId, store.switch.peerInfo.addrs)
 
+type FakeTcpServer = ref object
+  ## A TCP server that is no libp2p node, so no dial to it gives a connection.
+  server: StreamServer
+  accepted: int ## the count of the TCP connections that it accepted
+  openConnections: seq[StreamTransport] ## the connections that it did not close
+  closeAtOnce: bool ## it closes each connection when it accepts it
+
+proc newFakeTcpServer(closeAtOnce: bool): FakeTcpServer =
+  let fake = FakeTcpServer(closeAtOnce: closeAtOnce)
+  proc onAccept(server: StreamServer, transp: StreamTransport) {.async: (raises: []).} =
+    inc fake.accepted
+    if fake.closeAtOnce:
+      await transp.closeWait()
+    else:
+      fake.openConnections.add(transp)
+
+  fake.server = createStreamServer(initTAddress("127.0.0.1:0"), onAccept, {ReuseAddr})
+  fake.server.start()
+  return fake
+
+proc closeOpenConnections(fake: FakeTcpServer) {.async.} =
+  for transp in fake.openConnections:
+    await transp.closeWait()
+  fake.openConnections.setLen(0)
+
+proc stop(fake: FakeTcpServer) {.async.} =
+  await fake.closeOpenConnections()
+  fake.server.stop()
+  await fake.server.closeWait()
+
+proc addStorePeer(
+    client: Switch,
+    fake: FakeTcpServer,
+    peerId = PeerId.init(generateSecp256k1Key()).tryGet(),
+) =
+  ## Makes a peer at the address of `fake` a known store peer of `client`.
+  let peerInfo = RemotePeerInfo.init(
+    peerId,
+    @[
+      MultiAddress.init("/ip4/127.0.0.1/tcp/" & $fake.server.localAddress().port).tryGet()
+    ],
+  )
+  peerInfo.protocols = @[WakuStoreCodec]
+  client.peerStore.addPeer(peerInfo)
+
 suite "Store Client":
   var message1 {.threadvar.}: WakuMessage
   var message2 {.threadvar.}: WakuMessage
@@ -573,6 +618,91 @@ suite "Store Client":
       check:
         afterConnect.isOk()
         store.queries == 1
+
+    asyncTest "queries at the same time to a store peer with no connection make one dial":
+      ## A Store node at its connection limit closes each new connection.
+      ## Each dial of a query is one more connection that the node must close.
+      let closingServer = newFakeTcpServer(closeAtOnce = true)
+      defer:
+        await closingServer.stop()
+      clientSwitch.addStorePeer(closingServer)
+
+      var atTheSameTime: seq[Future[StoreQueryResult]]
+      for _ in 0 ..< 3:
+        atTheSameTime.add(client.queryToAny(storeQuery))
+      for query in atTheSameTime:
+        let response = await query
+        check response.isErr()
+      check closingServer.accepted == 1
+
+    asyncTest "queries use the connection of a store peer that connected while a dial to it failed":
+      ## A Store node can connect to this node while a dial to it fails.
+      ## The query that dialed and the query that waited must use that connection.
+      let store = await newFakeStore()
+      let unresponsiveServer = newFakeTcpServer(closeAtOnce = false)
+      defer:
+        await store.switch.stop()
+        await unresponsiveServer.stop()
+      # The client knows the Store peer at an address that does not answer.
+      clientSwitch.addStorePeer(unresponsiveServer, store.switch.peerInfo.peerId)
+
+      let first = client.queryToAny(storeQuery)
+      checkUntilTimeout:
+        unresponsiveServer.accepted == 1
+      let second = client.queryToAny(storeQuery)
+      await store.switch.connect(
+        clientSwitch.peerInfo.peerId, clientSwitch.peerInfo.addrs
+      )
+      checkUntilTimeout:
+        clientSwitch.isConnected(store.switch.peerInfo.peerId)
+      # The dial of the first query fails now.
+      await unresponsiveServer.closeOpenConnections()
+      let firstAnswer = await first
+      let secondAnswer = await second
+      check:
+        firstAnswer.isOk()
+        secondAnswer.isOk()
+        store.queries == 2
+
+    asyncTest "queries that wait for a dial go on when one of them is cancelled":
+      ## A query that waits can end at its timeout before the dial ends.
+      ## The dial and the other queries that wait must not end with it.
+      let unresponsiveServer = newFakeTcpServer(closeAtOnce = false)
+      defer:
+        await unresponsiveServer.stop()
+      clientSwitch.addStorePeer(unresponsiveServer)
+
+      let first = client.queryToAny(storeQuery)
+      checkUntilTimeout:
+        unresponsiveServer.accepted == 1
+      let second = client.queryToAny(storeQuery)
+      let third = client.queryToAny(storeQuery)
+      await second.cancelAndWait()
+      # The dial of the first query fails now.
+      await unresponsiveServer.closeOpenConnections()
+      let firstAnswer = await first
+      let thirdAnswer = await third
+      check:
+        firstAnswer.isErr()
+        thirdAnswer.isErr()
+
+    asyncTest "a query dials a store peer when the query that dialed it is cancelled":
+      ## A service that stops cancels its query, also in a dial.
+      ## A query that waited for that dial must not wait with no end.
+      let unresponsiveServer = newFakeTcpServer(closeAtOnce = false)
+      defer:
+        await unresponsiveServer.stop()
+      clientSwitch.addStorePeer(unresponsiveServer)
+
+      let first = client.queryToAny(storeQuery)
+      checkUntilTimeout:
+        unresponsiveServer.accepted == 1
+      # The second query finds the dial of the first one, and waits for it.
+      let second = client.queryToAny(storeQuery)
+      await first.cancelAndWait()
+      checkUntilTimeout:
+        unresponsiveServer.accepted == 2
+      await second.cancelAndWait()
 
     asyncTest "queryToAny asks only the exclusive store peers":
       let peerManager = PeerManager.new(clientSwitch)
