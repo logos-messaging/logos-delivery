@@ -62,6 +62,8 @@ class StepsMessaging(StepsCommon, StepsMetrics):
 
         A 503 means that the node has no peer to send through yet. A node learns the
         peers of a shard a short time after it connects to them, so the send is made again.
+        A 429 with QueueFull means that the node already has its maximum of sends with no
+        last event, so the send is made again too.
         """
         deadline = time() + timeout
         while True:
@@ -69,7 +71,9 @@ class StepsMessaging(StepsCommon, StepsMetrics):
                 response = node.messaging_send(self.messaging_message(text, **kwargs))
                 break
             except Exception as ex:
-                if not str(ex).startswith("Error: 503 ") or time() >= deadline:
+                error = str(ex)
+                refused_for_now = error.startswith("Error: 503 ") or (error.startswith("Error: 429 ") and "QueueFull" in error)
+                if not refused_for_now or time() >= deadline:
                     raise
                 sleep(0.2)
         assert response.get("messageHash"), f"no messageHash in send response {response}"
