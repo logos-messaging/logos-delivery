@@ -23,7 +23,9 @@ proc newSqliteArchiveDriver*(): ArchiveDriver =
   return SqliteDriver.new(database).tryGet()
 
 proc newWakuArchive*(driver: ArchiveDriver): WakuArchive =
-  WakuArchive.new(driver).get()
+  let archive = WakuArchive.new(driver).get()
+  archive.metricTopics = TopicLabels.init(DefaultClusterId, [DefaultShardId])
+  return archive
 
 proc insertCount*(source: string): float64 =
   ## `value(labelValues = ...)` ignores the label selector in metrics 0.2.1 and

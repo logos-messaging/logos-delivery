@@ -151,6 +151,13 @@ proc initNode(
 
 ## Mount protocols
 
+func metricTopicLabels(conf: WakuConf): TopicLabels =
+  ## Every shard the node is configured with; any other topic is labelled "other".
+  var shards = conf.subscribeShards & conf.extraListenShards
+  if conf.shardingConf.kind == AutoSharding:
+    shards.add(conf.shardingConf.shards)
+  return TopicLabels.init(conf.clusterId, shards)
+
 proc setupProtocols(
     node: WakuNode, conf: WakuConf
 ): Future[Result[void, string]] {.async.} =
@@ -410,6 +417,14 @@ proc setupProtocols(
 
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
+
+  let metricTopics = metricTopicLabels(conf)
+  if not node.wakuRelay.isNil():
+    node.wakuRelay.metricTopics = metricTopics
+  if not node.wakuArchive.isNil():
+    node.wakuArchive.metricTopics = metricTopics
+  if not node.wakuStoreClient.isNil():
+    node.wakuStoreClient.metricTopics = metricTopics
 
   return ok()
 

@@ -57,24 +57,30 @@ proc setDiscoveredPeersCapabilities(routingTableNodes: seq[waku_enr.Record]) =
       int64(nOfNodesWithCapability), labelValues = [$capability]
     )
 
-proc setDiscoveredPeersCluster(routingTableNodes: seq[Node]) =
-  var clusters: CountTable[uint16]
+proc setDiscoveredPeersCluster(routingTableNodes: seq[Node], clusterId: uint16) =
+  ## Peers pick their cluster id: only ours gets its own label.
+  var ours, others: int64
 
   for node in routingTableNodes:
     let typedRec = node.record.toTyped().valueOr:
-      clusters.inc(0)
+      others.inc()
       continue
 
     let relayShard = typedRec.relaySharding().valueOr:
-      clusters.inc(0)
+      others.inc()
       continue
 
-    clusters.inc(relayShard.clusterId)
+    if relayShard.clusterId == clusterId:
+      ours.inc()
+    else:
+      others.inc()
 
-  for (key, value) in clusters.pairs:
-    logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
-      int64(value), labelValues = [$key]
-    )
+  logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
+    ours, labelValues = [$clusterId]
+  )
+  logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
+    others, labelValues = [OtherLabel]
+  )
 
 proc analyzePeer(
     customPeerInfo: CustomPeerInfoRef,
@@ -242,11 +248,12 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for peerInfo in allPeersRef.values:
     if peerInfo.connError == "":
       for protocol in peerInfo.supportedProtocols:
-        allProtocols[protocol] = allProtocols.mgetOrPut(protocol, 0) + 1
+        let label = codecLabel(protocol)
+        allProtocols[label] = allProtocols.mgetOrPut(label, 0) + 1
 
       # store available user-agents in the network
-      allAgentStrings[peerInfo.userAgent] =
-        allAgentStrings.mgetOrPut(peerInfo.userAgent, 0) + 1
+      let agent = agentLabel(peerInfo.userAgent)
+      allAgentStrings[agent] = allAgentStrings.mgetOrPut(agent, 0) + 1
 
       if peerInfo.country != "":
         countries[peerInfo.country] = countries.mgetOrPut(peerInfo.country, 0) + 1
@@ -330,7 +337,7 @@ proc crawlNetwork(
     setDiscoveredPeersCapabilities(discoveredNodes)
 
     # populate cluster metrics as advertised by the ENR
-    setDiscoveredPeersCluster(flatNodes)
+    setDiscoveredPeersCluster(flatNodes, conf.clusterId)
 
     # tries to connect to all newly discovered nodes
     # and populates metrics related to peers we could connect

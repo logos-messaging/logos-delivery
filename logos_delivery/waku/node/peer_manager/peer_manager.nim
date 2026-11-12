@@ -31,19 +31,6 @@ import
 
 export waku_peer_store, peer_storage, peers
 
-const KnownAgents = [
-  "nwaku", "logos-delivery", "go-waku", "js-waku", "nim-libp2p", "go-libp2p",
-  "rust-libp2p", "js-libp2p",
-]
-
-func agentLabel(agent: string): string =
-  ## Remote peers choose their agent string freely: keep the label set bounded.
-  let lowered = agent.toLowerAscii()
-  for known in KnownAgents:
-    if known in lowered:
-      return known
-  return "other"
-
 declareCounter logos_delivery_peers_dials, "Number of peer dials", ["outcome"]
 # TODO: Populate from PeerStore.Source when ready
 declarePublicCounter logos_delivery_node_conns_initiated,

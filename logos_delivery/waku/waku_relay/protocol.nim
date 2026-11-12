@@ -182,6 +182,7 @@ type
     topicHealthCheckAll: bool
       # true if all topics need to have their health status refreshed in the update event
     msgMetricsPerShard*: Table[string, ShardMetrics]
+    metricTopics*: TopicLabels ## the topics that may be metric labels
     ownMessageHandler*: WakuRelayHandler
       ## Called once per message id by `publish` with a message this node
       ## publishes, to serve it (store, filter push, sync). The `subscribe`
@@ -265,28 +266,26 @@ proc logMessageInfo*(
       sentTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
 
-  # Peers pick the topic (a lightpush request, a crafted RPC): only ours become labels.
-  if not GossipSub(w).topics.hasKey(topic):
-    return
-
-  var shardMetrics = w.msgMetricsPerShard.getOrDefault(topic, ShardMetrics())
+  # Peers pick the topic (a lightpush request, a crafted RPC).
+  let label = w.metricTopics.topicLabel(topic)
+  var shardMetrics = w.msgMetricsPerShard.getOrDefault(label, ShardMetrics())
   shardMetrics.count += 1
   shardMetrics.sizeSum += payloadSize
   if payloadSize > shardMetrics.maxSize:
     shardMetrics.maxSize = payloadSize
   shardMetrics.avgSize = shardMetrics.sizeSum / shardMetrics.count
-  w.msgMetricsPerShard[topic] = shardMetrics
+  w.msgMetricsPerShard[label] = shardMetrics
 
   logos_delivery_relay_max_msg_bytes_per_shard.set(
-    shardMetrics.maxSize, labelValues = [topic]
+    shardMetrics.maxSize, labelValues = [label]
   )
 
   logos_delivery_relay_avg_msg_bytes_per_shard.set(
-    shardMetrics.avgSize, labelValues = [topic]
+    shardMetrics.avgSize, labelValues = [label]
   )
 
   logos_delivery_relay_total_msg_bytes_per_shard.set(
-    shardMetrics.sizeSum, labelValues = [topic]
+    shardMetrics.sizeSum, labelValues = [label]
   )
 
 proc recalculateTopicHealth*(w: WakuRelay, topic: PubsubTopic) =
@@ -329,18 +328,17 @@ proc initRelayObservers(w: WakuRelay) =
       msgSize: int,
       onRecv: bool,
   ) =
-    # Peers pick the topic (a lightpush request, a crafted RPC): only ours become labels.
-    if not GossipSub(w).topics.hasKey(pubsub_topic):
-      return
+    # Peers pick the topic (a lightpush request, a crafted RPC).
+    let label = w.metricTopics.topicLabel(pubsub_topic)
     if onRecv:
       logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
+        msgSize.int64, labelValues = [label, "gross", "in"]
       )
     else:
       # sent traffic can only be "net"
       # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
       logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
+        msgSize.int64, labelValues = [label, "net", "out"]
       )
 
   proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
@@ -685,7 +683,8 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
     # this subscription handler is called once for every validated message
     # that will be relayed, hence this is the place we can count net incoming traffic
     logos_delivery_relay_network_bytes.inc(
-      data.len.int64 + pubsubTopic.len.int64, labelValues = [pubsubTopic, "net", "in"]
+      data.len.int64 + pubsubTopic.len.int64,
+      labelValues = [w.metricTopics.topicLabel(pubsubTopic), "net", "in"],
     )
 
     return handler(pubsubTopic, decMsg)
