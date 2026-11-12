@@ -181,7 +181,7 @@ type WakuConf* {.requiresInit.} = ref object
 
   logLevel*: logging.LogLevel
   logFormat*: logging.LogFormat
-  logOutput*: string
+  logOutput*: string ## empty keeps the process-wide log destination
 
   peerPersistence*: bool
   # TODO: should clearly be a uint

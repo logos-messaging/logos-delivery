@@ -1,7 +1,7 @@
 ## This code has been copied and addapted from `status-im/nimbu-eth2` project.
 ## Link: https://github.com/status-im/nimbus-eth2/blob/c585b0a5b1ae4d55af38ad7f4715ad455e791552/beacon_chain/nimbus_binary_common.nim
 import
-  std/[typetraits, os, strutils, syncio],
+  std/[typetraits, os, strutils, syncio, terminal, locks],
   chronicles,
   chronicles/log_output,
   chronicles/topics_registry,
@@ -58,35 +58,67 @@ const
   StdoutLogOutput* = "stdout"
   StderrLogOutput* = "stderr"
 
-var logOutputFile = syncio.stdout
-  ## Destination shared by all chronicles writers; any other value than
-  ## stdout/stderr is a file opened (and owned) by `setupLog`.
+var
+  logOutputLock: Lock
+  logOutputFile = syncio.stdout
+    ## Destination shared by all chronicles writers, on every thread. Any
+    ## value other than stdout/stderr is a file opened (and owned) here.
+  logOutputName = StdoutLogOutput
+
+initLock(logOutputLock)
 
 proc writeAndFlush(s: LogOutputStr) =
+  # The lock keeps `setupLogOutput` from closing the file mid-write.
   {.cast(gcsafe).}:
-    try:
-      logOutputFile.write(s)
-      logOutputFile.flushFile()
-    except CatchableError:
-      logLoggingFailure(cstring(s), getCurrentException())
+    withLock(logOutputLock):
+      try:
+        logOutputFile.write(s)
+        logOutputFile.flushFile()
+      except CatchableError:
+        logLoggingFailure(cstring(s), getCurrentException())
+
+proc isConsole(f: syncio.File): bool =
+  f == syncio.stdout or f == syncio.stderr
 
 proc setupLogOutput(output: string): Result[void, string] =
-  let file =
-    case output
-    of "", StdoutLogOutput:
-      syncio.stdout
-    of StderrLogOutput:
-      syncio.stderr
-    else:
-      try:
-        open(output, fmAppend)
-      except IOError as e:
-        return err("could not open log output file: " & output & ": " & e.msg)
+  ## An empty `output` keeps the current destination: the output is process
+  ## wide, so a node that does not ask for one must not move another's.
+  {.cast(gcsafe).}:
+    if output.len == 0 or output == logOutputName:
+      return ok()
 
-  if logOutputFile != syncio.stdout and logOutputFile != syncio.stderr:
-    logOutputFile.close()
-  logOutputFile = file
-  return ok()
+    when defaultChroniclesStream.outputs.type.arity != 2:
+      return err("log output is not supported by this build: " & output)
+
+    let file =
+      case output
+      of StdoutLogOutput:
+        syncio.stdout
+      of StderrLogOutput:
+        syncio.stderr
+      else:
+        try:
+          open(output, fmAppend)
+        except IOError as e:
+          return err("could not open log output file: " & output & ": " & e.msg)
+
+    withLock(logOutputLock):
+      if not logOutputFile.isConsole():
+        logOutputFile.close()
+      logOutputFile = file
+      logOutputName = output
+    return ok()
+
+proc useColors(): bool =
+  ## Colors only on a terminal, and never when NO_COLOR is set
+  ## (https://no-color.org/).
+  let noColorEnv =
+    try:
+      parseBool(os.getEnv("NO_COLOR", "false"))
+    except CatchableError:
+      false
+  {.cast(gcsafe).}:
+    return not noColorEnv and logOutputFile.isConsole() and isatty(logOutputFile)
 
 proc setupLogLevel(level: LogLevel) =
   # TODO: Support per topic level configuratio
@@ -120,28 +152,21 @@ proc setupLogFormat(format: LogFormat, color = true) =
 when defaultChroniclesStream.outputs.type.arity == 2:
   # Without this, records logged before `setupLog` (e.g. by a library host
   # that has not created a node yet) hit chronicles' unconfigured writer.
-  setupLogFormat(LogFormat.TEXT)
+  setupLogFormat(LogFormat.TEXT, useColors())
 
 proc setupLog*(
     level: LogLevel, format: LogFormat, output: string
 ): Result[void, string] =
-  ## Logging setup. `output` is "stdout", "stderr" or a file path (appended).
+  ## Logging setup. `output` is "stdout", "stderr", a file path (appended), or
+  ## empty to keep the current destination (stdout until set).
   setupLogOutput(output).isOkOr:
     return err("could not set up log output: " & error)
 
-  # Adhere to NO_COLOR initiative: https://no-color.org/
-  let noColorEnv =
-    try:
-      parseBool(os.getEnv("NO_COLOR", "false"))
-    except CatchableError:
-      false
-  # Files never get ANSI colors.
-  let color = not noColorEnv and output in ["", StdoutLogOutput, StderrLogOutput]
-
   setupLogLevel(level)
-  setupLogFormat(format, color)
+  setupLogFormat(format, useColors())
   return ok()
 
 proc setupLog*(level: LogLevel, format: LogFormat) =
-  ## Logging setup writing to stdout.
-  discard setupLog(level, format, StdoutLogOutput)
+  ## Logging setup keeping the current destination.
+  setupLog(level, format, "").isOkOr:
+    raiseAssert "keeping the log output cannot fail: " & error

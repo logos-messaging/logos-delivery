@@ -59,7 +59,7 @@ const
   DefaultRlnDisableValidation: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
   DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
-  DefaultLogOutput: string = logging.StdoutLogOutput
+  DefaultLogOutput: string = "" # keep the process-wide destination
   DefaultNatStrategy: string = "none"
   DefaultP2pTcpPort: Port = Port(60000)
   DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")

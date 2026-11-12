@@ -101,8 +101,8 @@ type WakuNodeConf* = object
 
   logOutput* {.
     desc:
-      "Where logs are written. Supported values: stdout, stderr or a file path (appended)",
-    defaultValue: logging.StdoutLogOutput,
+      "Where logs are written: stdout, stderr or a file path (appended). Defaults to stdout",
+    defaultValue: "",
     name: "log-output"
   .}: string
 

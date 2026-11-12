@@ -89,7 +89,7 @@ type MessagingClientConf* = object
     ## Process log format (TEXT or JSON); applied by the kernel on node creation.
   logOutput* {.name: "log-output".}: Opt[string]
     ## Process log destination: "stdout", "stderr" or a file path (appended);
-    ## applied by the kernel on node creation.
+    ## applied by the kernel on node creation. Unset keeps the current one.
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]

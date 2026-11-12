@@ -1,16 +1,17 @@
 {.used.}
 
-import std/[os, strutils, typetraits], testutils/unittests, results, chronicles
+import std/[os, strutils], testutils/unittests, results, chronicles
 import logos_delivery/waku/common/logging
 
 suite "Logging output":
-  test "logs are appended to the configured file":
-    when defaultChroniclesStream.outputs.type.arity != 2:
-      skip()
-      return
-    let path = getTempDir() / "logos_delivery_test_logging.log"
+  let path =
+    getTempDir() / ("logos_delivery_test_logging_" & $getCurrentProcessId() & ".log")
+
+  teardown:
+    check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StdoutLogOutput).isOk()
     removeFile(path)
 
+  test "logs are appended to the configured file":
     check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, path).isOk()
     info "log line written to file", marker = "test-log-output-marker"
     check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StdoutLogOutput).isOk()
@@ -19,7 +20,14 @@ suite "Logging output":
     check:
       content.contains("test-log-output-marker")
       not content.contains("\x1b[")
-    removeFile(path)
+
+  test "an empty output keeps the current destination":
+    check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, path).isOk()
+    check setupLog(logging.LogLevel.INFO, logging.LogFormat.JSON, "").isOk()
+    info "kept destination", marker = "test-log-keep-marker"
+    check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StdoutLogOutput).isOk()
+
+    check readFile(path).contains("test-log-keep-marker")
 
   test "an unwritable file path is reported as an error":
     let res = setupLog(
@@ -29,4 +37,3 @@ suite "Logging output":
     )
     check res.isErr()
     check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StderrLogOutput).isOk()
-    check setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StdoutLogOutput).isOk()
