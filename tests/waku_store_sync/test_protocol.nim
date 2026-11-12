@@ -1035,6 +1035,41 @@ suite "Waku Sync: reconciliation":
     check reply == @[byte 2, 1, 3]
     await conn.close()
 
+  asyncTest "a zero-length message fails the session and closes the stream":
+    # Cluster 0 with no shards matches the scope of RangesData(), so the session
+    # fails only if the zero-length message is a decode error.
+    server = await newTestWakuRecon(
+      serverSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 0,
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      cluster = 0,
+    )
+
+    let conn = await clientSwitch.dial(
+      serverPeerInfo.peerId, serverPeerInfo.addrs, WakuReconciliationCodec
+    )
+    await conn.writeLp(newSeq[byte]())
+
+    # The server closes the stream with no reply.
+    expect LPStreamError:
+      discard await conn.readLp(64 * 1024)
+    await conn.close()
+
+    # A session that ends signals the transfer protocol a second time.
+    check localWants.len == 1
+
   asyncTest "sync 2 nodes same hashes":
     server = await newTestWakuRecon(
       serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
