@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCAN = ["logos_delivery", "apps", "library"]
+SCAN = ["logos_delivery", "apps", "library", "examples", "tools"]
 
 STR = r'(?:"[^"\\]*"|r"[^"]*")'
 LITERAL_RE = re.compile(rf"^(?:{STR}|if .+?: {STR} else: {STR})$")
@@ -120,10 +120,12 @@ def declarations(texts):
     decls = {}
     for rel, text in texts.items():
         for m in DECL_RE.finditer(text):
-            lm = re.search(r"(?:labels\s*=\s*)?\[([^\[\]]*)\]\s*(?:,|$)", m.group(2), re.S)
             tail = m.group(2)
-            lm = re.search(r"(?:labels\s*=\s*)?\[([^\[\]]*)\]\s*$", tail.strip(), re.S)
-            if lm and '"' in lm.group(1) and "buckets" not in tail.split("[")[0]:
+            # `labels = [..]` may come before `buckets = [..]`; else a trailing list
+            lm = re.search(r"\blabels\s*=\s*\[([^\[\]]*)\]", tail) or re.search(
+                r"\[([^\[\]]*)\]\s*$", tail.strip()
+            )
+            if lm and '"' in lm.group(1):
                 decls[m.group(1)] = (rel, re.findall(r'"([^"]*)"', lm.group(1)))
     return decls
 
