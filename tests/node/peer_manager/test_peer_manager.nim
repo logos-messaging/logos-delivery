@@ -59,7 +59,12 @@ suite "Peer Manager":
       await client.connectToNodes(@[serverRemotePeerInfo])
       checkUntilTimeout:
         client.switch.peerStore.hasShard(serverRemotePeerInfo.peerId, clusterId, 0)
-        server.switch.peerStore.hasShard(client.switch.peerInfo.peerId, clusterId, 1)
+
+      # Then the filter server advertises its shard and the light client none
+      check:
+        not server.switch.peerStore.hasShard(
+          client.switch.peerInfo.peerId, clusterId, 1
+        )
 
       # When the client issues a filter request
       discard await client.filterSubscribe(

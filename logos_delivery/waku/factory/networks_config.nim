@@ -41,7 +41,6 @@ type NetworkPresetConf* = object
     ## addresses are `dns4` names, which stay valid when a fleet node moves hosts;
     ## the node resolves them in the background after the mount.
   p2pReliability*: bool
-  maxPureLibp2pPeers*: int
   extraListenShards*: seq[uint16]
     ## Shards every subscribed content topic is also received on. Deprecated:
     ## removed once Status's shard migration ends,
@@ -132,7 +131,6 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAkvoH9inWGTmVxL4TDKYFqNZEfoLP3zmeuNSVkiknkTbPF",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmGBJ6wbRC2QGJreX3bA25g5yhMFajNVVKM9483CgcPkSu",
     ],
-    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
@@ -178,7 +176,6 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/node-01.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmL3oU95jh1BZHozn3uNhx8HEneirgr8M1jEAapzXGDqRF:0573cca393d50bca75a34e4fe5d3f9e703c7ef0f8b94af199ff05e9b21c76201",
       "/dns4/node-02.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAm28CoBZjpyxsanC8tQpbvZ7bZJnVYuB1EgFzb571qpWsV:9b6f8e546762eaaa863778701f1a6f6dca37e7f03e64c9e35307b05018444a17",
     ],
-    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],

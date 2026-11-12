@@ -13,7 +13,7 @@
 #include <sys/syscall.h>
 
 #include "base64.h"
-#include "../../library/liblogosdelivery_kernel.h"
+#include "liblogosdelivery_kernel.h"
 
 // Shared synchronization variables
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;

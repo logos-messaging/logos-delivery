@@ -202,19 +202,17 @@ jobs:
         id: nimcache
         uses: actions/cache/restore@v3
         with:
-          path: nimcache
+          path: |
+            nimcache
+            build/nimcache
           key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-
 
       - name: Build binaries
-        # -j1: `all` builds logosdeliverynode and liblogosdelivery, each via `nimble
-        # <task>`. Under -j2 the two nimble invocations re-resolve git deps
-        # concurrently and clobber each other in the shared ~/.nimble/pkgcache
-        # (e.g. "destination already exists", "could not lock config file"),
-        # failing the build. Serializing the targets removes the race; Nim's
-        # own --parallelBuild still parallelizes compilation. Mirrors the test
-        # job, which already forces -j1.
+        # -j1: `all` builds logosdeliverynode and liblogosdelivery with two
+        # `nim c` runs, and Nim's own --parallelBuild already uses every core
+        # for each. Mirrors the test job, which already forces -j1.
         shell: bash
         run: |
           mkdir -p build
@@ -239,7 +237,9 @@ jobs:
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/cache/save@v3
         with:
-          path: nimcache
+          path: |
+            nimcache
+            build/nimcache
           key: ${{ steps.nimcache.outputs.cache-primary-key }}
 
       - name: Build FFI examples
@@ -285,6 +285,16 @@ jobs:
 
       - name: Check liblogosdelivery exports no OpenSSL symbols
         run: scripts/check_lib_exports.sh build/liblogosdelivery.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
+
+      # The embedder's build: no parent config and no -d:ffiOutputDir, so
+      # library/config.nims puts the generated headers under the --nimcache.
+      - name: Check a plain nim c writes the headers under its nimcache
+        run: |
+          out="$(mktemp -d)"
+          "$(make -s print-nim-path)" c --compileOnly --skipParentCfg --noNimblePath \
+            $(grep '^--path:' nimble.paths | tr -d '"') \
+            -d:disable_rln --nimcache:"$out/nimcache" library/liblogosdelivery.nim
+          test -f "$out/nimcache/generated/logosdelivery.h"
 
   # The slowest job: nightly only.
   build-windows:
@@ -377,7 +387,8 @@ jobs:
           name: liblogosdelivery-ios-${{ matrix.sdk }}
           path: |
             build/ios/*/liblogosdelivery.a
-            build/ios/*/liblogosdelivery.h
+            build/ios/*/*.h
+            build/ios/*/generated/
           retention-days: 1
 
   tests:
