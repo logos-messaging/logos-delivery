@@ -87,6 +87,9 @@ type MessagingClientConf* = object
     ## Process log level (TRACE..FATAL); applied by the kernel on node creation.
   logFormat* {.name: "log-format".}: Opt[logging.LogFormat]
     ## Process log format (TEXT or JSON); applied by the kernel on node creation.
+  logOutput* {.name: "log-output".}: Opt[string]
+    ## Process log destination: "stdout", "stderr" or a file path (appended);
+    ## applied by the kernel on node creation. Unset keeps the current one.
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
@@ -182,6 +185,8 @@ proc toWakuNodeConf*(
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():
     conf.logFormat = self.logFormat.get()
+  if self.logOutput.isSome():
+    conf.logOutput = self.logOutput.get()
   if self.nodeKey.isSome():
     conf.nodekey = self.nodeKey
 
