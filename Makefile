@@ -535,11 +535,13 @@ docker-liteprotocoltester-push:
 # The library builds with plain `nim c`, as an embedder builds it: the build's
 # own flags first, then NIM_PARAMS, so the caller wins. No --skipParentCfg, so
 # the repository's config.nims applies too: the CPU baseline, LeopardCmakeFlags
-# and nimble.paths.
-# $(1): output directory, $(2): flags, the output file included.
+# and nimble.paths. That config sets its own nimcache, so -d:ffiOutputDir is
+# passed explicitly.
+# $(1): output directory, $(2): library file name, $(3): the build's flags.
 define compile_liblogosdelivery
 mkdir -p "$(1)"
-"$(NIM)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(2) $(NIM_PARAMS) library/liblogosdelivery.nim
+rm -f "$(1)/$(2)"
+"$(NIM)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
 cp library/*.h "$(1)/"
 endef
 
@@ -554,27 +556,26 @@ else
   LIB_SHARED := liblogosdelivery.so
   LIB_STATIC := liblogosdelivery.a
 endif
-LIB_NIM_PARAMS := --mm:refc -d:chronicles_line_numbers $(if $(LOG_LEVEL),,-d:chronicles_log_level=TRACE)
-
-# DISABLE_RLN=true links liblogosdelivery without zerokit: no librln, no Rust,
-# no submodule. A node whose config enables RLN then fails to start.
+# DISABLE_RLN=true builds liblogosdelivery without zerokit: no librln, no Rust,
+# no submodule. A node whose config enables RLN then fails to start. Only the
+# library recipes use LIB_RLN_PARAMS, so `make DISABLE_RLN=true all` cannot
+# compile the stubs into logosdeliverynode, which still links the real librln.
 DISABLE_RLN ?= false
 ifeq ($(DISABLE_RLN),true)
     LIBLOGOSDELIVERY_RLN_DEP :=
-    # Target-specific, so `make DISABLE_RLN=true all` cannot compile the stubs
-    # into logosdeliverynode, which still links the real librln.
-    liblogosdelivery: NIM_PARAMS += -d:disable_rln
+    LIB_RLN_PARAMS := -d:disable_rln
 else
     LIBLOGOSDELIVERY_RLN_DEP := librln
+    LIB_RLN_PARAMS :=
 endif
 
-liblogosdelivery: NIM_PARAMS += $(LIB_NIM_PARAMS)
+LIB_NIM_PARAMS := --mm:refc -d:chronicles_line_numbers -d:chronicles_log_level=TRACE $(LIB_RLN_PARAMS)
+
 liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
 ifneq ($(STATIC),1)
-	$(call compile_liblogosdelivery,$(LIB_DIR),--app:lib --out:$(LIB_DIR)/$(LIB_SHARED))
+	$(call compile_liblogosdelivery,$(LIB_DIR),$(LIB_SHARED),--app:lib $(LIB_NIM_PARAMS))
 else
-	rm -f "$(LIB_DIR)/$(LIB_STATIC)"
-	$(call compile_liblogosdelivery,$(LIB_DIR),--app:staticlib --out:$(LIB_DIR)/$(LIB_STATIC))
+	$(call compile_liblogosdelivery,$(LIB_DIR),$(LIB_STATIC),--app:staticlib $(LIB_NIM_PARAMS))
 endif
 
 logosdelivery_example: | build liblogosdelivery tinycbor
@@ -673,15 +674,16 @@ ANDROID_NIM_PARAMS = --os:android --cpu:$(CPU) --cc:clang \
 	-DCMAKE_AR=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ar -DCMAKE_RANLIB=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ranlib" \
 	-d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp \
 	$(if $(filter true,$(DISABLE_RLN)),,--passL:-L"$(ANDROID_LIB_DIR)" --passL:-lrln) \
-	--mm:refc -d:chronicles_log_level=ERROR
+	--mm:refc -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
 
 # librln must exist before the nim link consumes it.
-build-liblogosdelivery-for-android-arch: NIM_PARAMS += $(ANDROID_NIM_PARAMS)
 build-liblogosdelivery-for-android-arch:
 	mkdir -p $(ANDROID_LIB_DIR)/
+ifneq ($(DISABLE_RLN),true)
 	git submodule update --init vendor/zerokit
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
-	$(call compile_liblogosdelivery,$(ANDROID_LIB_DIR),--app:lib --out:$(ANDROID_LIB_DIR)/liblogosdelivery.so)
+endif
+	$(call compile_liblogosdelivery,$(ANDROID_LIB_DIR),liblogosdelivery.so,--app:lib $(ANDROID_NIM_PARAMS))
 
 liblogosdelivery-android-arm64: ANDROID_ARCH=aarch64-linux-android
 liblogosdelivery-android-arm64: CPU=arm64
@@ -741,12 +743,10 @@ IOS_NIM_PARAMS = --os:ios --cpu:$(if $(filter arm64,$(IOS_ARCH)),arm64,amd64) --
 	-d:"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE \
 	-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$(IOS_SDK_PATH) -DCMAKE_OSX_ARCHITECTURES=$(IOS_ARCH) \
 	-DCMAKE_OSX_DEPLOYMENT_TARGET=$(IOS_DEPLOYMENT_TARGET)" \
-	--mm:refc --opt:size -d:chronicles_log_level=ERROR
+	--mm:refc --opt:size -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
 
-build-liblogosdelivery-for-ios-arch: NIM_PARAMS += $(IOS_NIM_PARAMS)
 build-liblogosdelivery-for-ios-arch:
-	rm -f "$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH)/liblogosdelivery.a"
-	$(call compile_liblogosdelivery,$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH),--app:staticlib --out:$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH)/liblogosdelivery.a)
+	$(call compile_liblogosdelivery,$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH),liblogosdelivery.a,--app:staticlib $(IOS_NIM_PARAMS))
 
 liblogosdelivery-ios-device: IOS_ARCH=arm64
 liblogosdelivery-ios-device: IOS_SDK=iphoneos

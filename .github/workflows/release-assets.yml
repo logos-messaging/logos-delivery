@@ -137,8 +137,9 @@ jobs:
             mkdir -p pkg/DEBIAN pkg/usr/local/lib pkg/usr/local/include
             cp build/liblogosdelivery.so pkg/usr/local/lib/
             cp build/liblogosdelivery.a pkg/usr/local/lib/
-            cp library/liblogosdelivery.h pkg/usr/local/include/
-            cp library/liblogosdelivery_kernel.h pkg/usr/local/include/
+            # The public headers include generated/logosdelivery.h.
+            cp build/*.h pkg/usr/local/include/
+            cp -R build/generated pkg/usr/local/include/
 
             echo "Package: logosdelivery" >> pkg/DEBIAN/control
             echo "Version: ${{ steps.version.outputs.deb_version }}" >> pkg/DEBIAN/control
@@ -152,7 +153,7 @@ jobs:
           fi
 
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            tar -cvzf ${{steps.vars.outputs.liblogosdelivery}} ./build/liblogosdelivery.dylib ./build/liblogosdelivery.a ./library/liblogosdelivery.h ./library/liblogosdelivery_kernel.h
+            tar -cvzf ${{steps.vars.outputs.liblogosdelivery}} ./build/liblogosdelivery.dylib ./build/liblogosdelivery.a ./build/*.h ./build/generated
           fi
 
       - name: Upload waku artifact
