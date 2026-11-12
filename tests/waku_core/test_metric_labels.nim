@@ -15,6 +15,8 @@ suite "Waku Core - Metric labels":
       labels.shardLabel("/waku/2/rs/1/5") == "5"
       labels.shardLabel("/waku/2/rs/9/5") == OtherLabel
       TopicLabels().topicLabel("/waku/2/rs/1/5") == OtherLabel
+      labels.shardIdLabel(5) == "5"
+      labels.shardIdLabel(6) == OtherLabel
 
   test "agents and codecs map to a known set":
     check:
@@ -22,3 +24,16 @@ suite "Waku Core - Metric labels":
       agentLabel("my-own-client/1.0") == OtherLabel
       codecLabel(WakuStoreCodec) == WakuStoreCodec
       codecLabel("/vac/waku/made-up/1.0.0") == OtherLabel
+
+  test "enums, dial sources and clusters map to a known set":
+    type Color = enum
+      Red
+      Green
+
+    check:
+      enumLabel(Green) == "Green"
+      enumLabel(cast[Color](7)) == OtherLabel
+      dialSourceLabel("static") == "static"
+      dialSourceLabel("anything else") == OtherLabel
+      clusterLabel(1, 1) == "1"
+      clusterLabel(1, 42) == OtherLabel

@@ -419,6 +419,7 @@ proc setupProtocols(
     await node.mountPeerExchangeClient()
 
   let metricTopics = metricTopicLabels(conf)
+  node.peerManager.metricTopics = metricTopics
   if not node.wakuRelay.isNil():
     node.wakuRelay.metricTopics = metricTopics
   if not node.wakuArchive.isNil():

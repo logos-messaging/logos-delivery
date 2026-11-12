@@ -32,3 +32,17 @@ const QueriesToMetricMap* = toTable(
     "SELECT EXISTS": "check_version_table_exists",
   }
 )
+
+## Names of the statements prepared by the postgres archive driver.
+const PreparedStmtNames = [
+  "InsertRow", "InsertRowMessagesLookup", "SelectWithoutCursorAsc",
+  "SelectWithoutCursorAndDataAsc", "SelectWithoutCursorDesc",
+  "SelectWithoutCursorAndDataDesc", "SelectWithCursorDesc",
+  "SelectWithCursorNoDataDesc", "SelectWithCursorAsc", "SelectWithCursorNoDataAsc",
+  "SelectMessageByHashInMessagesLookup",
+]
+
+func stmtLabel*(stmtName: string): string =
+  if stmtName in PreparedStmtNames:
+    return stmtName
+  return "unknown_query_metric"

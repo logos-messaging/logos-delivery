@@ -113,6 +113,7 @@ type PeerManager* = ref object
   onConnectionChange*: ConnectionChangeHandler
   online: bool ## state managed by online_monitor module
   getShards: GetShards
+  metricTopics*: TopicLabels
   maxConnections: int
   activeStoreRequests*: Table[PeerId, int]
 
@@ -337,7 +338,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs, service = proto
-  logos_delivery_service_peers.set(1, labelValues = [$proto])
+  logos_delivery_service_peers.set(1, labelValues = [codecLabel(proto)])
 
   # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
@@ -399,7 +400,7 @@ proc connectPeer*(
         await deadline.cancelAndWait()
 
       logos_delivery_peers_dials.inc(labelValues = ["successful"])
-      logos_delivery_node_conns_initiated.inc(labelValues = [source])
+      logos_delivery_node_conns_initiated.inc(labelValues = [dialSourceLabel(source)])
 
       peerStore[NumberFailedConnBook][peerId] = 0
       peerStore[ConnectionBook][peerId] = Connected
@@ -993,16 +994,20 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       let (protoConnsIn, protoConnsOut) = pm.connectedPeers(proto)
       let (protoStreamsIn, protoStreamsOut) = pm.getNumStreams(proto)
       logos_delivery_connected_peers.set(
-        protoConnsIn.len.float64, labelValues = [$Direction.In, proto]
+        protoConnsIn.len.float64,
+        labelValues = [enumLabel(Direction.In), codecLabel(proto)],
       )
       logos_delivery_connected_peers.set(
-        protoConnsOut.len.float64, labelValues = [$Direction.Out, proto]
+        protoConnsOut.len.float64,
+        labelValues = [enumLabel(Direction.Out), codecLabel(proto)],
       )
       logos_delivery_streams_peers.set(
-        protoStreamsIn.float64, labelValues = [$Direction.In, proto]
+        protoStreamsIn.float64,
+        labelValues = [enumLabel(Direction.In), codecLabel(proto)],
       )
       logos_delivery_streams_peers.set(
-        protoStreamsOut.float64, labelValues = [$Direction.Out, proto]
+        protoStreamsOut.float64,
+        labelValues = [enumLabel(Direction.Out), codecLabel(proto)],
       )
 
     var agentCounts = initTable[string, int]()
@@ -1014,8 +1019,7 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
         agentCounts[agent] = agentCounts.getOrDefault(agent, 0) + 1
     for agent, count in agentCounts:
       logos_delivery_connected_peers_per_agent.set(
-        count.float64,
-        labelValues = [agent], # bounded-label: agentLabel() yields KnownAgents or other
+        count.float64, labelValues = [agentLabel(agent)]
       )
 
     for shard in pm.getShards().items:
@@ -1027,7 +1031,8 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       let connectedInShard = shardPeers.filterIt(connectedPeerIds.contains(it.peerId))
 
       logos_delivery_connected_peers_per_shard.set(
-        connectedInShard.len.float64, labelValues = [$shard]
+        connectedInShard.len.float64,
+        labelValues = [pm.metricTopics.shardIdLabel(shard)],
       )
 
 proc getOnlineStateObserver*(pm: PeerManager): OnOnlineStateChange =

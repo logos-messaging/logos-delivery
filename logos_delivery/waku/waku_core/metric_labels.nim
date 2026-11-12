@@ -26,16 +26,37 @@ func codecLabel*(codec: string): string =
     return codec
   return OtherLabel
 
+func enumLabel*[E: enum](value: E): string =
+  ## A decoded enum can hold a value outside its declared ones.
+  for known in E:
+    if value == known:
+      return $known
+  return OtherLabel
+
+const KnownDialSources = ["api", "static", "store", "dynamic bootstrap"]
+
+func dialSourceLabel*(source: string): string =
+  if source in KnownDialSources:
+    return source
+  return OtherLabel
+
+func clusterLabel*(ours, cluster: uint16): string =
+  ## Peers pick their cluster id: only ours gets its own label.
+  if cluster == ours:
+    return $cluster
+  return OtherLabel
+
 type TopicLabels* = object
   ## The pubsub topics of the shards a node is configured with, fixed at
   ## startup. Empty until set, which maps every topic to `OtherLabel`.
+  clusterId: uint16
   topics: HashSet[PubsubTopic]
 
 func init*(T: type TopicLabels, clusterId: uint16, shards: openArray[uint16]): T =
   var topics = initHashSet[PubsubTopic]()
   for shard in shards:
     topics.incl($RelayShard(clusterId: clusterId, shardId: shard))
-  return TopicLabels(topics: topics)
+  return TopicLabels(clusterId: clusterId, topics: topics)
 
 func topicLabel*(labels: TopicLabels, topic: PubsubTopic): string =
   if topic in labels.topics:
@@ -49,5 +70,8 @@ func shardLabel*(labels: TopicLabels, topic: PubsubTopic): string =
   let shard = RelayShard.parseStaticSharding(topic).valueOr:
     return OtherLabel
   return $shard.shardId
+
+func shardIdLabel*(labels: TopicLabels, shard: uint16): string =
+  return labels.shardLabel($RelayShard(clusterId: labels.clusterId, shardId: shard))
 
 {.pop.}

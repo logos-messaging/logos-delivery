@@ -54,11 +54,10 @@ proc setDiscoveredPeersCapabilities(routingTableNodes: seq[waku_enr.Record]) =
     info "capabilities as per ENR waku flag",
       capability = capability, amount = nOfNodesWithCapability
     logos_delivery_networkmonitor_peer_type_as_per_enr.set(
-      int64(nOfNodesWithCapability), labelValues = [$capability]
+      int64(nOfNodesWithCapability), labelValues = [enumLabel(capability)]
     )
 
 proc setDiscoveredPeersCluster(routingTableNodes: seq[Node], clusterId: uint16) =
-  ## Peers pick their cluster id: only ours gets its own label.
   var ours, others: int64
 
   for node in routingTableNodes:
@@ -76,7 +75,7 @@ proc setDiscoveredPeersCluster(routingTableNodes: seq[Node], clusterId: uint16) 
       others.inc()
 
   logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
-    ours, labelValues = [$clusterId]
+    ours, labelValues = [clusterLabel(clusterId, clusterId)]
   )
   logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
     others, labelValues = [OtherLabel]
@@ -255,8 +254,9 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
       let agent = agentLabel(peerInfo.userAgent)
       allAgentStrings[agent] = allAgentStrings.mgetOrPut(agent, 0) + 1
 
-      if peerInfo.country != "":
-        countries[peerInfo.country] = countries.mgetOrPut(peerInfo.country, 0) + 1
+      if peerInfo.countryCode != "":
+        let country = countryLabel(peerInfo.countryCode)
+        countries[country] = countries.mgetOrPut(country, 0) + 1
 
       connectedPeers += 1
     else:
@@ -271,7 +271,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for protocol in allProtocols.keys():
     let countOfProtocols = allProtocols.mgetOrPut(protocol, 0)
     logos_delivery_networkmonitor_peer_type_as_per_protocol.set(
-      int64(countOfProtocols), labelValues = [protocol]
+      int64(countOfProtocols), labelValues = [codecLabel(protocol)]
     )
     info "supported protocols in the network",
       protocol = protocol, count = countOfProtocols
@@ -280,7 +280,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for userAgent in allAgentStrings.keys():
     let countOfUserAgent = allAgentStrings.mgetOrPut(userAgent, 0)
     logos_delivery_networkmonitor_peer_user_agents.set(
-      int64(countOfUserAgent), labelValues = [userAgent]
+      int64(countOfUserAgent), labelValues = [agentLabel(userAgent)]
     )
     info "user agents participating in the network",
       userAgent = userAgent, count = countOfUserAgent
@@ -288,7 +288,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for country in countries.keys():
     let peerCount = countries.mgetOrPut(country, 0)
     logos_delivery_networkmonitor_peer_country_count.set(
-      int64(peerCount), labelValues = [country]
+      int64(peerCount), labelValues = [countryLabel(country)]
     )
     info "number of peers per country", country = country, count = peerCount
 
@@ -312,6 +312,7 @@ proc populateInfoFromIp(
       warn "could not get location", ip = allPeersRef[peer].ip
       continue
     allPeersRef[peer].country = location.country
+    allPeersRef[peer].countryCode = location.countryCode
     allPeersRef[peer].city = location.city
 
 # TODO: Split in discovery, connections, and ip2location
