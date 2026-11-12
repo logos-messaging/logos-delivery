@@ -90,18 +90,18 @@ proc installHandler*(
       $(%numMessagesPerContentTopic), contentType = "application/json"
     )
 
-proc startMetricsServer*(serverIp: IpAddress, serverPort: Port): Result[void, string] =
+proc startMetricsServer*(
+    serverIp: IpAddress, serverPort: Port
+): Result[MetricsHttpServerRef, string] =
   info "Starting metrics HTTP server", serverIp, serverPort
 
+  let server = MetricsHttpServerRef.new($serverIp, serverPort).valueOr:
+    return err("could not create metrics HTTP server: " & $error)
+
   try:
-    startMetricsHttpServer($serverIp, serverPort)
-  except Exception as e:
-    error(
-      "Failed to start metrics HTTP server",
-      serverIp = serverIp,
-      serverPort = serverPort,
-      msg = e.msg,
-    )
+    waitFor server.start()
+  except MetricsError, CancelledError:
+    return err("could not start metrics HTTP server: " & getCurrentExceptionMsg())
 
   info "Metrics HTTP server started", serverIp, serverPort
-  ok()
+  ok(server)

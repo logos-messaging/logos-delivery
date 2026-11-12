@@ -1,4 +1,4 @@
-import std/[strutils, math], results, regex
+import std/strutils, results, regex
 
 proc parseMsgSize*(input: string): Result[uint64, string] =
   ## Parses size strings such as "1.2 KiB" or "3Kb" and returns the equivalent number of bytes

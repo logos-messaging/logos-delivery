@@ -1,7 +1,7 @@
 import libp2p/crypto/crypto
 {.push raises: [].}
 
-import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+import results, chronicles, chronos, metrics, stew/byteutils
 import libp2p/peerid, libp2p/stream/connection
 import
   ../waku_core/peers,

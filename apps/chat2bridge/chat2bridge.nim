@@ -22,9 +22,9 @@ import
     waku_filter_v2,
     waku_store,
     factory/builder,
+    net/net_config,
     net/nat_config,
     common/utils/matterbridge_client,
-    common/rate_limit/setting,
   ],
   # Chat 2 imports
   ../chat2/chat2,
@@ -70,7 +70,7 @@ proc containsOrAdd(sequence: var seq[Hash], hash: Hash): bool =
 
   if sequence.len >= DeduplQSize:
     trace "Deduplication queue full. Removing oldest item."
-    sequence.delete 0, 0 # Remove first item in queue
+    sequence.delete(0 .. 0) # Remove first item in queue
 
   sequence.add(hash)
 
@@ -178,11 +178,9 @@ proc new*(
     builder.withNodeKey(nodev2Key)
     builder.withNatConfig(nodev2NatConfig)
 
-    builder
-      .withNetworkConfigurationDetails(
-        nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort
-      )
-      .tryGet()
+    builder.withNetworkConfiguration(
+      NetConfig.init(nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort).tryGet()
+    )
     builder.build().tryGet()
 
   return Chat2MatterBridge(
@@ -243,8 +241,6 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [CancelledError]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import rest/message_cache
-
   let
     rng = newRng()
     conf = Chat2MatterbridgeConf.load()
@@ -322,6 +318,13 @@ when isMainModule:
       address = conf.metricsServerAddress
       port = conf.metricsServerPort + conf.portsShift
     info "Starting metrics HTTP server", address, port
-    startMetricsHttpServer($address, Port(port))
+    let metricsServer = MetricsHttpServerRef.new($address, Port(port)).valueOr:
+      error "could not create metrics HTTP server", error = error
+      quit(QuitFailure)
+    try:
+      waitFor metricsServer.start()
+    except MetricsError, CancelledError:
+      error "could not start metrics HTTP server", error = getCurrentExceptionMsg()
+      quit(QuitFailure)
 
   runForever()

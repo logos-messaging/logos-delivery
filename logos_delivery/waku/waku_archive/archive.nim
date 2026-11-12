@@ -1,12 +1,6 @@
 {.push raises: [].}
 
-import
-  std/[times, sequtils, algorithm],
-  stew/[byteutils],
-  chronicles,
-  chronos,
-  results,
-  metrics
+import std/[times, sequtils, algorithm], chronicles, chronos, results, metrics
 import
   ../common/paging,
   ./driver,

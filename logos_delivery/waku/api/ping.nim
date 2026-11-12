@@ -1,12 +1,12 @@
 ## Waku layer API — ping operation.
 {.push raises: [].}
 
-import results, chronos, chronicles
+import results, chronos
 import libp2p/protocols/ping
 import libp2p/switch
 
 import logos_delivery/waku/waku
-import logos_delivery/waku/[waku_core, node/waku_node, node/waku_node/ping]
+import logos_delivery/waku/[waku_core, node/waku_node]
 
 proc pingPeer*(
     self: Waku, peerAddr: string, timeoutMs: int

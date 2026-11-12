@@ -2,7 +2,7 @@ import results
 {.used.}
 
 import std/strutils
-import chronos, confutils/toml/std/net, libp2p/multiaddress, testutils/unittests
+import chronos, toml_serialization/std/net, libp2p/multiaddress, testutils/unittests
 
 import ./testlib/wakunode, logos_delivery/waku/waku_enr/capabilities
 

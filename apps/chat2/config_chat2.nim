@@ -5,7 +5,7 @@ import
   confutils,
   confutils/defs,
   confutils/std/net,
-  eth/keys,
+  eth/common/keys,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,
   nimcrypto/utils,

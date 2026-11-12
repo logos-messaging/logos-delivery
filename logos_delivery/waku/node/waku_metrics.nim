@@ -5,8 +5,7 @@ import
   logos_delivery/waku/
     [net/auto_port, rln/protocol_metrics as rln_metrics, utils/collector],
   ./peer_manager,
-  ./node_telemetry,
-  ./waku_node
+  ./node_telemetry
 
 const LogInterval = 10.minutes
 

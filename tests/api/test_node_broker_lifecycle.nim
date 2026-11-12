@@ -13,11 +13,14 @@ import brokers/broker_context
 import sds
 import logos_delivery
 import
-  logos_delivery/waku/[waku_core, waku_node],
+  logos_delivery/waku/waku_core,
   logos_delivery/waku/api/events/discovery_events,
   logos_delivery/waku/requests/[node_state_requests, health_requests],
-  logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery]
-import tests/testlib/[testasync, wakunodeconf, rest_service]
+  logos_delivery/waku/discovery/[peer_discovery_interface, external_service_discovery],
+  logos_delivery/waku/waku_rendezvous/client,
+  logos_delivery/waku/node/health_monitor/[health_status, node_health_monitor],
+  logos_delivery/waku/rln/rln_plugin
+import tests/testlib/[wakunodeconf, rest_service]
 
 proc lifecycleConf(rest = false, plugin = false): LogosDeliveryNodeConf =
   var kernel = defaultTestWakuNodeConf(rest = rest)
@@ -42,6 +45,16 @@ proc holdMessagingSubscribe(ctx: BrokerContext) =
       ok(),
   )
   doAssert foreign.isOk()
+
+proc failingStopPlugin(): RlnPlugin =
+  ## The transport stop awaits the RLN plugin stop, so this plugin fails it.
+  RlnPlugin(
+    name: "failing-stop",
+    stop: proc(): Future[void] {.gcsafe, raises: [].} =
+      let fut = newFuture[void]("failing-stop")
+      fut.fail(newException(CatchableError, "stop failed"))
+      fut,
+  )
 
 template present(r: untyped): bool =
   r.isSome()
@@ -153,6 +166,25 @@ suite "LogosDelivery - broker lifecycle":
         raiseAssert error
       check not rest.isListeningToMessagingEvents()
 
+  asyncTest "a REST mount during a REST stop starts no listener":
+    ## `stop_node` stops REST while `start_node` can still mount it.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
+        raiseAssert error
+      let rest = RestService.new()
+      rest.start(node).isOkOr:
+        raiseAssert "REST start: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+
+      let restStopping = rest.stop(node)
+      discard rest.mount(node)
+      await restStopping
+      check not rest.isListeningToMessagingEvents()
+
+      (await node.stop()).isOkOr:
+        raiseAssert error
+
   asyncTest "REST binds its port again after a stop":
     lockNewGlobalBrokerContext:
       let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
@@ -260,32 +292,247 @@ suite "LogosDelivery - broker lifecycle":
       (await node.stop()).isOkOr:
         raiseAssert error
 
-  asyncTest "start refuses a node with the transport already up":
+  asyncTest "a second start is a no-op":
     lockNewGlobalBrokerContext:
       let ctx = globalBrokerContext()
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
-      (await node.waku.start()).isOkOr:
-        raiseAssert "transport start: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "first start: " & error
 
       check:
-        (await node.start()).isErr()
-        node.waku.node.started
-        MessagingSend.getCurrentProvider(ctx).isNone()
+        (await node.start()).isOk()
+        node.lifecycleState == LifecycleState.Running
+        node.isRunning()
+        MessagingSend.getCurrentProvider(ctx).present
 
       (await node.stop()).isOkOr:
         raiseAssert error
+      check node.lifecycleState == LifecycleState.Stopped
 
   asyncTest "start refuses a node that is stopping":
+    ## The channel layer stops first, so both lower layers are still up when
+    ## the start comes.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(channelsConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+      discard node.reliableChannelManager
+        .createReliableChannel(
+          ChannelId("stopping"),
+          ContentTopic("/lifecycle/1/stopping/proto"),
+          SdsParticipantID("me"),
+        )
+        .expect("createReliableChannel")
+
+      let stopping = node.stop()
+      check:
+        node.lifecycleState == LifecycleState.Stopping
+        node.messagingClient.started
+        node.waku.node.started
+        (await node.start()).isErr()
+
+      check:
+        (await stopping).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+
+  asyncTest "a stop during a start waits for the start, then stops":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      # The dial to a static node on a closed port makes the start wait.
+      var kernel = defaultTestWakuNodeConf()
+      kernel.staticnodes =
+        @["/ip4/127.0.0.1/tcp/1/p2p/" & $PeerId.random(crypto.newRng()).get()]
+      let node = (await LogosDelivery.new(testNodeConf(kernel, EntryLayer.messaging))).valueOr:
+        raiseAssert error
+      let starting = node.start()
+      check:
+        node.lifecycleState == LifecycleState.Starting
+        (await node.start()).isErr()
+
+      let stopped = await node.stop()
+      check:
+        starting.finished()
+        (await starting).isOk()
+        stopped.isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+        MessagingSend.getCurrentProvider(ctx).isNone()
+
+  asyncTest "a failed messaging start with MessagingUnsubscribe held clears the rest":
     lockNewGlobalBrokerContext:
       let ctx = globalBrokerContext()
       let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
         raiseAssert error
-      node.messagingClient.stopping = true
+      let foreign = MessagingUnsubscribe.setProvider(
+        ctx,
+        proc(contentTopic: ContentTopic): Result[void, string] =
+          ok(),
+      )
+      require foreign.isOk()
 
       check:
         (await node.start()).isErr()
-        not node.waku.node.started
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
         MessagingSend.getCurrentProvider(ctx).isNone()
+        MessagingSubscribe.getCurrentProvider(ctx).isNone()
+        MessagingUnsubscribe.getCurrentProvider(ctx).present
 
-      node.messagingClient.stopping = false
+      MessagingUnsubscribe.clearProvider(ctx)
+
+  asyncTest "a start on a TCP port in use leaves nothing running":
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let held = newSocket()
+      held.bindAddr()
+      held.listen()
+      var kernel = defaultTestWakuNodeConf()
+      kernel.tcpPort = held.getLocalAddr()[1]
+      kernel.rendezvous = Opt.some(true)
+      let node = (await LogosDelivery.new(testNodeConf(kernel, EntryLayer.messaging))).valueOr:
+        raiseAssert error
+      let rendezvous = node.waku.node.wakuRendezvousClient
+      require not rendezvous.isNil()
+
+      check:
+        (await node.start()).isErr()
+        not node.isRunning()
+        not rendezvous.isRunning()
+        nodeStateProvided(ctx) == @[false, false, false, false, false, false]
+
+      (await node.stop()).isOkOr:
+        raiseAssert "stop after the failed start: " & error
+      held.close()
+
+  asyncTest "a stop before start does not stop the transport":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.stop()).isOkOr:
+        raiseAssert error
+      # The transport stop sets the node health to SHUTTING_DOWN.
+      check:
+        (await node.waku.healthMonitor.getNodeHealthReport()).nodeHealth ==
+          HealthStatus.INITIALIZING
+        node.lifecycleState == LifecycleState.Stopped
+
+  asyncTest "a second stop returns ok":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      (await node.stop()).isOkOr:
+        raiseAssert "first stop: " & error
+      (await node.stop()).isOkOr:
+        raiseAssert "second stop: " & error
+      check not node.isRunning()
+
+  asyncTest "a failed stop refuses a start and the next stop retries":
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
+
+      check:
+        (await node.stop()).isErr()
+        node.lifecycleState == LifecycleState.Stopping
+        node.isRunning()
+        (await node.start()).isErr()
+
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+
+  asyncTest "a kernel node refuses a start after a failed stop":
+    lockNewGlobalBrokerContext:
+      let conf = testNodeConf(defaultTestWakuNodeConf(), EntryLayer.kernel)
+      let node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert error
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
+
+      check:
+        (await node.stop()).isErr()
+        (await node.start()).isErr()
+
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
+        not node.isRunning()
+
+  asyncTest "a LogosDelivery built without the stack builder starts and stops":
+    lockNewGlobalBrokerContext:
+      let built = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      let node = LogosDelivery(waku: built.waku, messagingClient: built.messagingClient)
+
+      (await node.start()).isOkOr:
+        raiseAssert "start: " & error
+      check node.lifecycleState == LifecycleState.Running
+
+      (await node.stop()).isOkOr:
+        raiseAssert "stop: " & error
+      check node.lifecycleState == LifecycleState.Stopped
+
+  asyncTest "a start after a failed rollback returns an error":
+    ## The messaging start fails, and the transport stop of the rollback fails
+    ## too, so the transport is still marked as started.
+    lockNewGlobalBrokerContext:
+      let ctx = globalBrokerContext()
+      let node = (await LogosDelivery.new(lifecycleConf())).valueOr:
+        raiseAssert error
+      holdMessagingSubscribe(ctx)
+      node.waku.node.rlnPlugin = Opt.some(failingStopPlugin())
+
+      check:
+        (await node.start()).isErr()
+        node.lifecycleState == LifecycleState.Stopped
+        node.waku.node.started
+
+      MessagingSubscribe.clearProvider(ctx)
+      check:
+        (await node.start()).isErr()
+        not node.messagingClient.started
+
+      # A stop retries the transport stop, and the node then starts again.
+      node.waku.node.rlnPlugin = Opt.none(RlnPlugin)
+      check:
+        (await node.stop()).isOk()
+        not node.isRunning()
+        (await node.start()).isOk()
+        (await node.stop()).isOk()
+
+  asyncTest "a start during the REST stop of a stop returns an error":
+    ## `stop_node` passes the REST stop to `stop`, which runs it under the lock.
+    lockNewGlobalBrokerContext:
+      let node = (await LogosDelivery.new(lifecycleConf(rest = true))).valueOr:
+        raiseAssert error
+      let rest = (await node.startWithRest()).valueOr:
+        raiseAssert error
+
+      let stopping = node.stop(
+        proc() {.async: (raises: []).} =
+          await rest.stop(node)
+      )
+      check:
+        node.lifecycleState == LifecycleState.Stopping
+        rest.server.isNil()
+        node.messagingClient.started
+        (await node.start()).isErr()
+
+      check:
+        (await stopping).isOk()
+        node.lifecycleState == LifecycleState.Stopped
+        not node.isRunning()
+        not rest.isListeningToMessagingEvents()

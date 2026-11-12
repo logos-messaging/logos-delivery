@@ -1,10 +1,9 @@
-import libp2p/crypto/rng
 {.used.}
 
 {.push raises: [].}
 
 import
-  std/[exitprocs, net, os, osproc, streams, strutils, strformat],
+  std/[exitprocs, net, os, osproc, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -16,7 +15,7 @@ import
   web3/eth_api_types,
   json_rpc/rpcclient,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   results,
   brokers/request_broker
 
@@ -31,8 +30,7 @@ import
     node/waku_node,
     node/waku_node/relay,
     persistency/persistency,
-  ],
-  ../testlib/common
+  ]
 
 const CHAIN_ID* = 1234'u256
 
@@ -109,7 +107,7 @@ proc ethToWei(eth: UInt256): UInt256 =
   eth * 1000000000000000000.u256
 
 proc getMinedTransactionReceipt(
-    web3: Web3, txHash: TxHash, retryStrategy: RetryStrategy
+    web3: Web3, txHash: Hash32, retryStrategy: RetryStrategy
 ): Future[Result[ReceiptObject, string]] {.async.} =
   return await retryWrapper(
     retryStrategy,
@@ -265,7 +263,7 @@ proc approveTokenAllowanceAndVerify*(
     spender: Address,
     amountWei: UInt256,
     expectedAllowanceBefore: Opt[UInt256] = Opt.none(UInt256),
-): Future[Result[TxHash, string]] {.async.} =
+): Future[Result[Hash32, string]] {.async.} =
   var allowanceBefore: UInt256
   if expectedAllowanceBefore.isSome():
     allowanceBefore =
@@ -407,7 +405,7 @@ proc sendEthTransfer*(
     accountTo: Address,
     amountWei: UInt256,
     accountToBalanceBeforeExpectedWei: Opt[UInt256] = Opt.none(UInt256),
-): Future[TxHash] {.async.} =
+): Future[Hash32] {.async.} =
   let doBalanceAssert = accountToBalanceBeforeExpectedWei.isSome()
 
   if doBalanceAssert:

@@ -1,10 +1,10 @@
 {.used.}
 
-import testutils/unittests, chronos, chronicles
+import testutils/unittests, chronos
 import libp2p/switch
 
 import logos_delivery/waku/[waku_node, waku_core, node/peer_manager]
-import ../testlib/[wakucore, wakunode, testasync]
+import ../testlib/[wakucore, wakunode]
 
 suite "WakuNode - restart (#3979)":
   asyncTest "start -> stop -> start re-opens the listener promptly":

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import stint, chronos, web3, eth/keys
+import stint, chronos, web3, eth/common/keys
 import ../../waku_core, ../../waku_keystore, ../../common/protobuf
 
 export waku_keystore, waku_core

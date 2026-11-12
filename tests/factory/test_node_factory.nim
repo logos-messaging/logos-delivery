@@ -24,7 +24,6 @@ import
     waku_store/rpc_codec,
     net/net_config,
     waku_enr,
-    net/auto_port,
     discovery/waku_discv5,
     node/peer_manager,
     node/waku_metrics,
@@ -37,14 +36,10 @@ import
     common/system_resolver,
   ],
   logos_delivery/waku/node/subscription_manager,
+  logos_delivery/waku/waku_peer_exchange/protocol,
   logos_delivery/waku/rln/rln_lez/transport,
-  logos_delivery/waku/factory/[
-    node_factory,
-    internal_config,
-    networks_config,
-    conf_builder/conf_builder,
-    conf_builder/web_socket_conf_builder,
-  ]
+  logos_delivery/waku/factory/
+    [node_factory, internal_config, networks_config, conf_builder/conf_builder]
 
 proc servicePeerGauge(codec: string): float64 =
   try:
@@ -374,9 +369,8 @@ suite "Node Factory":
     defer:
       await allFutures(responder.stop(), discoveredNode.stop())
     await responder.mountPeerExchange()
-    var discoveredPeer = discoveredNode.peerInfo.toRemotePeerInfo()
-    discoveredPeer.enr = Opt.some(discoveredNode.enr)
-    responder.peerManager.addPeer(discoveredPeer, PeerOrigin.Discv5)
+    let discoveredPeer = discoveredNode.peerInfo.toRemotePeerInfo()
+    responder.wakuPeerExchange.addToCache(@[discoveredNode.enr])
 
     # And the configuration of a binary started with --peer-exchange-node naming the responder
     var cliConf = defaultKernelConf().get()

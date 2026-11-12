@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[typetraits, parseutils],
+  std/typetraits,
   results,
   stew/[byteutils, base10],
   chronicles,

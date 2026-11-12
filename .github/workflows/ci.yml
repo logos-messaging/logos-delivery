@@ -192,6 +192,9 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
 
+      - name: Cache librln
+        uses: ./.github/actions/librln-cache
+
       # Nim recompiles only the C files that changed, but nim-leopard reuses any
       # Leopard-RS archive already in nimcache, so the key hashes the files its
       # build depends on. Only master saves.
@@ -199,26 +202,44 @@ jobs:
         id: nimcache
         uses: actions/cache/restore@v3
         with:
-          path: nimcache
+          path: |
+            nimcache
+            build/nimcache
           key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-
 
       - name: Build binaries
-        # -j1: `all` builds logosdeliverynode and liblogosdelivery, each via `nimble
-        # <task>`. Under -j2 the two nimble invocations re-resolve git deps
-        # concurrently and clobber each other in the shared ~/.nimble/pkgcache
-        # (e.g. "destination already exists", "could not lock config file"),
-        # failing the build. Serializing the targets removes the race; Nim's
-        # own --parallelBuild still parallelizes compilation. Mirrors the test
-        # job, which already forces -j1.
-        run: make V=1 -j1 all
+        # -j1: `all` builds logosdeliverynode and liblogosdelivery with two
+        # `nim c` runs, and Nim's own --parallelBuild already uses every core
+        # for each. Mirrors the test job, which already forces -j1.
+        shell: bash
+        run: |
+          mkdir -p build
+          make V=1 -j1 all 2>&1 | tee build/compile.log
+
+      # Absolute paths differ per runner, so each job keeps the repo-relative
+      # list and the compile-warnings job judges them all.
+      - name: Collect compile warnings
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: scripts/check_compile_warnings.sh build/compile.log > build/compile-warnings.txt || true
+
+      - name: Upload compile warnings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings-build-${{ matrix.os }}
+          path: build/compile-warnings.txt
+          retention-days: 1
 
       - name: Save nimcache
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/cache/save@v3
         with:
-          path: nimcache
+          path: |
+            nimcache
+            build/nimcache
           key: ${{ steps.nimcache.outputs.cache-primary-key }}
 
       - name: Build FFI examples
@@ -265,9 +286,20 @@ jobs:
       - name: Check liblogosdelivery exports no OpenSSL symbols
         run: scripts/check_lib_exports.sh build/liblogosdelivery.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
 
+      # The embedder's build: no parent config and no -d:ffiOutputDir, so
+      # library/config.nims puts the generated headers under the --nimcache.
+      - name: Check a plain nim c writes the headers under its nimcache
+        run: |
+          out="$(mktemp -d)"
+          "$(make -s print-nim-path)" c --compileOnly --skipParentCfg --noNimblePath \
+            $(grep '^--path:' nimble.paths | tr -d '"') \
+            -d:disable_rln --nimcache:"$out/nimcache" library/liblogosdelivery.nim
+          test -f "$out/nimcache/generated/logosdelivery.h"
+
+  # The slowest job: nightly only.
   build-windows:
     needs: changes
-    if: ${{ needs.changes.outputs.all == 'true' }}
+    if: ${{ inputs.full }}
     uses: ./.github/workflows/windows-build.yml
 
   build-android:
@@ -355,13 +387,16 @@ jobs:
           name: liblogosdelivery-ios-${{ matrix.sdk }}
           path: |
             build/ios/*/liblogosdelivery.a
-            build/ios/*/liblogosdelivery.h
+            build/ios/*/*.h
+            build/ios/*/generated/
           retention-days: 1
 
   tests:
     needs: changes
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true' }}
     uses: ./.github/workflows/tests.yml
+    with:
+      full: ${{ inputs.full == true }}
 
   build-docker-image:
     needs: changes
@@ -550,7 +585,25 @@ jobs:
 
       - name: Build examples and tools
         # -j1: concurrent nimble tasks corrupt shared package metadata.
-        run: make V=1 -j1 examples tools
+        shell: bash
+        run: |
+          mkdir -p build
+          make V=1 -j1 examples tools 2>&1 | tee build/compile.log
+
+      # Absolute paths differ per runner, so each job keeps the repo-relative
+      # list and the compile-warnings job judges them all.
+      - name: Collect compile warnings
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: scripts/check_compile_warnings.sh build/compile.log > build/compile-warnings.txt || true
+
+      - name: Upload compile warnings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings-examples-tools-${{ matrix.os }}
+          path: build/compile-warnings.txt
+          retention-days: 1
 
       - name: Audit installed deps
         run: make audit-deps
@@ -606,6 +659,33 @@ jobs:
   # job skipped at job level reports under its raw name (e.g.
   # `build-${{ matrix.os }}`), so requiring the per-job names blocks forever.
   # A skipped job is not relevant to the change and counts as passing here.
+  # Required through ci-required: fails on any compiler warning raised in this
+  # repo's code by the build, examples/tools or test jobs.
+  compile-warnings:
+    needs: [build, build-examples-tools, tests]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download compile warnings
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compile-warnings-*
+          path: build/compile-warnings
+
+      - name: Check compile warnings
+        shell: bash
+        run: |
+          shopt -s nullglob
+          logs=(build/compile-warnings/*/compile-warnings.txt)
+          if [ ${#logs[@]} -eq 0 ]; then
+            echo "compile warnings: no build ran"
+            exit 0
+          fi
+          scripts/check_compile_warnings.sh "${logs[@]}"
+
   ci-required:
     if: always()
     needs:
@@ -624,6 +704,7 @@ jobs:
       - tests-e2e-rest
       - nix
       - lint
+      - compile-warnings
     runs-on: ubuntu-22.04
     steps:
       - name: Fail if a job failed or was cancelled

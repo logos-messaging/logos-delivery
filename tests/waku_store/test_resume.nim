@@ -42,6 +42,15 @@ suite "Store Resume":
 
     assert getTs == ts, "wrong timestamp"
 
+  asyncTest "a second stopWait does nothing":
+    await resume.stopWait()
+    await resume.stopWait()
+    check resume.getLastOnlineTimestamp().isErr()
+
+  asyncTest "setLastOnlineTimestamp after stopWait is an error":
+    await resume.stopWait()
+    check resume.setLastOnlineTimestamp(getNowInNanosecondTime()).isErr()
+
 suite "Store Resume - End to End":
   var server {.threadvar.}: WakuNode
   var client {.threadvar.}: WakuNode

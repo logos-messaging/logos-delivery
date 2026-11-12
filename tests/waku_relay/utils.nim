@@ -2,13 +2,11 @@
 
 import
   results,
-  std/[strutils, tempfiles],
+  std/strutils,
   chronos,
   chronicles,
   libp2p/switch,
   libp2p/protocols/pubsub/pubsub
-
-import brokers/broker_context
 
 import
   logos_delivery/waku/

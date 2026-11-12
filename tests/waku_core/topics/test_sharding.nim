@@ -203,3 +203,12 @@ suite "Autosharding":
     xtest "catchable error on add to topicMap":
       # TODO: Trigger a CatchableError or mock
       discard
+
+  suite "getShard with no shards":
+    test "returns an error instead of dividing by zero":
+      let sharding = Sharding.init(ClusterId, 0'u32)
+
+      check:
+        sharding.getShard(contentTopicShort).isErr()
+        sharding.getShard(contentTopicFull).isErr()
+        sharding.getShardsFromContentTopics(contentTopicShort).isErr()

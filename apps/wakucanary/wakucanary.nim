@@ -1,10 +1,5 @@
 import
-  results,
-  std/[strutils, sequtils, tables, strformat],
-  confutils,
-  chronos,
-  chronicles/topics_registry,
-  os
+  results, std/[strutils, tables], confutils, chronos, chronicles/topics_registry, os
 import
   libp2p/protocols/ping,
   libp2p/protocols/protocol,

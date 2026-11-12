@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tempfiles, net, strutils],
+  std/[net, strutils],
   testutils/unittests,
   chronos,
   std/strformat,
@@ -18,9 +18,8 @@ import
     waku_lightpush_legacy/protocol_metrics,
     rln,
     rln/rln_plugin,
-    rln/rln_evm/constants,
   ],
-  ../testlib/[wakucore, wakunode, testasync, futures, testutils],
+  ../testlib/[wakucore, wakunode, testasync],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 
@@ -306,8 +305,9 @@ suite "Waku Legacy Lightpush message delivery":
     await sleepAsync(100.millis)
 
     ## When
-    let res =
-      await lightNode.legacyLightpushPublish(Opt.some(CustomPubsubTopic), message)
+    let res = await lightNode.legacyLightpushPublish(
+      Opt.some(CustomPubsubTopic), message, bridgeNode.peerInfo.toRemotePeerInfo()
+    )
     assert res.isOk(), $res.error
 
     ## Then

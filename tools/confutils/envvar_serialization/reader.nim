@@ -106,11 +106,11 @@ proc readValue*[T](r: var EnvvarReader, value: var T) {.raises: [SerializationEr
       value.enumInstanceSerializedFields(fieldName, field):
         when T is tuple:
           r.key[^1] = $expectedFieldPos
-          var reader = fields[][expectedFieldPos].reader
+          var reader = fields[expectedFieldPos].reader
           expectedFieldPos += 1
         else:
           r.key[^1] = fieldName
-          var reader = findFieldReader(fields[], fieldName, expectedFieldPos)
+          var reader = findFieldReader(fields, fieldName, expectedFieldPos)
 
         if reader != nil:
           try:

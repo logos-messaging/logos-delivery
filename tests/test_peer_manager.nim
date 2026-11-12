@@ -7,7 +7,7 @@ import
   chronos,
   json_rpc/rpcserver,
   json_rpc/rpcclient,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   eth/common/eth_types,
   libp2p/[builders, switch, multiaddress],
@@ -34,7 +34,6 @@ import
   ],
   ./testlib/common,
   ./testlib/testasync,
-  ./testlib/testutils,
   ./testlib/wakucore,
   ./testlib/wakunode
 
@@ -1913,9 +1912,9 @@ procSuite "Peer Manager":
 
     ## Then: Returns Opt.none(RemotePeerInfo) without crashing
     for invalidTopic in invalidTopics:
-      let result = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
+      let selected = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
       check:
-        result.isNone()
+        selected.isNone()
 
     await allFutures(node.stop(), peer.stop())
 

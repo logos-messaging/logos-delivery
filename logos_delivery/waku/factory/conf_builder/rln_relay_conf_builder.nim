@@ -1,4 +1,4 @@
-import chronicles, results, stint, stew/[byteutils, endians2]
+import chronicles, results, stint, stew/endians2
 import ../waku_conf
 
 logScope:

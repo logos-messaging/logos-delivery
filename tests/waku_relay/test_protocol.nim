@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[strformat, sets, tables, sequtils],
+  std/[strformat, sequtils],
   testutils/unittests,
   chronos,
   metrics,

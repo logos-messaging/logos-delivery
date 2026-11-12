@@ -8,12 +8,12 @@
 ############################
 ## TinyCBOR (nimbledeps)  ##
 ############################
-# The generated C binding (library/generated/*.h) encodes requests and decodes
+# The generated C binding (build/generated/*.h) encodes requests and decodes
 # replies with TinyCBOR, so every C/C++ consumer compiles against its header and
 # links it. nim-ffi vendors the copy it generates against; build that into a
 # static archive, as nim-ffi's own generated CMakeLists does.
 #
-# Unlike BearSSL.mk / Nat.mk / Leopard.mk, the paths below use `=`, not `:=`:
+# Unlike BearSSL.mk, the paths below use `=`, not `:=`:
 # they are expanded when a recipe runs, after build-deps has populated
 # nimbledeps/, so no recursive $(MAKE) is needed to see the package.
 

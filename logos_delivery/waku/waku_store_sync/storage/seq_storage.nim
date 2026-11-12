@@ -1,8 +1,5 @@
 import
-  std/[algorithm, sequtils, math, tables, packedsets, sugar],
-  results,
-  chronos,
-  stew/arrayops
+  std/[algorithm, sequtils, tables, packedsets, sugar], results, chronos, stew/arrayops
 
 import
   ../../waku_core/time,

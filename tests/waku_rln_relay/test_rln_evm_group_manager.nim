@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, deques, random, locks, algorithm],
+  std/[sequtils, deques, random, algorithm],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -12,9 +12,7 @@ import
   stint,
   web3,
   libp2p/crypto/crypto,
-  eth/keys,
-  tests/testlib/testasync,
-  tests/testlib/testutils
+  eth/common/keys
 
 import
   logos_delivery/waku/[

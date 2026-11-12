@@ -2,7 +2,7 @@ import results, libp2p/crypto/crypto
 import
   chronos,
   chronicles,
-  bearssl/rand,
+  libp2p/multiaddress,
   libp2p/protocols/connectivity/autonat/client,
   libp2p/protocols/connectivity/autonat/service
 
@@ -24,13 +24,15 @@ proc getAutonatService*(rng: crypto.Rng): AutonatService =
     minConfidence = 0.7,
   )
 
-  proc statusAndConfidenceHandler(
-      networkReachability: NetworkReachability, confidence: Opt[float]
+  proc reachabilityHandler(
+      networkReachability: NetworkReachability,
+      confidence: Opt[float],
+      dialBackAddr: Opt[MultiAddress],
   ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
     if confidence.isSome():
       debug "Peer reachability status",
         networkReachability = networkReachability, confidence = confidence.get()
 
-  autonatService.statusAndConfidenceHandler(statusAndConfidenceHandler)
+  discard autonatService.reachabilityObservers.add(reachabilityHandler)
 
   return autonatService

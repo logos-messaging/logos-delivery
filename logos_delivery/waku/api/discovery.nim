@@ -1,14 +1,13 @@
 ## Waku layer API — discovery operations (DNS, discv5, peer exchange).
 {.push raises: [].}
 
-import std/[net, sequtils]
-import results, chronos, chronicles
+import std/net
+import results, chronos
 
 import logos_delivery/waku/waku
 import
   logos_delivery/waku/[
     waku_core,
-    node/waku_node,
     node/waku_node/peer_exchange,
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
