@@ -93,8 +93,5 @@ __pycache__/
 *.pyc
 .venv*/
 
-# Emitted by genBindings() during the liblogosdelivery build.
-library/generated/
-
 # Local, per-developer helpers (design notes, scripts); never committed.
 .local/
