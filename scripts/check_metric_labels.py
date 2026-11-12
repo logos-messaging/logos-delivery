@@ -3,13 +3,16 @@
 
 Every label value passed to a metric (`m.inc/dec/set/observe`, via
 `labelValues = [..]` or a trailing positional list) must be a string literal,
-an `if c: "a" else: "b"` of literals, or a `const` string. Anything else
-creates one time series per distinct value, which Prometheus cannot handle.
+an `if c: "a" else: "b"` of literals, a `const` string, or the result of a
+helper in LABEL_FUNCS, which maps a value to a fixed set (see
+logos_delivery/waku/waku_core/metric_labels.nim). Anything else creates one
+time series per distinct value, which Prometheus cannot handle.
 
 Checks:
   1. unbounded:  non-literal, non-const label value. Bounded-but-unprovable
                  ones (enum conversions, ...) go in
-                 scripts/metric_labels_allowlist.txt as `<file>::<expr>`.
+                 scripts/metric_labels_allowlist.txt as `<file>::<metric>::<expr>`,
+                 so an entry never approves the value for another metric.
   2. tainted:    value that visibly carries free-form text (`error`, `.msg`,
                  `getCurrentExceptionMsg`, peer ids, addresses, ...) or an
                  identifier bound to such text (`let x = "..." & y`). Never
@@ -34,13 +37,15 @@ WAIVER = "bounded-label:"
 STR = r'(?:"[^"\\]*"|r"[^"]*")'
 LITERAL_RE = re.compile(rf"^(?:{STR}|if .+?: {STR} else: {STR})$")
 IDENT_RE = re.compile(r"^[A-Za-z_]\w*$")
+LABEL_FUNCS = ["agentLabel", "codecLabel", "topicLabel", "shardLabel", "peerIndexLabel"]
+LABEL_CALL_RE = re.compile(rf"^(?:[\w.]+\.)?(?:{'|'.join(LABEL_FUNCS)})\(.*\)$")
 CALL_RE = re.compile(r"(\w+)\s*\.\s*(?:inc|dec|set|observe)\s*\(")
 DECL_RE = re.compile(
     r"declare(?:Public)?(?:Counter|Gauge|Histogram|Summary)\s+(\w+)\s*,(.*?)(?=\n\S|\Z)",
     re.S,
 )
 CONST_ITEM_RE = re.compile(rf"^[ \t]+(\w+)\*?\s*=\s*{STR}", re.M)
-CONST_ONE_RE = re.compile(rf"^const\s+(\w+)\*?\s*=\s*{STR}", re.M)
+CONST_ONE_RE = re.compile(rf"^const\s+(\w+)\*?\s*(?:\{{\.[^}}]*\.\}}\s*)?=\s*{STR}", re.M)
 TAINT_RE = re.compile(
     r"(?i)(\berror\b|\berr\w*\b|\.msg\b|\bmsg\b|getCurrentExceptionMsg|peerid|\bpeer\b|"
     r"\baddrs?\b|multiaddr|\bip\b|\bhash\b|\bagent\b|\.\$|\bdiagnostic\b)"
@@ -114,14 +119,14 @@ def declarations(texts):
     return decls
 
 
-def tainted_binding(text, pos, ident):
-    """True if `ident` was last bound before `pos` to a non-literal expression."""
+def binding_rhs(text, pos, ident):
+    """The expression `ident` was last bound to before `pos`, or None."""
     window = text[max(0, pos - 4000) : pos]
     last = None
     for m in re.finditer(rf"\b(?:let|var)\s+{re.escape(ident)}\b[^=\n]*=\s*(.*)", window):
         last = m
     if not last:
-        return False
+        return None
     rhs = last.group(1)
     start = window.rfind("\n", 0, last.start()) + 1
     indent = last.start() - start
@@ -130,8 +135,13 @@ def tainted_binding(text, pos, ident):
             rhs += " " + line.strip()
         elif line.strip():
             break
-    rhs = re.sub(STR, '""', rhs)
-    return bool(BOUND_RHS_TAINT.search(rhs))
+    return " ".join(rhs.split())
+
+
+def tainted_binding(text, pos, ident):
+    """True if `ident` was last bound before `pos` to free-form text."""
+    rhs = binding_rhs(text, pos, ident)
+    return rhs is not None and bool(BOUND_RHS_TAINT.search(re.sub(STR, '""', rhs)))
 
 
 WHY = {
@@ -204,7 +214,15 @@ def analyse(texts, consts, decls):
                     )
                 )
             for expr in labels:
-                if LITERAL_RE.match(expr) or (IDENT_RE.match(expr) and expr in consts):
+                if (
+                    LITERAL_RE.match(expr)
+                    or LABEL_CALL_RE.match(expr)
+                    or (IDENT_RE.match(expr) and expr in consts)
+                    or (
+                        IDENT_RE.match(expr)
+                        and LABEL_CALL_RE.match(binding_rhs(text, m.start(), expr) or "")
+                    )
+                ):
                     continue
                 if waived:
                     continue
@@ -213,7 +231,7 @@ def analyse(texts, consts, decls):
                 )
                 kind = "tainted" if bad else "unbounded"
                 out.append(
-                    (kind, loc, f"`{name}` label value `{expr}`", f"{rel}::{expr}")
+                    (kind, loc, f"`{name}` label value `{expr}`", f"{rel}::{name}::{expr}")
                 )
     return out
 
