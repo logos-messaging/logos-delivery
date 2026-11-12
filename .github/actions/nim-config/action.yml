@@ -10,6 +10,7 @@ inputs:
       default: the locked Nim with ORC, what the node ships and Status builds.
       refc: the locked Nim with refc, for hosts that still use it.
       nim-latest: the newest Nim release with ORC, other dependencies locked.
+      nim-latest-refc: the newest Nim release with refc, other dependencies locked.
     default: 'default'
 
 runs:
@@ -19,16 +20,19 @@ runs:
       shell: bash
       run: |
         case "${{ inputs.config }}" in
-          default)    mm=orc ;;
-          refc)       mm=refc ;;
+          default)         mm=orc ;;
+          refc)            mm=refc ;;
+          nim-latest)      mm=orc ;;
+          nim-latest-refc) mm=refc ;;
+          *) echo "::error::unknown Nim config: ${{ inputs.config }}"; exit 1 ;;
+        esac
+        case "${{ inputs.config }}" in
           # Repoints the lock's nim entry; deleting it makes Nimble re-solve
           # every dependency, which fails. Bump on each Nim release.
-          nim-latest)
-            mm=orc
+          nim-latest*)
             jq '.packages.nim.version = "2.4.0"
               | .packages.nim.vcsRevision = "14991af742d0833503741fd9a0918133d1bcf8a4"
               | .packages.nim.checksums.sha1 = "e4e638a20c4650cc6b463f8b19f5009db3a916b5"' \
               nimble.lock > nimble.lock.tmp && mv nimble.lock.tmp nimble.lock ;;
-          *) echo "::error::unknown Nim config: ${{ inputs.config }}"; exit 1 ;;
         esac
         echo "NIM_MM=$mm" >> "$GITHUB_ENV"

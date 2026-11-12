@@ -16,7 +16,7 @@ jobs:
         os: ${{ fromJSON(inputs.full && '["ubuntu-22.04","macos-15"]' || '["ubuntu-22.04"]') }}
         # The Nim and memory manager pairs, defined in .github/actions/nim-config.
         # Keep the list in step with ci.yml's build job.
-        config: [default, refc, nim-latest]
+        config: [default, refc, nim-latest, nim-latest-refc]
         # One job per binary, except testcommon and testapp: both are almost
         # all compile, and paired they still finish well inside testwaku.
         suite:
@@ -28,6 +28,7 @@ jobs:
         exclude:
           - {os: macos-15, config: refc}
           - {os: macos-15, config: nim-latest}
+          - {os: macos-15, config: nim-latest-refc}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
