@@ -212,11 +212,10 @@ proc nodeErrorCount*(errorType: string): float64 =
   except ValueError:
     return 0.0
 
-proc labelDefaultShard*(nodes: varargs[WakuNode]) =
+proc setLabelDefaultShard*(self: WakuNode) =
   ## The factory sets the metric topics; nodes built in tests have none.
-  for node in nodes:
-    if not node.wakuRelay.isNil():
-      node.wakuRelay.metricTopics = TopicLabels.init(DefaultClusterId, [DefaultShardId])
+  if not self.wakuRelay.isNil():
+    self.wakuRelay.metricTopics = TopicLabels.init(DefaultClusterId, [DefaultShardId])
 
 proc relayNetworkBytes*(labelValues: openArray[string]): float64 =
   ## The relay does not export this counter, so it is found in the registry by name.

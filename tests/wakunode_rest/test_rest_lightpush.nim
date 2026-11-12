@@ -431,7 +431,8 @@ suite "Waku v2 Rest API - lightpush":
       await allFutures(serviceServer.stop(), consumerServer.stop())
       await allFutures(serviceServer.closeWait(), consumerServer.closeWait())
 
-    labelDefaultShard(restLightPushTest.serviceNode, restLightPushTest.consumerNode)
+    restLightPushTest.serviceNode.setLabelDefaultShard()
+    restLightPushTest.consumerNode.setLabelDefaultShard()
     let
       serviceClient = newRestHttpClient(serviceServer.localAddress())
       consumerClient = newRestHttpClient(consumerServer.localAddress())

@@ -1995,7 +1995,8 @@ suite "Waku v2 Rest API - Relay":
       await allFutures(publisherServer.stop(), receiverServer.stop())
       await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
 
-    labelDefaultShard(publisher, receiver)
+    publisher.setLabelDefaultShard()
+    receiver.setLabelDefaultShard()
     let
       publisherClient = newRestHttpClient(publisherServer.localAddress())
       receiverClient = newRestHttpClient(receiverServer.localAddress())
@@ -2058,7 +2059,7 @@ suite "Waku v2 Rest API - Relay":
     let client = newRestHttpClient(restServer.localAddress())
     let subscribeResponse = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
 
-    labelDefaultShard(node)
+    node.setLabelDefaultShard()
     let
       message = toRelayWakuMessage(fakeWakuMessage(payload = "posted-twice"))
       netIn = [DefaultPubsubTopic, "net", "in"]
