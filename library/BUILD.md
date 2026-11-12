@@ -20,7 +20,7 @@ This creates `build/liblogosdelivery.dylib` (macOS) or `build/liblogosdelivery.s
 ### Static Library
 
 ```bash
-nim liblogosdelivery STATIC=1
+make liblogosdelivery STATIC=1
 ```
 
 This creates `build/liblogosdelivery.a`.

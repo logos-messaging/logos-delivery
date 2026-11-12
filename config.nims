@@ -35,7 +35,7 @@ const portableBuild = not defined(marchNative) or defined(disableMarchNative)
 # and nimcache is not keyed by defines: a tree first built with other flags keeps
 # the old archive. Use -d:LeopardRebuild or wipe nimcache when switching.
 if defined(android):
-  # Leopard-RS and the NDK toolchain are set by the libLogosDeliveryAndroid task.
+  # Leopard-RS and the NDK toolchain come from the caller (the Makefile's Android targets).
   discard
 elif portableBuild:
   # Leopard-RS' CMakeLists adds -march=native whenever the compiler accepts it.

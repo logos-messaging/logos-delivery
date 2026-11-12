@@ -355,13 +355,14 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "logLevel and nodeKey parse via switch names and map to the kernel":
     let lc = parseLogosDeliveryConf(
-      """{"log-level": "DEBUG", "log-format": "JSON", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}"""
+      """{"log-level": "DEBUG", "log-format": "JSON", "log-output": "stderr", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}"""
     ).valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
     check:
       kc.logLevel == logging.LogLevel.DEBUG
       kc.logFormat == logging.LogFormat.JSON
+      kc.logOutput == logging.StderrLogOutput
       kc.nodekey.isSome()
 
   test "a null value leaves the field unset":
