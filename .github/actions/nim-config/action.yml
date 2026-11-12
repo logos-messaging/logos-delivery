@@ -21,9 +21,14 @@ runs:
         case "${{ inputs.config }}" in
           default)    mm=orc ;;
           refc)       mm=refc ;;
-          # Without a nim entry in the lock, Nimble installs the newest Nim
-          # that logos_delivery.nimble's `requires` allows.
-          nim-latest) mm=orc; jq 'del(.packages.nim)' nimble.lock > nimble.lock.tmp && mv nimble.lock.tmp nimble.lock ;;
+          # Repoints the lock's nim entry; deleting it makes Nimble re-solve
+          # every dependency, which fails. Bump on each Nim release.
+          nim-latest)
+            mm=orc
+            jq '.packages.nim.version = "2.4.0"
+              | .packages.nim.vcsRevision = "14991af742d0833503741fd9a0918133d1bcf8a4"
+              | .packages.nim.checksums.sha1 = "e4e638a20c4650cc6b463f8b19f5009db3a916b5"' \
+              nimble.lock > nimble.lock.tmp && mv nimble.lock.tmp nimble.lock ;;
           *) echo "::error::unknown Nim config: ${{ inputs.config }}"; exit 1 ;;
         esac
         echo "NIM_MM=$mm" >> "$GITHUB_ENV"
