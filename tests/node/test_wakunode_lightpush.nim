@@ -9,9 +9,11 @@ import
   libp2p/crypto/crypto
 
 import
+  logos_delivery/api/events/kernel_events,
   logos_delivery/waku/[
     waku_core,
     waku_core/topics/sharding,
+    waku_relay,
     node/peer_manager,
     waku_node,
     waku_lightpush,
@@ -506,6 +508,70 @@ suite "Waku Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), serviceNode.stop(), filterNode.stop())
+
+  asyncTest "A message lightpushed through the service node is announced to its app":
+    ## Setup
+    let
+      lightNode = newTestWakuNode(generateSecp256k1Key())
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
+      destNode = newTestWakuNode(generateSecp256k1Key())
+
+    await allFutures(destNode.start(), serviceNode.start(), lightNode.start())
+    defer:
+      await allFutures(lightNode.stop(), serviceNode.stop(), destNode.stop())
+
+    (await destNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+    lightNode.mountLightPushClient()
+
+    discard await lightNode.peerManager.dialPeer(
+      serviceNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+    await sleepAsync(100.milliseconds)
+    await destNode.connectToNodes(@[serviceNode.peerInfo.toRemotePeerInfo()])
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let message = fakeWakuMessage()
+
+    proc noopHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      discard
+
+    # The nodes of a test share one broker context. `destNode` subscribes on
+    # relay only, so that its app does not emit the event that this test awaits.
+    let relayOnlyHandler: WakuRelayHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async.} =
+      discard
+    destNode.wakuRelay.subscribe(CustomPubsubTopic, relayOnlyHandler)
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), noopHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+    await sleepAsync(100.millis)
+
+    let seenFut = newFuture[WakuMessage]()
+    let listener = MessageSeenEvent.listen(
+      serviceNode.brokerCtx,
+      proc(event: MessageSeenEvent) {.async: (raises: []).} =
+        if not seenFut.finished():
+          seenFut.complete(event.message)
+      ,
+    )
+    require listener.isOk()
+    defer:
+      await MessageSeenEvent.dropListener(serviceNode.brokerCtx, listener.get())
+
+    ## When the light node lightpushes a message through the service node
+    let res = await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+    assert res.isOk(), $res.error
+
+    ## Then the app of the service node is told that the message was seen, as
+    ## the message did not come from the app of the service node itself
+    require await seenFut.withTimeout(5.seconds)
+    check seenFut.read() == message
 
   asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
     ## Setup
