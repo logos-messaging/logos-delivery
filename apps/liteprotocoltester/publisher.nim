@@ -192,7 +192,7 @@ proc publishMessages(
       else:
         noFailedPush += 1
         logos_delivery_lpt_service_peer_failure_count.inc(
-          labelValues = ["publisher", actualServicePeer.getAgent()]
+          labelValues = ["publisher", agentLabel(actualServicePeer.getAgent())]
         )
         if not preventPeerSwitch and noFailedPush > maxFailedPush:
           info "Max push failure limit reached, Try switching peer."

@@ -54,6 +54,7 @@ type
     ip*: string
     enrCapabilities*: seq[string]
     country*: string
+    countryCode*: string
     city*: string
     maddrs*: seq[string]
 

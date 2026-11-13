@@ -22,6 +22,7 @@ import
     waku_peer_exchange/protocol,
     waku_core/multiaddrstr,
     waku_core/topics/pubsub_topic,
+    waku_core/metric_labels,
     waku_enr/capabilities,
     waku_enr/sharding,
   ],
@@ -127,20 +128,26 @@ proc tryCallAllPxPeers*(
         okPeers.add(randomPeer)
         info "Dialing successful",
           peer = constructMultiaddrStr(randomPeer),
-          agent = randomPeer.getAgent(),
+          agent = agentLabel(randomPeer.getAgent()),
           codec = codec
-        logos_delivery_lpt_dialed_peers.inc(labelValues = [randomPeer.getAgent()])
+        logos_delivery_lpt_dialed_peers.inc(
+          labelValues = [agentLabel(randomPeer.getAgent())]
+        )
       else:
-        logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
+        logos_delivery_lpt_dial_failures.inc(
+          labelValues = [agentLabel(randomPeer.getAgent())]
+        )
         error "Dialing failed",
           peer = constructMultiaddrStr(randomPeer),
-          agent = randomPeer.getAgent(),
+          agent = agentLabel(randomPeer.getAgent()),
           codec = codec
     else:
-      logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
+      logos_delivery_lpt_dial_failures.inc(
+        labelValues = [agentLabel(randomPeer.getAgent())]
+      )
       error "Timeout dialing service peer",
         peer = constructMultiaddrStr(randomPeer),
-        agent = randomPeer.getAgent(),
+        agent = agentLabel(randomPeer.getAgent()),
         codec = codec
 
   var okPeersStr: string = ""

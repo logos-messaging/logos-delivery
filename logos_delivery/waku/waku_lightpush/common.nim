@@ -21,6 +21,12 @@ const LightPushErrorCode* = (
   NO_PEERS_TO_RELAY: LightPushStatusCode(505),
 )
 
+func statusLabel*(code: LightPushStatusCode): string =
+  for known in LightPushErrorCode.fields:
+    if code == known:
+      return $known
+  return OtherLabel
+
 type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Opt[string]]
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 

@@ -26,6 +26,7 @@ type WakuStoreClient* = ref object
   peerManager: PeerManager
   rng: crypto.Rng
   storeMsgMetricsPerShard*: Table[string, float64]
+  metricTopics*: TopicLabels ## the topics that may be metric labels
   maxResponseSize*: int ## the largest response that the client reads
   failedAt: Table[PeerId, Moment]
     ## When a query to a store peer failed, for the peers in their
@@ -74,7 +75,7 @@ proc sendStoreRequest(
     return err(StoreError.new(res.statusCode, res.statusDesc))
 
   if req.pubsubTopic.isSome():
-    let topic = req.pubsubTopic.get()
+    let topic = self.metricTopics.topicLabel(req.pubsubTopic.get())
     if not self.storeMsgMetricsPerShard.hasKey(topic):
       self.storeMsgMetricsPerShard[topic] = 0
     self.storeMsgMetricsPerShard[topic] += float64(req.encode().len)
