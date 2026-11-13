@@ -590,6 +590,18 @@ jobs:
           mkdir -p build
           make V=1 -j1 examples tools 2>&1 | tee build/compile.log
 
+      - name: Install Qt 5
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y qtbase5-dev qtbase5-dev-tools qtdeclarative5-dev
+
+      # One make call: liblogosdelivery is phony, so each call would rebuild it.
+      # Qt only on Linux, where apt provides Qt 5.
+      - name: Build FFI and bindings examples
+        env:
+          MOC: /usr/lib/qt5/bin/moc
+        shell: bash
+        run: make V=1 -j1 ffi-examples bindings-examples ${{ runner.os == 'Linux' && 'qt-logos-delivery-example' || '' }} 2>&1 | tee -a build/compile.log
+
       # Absolute paths differ per runner, so each job keeps the repo-relative
       # list and the compile-warnings job judges them all.
       - name: Collect compile warnings
@@ -604,17 +616,6 @@ jobs:
           name: compile-warnings-examples-tools-${{ matrix.os }}
           path: build/compile-warnings.txt
           retention-days: 1
-
-      - name: Install Qt 5
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y qtbase5-dev qtbase5-dev-tools qtdeclarative5-dev
-
-      # One make call: liblogosdelivery is phony, so each call would rebuild it.
-      # Qt only on Linux, where apt provides Qt 5.
-      - name: Build FFI and bindings examples
-        env:
-          MOC: /usr/lib/qt5/bin/moc
-        run: make V=1 -j1 ffi-examples bindings-examples ${{ runner.os == 'Linux' && 'qt-logos-delivery-example' || '' }}
 
       - name: Audit installed deps
         run: make audit-deps
