@@ -31,8 +31,11 @@ jobs:
 
       # Self-hosted runners have Nix preinstalled.
       - uses: logos-co/setup-nix-cache-action@v1
+        continue-on-error: true
         with:
           install-nix: true
+          extra-nix-config: |
+            connect-timeout = 5
           attic-token-ci: ${{ secrets.ATTIC_TOKEN_CI }}
           attic-token-public: ${{ secrets.ATTIC_TOKEN_PUBLIC }}
 
