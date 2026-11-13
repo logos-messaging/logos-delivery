@@ -11,7 +11,7 @@ import Foundation
 // MARK: - Data Types
 
 /// Message received from Logos Delivery network
-struct LogosDeliveryMessage: Identifiable, Equatable, Sendable {
+struct WakuMessage: Identifiable, Equatable, Sendable {
     let id: String  // messageHash from Logos Delivery - unique identifier for deduplication
     let payload: String
     let contentTopic: String
@@ -105,7 +105,7 @@ actor LogosDeliveryActor {
     private var eventProcessingTask: Task<Void, Never>?
 
     // Stream continuations for communicating with UI
-    private var messageContinuation: AsyncStream<LogosDeliveryMessage>.Continuation?
+    private var messageContinuation: AsyncStream<WakuMessage>.Continuation?
     private var statusContinuation: AsyncStream<LogosDeliveryStatusUpdate>.Continuation?
 
     // Event stream from C callbacks
@@ -159,7 +159,7 @@ actor LogosDeliveryActor {
 
     // MARK: - Stream Setup
 
-    func setMessageContinuation(_ continuation: AsyncStream<LogosDeliveryMessage>.Continuation?) {
+    func setMessageContinuation(_ continuation: AsyncStream<WakuMessage>.Continuation?) {
         self.messageContinuation = continuation
     }
 
@@ -545,9 +545,9 @@ actor LogosDeliveryActor {
 
     private func handleMessage(_ json: [String: Any]) {
         guard let messageHash = json["messageHash"] as? String,
-              let logosDeliveryMessage = json["logosDeliveryMessage"] as? [String: Any],
-              let payloadBase64 = logosDeliveryMessage["payload"] as? String,
-              let contentTopic = logosDeliveryMessage["contentTopic"] as? String,
+              let wakuMessage = json["wakuMessage"] as? [String: Any],
+              let payloadBase64 = wakuMessage["payload"] as? String,
+              let contentTopic = wakuMessage["contentTopic"] as? String,
               let payloadData = Data(base64Encoded: payloadBase64),
               let payloadString = String(data: payloadData, encoding: .utf8) else {
             return
@@ -565,7 +565,7 @@ actor LogosDeliveryActor {
             seenMessageHashes.removeAll()
         }
 
-        let message = LogosDeliveryMessage(
+        let message = WakuMessage(
             id: messageHash,
             payload: payloadString,
             contentTopic: contentTopic,
@@ -607,7 +607,7 @@ class LogosDeliveryNode: ObservableObject {
     // MARK: - Published Properties (UI State)
 
     @Published var status: LogosDeliveryNodeStatus = .stopped
-    @Published var receivedMessages: [LogosDeliveryMessage] = []
+    @Published var receivedMessages: [WakuMessage] = []
     @Published var errorQueue: [TimestampedError] = []
     @Published var isConnected: Bool = false
     @Published var filterSubscribed: Bool = false
@@ -642,7 +642,7 @@ class LogosDeliveryNode: ObservableObject {
         }
 
         // Create message stream
-        let messageStream = AsyncStream<LogosDeliveryMessage> { continuation in
+        let messageStream = AsyncStream<WakuMessage> { continuation in
             Task {
                 await self.actor.setMessageContinuation(continuation)
             }

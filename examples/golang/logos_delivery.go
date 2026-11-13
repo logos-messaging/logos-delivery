@@ -211,11 +211,11 @@ package main
 
 	static void cGoLogosDeliveryRelayPublish(void* logosDeliveryCtx,
                        const char* pubSubTopic,
-                       const char* jsonLogosDeliveryMessage,
+                       const char* jsonWakuMessage,
                        int timeoutMs,
 					   void* resp) {
 
-		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_relay_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonLogosDeliveryMessage, timeoutMs, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_relay_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonWakuMessage, timeoutMs, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -281,10 +281,10 @@ package main
 
 	static void cGoLogosDeliveryLightpushPublish(void* logosDeliveryCtx,
 					const char* pubSubTopic,
-					const char* jsonLogosDeliveryMessage,
+					const char* jsonWakuMessage,
 					void* resp) {
 
-		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_lightpush_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonLogosDeliveryMessage, replyCallback, resp));
+		LOGOS_DELIVERY_CALL (logosdelivery_ctx_waku_lightpush_publish(CTX(logosDeliveryCtx), pubSubTopic, jsonWakuMessage, replyCallback, resp));
 		waitResp(resp);
 	}
 
@@ -327,7 +327,7 @@ import (
 	"unsafe"
 )
 
-type LogosDeliveryMessageHash = string
+type WakuMessageHash = string
 type LogosDeliveryPubsubTopic = string
 type LogosDeliveryContentTopic = string
 
@@ -508,7 +508,7 @@ func (self *LogosDeliveryNode) LogosDeliveryDefaultPubsubTopic() (LogosDeliveryP
 func (self *LogosDeliveryNode) LogosDeliveryRelayPublish(
 	pubsubTopic string,
 	message string,
-	timeoutMs int) (LogosDeliveryMessageHash, error) {
+	timeoutMs int) (WakuMessageHash, error) {
 
 	var cPubsubTopic = C.CString(pubsubTopic)
 	var msg = C.CString(message)

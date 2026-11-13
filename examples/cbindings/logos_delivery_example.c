@@ -161,13 +161,13 @@ void handle_content_topic(int errCode, const char *const *reply, const char *err
 
 void publish_message(const char *msg)
 {
-  char jsonLogosDeliveryMsg[MAX_MSG_SIZE];
+  char jsonWakuMsg[MAX_MSG_SIZE];
   char *msgPayload = b64_encode(msg, strlen(msg));
 
   LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_content_topic(
       ctx, "appName", 1, "contentTopicName",
       "encoding", handle_content_topic, userData));
-  snprintf(jsonLogosDeliveryMsg,
+  snprintf(jsonWakuMsg,
            MAX_MSG_SIZE,
            "{\"payload\":\"%s\",\"contentTopic\":\"%s\"}",
            msgPayload, contentTopic);
@@ -175,7 +175,7 @@ void publish_message(const char *msg)
   free(msgPayload);
 
   LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_relay_publish(
-      ctx, "/waku/2/rs/16/32", jsonLogosDeliveryMsg, 10000,
+      ctx, "/waku/2/rs/16/32", jsonWakuMsg, 10000,
       reply_handler, userData));
 }
 

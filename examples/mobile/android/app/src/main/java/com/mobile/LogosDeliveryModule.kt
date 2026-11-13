@@ -98,7 +98,7 @@ class LogosDeliveryModule(reactContext: ReactApplicationContext) : ReactContextB
   external fun logosDeliveryRelayPublish(
       ctx: Long,
       topic: String,
-      logosDeliveryMsg: String,
+      wakuMsg: String,
       timeoutMs: Int
   ): LogosDeliveryResult
   external fun logosDeliveryRelaySubscribe(ctx: Long, topic: String): LogosDeliveryResult

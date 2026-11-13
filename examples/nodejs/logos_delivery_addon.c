@@ -460,14 +460,14 @@ static napi_value LogosDeliveryRelayPublish(napi_env env, napi_callback_info inf
                                        msg,
                                        2048,
                                        &lengthMsg));
-  char jsonLogosDeliveryMsg[1024];
+  char jsonWakuMsg[1024];
   char *msgPayload = b64_encode((unsigned char*) msg, strlen(msg));
 
   // TODO: move all the 'waku_content_topic' logic inside the liblogosdelivery
   LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_content_topic(ctx, "appName", 1,
                                                    content_topic_name, "encoding",
                                                    handle_content_topic, userData) );
-  snprintf(jsonLogosDeliveryMsg,
+  snprintf(jsonWakuMsg,
            1024,
            "{\"payload\":\"%s\",\"content_topic\":\"%s\"}",
            msgPayload, contentTopic);
@@ -499,7 +499,7 @@ static napi_value LogosDeliveryRelayPublish(napi_env env, napi_callback_info inf
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
   // Perform the actual 'publish'
-  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_relay_publish(ctx, pubsub_topic, jsonLogosDeliveryMsg,
+  LOGOS_DELIVERY_CALL( logosdelivery_ctx_waku_relay_publish(ctx, pubsub_topic, jsonWakuMsg,
                                                   timeoutMs, handle_error, userData) );
   free(pubsub_topic);
   free(content_topic_name);

@@ -212,7 +212,7 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
         char msg[1024];
         scanf("%1023s", msg);
 
-        char jsonLogosDeliveryMsg[2048];
+        char jsonWakuMsg[2048];
         std::vector<char> msgPayload;
         b64_encode(msg, strlen(msg), msgPayload);
 
@@ -226,13 +226,13 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
                       { contentTopic.assign(msg, len); }),
             nullptr));
 
-        snprintf(jsonLogosDeliveryMsg,
+        snprintf(jsonWakuMsg,
                  2048,
                  "{\"payload\":\"%s\",\"contentTopic\":\"%s\"}",
                  msgPayload.data(), contentTopic.c_str());
 
         LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_relay_publish(
-            ctx, "/waku/2/rs/16/32", jsonLogosDeliveryMsg, 10000,
+            ctx, "/waku/2/rs/16/32", jsonWakuMsg, 10000,
             cifyReply([&](const char *msg, size_t len)
                       { event_handler(msg, len); }),
             nullptr));

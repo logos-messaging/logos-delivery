@@ -208,7 +208,7 @@ struct ToastView: View {
 // MARK: - Message Bubble
 
 struct MessageBubble: View {
-    let message: LogosDeliveryMessage
+    let message: WakuMessage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {

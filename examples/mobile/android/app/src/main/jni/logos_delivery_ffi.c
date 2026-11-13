@@ -299,17 +299,17 @@ jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryListenAddresses(JNIEnv 
 jobject Java_com_mobile_LogosDeliveryModule_logosDeliveryRelayPublish(JNIEnv *env, jobject thiz,
                                                     jlong logosDeliveryPtr,
                                                     jstring pubsubTopic,
-                                                    jstring jsonLogosDeliveryMessage,
+                                                    jstring jsonWakuMessage,
                                                     jint timeoutMs) {
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
-  const char *msg = (*env)->GetStringUTFChars(env, jsonLogosDeliveryMessage, 0);
+  const char *msg = (*env)->GetStringUTFChars(env, jsonWakuMessage, 0);
   cb_wait w;
   wait_init(&w);
   logosdelivery_ctx_waku_relay_publish(CTX(logosDeliveryPtr), topic, msg,
                                        (uint32_t)timeoutMs, on_reply, &w);
   jobject response = finish_call(env, &w);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
-  (*env)->ReleaseStringUTFChars(env, jsonLogosDeliveryMessage, msg);
+  (*env)->ReleaseStringUTFChars(env, jsonWakuMessage, msg);
   return response;
 }
 
