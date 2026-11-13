@@ -11,6 +11,8 @@
 ## `passL` are global, so every C file of the build gets the flag, whichever
 ## module is compiled.
 
+{.used.}
+
 when defined(gcc):
   {.passC: "-fno-ipa-icf".}
   {.passL: "-fno-ipa-icf".}
