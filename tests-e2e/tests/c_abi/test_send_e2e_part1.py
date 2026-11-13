@@ -39,7 +39,7 @@ CACHE_EXPIRY_SLACK_S = 10.0
 ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
 RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
 
-# S30: concurrent sends on the same content topic during initial auto-subscribe.
+# S30: concurrent sends on the same content topic.
 S30_CONCURRENT_SENDS = 5
 S30_CONTENT_TOPIC = "/test/1/s30-concurrent/proto"
 
@@ -705,9 +705,9 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
                     assert_event_invariants(sender_collector, request_id)
 
-    def test_s30_concurrent_sends_during_auto_subscribe(self, node_config):
+    def test_s30_concurrent_sends_on_same_content_topic(self, node_config):
         """
-        S30: concurrent sends on the same content topic during initial auto-subscribe.
+        S30: concurrent sends on the same content topic.
           - Sender starts unsubscribed to the target topic.
           - Several send() calls are issued at nearly the same time.
           - Each call must return Ok(RequestId) with a unique id.
@@ -752,9 +752,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                     for i in range(S30_CONCURRENT_SENDS)
                 ]
 
-                # Fire all sends concurrently. The sender is not yet subscribed
-                # to S30_CONTENT_TOPIC, so this exercises the auto-subscribe path
-                # under contention.
+                # Fire all sends concurrently.
                 with ThreadPoolExecutor(max_workers=S30_CONCURRENT_SENDS) as pool:
                     send_results = list(pool.map(sender_node.send_message, messages))
 
