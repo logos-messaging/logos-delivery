@@ -331,16 +331,12 @@ type WakuMessageHash = string
 type LogosDeliveryPubsubTopic = string
 type LogosDeliveryContentTopic = string
 
-type MessagingOverrides struct {
+type LogosDeliveryConfig struct {
+	Mode          string `json:"mode"`
 	ListenAddress string `json:"listen-address,omitempty"`
 	Port          int    `json:"tcp-port,omitempty"`
 	NodeKey       string `json:"nodekey,omitempty"`
 	LogLevel      string `json:"log-level,omitempty"`
-}
-
-type LogosDeliveryConfig struct {
-	Mode               string             `json:"mode"`
-	MessagingOverrides MessagingOverrides `json:"messagingOverrides"`
 }
 
 type LogosDeliveryNode struct {
@@ -605,13 +601,11 @@ func (self *LogosDeliveryNode) LogosDeliveryGetMyENR() (string, error) {
 
 func main() {
 	config := LogosDeliveryConfig{
-		Mode: "Core",
-		MessagingOverrides: MessagingOverrides{
-			ListenAddress: "0.0.0.0",
-			Port:          30304,
-			NodeKey:       "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
-			LogLevel:      "DEBUG",
-		},
+		Mode:          "Core",
+		ListenAddress: "0.0.0.0",
+		Port:          30304,
+		NodeKey:       "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
+		LogLevel:      "DEBUG",
 	}
 
 	node, err := LogosDeliveryNew(config)

@@ -88,18 +88,28 @@ releases it.
 {
   "mode": "Core",
   "preset": "logos.dev",
-  "messagingOverrides": {
-    "listen-address": "0.0.0.0",
-    "tcp-port": 60000,
-    "discv5-udp-port": 9000
-  }
+  "listen-address": "0.0.0.0",
+  "tcp-port": 60000,
+  "discv5-udp-port": 9000,
+  "reliability": true
 }
 ```
 
-The configuration object has four optional top-level keys: `mode` (`"Core"` or
-`"Edge"`, defaults to `"Core"`), `preset`, `messagingOverrides` (per-field node
-config overrides), and `channelsOverrides` (reliable-channel overrides).
-Override keys accept the config field name or its CLI switch name (e.g.
+One flat object with the `logosdeliverynode` CLI flag names; each key belongs
+to one layer:
+
+- `entryLayer`: `"channels"` (default), `"messaging"` or `"kernel"`.
+- `mode` (`"Core"` default, or `"Edge"`) and `preset` shape the kernel config;
+  an explicit kernel key wins over both. A `"kernel"` node rejects `mode`.
+- Messaging keys (`reliability`, `anonymity-level`, `rate-limit-*`,
+  `backfill-*`) and reliable-channel keys (`sds*`, `segmentation*`).
+- Every other key is a kernel key (`tcp-port`, `cluster-id`, `relay`, ...).
+
+> **Kernel keys are not a stable API.** They have no backward-compatibility
+> guarantee and may be deprecated or removed without notice. Prefer `mode` and
+> `preset`.
+
+Keys accept the config field name or its CLI switch name (e.g.
 `"clusterId"` or `"cluster-id"`); unknown keys are rejected.
 Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`,
 `"status.prod"`) which auto-configures entry nodes, cluster ID, sharding, and

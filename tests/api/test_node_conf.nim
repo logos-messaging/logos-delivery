@@ -436,10 +436,8 @@ suite "WakuNodeConf - service discovery exclusivity":
       wakuConf.discv5Conf.isSome()
       wakuConf.externalDiscoveryConf.isSome()
 
-suite "MessagingClientConf - discovery overrides":
-  ## The structured entry layers (messaging / channels) build their kernel conf
-  ## from mode + MessagingClientConf + preset, so a discovery setting is only
-  ## reachable there if it has a field here.
+suite "parseLogosDeliveryConf - discovery options":
+  ## The messaging and channels entry layers reach every kernel discovery option.
 
   proc kernelOf(js: string): WakuConf =
     let parsed = parseLogosDeliveryConf(js).valueOr:
@@ -448,28 +446,23 @@ suite "MessagingClientConf - discovery overrides":
       raiseAssert error
 
   test "channels layer can enable plugin-hosted kademlia":
-    let c = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"pluginKadDiscovery":true}}"""
-    )
+    let c = kernelOf("""{"entryLayer": "channels", "pluginKadDiscovery": true}""")
     check:
       c.externalDiscoveryConf.isSome()
       c.kademliaDiscoveryConf.isNone()
 
   test "choosing the plugin switches the in-process backend off under a preset":
-    ## The preset enables in-process kademlia. Without the switch in `merge`
-    ## this would trip the mutual-exclusion check instead of building.
+    ## The preset enables in-process kademlia. Without the switch in
+    ## `LogosDeliveryConf.init` this would trip the mutual-exclusion check.
     let c = kernelOf(
-      """{"entryLayer":"channels","preset":"logosdev",
-         "messagingOverrides":{"pluginKadDiscovery":true}}"""
+      """{"entryLayer": "channels", "preset": "logosdev", "pluginKadDiscovery": true}"""
     )
     check:
       c.externalDiscoveryConf.isSome()
       c.kademliaDiscoveryConf.isNone()
 
   test "channels layer can enable the in-process backend":
-    let c = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"enableKadDiscovery":true}}"""
-    )
+    let c = kernelOf("""{"entryLayer": "channels", "enableKadDiscovery": true}""")
     check:
       c.kademliaDiscoveryConf.isSome()
       c.externalDiscoveryConf.isNone()
@@ -477,9 +470,7 @@ suite "MessagingClientConf - discovery overrides":
   test "channels layer can turn discv5 off":
     ## Discv5 is on by default and was previously unreachable from this layer.
     let on = kernelOf("""{"entryLayer":"channels"}""")
-    let off = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"discv5Discovery":false}}"""
-    )
+    let off = kernelOf("""{"entryLayer": "channels", "discv5Discovery": false}""")
     check:
       on.discv5Conf.isSome()
       off.discv5Conf.isNone()
@@ -488,12 +479,10 @@ suite "MessagingClientConf - discovery overrides":
     let overrides =
       """"kadServiceLookupIntervalSec":11,"kadRandomLookupIntervalSec":22"""
     let plugin = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"pluginKadDiscovery":true,""" &
-        overrides & "}}"
+      """{"entryLayer":"channels","pluginKadDiscovery":true,""" & overrides & "}"
     )
     let inProcess = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"enableKadDiscovery":true,""" &
-        overrides & "}}"
+      """{"entryLayer":"channels","enableKadDiscovery":true,""" & overrides & "}"
     )
     check:
       plugin.externalDiscoveryConf.get().serviceLookupInterval == chronos.seconds(11)
@@ -503,8 +492,7 @@ suite "MessagingClientConf - discovery overrides":
 
   test "kebab-case switch names work alongside field names":
     let c = kernelOf(
-      """{"entryLayer":"channels","messagingOverrides":{"plugin-kad-discovery":true,
-         "kad-service-lookup-interval":33}}"""
+      """{"entryLayer": "channels", "plugin-kad-discovery": true, "kad-service-lookup-interval": 33}"""
     )
     check:
       c.externalDiscoveryConf.isSome()
@@ -512,9 +500,7 @@ suite "MessagingClientConf - discovery overrides":
 
   test "messaging layer reaches them too, with bootstrap nodes":
     let c = kernelOf(
-      """{"entryLayer":"messaging","preset":"logosdev",
-         "messagingOverrides":{"enableKadDiscovery":true,
-         "kadBootstrapNodes":["/ip4/1.2.3.4/tcp/60000/p2p/16Uiu2HAm7r91vZXfGsVMLva87nLhEk3Cpnv7VhXqp7mA4MKhC3bu"]}}"""
+      """{"entryLayer": "messaging", "preset": "logosdev", "enableKadDiscovery": true, "kadBootstrapNodes": ["/ip4/1.2.3.4/tcp/60000/p2p/16Uiu2HAm7r91vZXfGsVMLva87nLhEk3Cpnv7VhXqp7mA4MKhC3bu"]}"""
     )
     require c.kademliaDiscoveryConf.isSome()
     check c.kademliaDiscoveryConf.get().bootstrapNodes.len > 0

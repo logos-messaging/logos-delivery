@@ -1,5 +1,6 @@
 {.push raises: [].}
 
+import std/net
 import results
 
 import logos_delivery/api/conf/modes
@@ -41,6 +42,17 @@ proc init*(
     )
   )
 
+proc libraryKernelConf*(): ConfResult[WakuNodeConf] =
+  ## The kernel defaults of a library node: protocol flags unset, so that a mode
+  ## can set them, ports auto-allocated, QUIC on and websocket off.
+  var conf = ?defaultKernelConf(modeFlags = ModeProtocolFlags())
+  conf.tcpPort = Port(0)
+  conf.discv5UdpPort = Port(0)
+  conf.websocketPort = Port(0)
+  conf.websocketSupport = false
+  conf.quicSupport = true
+  return ok(conf)
+
 proc init*(
     T: type LogosDeliveryConf,
     entryLayer: EntryLayer = EntryLayer.channels,
@@ -48,18 +60,34 @@ proc init*(
     preset: string,
     messagingOverrides: MessagingClientConf,
     channelsOverrides: ReliableChannelManagerConf,
+    kernelConfArg: Opt[KernelConf] = Opt.none(KernelConf),
 ): ConfResult[LogosDeliveryConf] =
   ## Structured (preset + overrides) entry: `mode` and `preset` shape the kernel
   ## conf for every layer, `kernel` included - it just yields no upper layers.
+  ## Fields set in `kernelConfArg` win over `mode` and `preset`.
   ## `init(kernelConf)` is the raw entry that takes a caller's config as-is.
-  let merged = merge(?resolvePreset(preset), messagingOverrides)
-  var kernelConf = ?toWakuNodeConf(merged, mode)
-  kernelConf.preset = preset
+  var kernelConf =
+    if kernelConfArg.isSome():
+      WakuNodeConf(kernelConfArg.get())
+    else:
+      ?libraryKernelConf()
+  applyMode(kernelConf, mode)
+  if preset.len > 0:
+    kernelConf.preset = preset
+  let effectivePreset = kernelConf.preset
+  # The plugin-hosted kademlia and the in-process one are two hosts of one
+  # protocol, and the node refuses to run both. Choosing the plugin turns the
+  # in-process one off, explicitly, so that a preset enabling it cannot put it
+  # back: `checkSetPresetValueToField` leaves an already-set field alone.
+  if kernelConf.pluginKadDiscovery == Opt.some(true):
+    kernelConf.enableKadDiscovery = Opt.some(false)
+  applyModeFlags(kernelConf, DefaultKernelModeFlags)
+
   if entryLayer == EntryLayer.kernel:
     return ok(LogosDeliveryConf.init(KernelConf(kernelConf)))
   return LogosDeliveryConf.init(
     KernelConf(kernelConf),
-    merged,
+    merge(?resolvePreset(effectivePreset), messagingOverrides),
     if entryLayer == EntryLayer.channels:
       Opt.some(channelsOverrides)
     else:

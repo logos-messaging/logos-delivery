@@ -49,12 +49,10 @@ args = parser.parse_args()
 # The next 'json_config' is the item passed to the 'logosdelivery_create_node'.
 json_config = "{ \
                 \"mode\": \"Core\", \
-                \"messagingOverrides\": { \
-                    \"listen-address\": \"%s\", \
-                    \"tcp-port\": %d,           \
-                    \"nodekey\": \"%s\",        \
-                    \"log-level\": \"DEBUG\"    \
-                } \
+                \"listen-address\": \"%s\", \
+                \"tcp-port\": %d,           \
+                \"nodekey\": \"%s\",        \
+                \"log-level\": \"DEBUG\"    \
             }" % (args.host,
                   int(args.port),
                   args.key)

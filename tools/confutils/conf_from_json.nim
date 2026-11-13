@@ -91,14 +91,30 @@ proc parseSeqInto[U](
       )
   ok(res)
 
-proc applyJsonFieldsToConf*[T](
+proc jsonKeysOf*[T](
+    _: typedesc[T], jsonFields: Table[string, (string, JsonNode)]
+): seq[string] =
+  ## The JSON keys, as written, that match a field of `T` by name or CLI `name:`
+  ## pragma; nothing is parsed.
+  var keys: seq[string]
+  for confField, confValue in fieldPairs(default(T)):
+    let lowerField = confField.toLowerAscii()
+    if jsonFields.hasKey(lowerField):
+      keys.add(jsonFields.getOrDefault(lowerField)[0])
+    when confValue.hasCustomPragma(defs.name):
+      let lowerCliName = confValue.getCustomPragmaVal(defs.name).toLowerAscii()
+      if lowerCliName != lowerField and jsonFields.hasKey(lowerCliName):
+        keys.add(jsonFields.getOrDefault(lowerCliName)[0])
+  return keys
+
+proc takeJsonFieldsIntoConf*[T](
     conf: var T,
     jsonFields: var Table[string, (string, JsonNode)],
     parseErrPrefix: string,
-    unknownErrPrefix: string,
 ): Result[void, string] =
-  ## Write each conf field matched (case-insensitive) by name or CLI `name:` pragma.
-  ## JSON `null` leaves the field unset; unknown or non-`parseCmdArg` keys error.
+  ## Write each conf field matched (case-insensitive) by name or CLI `name:` pragma,
+  ## and remove its key from `jsonFields`; keys that match no field stay there.
+  ## JSON `null` leaves the field unset; a non-`parseCmdArg` field errors.
   for confField, confValue in fieldPairs(conf):
     # Match a field by its name or by its CLI name: pragma; case-insensitive.
     var matchKey = ""
@@ -156,6 +172,16 @@ proc applyJsonFieldsToConf*[T](
             jsonFields.del(matchKey)
           else:
             return err("config option '" & jsonKey & "' cannot be set via JSON")
+  ok()
+
+proc applyJsonFieldsToConf*[T](
+    conf: var T,
+    jsonFields: var Table[string, (string, JsonNode)],
+    parseErrPrefix: string,
+    unknownErrPrefix: string,
+): Result[void, string] =
+  ## `takeJsonFieldsIntoConf`, and a key that matches no field errors.
+  ?takeJsonFieldsIntoConf(conf, jsonFields, parseErrPrefix)
   if jsonFields.len > 0:
     return err(unknownKeysError(jsonFields, unknownErrPrefix))
   ok()
