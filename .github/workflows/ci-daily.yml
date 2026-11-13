@@ -20,7 +20,8 @@ jobs:
     if: ${{ !cancelled() && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
-    # Queue overlapping reports so two runs cannot both open a tracking issue.
+    # Serialise reports so two runs cannot both open a tracking issue. Only one
+    # report can wait: a third overlapping run cancels the waiting one.
     concurrency:
       group: nightly-notify
       cancel-in-progress: false

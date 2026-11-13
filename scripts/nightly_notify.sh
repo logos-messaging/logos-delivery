@@ -9,8 +9,8 @@
 #   green, no open issue  nothing
 #
 # Re-running a failed report is safe: a run already recorded in the issue only
-# posts again. A run older than the newest finished nightly reports nothing, so a
-# late or replayed run cannot overwrite newer state.
+# posts again. A run older than the newest nightly that reported (success or
+# failure) reports nothing, so a late or replayed run cannot overwrite newer state.
 #
 # Environment:
 #   RESULT                   result of the nightly `ci` job (success, failure, cancelled, skipped)
@@ -38,7 +38,7 @@ esac
 read -r workflow_id branch run_created < <(gh api "repos/$repo/actions/runs/$GITHUB_RUN_ID" \
   --jq '"\(.workflow_id) \(.head_branch) \(.created_at)"')
 newer=$(gh api "repos/$repo/actions/workflows/$workflow_id/runs?branch=$branch&status=completed&per_page=20" \
-  --jq '[.workflow_runs[] | select(.created_at > "'"$run_created"'")] | length')
+  --jq '[.workflow_runs[] | select(.created_at > "'"$run_created"'") | select(.conclusion == "success" or .conclusion == "failure")] | length')
 if [ "$newer" -gt 0 ]; then
   echo "a newer nightly has finished, it reports instead"
   exit 0
@@ -117,7 +117,7 @@ fi
 
 read -r number created <<<"$issue"
 # Calendar days, so a run that starts a little early still counts as the next night.
-days=$((($(date -u -d "$(date -u +%F)" +%s) - $(date -u -d "${created%%T*}" +%s)) / 86400 + 1))
+days=$((($(date -u -d "${run_created%%T*}" +%s) - $(date -u -d "${created%%T*}" +%s)) / 86400 + 1))
 already=$(recorded "$number")
 if [ "$already" = true ]; then
   echo "run already recorded in $(issue_url "$number"), posting again only"
