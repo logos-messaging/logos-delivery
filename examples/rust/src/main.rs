@@ -1,167 +1,143 @@
-use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Sender};
 use std::{slice, thread, time};
+
+use ciborium::value::Value;
 
 // These declarations are hand-written rather than generated from
 // build/generated/logosdelivery.h, so nothing checks them against it: a stale
 // one compiles and links cleanly and only misbehaves at run time. Keep them in
 // step with the header by hand.
+//
+// The raw entry points take their request as a CBOR map and answer with a
+// CBOR value on success, or with the plain error text on failure.
 
-/// LogosDeliveryScalarRawFn: `msg` is a byte run of `len` bytes.
-pub type ScalarRawFn = unsafe extern "C" fn(c_int, *mut c_char, usize, *const c_void);
+const RET_OK: c_int = 0;
+const RET_STALE_WARN: c_int = 3;
 
-/// LogosDeliveryCreateRawFn: carries the context address, and the failure text
-/// in its own argument rather than in the payload.
-pub type CreateRawFn =
-    unsafe extern "C" fn(c_int, *const c_char, *const c_char, *const c_void);
-
-#[repr(C)]
-pub struct LogosdeliveryCreateNodeCtorReq {
-    pub config_json: *const c_char,
-}
+/// FFICallback: `msg` is a byte run of `len` bytes.
+type RawFn = unsafe extern "C" fn(c_int, *const c_char, usize, *mut c_void);
 
 extern "C" {
-    pub fn logosdelivery_create_node(
-        req: *const LogosdeliveryCreateNodeCtorReq,
-        on_created: CreateRawFn,
-        user_data: *const c_void,
+    fn logosdelivery_create_node(
+        req_cbor: *const u8,
+        req_cbor_len: usize,
+        cb: RawFn,
+        user_data: *mut c_void,
     ) -> *mut c_void;
 
-    pub fn waku_version(ctx: *const c_void, cb: ScalarRawFn, user_data: *const c_void) -> c_int;
-
-    pub fn logosdelivery_start_node(
-        ctx: *const c_void,
-        cb: ScalarRawFn,
-        user_data: *const c_void,
-    ) -> c_int;
-
-    pub fn waku_default_pubsub_topic(
+    fn logosdelivery_start_node(
         ctx: *mut c_void,
-        cb: ScalarRawFn,
-        user_data: *const c_void,
+        cb: RawFn,
+        user_data: *mut c_void,
+        req_cbor: *const u8,
+        req_cbor_len: usize,
+    ) -> c_int;
+
+    fn waku_version(
+        ctx: *mut c_void,
+        cb: RawFn,
+        user_data: *mut c_void,
+        req_cbor: *const u8,
+        req_cbor_len: usize,
+    ) -> c_int;
+
+    fn waku_default_pubsub_topic(
+        ctx: *mut c_void,
+        cb: RawFn,
+        user_data: *mut c_void,
+        req_cbor: *const u8,
+        req_cbor_len: usize,
     ) -> c_int;
 }
 
-pub unsafe extern "C" fn trampoline<C>(
-    return_val: c_int,
-    buffer: *mut c_char,
-    buffer_len: usize,
-    data: *const c_void,
-) where
-    C: FnMut(i32, &str),
-{
-    let closure = &mut *(data as *mut C);
+type Reply = Result<Value, String>;
 
-    let buffer_utf8 =
-        String::from_utf8(slice::from_raw_parts(buffer as *mut u8, buffer_len).to_vec())
-            .expect("valid utf8");
-
-    closure(return_val, &buffer_utf8);
-}
-
-pub fn get_trampoline<C>(_closure: &C) -> ScalarRawFn
-where
-    C: FnMut(i32, &str),
-{
-    trampoline::<C>
-}
-
-/// The create/reply shape has no length, so the payload is read as a C string.
-pub unsafe extern "C" fn create_trampoline<C>(
-    return_val: c_int,
-    reply: *const c_char,
-    err_msg: *const c_char,
-    data: *const c_void,
-) where
-    C: FnMut(i32, &str),
-{
-    let closure = &mut *(data as *mut C);
-    let text = if !reply.is_null() { reply } else { err_msg };
-    let owned = if text.is_null() {
-        String::new()
+/// The library answers on its own thread; `user_data` is a leaked sender that
+/// the terminal reply takes back.
+unsafe extern "C" fn on_reply(ret: c_int, msg: *const c_char, len: usize, user_data: *mut c_void) {
+    if ret == RET_STALE_WARN {
+        return;
+    }
+    let tx = Box::from_raw(user_data as *mut Sender<Reply>);
+    let bytes = if msg.is_null() {
+        &[][..]
     } else {
-        std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned()
+        slice::from_raw_parts(msg as *const u8, len)
     };
-    closure(return_val, &owned);
+    let reply = if ret == RET_OK {
+        ciborium::from_reader(bytes).map_err(|e| format!("could not decode reply: {e}"))
+    } else {
+        Err(String::from_utf8_lossy(bytes).into_owned())
+    };
+    let _ = tx.send(reply);
 }
 
-pub fn get_create_trampoline<C>(_closure: &C) -> CreateRawFn
-where
-    C: FnMut(i32, &str),
-{
-    create_trampoline::<C>
+fn encode(fields: Vec<(&str, Value)>) -> Vec<u8> {
+    let map = Value::Map(fields.into_iter().map(|(k, v)| (Value::Text(k.into()), v)).collect());
+    let mut buf = Vec::new();
+    ciborium::into_writer(&map, &mut buf).expect("CBOR encoding into a Vec cannot fail");
+    buf
 }
 
-/// The library answers on its own thread, so every call below has to wait for
-/// its reply before reading the result.
-fn wait_reply(rx: &Receiver<(i32, String)>, what: &str) -> String {
-    match rx.recv_timeout(time::Duration::from_secs(15)) {
-        Ok((_ret, data)) => data,
+/// Runs one raw call and waits for its terminal reply.
+fn call(what: &str, req: Vec<u8>, f: impl FnOnce(&[u8], *mut c_void) -> c_int) -> Value {
+    let (tx, rx) = channel::<Reply>();
+    let user_data = Box::into_raw(Box::new(tx)) as *mut c_void;
+    let ret = f(&req, user_data);
+    if ret != RET_OK {
+        panic!("{what} was not accepted: {ret}");
+    }
+    match rx.recv_timeout(time::Duration::from_secs(30)) {
+        Ok(Ok(value)) => value,
+        Ok(Err(err)) => panic!("{what} failed: {err}"),
         Err(err) => panic!("no reply from {what}: {err}"),
     }
 }
 
-fn reply_sender(tx: Sender<(i32, String)>) -> impl FnMut(i32, &str) {
-    move |ret: i32, data: &str| {
-        let _ = tx.send((ret, data.to_string()));
-    }
+fn text(value: Value) -> String {
+    value.into_text().unwrap_or_else(|v| format!("{v:?}"))
 }
 
 fn main() {
-    let config_json = "\
-    { \
-        \"mode\": \"Core\",\
-        \"listen-address\": \"127.0.0.1\",\
-        \"tcp-port\": 60000, \
-        \"nodekey\": \"0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2\", \
-        \"log-level\": \"DEBUG\"
-    }";
+    let config_json = r#"{
+        "mode": "Core",
+        "listen-address": "127.0.0.1",
+        "tcp-port": 60000,
+        "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2",
+        "log-level": "DEBUG"
+    }"#;
 
-    unsafe {
-        // Create the waku node
-        let (tx, rx) = channel::<(i32, String)>();
-        let mut closure = reply_sender(tx);
-        let cb = get_create_trampoline(&closure);
-        let config_json_str = CString::new(config_json).unwrap();
-        let req = LogosdeliveryCreateNodeCtorReq {
-            config_json: config_json_str.as_ptr(),
-        };
-        let ctx = logosdelivery_create_node(&req, cb, &mut closure as *mut _ as *const c_void);
-        println!(
-            "logosdelivery_create_node: {}",
-            wait_reply(&rx, "logosdelivery_create_node")
-        );
+    // The create reply carries the context address as decimal text.
+    let addr = call(
+        "logosdelivery_create_node",
+        encode(vec![("configJson", Value::Text(config_json.into()))]),
+        |req, ud| unsafe {
+            logosdelivery_create_node(req.as_ptr(), req.len(), on_reply, ud);
+            RET_OK
+        },
+    );
+    let ctx = text(addr)
+        .parse::<usize>()
+        .expect("logosdelivery_create_node replied with a non-numeric address")
+        as *mut c_void;
 
-        // Extracting the current waku version
-        let (tx, rx) = channel::<(i32, String)>();
-        let mut closure = reply_sender(tx);
-        let cb = get_trampoline(&closure);
-        // `ctx` is already the context pointer; taking its address passed a
-        // pointer to the local instead, which the library rejected.
-        let _ret = waku_version(ctx, cb, &mut closure as *mut _ as *const c_void);
-        let version = wait_reply(&rx, "waku_version");
+    let empty = || encode(vec![]);
 
-        // Extracting the default pubsub topic
-        let (tx, rx) = channel::<(i32, String)>();
-        let mut closure = reply_sender(tx);
-        let cb = get_trampoline(&closure);
-        let _ret = waku_default_pubsub_topic(ctx, cb, &mut closure as *mut _ as *const c_void);
-        let default_pubsub_topic = wait_reply(&rx, "waku_default_pubsub_topic");
+    let version = call("waku_version", empty(), |req, ud| unsafe {
+        waku_version(ctx, on_reply, ud, req.as_ptr(), req.len())
+    });
+    println!("Version: {}", text(version));
 
-        println!("Version: {version}");
-        println!("Default pubsubTopic: {default_pubsub_topic}");
+    let topic = call("waku_default_pubsub_topic", empty(), |req, ud| unsafe {
+        waku_default_pubsub_topic(ctx, on_reply, ud, req.as_ptr(), req.len())
+    });
+    println!("Default pubsubTopic: {}", text(topic));
 
-        // Start the Waku node
-        let (tx, rx) = channel::<(i32, String)>();
-        let mut closure = reply_sender(tx);
-        let cb = get_trampoline(&closure);
-        let _ret = logosdelivery_start_node(ctx, cb, &mut closure as *mut _ as *const c_void);
-        println!(
-            "logosdelivery_start_node: {}",
-            wait_reply(&rx, "logosdelivery_start_node")
-        );
-    }
+    call("logosdelivery_start_node", empty(), |req, ud| unsafe {
+        logosdelivery_start_node(ctx, on_reply, ud, req.as_ptr(), req.len())
+    });
+    println!("Node started");
 
     loop {
         thread::sleep(time::Duration::from_millis(10000));

@@ -1,6 +1,6 @@
-name: WakuExample
+name: LogosDeliveryExample
 options:
-  bundleIdPrefix: org.waku
+  bundleIdPrefix: org.logosdelivery
   deploymentTarget:
     iOS: "14.0"
   xcodeVersion: "15.0"
@@ -11,32 +11,38 @@ settings:
   SUPPORTS_MACCATALYST: "NO"
 
 targets:
-  WakuExample:
+  LogosDeliveryExample:
     type: application
     platform: iOS
     supportedDestinations: [iOS]
     sources:
-      - WakuExample
+      - LogosDeliveryExample
     settings:
-      INFOPLIST_FILE: WakuExample/Info.plist
-      PRODUCT_BUNDLE_IDENTIFIER: org.waku.example
-      SWIFT_OBJC_BRIDGING_HEADER: WakuExample/WakuExample-Bridging-Header.h
+      INFOPLIST_FILE: LogosDeliveryExample/Info.plist
+      PRODUCT_BUNDLE_IDENTIFIER: org.logosdelivery.example
+      SWIFT_OBJC_BRIDGING_HEADER: LogosDeliveryExample/LogosDeliveryExample-Bridging-Header.h
+      # `make ios_example` puts the library, its headers and TinyCBOR here.
+      "LOGOS_LIB_DIR[sdk=iphoneos*]": "$(PROJECT_DIR)/../../build/ios/iphoneos-arm64"
+      "LOGOS_LIB_DIR[sdk=iphonesimulator*]": "$(PROJECT_DIR)/../../build/ios/iphonesimulator-arm64"
       HEADER_SEARCH_PATHS:
-        - "$(PROJECT_DIR)/WakuExample"
-      "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]":
-        - "$(PROJECT_DIR)/../../build/ios/iphoneos-arm64"
-      "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]":
-        - "$(PROJECT_DIR)/../../build/ios/iphonesimulator-arm64"
+        - "$(LOGOS_LIB_DIR)"
+      LIBRARY_SEARCH_PATHS:
+        - "$(LOGOS_LIB_DIR)"
       OTHER_LDFLAGS:
         - "-lc++"
-        - "-llogosdelivery"
+        - "-force_load"
+        - "$(LOGOS_LIB_DIR)/liblogosdelivery.a"
+        - "-ltinycbor"
+        - "-lleopard"
+        - "-lsqlite3"
+        - "-lz"
       IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     info:
-      path: WakuExample/Info.plist
+      path: LogosDeliveryExample/Info.plist
       properties:
-        CFBundleName: WakuExample
-        CFBundleDisplayName: Waku Example
-        CFBundleIdentifier: org.waku.example
+        CFBundleName: LogosDeliveryExample
+        CFBundleDisplayName: Logos Delivery Example
+        CFBundleIdentifier: org.logosdelivery.example
         CFBundleVersion: "1"
         CFBundleShortVersionString: "1.0"
         UILaunchScreen: {}

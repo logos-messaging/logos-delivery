@@ -14,7 +14,7 @@ function create_random_string(length) {
   return result;
 }
 
-var wakuMod = require('bindings')('waku');
+var logosDeliveryMod = require('bindings')('logosDelivery');
 
 var cfg = `{
     "mode": "Core",
@@ -28,28 +28,28 @@ function event_handler(event) {
     console.log("evento NodeJs: " + event)
 }
 
-wakuMod.wakuNew(cfg)
+logosDeliveryMod.logosDeliveryNew(cfg)
 
-wakuMod.wakuVersion(function(msg){ console.log("Waku Version: " + msg) })
+logosDeliveryMod.logosDeliveryVersion(function(msg){ console.log("Logos Delivery Version: " + msg) })
 
-// Example on how to retrieve a value from the waku library
+// Example on how to retrieve a value from the logosDelivery library
 var defaultPubsubTopic = ""
-wakuMod.wakuDefaultPubsubTopic(function(msg){ defaultPubsubTopic = msg })
+logosDeliveryMod.logosDeliveryDefaultPubsubTopic(function(msg){ defaultPubsubTopic = msg })
 
 console.log("Default pubsub topic: " + defaultPubsubTopic)
 
 console.log("Setting callback event callback function")
-wakuMod.wakuSetEventCallback(event_handler)
+logosDeliveryMod.logosDeliverySetEventCallback(event_handler)
 
-wakuMod.wakuStart()
+logosDeliveryMod.logosDeliveryStart()
 
-wakuMod.wakuConnect("/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN",
+logosDeliveryMod.logosDeliveryConnect("/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN",
                     10000,
                     function onErr(msg) {
                       console.log("Error connecting node: " + msg)
                     })
 
-wakuMod.wakuRelaySubscribe(defaultPubsubTopic,
+logosDeliveryMod.logosDeliveryRelaySubscribe(defaultPubsubTopic,
                            function onErr(msg) {
                              console.log("Error subscribing: " + msg)
                            })
@@ -59,7 +59,7 @@ app.post('/publish',
     // First read existing users.
     console.log("Publish event received")
 
-    wakuMod.wakuRelayPublish(defaultPubsubTopic,
+    logosDeliveryMod.logosDeliveryRelayPublish(defaultPubsubTopic,
                             "content_topic_name",
                             create_random_string(10),
                             10000,
@@ -74,5 +74,5 @@ app.post('/publish',
 var server = app.listen(8081, function () {
   var host = server.address().address
   var port = server.address().port
-  console.log("Example waku listening at http://%s:%s", host, port)
+  console.log("Example logosDelivery listening at http://%s:%s", host, port)
 })

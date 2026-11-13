@@ -56,55 +56,55 @@ function Section({children, title}: SectionProps): React.JSX.Element {
   );
 }
 
-const WakuFactory = (() => {
+const LogosDeliveryFactory = (() => {
   let isSetup = false;
 
-  const eventEmitter = new NativeEventEmitter(NativeModules.WakuModule);
-  class Waku {
-    wakuPtr: Number;
+  const eventEmitter = new NativeEventEmitter(NativeModules.LogosDeliveryModule);
+  class LogosDelivery {
+    logosDeliveryPtr: Number;
 
-    constructor(wakuPtr: Number) {
-      this.wakuPtr = wakuPtr;
+    constructor(logosDeliveryPtr: Number) {
+      this.logosDeliveryPtr = logosDeliveryPtr;
     }
 
     async destroy(): Promise<void> {
-      await NativeModules.WakuModule.destroy(this.wakuPtr);
+      await NativeModules.LogosDeliveryModule.destroy(this.logosDeliveryPtr);
     }
 
     async start(): Promise<void> {
-      return NativeModules.WakuModule.start(this.wakuPtr);
+      return NativeModules.LogosDeliveryModule.start(this.logosDeliveryPtr);
     }
 
     async stop(): Promise<void> {
-      return NativeModules.WakuModule.stop(this.wakuPtr);
+      return NativeModules.LogosDeliveryModule.stop(this.logosDeliveryPtr);
     }
 
     async version(): Promise<String> {
-      return NativeModules.WakuModule.version(this.wakuPtr);
+      return NativeModules.LogosDeliveryModule.version(this.logosDeliveryPtr);
     }
 
     async listenAddresses(): Promise<Array<String>> {
-      let addresses = await NativeModules.WakuModule.listenAddresses(
-        this.wakuPtr,
+      let addresses = await NativeModules.LogosDeliveryModule.listenAddresses(
+        this.logosDeliveryPtr,
       );
       return addresses;
     }
 
     async connect(peerMultiaddr: String, timeoutMs: Number): Promise<void> {
-      return NativeModules.WakuModule.connect(
-        this.wakuPtr,
+      return NativeModules.LogosDeliveryModule.connect(
+        this.logosDeliveryPtr,
         peerMultiaddr,
         timeoutMs,
       );
     }
 
     async relaySubscribe(pubsubTopic: String): Promise<void> {
-      return NativeModules.WakuModule.relaySubscribe(this.wakuPtr, pubsubTopic);
+      return NativeModules.LogosDeliveryModule.relaySubscribe(this.logosDeliveryPtr, pubsubTopic);
     }
 
     async relayUnsubscribe(pubsubTopic: String): Promise<void> {
-      return NativeModules.WakuModule.relayUnsubscribe(
-        this.wakuPtr,
+      return NativeModules.LogosDeliveryModule.relayUnsubscribe(
+        this.logosDeliveryPtr,
         pubsubTopic,
       );
     }
@@ -115,8 +115,8 @@ const WakuFactory = (() => {
       msg: any,
       timeoutMs: Number,
     ): Promise<String> {
-      return NativeModules.WakuModule.relayPublish(
-        this.wakuPtr,
+      return NativeModules.LogosDeliveryModule.relayPublish(
+        this.logosDeliveryPtr,
         pubsubTopic,
         msg,
         timeoutMs,
@@ -124,8 +124,8 @@ const WakuFactory = (() => {
     }
 
     onEvent(cb: (event: any) => void): EmitterSubscription {
-      return eventEmitter.addListener('wakuEvent', evt => {
-        if (evt.wakuPtr === this.wakuPtr) {
+      return eventEmitter.addListener('logosDeliveryEvent', evt => {
+        if (evt.logosDeliveryPtr === this.logosDeliveryPtr) {
           cb(JSON.parse(evt.event));
         }
       });
@@ -134,20 +134,20 @@ const WakuFactory = (() => {
 
   async function createInstance(config: any) {
     if (!isSetup) {
-      console.debug('initializing waku library');
-      await NativeModules.WakuModule.setup();
+      console.debug('initializing logosDelivery library');
+      await NativeModules.LogosDeliveryModule.setup();
       isSetup = true;
-      alert('waku instance created!');
+      alert('logosDelivery instance created!');
     }
 
-    let wakuPtr = await NativeModules.WakuModule.new(config);
-    return new Waku(wakuPtr);
+    let logosDeliveryPtr = await NativeModules.LogosDeliveryModule.new(config);
+    return new LogosDelivery(logosDeliveryPtr);
   }
 
   // Expose the factory method
   return {
     createInstance,
-    Waku,
+    LogosDelivery,
   };
 })();
 
@@ -158,7 +158,7 @@ function App(): React.JSX.Element {
     backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
   };
 
-  var waku: Waku;
+  var logosDelivery: LogosDelivery;
 
   const onClickNew = async () => {
     const config = {
@@ -168,36 +168,36 @@ function App(): React.JSX.Element {
       nodekey:
         '1122334455667788990011223344556677889900112233445566778899000022',
     };
-    waku = await WakuFactory.createInstance(config);
+    logosDelivery = await LogosDeliveryFactory.createInstance(config);
   };
 
   const onClickStart = async () => {
-    await waku.start();
+    await logosDelivery.start();
     alert('start executed succesfully');
   };
 
   const onClickVersion = async () => {
-    let version = await waku.version();
+    let version = await logosDelivery.version();
     alert(version);
   };
 
   const onClickListenAddresses = async () => {
-    let addresses = await waku.listenAddresses();
+    let addresses = await logosDelivery.listenAddresses();
     alert(addresses[0]);
   };
 
   const onClickStop = async () => {
-    await waku.stop();
+    await logosDelivery.stop();
     alert('stopped!');
   };
 
   const onClickDestroy = async () => {
-    await waku.destroy();
+    await logosDelivery.destroy();
     alert('destroyed!');
   };
 
   const onClickConnect = async () => {
-    let result = await waku.connect(
+    let result = await logosDelivery.connect(
       '/ip4/127.0.0.1/tcp/48117/p2p/16Uiu2HAmVrsyU3y3pQYuSEyaqrBgevQeshp7YZsL8rY3nWb2yWD5',
       0,
     );
@@ -207,17 +207,17 @@ function App(): React.JSX.Element {
   };
 
   const onClickSubscribe = async () => {
-    await waku.relaySubscribe('test');
+    await logosDelivery.relaySubscribe('test');
     alert('subscribed to test');
   };
 
   const onClickUnsubscribe = async () => {
-    await waku.relayUnsubscribe('test');
+    await logosDelivery.relayUnsubscribe('test');
     alert('unsubscribed from test');
   };
 
   const onClickSetEventCallback = async () => {
-    const eventSubs = waku.onEvent((event: any) => {
+    const eventSubs = logosDelivery.onEvent((event: any) => {
       console.log(event);
       alert('received a message');
     });
@@ -234,7 +234,7 @@ function App(): React.JSX.Element {
       timestamp: 0,
       version: 0,
     };
-    let hash = await waku.relayPublish(pubsubTopic, msg, 0);
+    let hash = await logosDelivery.relayPublish(pubsubTopic, msg, 0);
     alert('published - msgHash: ' + hash);
   };
 

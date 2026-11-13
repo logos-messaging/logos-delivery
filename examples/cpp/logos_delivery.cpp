@@ -43,7 +43,7 @@ void signal_cond()
     pthread_mutex_unlock(&mutex);
 }
 
-#define WAKU_CALL(call)                                                                \
+#define LOGOS_DELIVERY_CALL(call)                                                      \
     do                                                                                 \
     {                                                                                  \
         int ret = call;                                                                \
@@ -114,7 +114,7 @@ auto cify(F &&f)
 
 // The reply shape of every logosdelivery_ctx_* call: the reply on success, the
 // failure text otherwise. `fn` runs before the waiting thread is woken, so a
-// value it stores is there when WAKU_CALL returns.
+// value it stores is there when LOGOS_DELIVERY_CALL returns.
 template <class F>
 auto cifyReply(F &&f)
 {
@@ -180,7 +180,7 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
         char pubsubTopic[128];
         scanf("%127s", pubsubTopic);
 
-        WAKU_CALL(logosdelivery_ctx_waku_relay_subscribe(
+        LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_relay_subscribe(
             ctx, pubsubTopic,
             cifyReply([&](const char *msg, size_t len)
                       { event_handler(msg, len); }),
@@ -197,7 +197,7 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
         printf("e.g.: /ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\n");
         char peerAddr[512];
         scanf("%511s", peerAddr);
-        WAKU_CALL(logosdelivery_ctx_waku_connect(
+        LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_connect(
             ctx, peerAddr, 10000,
             cifyReply([&](const char *msg, size_t len)
                       { event_handler(msg, len); }),
@@ -219,7 +219,7 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
         // Static: cifyReply keeps the first lambda it is given, so the
         // reference it captures has to outlive this call.
         static std::string contentTopic;
-        WAKU_CALL(logosdelivery_ctx_waku_content_topic(
+        LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_content_topic(
             ctx, "appName", 1, "contentTopicName",
             "encoding",
             cifyReply([](const char *msg, size_t len)
@@ -231,7 +231,7 @@ void handle_user_input(const LogosDeliveryCtx *ctx)
                  "{\"payload\":\"%s\",\"contentTopic\":\"%s\"}",
                  msgPayload.data(), contentTopic.c_str());
 
-        WAKU_CALL(logosdelivery_ctx_waku_relay_publish(
+        LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_relay_publish(
             ctx, "/waku/2/rs/16/32", jsonWakuMsg, 10000,
             cifyReply([&](const char *msg, size_t len)
                       { event_handler(msg, len); }),
@@ -291,9 +291,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // example on how to retrieve a value from the `libwaku` callback.
+    // example on how to retrieve a value from the `liblogosdelivery` callback.
     std::string defaultPubsubTopic;
-    WAKU_CALL(
+    LOGOS_DELIVERY_CALL(
         logosdelivery_ctx_waku_default_pubsub_topic(
             ctx,
             cifyReply([&defaultPubsubTopic](const char *msg, size_t len)
@@ -302,17 +302,17 @@ int main(int argc, char **argv)
 
     std::cout << "Default pubsub topic: " << defaultPubsubTopic << std::endl;
 
-    WAKU_CALL(logosdelivery_ctx_waku_version(
+    LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_version(
         ctx,
         cifyReply([&](const char *msg, size_t len)
                   { std::cout << "Git Version: " << std::string(msg, len) << std::endl; }),
         nullptr));
 
     printf("Bind addr: %s:%u\n", cfgNode.host, cfgNode.port);
-    printf("Waku Relay enabled: %s\n", cfgNode.relay == 1 ? "YES" : "NO");
+    printf("Relay enabled: %s\n", cfgNode.relay == 1 ? "YES" : "NO");
 
     std::string pubsubTopic;
-    WAKU_CALL(logosdelivery_ctx_waku_pubsub_topic(
+    LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_pubsub_topic(
         ctx, "example",
         cifyReply([&](const char *msg, size_t len)
                   { pubsubTopic.assign(msg, len); }),
@@ -329,20 +329,20 @@ int main(int argc, char **argv)
           "onChannelMessageSent", "onChannelMessageError"})
         logosdelivery_add_event_listener(ctx->ptr, eventName, onEvent, nullptr);
 
-    WAKU_CALL(logosdelivery_ctx_start_node(
+    LOGOS_DELIVERY_CALL(logosdelivery_ctx_start_node(
         ctx,
         cifyReply([&](const char *msg, size_t len)
                   { event_handler(msg, len); }),
         nullptr));
 
-    WAKU_CALL(logosdelivery_ctx_waku_relay_subscribe(
+    LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_relay_subscribe(
         ctx, defaultPubsubTopic.c_str(),
         cifyReply([&](const char *msg, size_t len)
                   { event_handler(msg, len); }),
         nullptr));
 
     std::string myPeerId;
-    WAKU_CALL(logosdelivery_ctx_waku_get_my_peerid(
+    LOGOS_DELIVERY_CALL(logosdelivery_ctx_waku_get_my_peerid(
         ctx,
         cifyReply([&myPeerId](const char *msg, size_t len)
                   { myPeerId.assign(msg, len); }),

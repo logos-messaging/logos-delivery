@@ -34,6 +34,10 @@ NIMBLE_TASK_FLAGS = $(if $(NIM),--nim:$(NIM))
 # so it resolves after setup has populated nimbledeps/.
 NIM = $(firstword $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim.exe 2>/dev/null) $(shell ls -1 $(CURDIR)/nimbledeps/pkgs2/nim-*/bin/nim 2>/dev/null))
 
+# The Nim for direct `nim c` calls. Nimble installs none into nimbledeps/ when
+# a Nim of the locked version is already on PATH, and then uses that one.
+NIM_BIN = $(or $(NIM),nim)
+
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
@@ -107,14 +111,14 @@ endif
 ## Main ##
 ##########
 # The Makefile automatically bootstraps dependency setup when needed for build and test targets.
-.PHONY: all test clean examples ffi-examples deps nimble install-nimble print-nimble-path print-nim-path
+.PHONY: all test clean examples ffi-examples bindings-examples go-logos-delivery-example rust-logos-delivery-example qt-logos-delivery-example py-logos-delivery-example nodejs-logos-delivery-example deps nimble install-nimble print-nimble-path print-nim-path
 
 # default target
 all: | logosdeliverynode liblogosdelivery
 
-examples: | example2 chat2 chat2bridge
+examples: | example2 chat2 chat2bridge chat2mix lightpushwithmix
 
-ffi-examples: | cwaku_example cppwaku_example logosdelivery_example
+ffi-examples: | c-logos-delivery-example cpp-logos-delivery-example logosdelivery_example
 
 test_file := $(word 2,$(MAKECMDGOALS))
 define test_name
@@ -376,7 +380,7 @@ lightpushwithmix: | build-deps build deps librln
 
 api_example: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIM) api_example $(NIM_PARAMS) logos_delivery.nims
+		$(NIM_BIN) api_example $(NIM_PARAMS) logos_delivery.nims
 
 build/%: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
@@ -530,7 +534,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings c-logos-delivery-example liblogosdelivery liblogosdelivery_example
 
 # The library builds with plain `nim c`, as an embedder builds it: the build's
 # own flags first, then NIM_PARAMS, so the caller wins. No --skipParentCfg, so
@@ -541,7 +545,7 @@ docker-liteprotocoltester-push:
 define compile_liblogosdelivery
 mkdir -p "$(1)"
 rm -f "$(1)/$(2)"
-"$(NIM)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
+"$(NIM_BIN)" c -d:ffiOutputDir="$(1)/generated" --nimcache:"$(1)/nimcache" $(3) --out:"$(1)/$(2)" $(NIM_PARAMS) library/liblogosdelivery.nim
 cp library/*.h "$(1)/"
 endef
 
@@ -612,34 +616,58 @@ else ifeq ($(detected_OS),Windows)
 		-lws2_32
 endif
 
-cwaku_example: | build liblogosdelivery tinycbor
+c-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
-		./examples/cbindings/waku_example.c \
+		./examples/cbindings/logos_delivery_example.c \
 		./examples/cbindings/base64.c \
 		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
-cppwaku_example: | build liblogosdelivery tinycbor
+cpp-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		g++ -o "build/$@" \
-		./examples/cpp/waku.cpp \
+		./examples/cpp/logos_delivery.cpp \
 		./examples/cpp/base64.cpp \
 		-I./build \
 		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
-nodejswaku: | build deps
+# binding.gyp finds TinyCBOR under nimbledeps/ itself.
+nodejs-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
-		node-gyp build --directory=examples/nodejs/
+		npx --yes node-gyp rebuild --directory=examples/nodejs/ --tinycbor_dir="$(TINYCBOR_VENDOR_DIR)"
+
+go-logos-delivery-example: | build liblogosdelivery tinycbor
+	echo -e $(BUILD_MSG) "build/$@" && \
+		CGO_CFLAGS="-I$(TINYCBOR_VENDOR_DIR)" CGO_LDFLAGS="$(CURDIR)/$(TINYCBOR_LIB)" \
+		go build -o "build/$@" ./examples/golang/logos_delivery.go
+
+rust-logos-delivery-example: | build liblogosdelivery
+	echo -e $(BUILD_MSG) "build/$@" && \
+		cd examples/rust && cargo build && cp target/debug/logos-delivery-rust-simple-example ../../build/$@
+
+# Needs Qt 5 (qtdeclarative5-dev on Ubuntu) and moc on PATH.
+qt-logos-delivery-example: | build liblogosdelivery tinycbor
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(MAKE) -C examples/qt TINYCBOR_VENDOR_DIR="$(TINYCBOR_VENDOR_DIR)" && cp examples/qt/main-qt build/$@
+
+# ctypes binds by name at run time, so only the syntax can be checked here.
+py-logos-delivery-example:
+	python3 -m py_compile examples/python/logos_delivery.py
+
+# The examples in other languages that bind liblogosdelivery. Qt is left out:
+# it needs a Qt 5 install.
+bindings-examples: | go-logos-delivery-example rust-logos-delivery-example nodejs-logos-delivery-example py-logos-delivery-example
 
 #####################
 ## Mobile Bindings ##
 #####################
 .PHONY: liblogosdelivery-android \
+		android_example \
 		liblogosdelivery-android-precheck \
 		liblogosdelivery-android-arm64 \
 		liblogosdelivery-android-amd64 \
@@ -714,10 +742,24 @@ liblogosdelivery-android:
 	$(MAKE) liblogosdelivery-android-arm64
 	$(MAKE) liblogosdelivery-android-x86
 
+# Builds the React Native example's JNI module for arm64 only: the Gradle app
+# around it is not built here.
+ANDROID_EXAMPLE_DIR := examples/mobile/android/app/src/main
+android_example: | liblogosdelivery-android-arm64
+	mkdir -p $(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a
+	cp build/android/arm64-v8a/liblogosdelivery.so build/android/arm64-v8a/librln.so \
+		$(ANDROID_EXAMPLE_DIR)/jniLibs/arm64-v8a/
+	"$(ANDROID_NDK_HOME)/ndk-build" -C $(ANDROID_EXAMPLE_DIR) APP_ABI=arm64-v8a \
+		APP_PLATFORM=android-$(ANDROID_TARGET) TINYCBOR_DIR="$(TINYCBOR_VENDOR_DIR)" \
+		LOGOSDELIVERY_INCLUDE=$(CURDIR)/build/android/arm64-v8a \
+		NDK_OUT=$(CURDIR)/build/android/example/obj NDK_LIBS_OUT=$(CURDIR)/build/android/example/libs
+
 #################
 ## iOS Bindings #
 #################
 .PHONY: liblogosdelivery-ios-precheck \
+		tinycbor-ios-simulator \
+		ios_example \
 		liblogosdelivery-ios-device \
 		liblogosdelivery-ios-simulator \
 		liblogosdelivery-ios
@@ -763,6 +805,29 @@ liblogosdelivery-ios-simulator: | liblogosdelivery-ios-precheck build-deps build
 liblogosdelivery-ios:
 	$(MAKE) liblogosdelivery-ios-device
 	$(MAKE) liblogosdelivery-ios-simulator
+
+# The example's Xcode project finds the library, its headers and TinyCBOR in
+# build/ios/iphonesimulator-arm64, so TinyCBOR is built for that target too.
+IOS_SIM_DIR := build/ios/iphonesimulator-arm64
+IOS_SIM_CC = xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=$(IOS_DEPLOYMENT_TARGET)
+
+tinycbor-ios-simulator: | build-deps
+	@test -f "$(TINYCBOR_VENDOR_DIR)/tinycbor/cbor.h" || \
+		{ echo "No vendored TinyCBOR in the ffi package under nimbledeps/pkgs2/ -- run 'make build-deps' first" >&2; exit 1; }
+	mkdir -p $(IOS_SIM_DIR)/tinycbor-obj $(IOS_SIM_DIR)/tinycbor
+	$(foreach src,$(TINYCBOR_SRCS),$(IOS_SIM_CC) -c -O2 -std=gnu99 -I"$(TINYCBOR_VENDOR_DIR)/tinycbor" \
+		"$(TINYCBOR_VENDOR_DIR)/tinycbor/$(src)" -o $(IOS_SIM_DIR)/tinycbor-obj/$(src:.c=.o) &&) true
+	rm -f $(IOS_SIM_DIR)/libtinycbor.a
+	xcrun ar rcs $(IOS_SIM_DIR)/libtinycbor.a $(TINYCBOR_SRCS:%.c=$(IOS_SIM_DIR)/tinycbor-obj/%.o)
+	cp "$(TINYCBOR_VENDOR_DIR)"/tinycbor/*.h $(IOS_SIM_DIR)/tinycbor/
+
+# A static library leaves Leopard-RS in its own archive, and librln to the
+# app: run it as `make DISABLE_RLN=true ios_example`, there is no iOS librln.
+ios_example: | liblogosdelivery-ios-simulator tinycbor-ios-simulator
+	cp $(IOS_SIM_DIR)/nimcache/vendor_leopard/liblibleopard.a $(IOS_SIM_DIR)/libleopard.a
+	xcodebuild -project examples/ios/LogosDeliveryExample.xcodeproj -target LogosDeliveryExample \
+		-sdk iphonesimulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
+		SYMROOT=$(CURDIR)/build/ios/xcode build
 
 ###################
 # Release Targets #

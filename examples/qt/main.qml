@@ -29,14 +29,14 @@ ApplicationWindow {
             spacing: 30
 
             Button {
-                text: "Start Waku Node"
+                text: "Start Logos Delivery Node"
                 width: 150
                 height: 40
                 font.pixelSize: 16
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: wakuHandler.start()
+                    onClicked: logosDeliveryHandler.start()
                 }
                 background: Rectangle {
                     color: "#2196F3"
@@ -45,14 +45,14 @@ ApplicationWindow {
             }
 
             Button {
-                text: "Stop Waku Node"
+                text: "Stop Logos Delivery Node"
                 width: 150
                 height: 40
                 font.pixelSize: 16
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: wakuHandler.stop()
+                    onClicked: logosDeliveryHandler.stop()
                 }
                 background: Rectangle {
                     color: "#F44336"
