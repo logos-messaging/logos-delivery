@@ -119,7 +119,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 sent = wait_for_sent(
                     collector=sender_collector,
@@ -129,7 +129,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                 assert sent is not None, (
                     f"No message_sent event within {SENT_AFTER_STORE_TIMEOUT_S}s " f"after propagation. Collected events: {sender_collector.events}"
                 )
-                assert sent["requestId"] == request_id
+                assert sent["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -204,7 +204,7 @@ class TestS16LightpushPeerAppearsLater(StepsCommon):
                         f"after the lightpush peer joined. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after recovery: {error}"
@@ -303,7 +303,7 @@ class TestS18StagedTopologyReformation(StepsCommon):
                         f"after peers appeared in stages. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after staged recovery: {error}"
@@ -369,7 +369,7 @@ class TestS18StagedTopologyReformation(StepsCommon):
                         f"after peers appeared in stages. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after staged recovery: {error}"
@@ -461,7 +461,7 @@ class TestS25EphemeralLightpushWithStore(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 # Ephemeral messages are never store-validated, so no Sent
                 # event must arrive even though the store peer is reachable.

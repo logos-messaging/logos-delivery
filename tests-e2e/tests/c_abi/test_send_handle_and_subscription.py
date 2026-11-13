@@ -165,7 +165,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -248,7 +248,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s "
                     f"after unsubscribe + send. Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"

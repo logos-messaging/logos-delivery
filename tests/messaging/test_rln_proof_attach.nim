@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, times, strutils]
+import std/[importutils, options, sequtils, tables, times, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 import
   logos_delivery/waku/[waku, waku_core, rln],
@@ -15,11 +15,13 @@ import
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
-    [send_service {.all.}, send_processor, delivery_task, mix_processor]
+    [send_service {.all.}, transports, delivery_task]
 import
-  ../testlib/[testasync, wakunodeconf],
+  ../testlib/[fake_transport, testasync, wakunodeconf],
   ../waku_rln_relay/utils_onchain,
   ../waku_rln_relay/rln/waku_rln_relay_utils
+
+privateAccess(SendService) # the tests read `deliveryTasks`
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -68,22 +70,10 @@ proc mountFailingRln(waku: Waku, failWith: RlnErrorKind): FailingProofBackend =
   waku.node.rlnPlugin = Opt.some(RlnPlugin(name: "stub", generateProof: generate))
   return backend
 
-type CountingProcessor = ref object of BaseSendProcessor
-  ## Propagates every task it is given; `calls` shows whether a task got out.
-  calls: int
-
-method isValidProcessor(self: CountingProcessor, task: DeliveryTask): bool {.gcsafe.} =
-  return true
-
-method sendImpl(self: CountingProcessor, task: DeliveryTask): Future[void] {.async.} =
-  inc self.calls
-  task.state = DeliveryState.SuccessfullyPropagated
-
 proc buildTask(id: string): DeliveryTask =
   let msg = testMessage()
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
@@ -125,7 +115,7 @@ suite "SendService RLN proof attach":
 
 suite "SendService RLN proof attach - failing backend":
   ## A Permanent attach error cannot clear on a later attempt, so the task fails
-  ## with one `MessageErrorEvent` and never reaches a send processor.
+  ## with one `MessageErrorEvent` and never reaches a transport.
   const PermanentReason =
     "Failed to attach RLN proof: Permanent: scripted attach failure"
 
@@ -149,71 +139,97 @@ suite "SendService RLN proof attach - failing backend":
     await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
     discard await waku.stop()
 
-  proc newService(processor: BaseSendProcessor): SendService =
-    ## A service that holds one task, so `isFull` tells whether it holds the task.
-    ## It ticks each 10 minutes, so `retryNow` starts each attempt.
-    let manager =
-      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    return SendService
+  proc newService(
+      relay: FakeTransport,
+      attemptInterval = SendAttemptInterval,
+      manager: RateLimitManager = nil,
+  ): SendService =
+    ## A service that runs.
+    let budget =
+      if manager.isNil():
+        RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+      else:
+        manager
+    let service = SendService
       .new(
         false,
         waku,
-        manager,
-        processor,
-        sendQueueCapacity = 1,
-        retryInterval = chronos.minutes(10),
+        budget,
+        transportsOf((Transport.Relay, relay)),
+        attemptInterval = attemptInterval,
       )
       .expect("SendService.new")
+    service.startSendService()
+    return service
 
   asyncTest "a first attempt fails the task at once, with one event":
     let backend = waku.mountFailingRln(RlnErrorKind.Permanent)
-    let processor = CountingProcessor()
-    let service = newService(processor)
+    let relay = FakeTransport.new()
+    let service = newService(relay)
+    defer:
+      await service.stopSendService()
     let task = buildTask("permanent-in-first-attempt")
 
     check service.enqueue(task).isOk()
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    checkUntilTimeout:
+    # The attempt interval of the service is 5 s, so the error is of the first attempt.
+    checkUntilTimeoutCustom(chronos.seconds(1), chronos.milliseconds(5)):
       errors.len == 1
     check:
       task.state == DeliveryState.FailedToDeliver
-      processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      relay.calls.len == 0
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 1
-      not service.isFull() # removed, so it is not retried or reported again
+      service.deliveryTasks.len == 0 # removed, so it is not reported again
 
   asyncTest "a retry fails a task whose proof attach turns Permanent":
     ## The task waits for its proof while the backend is not ready. By the retry its
     ## message epoch can be out of reach, which the backend reports as Permanent.
     let backend = waku.mountFailingRln(RlnErrorKind.NotReady)
-    let processor = CountingProcessor()
-    let service = newService(processor)
+    let relay = FakeTransport.new()
+    let service = newService(relay, attemptInterval = chronos.milliseconds(300))
+    defer:
+      await service.stopSendService()
     let task = buildTask("permanent-in-retry")
 
     check service.enqueue(task).isOk()
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    checkUntilTimeout:
-      task.state == DeliveryState.NextRoundRetry
-    check:
+    checkUntilTimeoutCustom(chronos.seconds(5), chronos.milliseconds(5)):
       backend.attempts == 1
-      errors.len == 0
+    check errors.len == 0
 
     backend.failWith = RlnErrorKind.Permanent
-    service.retryNow()
-    checkUntilTimeout:
+    checkUntilTimeoutCustom(chronos.seconds(5), chronos.milliseconds(5)):
       errors.len == 1
     check:
       task.state == DeliveryState.FailedToDeliver
-      processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      relay.calls.len == 0
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 2
-      not service.isFull() # removed, so no later attempt reserves an id for it
+      service.deliveryTasks.len == 0 # removed, so no later attempt reserves an id for it
+
+  asyncTest "a task whose proof attach fails at each attempt gives the charge back to the budget":
+    ## The message drew no RLN message id, so the next send must not be refused.
+    let backend = waku.mountFailingRln(RlnErrorKind.Transient)
+    let manager = RateLimitManager
+      .new(RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1))
+      .expect("RateLimitManager.new")
+    let service = newService(
+      FakeTransport.new(), attemptInterval = chronos.milliseconds(20), manager = manager
+    )
+    defer:
+      await service.stopSendService()
+
+    check service.enqueue(buildTask("no-proof")).isOk()
+    check manager.sentInCurrentEpoch == 1'u64
+    checkUntilTimeoutCustom(chronos.seconds(5), chronos.milliseconds(5)):
+      errors.len == 1
+    check:
+      backend.attempts == MaxSendAttempts
+      errors[0].error.startsWith("Failed to attach RLN proof")
+      manager.sentInCurrentEpoch == 0'u64
+      manager.quotaState() == QuotaState.Normal
 
 suite "SendService RLN proof attach - RLN mounted":
   var
@@ -275,24 +291,66 @@ suite "SendService RLN proof attach - RLN mounted":
     let quota = RateLimitManager
       .new(RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1))
       .expect("RateLimitManager.new")
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
+    var transports: Transports
+    transports[Transport.Mix] = Opt.some(mixTransport(waku))
     let service = SendService
-      .new(false, waku, quota, mix, retryInterval = chronos.hours(1))
+      .new(false, waku, quota, transports, AnonymityLevel.Required)
       .expect("SendService.new")
     service.startSendService()
     defer:
       await service.stopSendService()
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
+    let refused = service.enqueue(task)
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.TooLarge
+        refused.error.desc.startsWith(MixTooLargeReason)
     check:
-      task.errorDesc.startsWith(MixTooLargeReason)
       task.msg.proof.len == 0
-      task.firstAdmittedTime.isNone()
       onchainRln.nonceManager.nextId == 0
       quota.sentInCurrentEpoch == 0
+
+  asyncTest "the EVM budget limits a manager with a disabled config":
+    ## The messaging client reads the RLN budget and the epoch length this way.
+    check waku.rlnEpochSizeSec() == Opt.some(uint64(TestEpochSizeSec))
+    let now = new uint64
+    now[] = nowSec()
+    var answers = true
+    let limiter = RateLimitManager
+      .new(
+        RateLimitConfig(),
+        proc(
+            timestamp: uint64
+        ): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+          if not answers:
+            # An answer that never comes.
+            await Future[void].Raising([]).init(
+              "no-rln-answer", {FutureFlag.OwnCancelSchedule}
+            )
+          let quota =
+            try:
+              (await waku.rlnEpochQuota(timestamp)).valueOr:
+                return Opt.none(EpochQuota)
+            except CatchableError:
+              return Opt.none(EpochQuota)
+          return Opt.some(quota),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          now[],
+        epochSizeProvider = proc(): Opt[uint64] {.gcsafe, raises: [].} =
+          waku.rlnEpochSizeSec(),
+      )
+      .expect("RateLimitManager.new")
+    await limiter.refresh()
+    for _ in 0 ..< 20:
+      check limiter.admit().isOk()
+    check:
+      limiter.admit().error == RateLimitError.OverBudget
+      onchainRln.nonceManager.nextId == 0 # the budget reads draw no message id
+
+    # The manager has the end of the EVM epoch, so the next epoch needs no answer.
+    answers = false
+    now[] += TestEpochSizeSec
+    check limiter.admit().isOk()
 
   asyncTest "attaches a proof":
     let attached = (await waku.attachRlnProof(testMessage())).expect("attachRlnProof")

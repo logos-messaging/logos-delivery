@@ -81,7 +81,8 @@ suite "Messaging REST API":
     let sendResp = await client.messagingPostMessagesV1(msg)
     check:
       sendResp.status == 200
-      sendResp.data.requestId.len > 0
+      sendResp.data.messageHash.startsWith("0x")
+      sendResp.data.messageHash.len == 66
 
     let unsubResp = await client.messagingDeleteSubscriptionsV1(@[contentTopic])
     check unsubResp.status == 200
@@ -120,7 +121,7 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "send events are grouped by requestId and evict after poll":
+  asyncTest "send events are grouped by message hash and evict after poll":
     var node: LogosDelivery
     var rest: RestService
     lockNewGlobalBrokerContext:
@@ -131,43 +132,43 @@ suite "Messaging REST API":
     let client = restClientFor(rest)
     let brokerCtx = node.waku.brokerCtx
 
-    let reqA = RequestId("req-A")
-    let reqB = RequestId("req-B")
+    const hashA = "0xaa"
+    const hashB = "0xbb"
 
-    # reqA sees the full lifecycle; reqB only an error.
-    MessagePropagatedEvent.emit(
-      brokerCtx, MessagePropagatedEvent(requestId: reqA, messageHash: "0xaa")
-    )
-    MessageSentEvent.emit(
-      brokerCtx, MessageSentEvent(requestId: reqA, messageHash: "0xaa")
-    )
+    # hashA sees the full lifecycle; hashB only an error.
+    MessagePropagatedEvent.emit(brokerCtx, MessagePropagatedEvent(messageHash: hashA))
+    MessageSentEvent.emit(brokerCtx, MessageSentEvent(messageHash: hashA))
     MessageErrorEvent.emit(
-      brokerCtx, MessageErrorEvent(requestId: reqB, messageHash: "0xbb", error: "boom")
+      brokerCtx,
+      MessageErrorEvent(
+        messageHash: hashB, kind: MessageErrorKind.NotStored, error: "boom"
+      ),
     )
     await sleepAsync(settleDelay)
 
-    # GET by id returns only reqA and removes it.
-    let byIdResp = await client.messagingGetSendEventsByIdV1($reqA)
+    # GET by hash returns only hashA and removes it.
+    let byHashResp = await client.messagingGetSendEventsByHashV1(hashA)
     check:
-      byIdResp.status == 200
-      byIdResp.data.requestId == $reqA
-      byIdResp.data.events.len == 2
-      byIdResp.data.events.anyIt(it.kind == SendEventKind.Sent)
-      byIdResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
+      byHashResp.status == 200
+      byHashResp.data.messageHash == hashA
+      byHashResp.data.events.len == 2
+      byHashResp.data.events.anyIt(it.kind == SendEventKind.Sent)
+      byHashResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
 
-    # Unknown / already-polled id → 404 (raw string client so the text error
+    # Unknown / already-polled hash → 404 (raw string client so the text error
     # body decodes; the typed client would raise on a non-2xx body).
-    let missingResp = await client.messagingGetSendEventsByIdRawV1($reqA)
+    let missingResp = await client.messagingGetSendEventsByHashRawV1(hashA)
     check missingResp.status == 404
 
-    # GET all now returns only reqB (with its error), then clears.
+    # GET all now returns only hashB (with its error), then clears.
     let allResp = await client.messagingGetSendEventsV1()
     check:
       allResp.status == 200
       allResp.data.len == 1
-      allResp.data[0].requestId == $reqB
+      allResp.data[0].messageHash == hashB
       allResp.data[0].events.len == 1
       allResp.data[0].events[0].kind == SendEventKind.Error
+      allResp.data[0].events[0].errorKind == Opt.some(MessageErrorKind.NotStored)
       allResp.data[0].events[0].error == "boom"
 
     let emptyResp = await client.messagingGetSendEventsV1()
@@ -180,10 +181,15 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "a send answers 429 with Retry-After when the send queue is full":
+  asyncTest "a send answers 429 with Retry-After when the rate-limit budget is spent":
+    const EpochSec = 600'u64
     let conf = LogosDeliveryConf.init(
       KernelConf(restNodeConf().kernel),
-      MessagingClientConf(sendQueueCapacity: Opt.some(1'u)),
+      MessagingClientConf(
+        rateLimitEnabled: Opt.some(true),
+        rateLimitEpochPeriodSec: Opt.some(EpochSec),
+        rateLimitMessagesPerEpoch: Opt.some(1'u64),
+      ),
       Opt.none(ReliableChannelManagerConf),
     ).valueOr:
       raiseAssert error
@@ -196,8 +202,7 @@ suite "Messaging REST API":
         raiseAssert "Failed to start node: " & error
     let client = restClientFor(rest)
 
-    # The node has no peer, so the first send stays in the send queue.
-    let contentTopic = "/test/1/messaging-rest-queue-full/proto"
+    let contentTopic = "/test/1/messaging-rest-rate-limit/proto"
     let firstResp = await client.messagingPostMessagesV1(
       MessagingJsonEnvelope(
         payload: base64.encode("first"),
@@ -209,7 +214,7 @@ suite "Messaging REST API":
     check firstResp.status == 200
 
     # A raw request, because the typed stub does not return the response headers.
-    let fullResp = await issueRequest(
+    let limitedResp = await issueRequest(
       rest.server.getAddress("/messaging/v1/messages"),
       meth = MethodPost,
       headers = @[("Content-Type", "application/json")],
@@ -217,9 +222,13 @@ suite "Messaging REST API":
         "{\"payload\":\"" & $base64.encode("second") & "\",\"contentTopic\":\"" &
         contentTopic & "\"}",
     )
+    check limitedResp.status == 429
+    # `Retry-After` is the time to the end of the epoch, in seconds.
+    let retryAfter = parseInt(limitedResp.headers.getString("Retry-After"))
     check:
-      fullResp.status == 429
-      fullResp.headers.getString("Retry-After") == "1"
+      retryAfter >= 1
+      retryAfter <= int(EpochSec)
+      limitedResp.data.startsWith("Send failed: RateLimited")
 
     await rest.stop(node)
 
@@ -251,7 +260,33 @@ suite "Messaging REST API":
       )
       resp.data.contains("Field `payload` is missing or empty")
 
-  asyncTest "a send whose meta exceeds the limit is accepted with a requestId":
+  asyncTest "a send above the size limit of the node answers 413":
+    var conf = restNodeConf()
+    conf.kernel.maxMessageSize = "1000 B"
+    var node: LogosDelivery
+    var rest: RestService
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      rest = (await node.startWithRest()).valueOr:
+        raiseAssert "Failed to start node: " & error
+    defer:
+      await rest.stop(node)
+      (await node.stop()).expect("Failed to stop node")
+
+    let resp = await issueRequest(
+      rest.server.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body =
+        "{\"payload\":\"" & $base64.encode(newSeq[byte](1001)) &
+        "\",\"contentTopic\":\"/test/1/messaging-rest-too-large/proto\"}",
+    )
+    check:
+      resp.status == 413
+      resp.data.startsWith("Send failed: TooLarge")
+
+  asyncTest "a send whose meta exceeds the limit is accepted with a message hash":
     var node: LogosDelivery
     var rest: RestService
     lockNewGlobalBrokerContext:
@@ -274,16 +309,16 @@ suite "Messaging REST API":
     )
     check:
       resp.status == 200
-      resp.data.startsWith("{\"requestId\":\"")
+      resp.data.startsWith("{\"messageHash\":\"0x")
 
   test "an evicted send status counts in logos_delivery_rest_send_dropped":
     let cache = MessagingEventCache.new(maxSendRequests = 2)
     let before = logos_delivery_rest_send_dropped.value()
-    for id in ["a", "b", "c"]:
-      cache.recordSend(id, "0x" & id, SendEventKind.Propagated)
+    for hash in ["0xa", "0xb", "0xc"]:
+      cache.recordSend(hash, SendEventKind.Propagated)
     check:
       logos_delivery_rest_send_dropped.value() == before + 1
-      cache.pollAllSend().mapIt(it.requestId) == @["b", "c"]
+      cache.pollAllSend().mapIt(it.messageHash) == @["0xb", "0xc"]
 
   asyncTest "received messages are observable, capped, and evict after poll":
     var node: LogosDelivery
@@ -413,7 +448,7 @@ suite "Messaging REST API":
 
   test "clear drops the buffered send statuses and received messages":
     let cache = MessagingEventCache.new()
-    cache.recordSend("req-1", "0x1", SendEventKind.Sent)
+    cache.recordSend("0x1", SendEventKind.Sent)
     cache.recordReceived(
       "0x2",
       toRelayWakuMessage(fakeWakuMessage(contentTopic = "/test/1/recv/proto")),

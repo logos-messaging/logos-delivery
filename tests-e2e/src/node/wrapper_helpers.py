@@ -29,6 +29,8 @@ CACHE_EXPIRY_SLACK_S = 10.0
 ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
 RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
 STORE_VALIDATION_TIMEOUT_MSG = "Propagated but not confirmed by a store node within the store validation window"
+# The start of the error of a send that the node refused for its size.
+SEND_TOO_LARGE_MSG = "Send failed: TooLarge"
 
 
 class EventCollector:
@@ -53,8 +55,11 @@ class EventCollector:
             self.events.append(payload)
 
     def get_events_for_request(self, request_id: str) -> list[dict]:
+        """The events of one send. A message event carries the message hash that
+        send() returned. A channel event carries the request id that
+        channel_send() returned."""
         with self._lock:
-            return [e for e in self.events if e.get("requestId") == request_id]
+            return [e for e in self.events if request_id in (e.get("messageHash"), e.get("requestId"))]
 
     def snapshot(self) -> list[dict]:
         """Return a thread-safe copy of all collected events.
@@ -162,7 +167,7 @@ TERMINAL_EVENT_TYPES = {EVENT_PROPAGATED, EVENT_SENT, EVENT_ERROR}
 
 def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
     """Check per-request event invariants (issue #163):
-    - All events carry the correct requestId.
+    - All events carry the message hash that send() returned.
     - No duplicate terminal events (Propagated, Sent, Error).
     - Sent never appears before Propagated.
     """
@@ -172,8 +177,8 @@ def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
     counts: dict[str, int] = {}
     first_index: dict[str, int] = {}
     for i, event in enumerate(events):
-        assert event.get("requestId") == request_id, (
-            f"Event at index {i} has wrong requestId: " f"expected {request_id!r}, got {event.get('requestId')!r}"
+        assert event.get("messageHash") == request_id, (
+            f"Event at index {i} has wrong messageHash: " f"expected {request_id!r}, got {event.get('messageHash')!r}"
         )
         event_type = event.get("eventType", "")
         if event_type in TERMINAL_EVENT_TYPES:

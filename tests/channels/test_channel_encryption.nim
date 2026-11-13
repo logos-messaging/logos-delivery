@@ -4,7 +4,7 @@ import results, std/[sequtils, strutils, tables]
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
 
-import ../testlib/[wakucore, wakunodeconf]
+import ../testlib/[wakucore, wakunodeconf, messaging_send]
 
 import logos_delivery
 import logos_delivery/waku/waku_core
@@ -116,9 +116,9 @@ template captureWire(sink: untyped) =
   ## Stands in for the messaging layer, recording what reaches the wire.
   MessagingSend.replaceProvider(
     brokerCtx,
-    proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+    proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
       sink.add(envelope.payload)
-      return ok(RequestId("fake-req")),
+      return ok(SendResult.ok(fakeHash("fake-req"))),
   ).isOkOr:
     raiseAssert "replaceProvider failed: " & error
 
@@ -198,9 +198,9 @@ suite "Channel encryption - egress":
     var sendCalls = 0
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         sendCalls.inc
-        return ok(RequestId("fake-req")),
+        return ok(SendResult.ok(fakeHash("fake-req"))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 

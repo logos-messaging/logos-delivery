@@ -93,9 +93,9 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         ]
         wait_until(
             lambda: self.node2.search_log_for_keywords(
-                [rf"^INF .*Message propagated but not validated by a store node within time window; stop trying\..*requestId={request_id}"],
+                [rf"^INF .*Message propagated but not validated by a store node within time window; stop trying\..*msgHash={request_id}"],
                 use_regex=True,
             ),
             message=f"Expected the INFO line of the store validation timeout of {request_id}",
         )
-        assert self.node2.search_log_for_keywords([rf"^(WRN|ERR) .*requestId={request_id}"], use_regex=True) is None
+        assert self.node2.search_log_for_keywords([rf"^(WRN|ERR) .*msgHash={request_id}"], use_regex=True) is None

@@ -37,30 +37,26 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 
     // Handle different event types
     if (strcmp(eventType, "message_sent") == 0) {
-        char requestId[128];
         char messageHash[128];
-        extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
-        printf("[EVENT] Message sent - RequestID: %s, Hash: %s\n", requestId, messageHash);
+        printf("[EVENT] Message sent - Hash: %s\n", messageHash);
         got_message_sent = 1;
 
     } else if (strcmp(eventType, "message_error") == 0) {
-        char requestId[128];
         char messageHash[128];
+        char kind[32];
         char error[256];
-        extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
+        extract_json_field(eventJson, "kind", kind, sizeof(kind));
         extract_json_field(eventJson, "error", error, sizeof(error));
-        printf("[EVENT] Message error - RequestID: %s, Hash: %s, Error: %s\n",
-               requestId, messageHash, error);
+        printf("[EVENT] Message error - Hash: %s, Kind: %s, Error: %s\n",
+               messageHash, kind, error);
         got_message_error = 1;
 
     } else if (strcmp(eventType, "message_propagated") == 0) {
-        char requestId[128];
         char messageHash[128];
-        extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
-        printf("[EVENT] Message propagated - RequestID: %s, Hash: %s\n", requestId, messageHash);
+        printf("[EVENT] Message propagated - Hash: %s\n", messageHash);
 
     } else if (strcmp(eventType, "connection_status_change") == 0) {
         char connectionStatus[256];

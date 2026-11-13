@@ -10,7 +10,6 @@ from src.node.wrapper_helpers import (
     is_channel_error_event,
     unique_channel_id,
     wait_for_connected,
-    wait_for_error,
     wait_for_event,
     wait_for_mesh,
 )
@@ -18,8 +17,9 @@ from src.node.wrapper_helpers import (
 NODE_NOT_STARTED_MSG = "node is not started"
 STOPPED_SUBSCRIBE_CONTENT_TOPIC = "/test/1/stopped-subscribe/proto"
 
-MESSAGING_SEND_NO_PROVIDER_RE = re.compile(r"messaging send failed: RequestBroker\(MessagingSend\): no provider registered for broker context \w+")
-SEGMENTS_FAILED_MSG = "one or more segments failed"
+SEGMENTS_FAILED_NO_PROVIDER_RE = re.compile(
+    r"one or more segments failed: messaging send failed: RequestBroker\(MessagingSend\): no provider registered for broker context \w+"
+)
 STOPPED_CHANNEL_PREFIX = "stopped-channel"
 STOPPED_CHANNEL_CONTENT_TOPIC = "/test/1/stopped-channel/proto"
 STOPPED_CHANNEL_SENDER_ID = "stopped-channel-sender"
@@ -88,14 +88,12 @@ class TestLogosDeliveryLifecycle:
             assert send_result.is_ok(), f"channel_send on a node never started failed: {send_result.err()}"
             request_id = send_result.ok_value
 
-            error_event = wait_for_error(node_collector, request_id, ERROR_TIMEOUT_S)
-            assert error_event is not None, f"no message_error for request {request_id}. Collected events: {node_collector.events}"
-            assert MESSAGING_SEND_NO_PROVIDER_RE.fullmatch(error_event["error"]), error_event["error"]
-
+            # The channel event gives the error of the failed send. A message
+            # event carries a message hash, and this send got none.
             channel_error_event = wait_for_event(node_collector, request_id, is_channel_error_event, ERROR_TIMEOUT_S)
             assert channel_error_event is not None, f"no channel_message_error for request {request_id}. Collected events: {node_collector.events}"
             assert channel_error_event["channelId"] == channel_id, channel_error_event
-            assert channel_error_event["error"] == SEGMENTS_FAILED_MSG, channel_error_event
+            assert SEGMENTS_FAILED_NO_PROVIDER_RE.fullmatch(channel_error_event["error"]), channel_error_event
 
     def test_channel_send_after_restart_on_channel_created_before_stop(self, node_config):
         # TODO: logos-delivery#4554

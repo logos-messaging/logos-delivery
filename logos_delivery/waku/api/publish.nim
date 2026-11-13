@@ -2,7 +2,7 @@
 ## pipeline.
 ##
 ## Unlike `relay.nim`/`lightpush.nim`, these preserve the rich
-## `WakuLightPushResult` (status code + description) that the send processors
+## `WakuLightPushResult` (status code + description) that the send transports
 ## branch on for their retry decisions, and expose relay/lightpush availability
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
@@ -20,6 +20,7 @@ import
     node/waku_node/lightpush,
     node/peer_manager,
     rln,
+    waku_relay/protocol,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
@@ -27,7 +28,7 @@ import
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
-# LightPushStatusCode `$`/`==` the send processors branch on (rpc).
+# LightPushStatusCode `$`/`==` the send transports branch on (rpc).
 export common, rpc
 
 proc hasRelay*(self: Waku): bool =
@@ -44,12 +45,28 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## proof is attached by the messaging layer via `attachRlnProof`.
   return getRelayPushHandler(self.node.wakuRelay)
 
+proc relayRepublish*(
+    self: Waku, shard: PubsubTopic, message: WakuMessage
+): Future[WakuLightPushResult] {.async.} =
+  ## Publishes over relay a message that the relay of this node already validated.
+  ## It runs no validator, because the RLN validator refuses a proof that it
+  ## already has.
+  let relay = self.node.wakuRelay
+  let peerCount = (await protocol.publish(relay, shard, message)).valueOr:
+    return mapPubishingErrorToPushResult(error, relay.maxEncodedMessageSize)
+  return lightpushSuccessResult(peerCount.uint32)
+
 proc rlnEpochQuota*(
     self: Waku, timestamp: uint64
 ): Future[Result[EpochQuota, RlnError]] {.async.} =
   ## The mounted RLN backend's budget snapshot for the epoch derived from
   ## `timestamp` (Unix seconds). An error without a backend that keeps one.
   return await epochQuota(self.node.rlnPlugin, timestamp)
+
+proc rlnEpochSizeSec*(self: Waku): Opt[uint64] =
+  let plugin = self.node.rlnPlugin.valueOr:
+    return Opt.none(uint64)
+  return plugin.epochSizeSec
 
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
@@ -64,6 +81,9 @@ func needsRlnProof*(self: Waku, message: WakuMessage): bool =
   ## True when `attachRlnProof` makes a proof for `message` and reserves an RLN
   ## message id.
   return self.node.rlnPlugin.needsProof(message)
+
+func maxMessageSizeBytes*(self: Waku): uint64 =
+  return self.conf.maxMessageSizeBytes
 
 proc messageForSizeCheck*(
     self: Waku, message: WakuMessage
@@ -94,6 +114,19 @@ proc onRlnProofRejected*(self: Waku): bool =
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
+
+proc selectLightpushPeer*(
+    self: Waku, shard: PubsubTopic, tried: openArray[PeerId]
+): Opt[RemotePeerInfo] =
+  ## The lightpush service peer that `lightpushPublishToAny` selects for `shard`.
+  ## When that peer is in `tried`, a peer outside `tried`, if the node knows one.
+  let preferred = self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard))
+  if preferred.isNone() or preferred.get().peerId notin tried:
+    return preferred
+  for peer in self.node.peerManager.selectPeers(WakuLightPushCodec, Opt.some(shard)):
+    if peer.peerId notin tried:
+      return Opt.some(peer)
+  return preferred
 
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
   ## Selects a lightpush service peer for `shard` that mix can route to. With
@@ -153,13 +186,30 @@ proc mixLightpushSize*(
   ## one mix message.
   return lightpush.mixLightpushSize(shard, message)
 
+proc lightpushPublishTo*(
+    self: Waku,
+    shard: PubsubTopic,
+    message: WakuMessage,
+    peer: RemotePeerInfo,
+    mixify: bool = false,
+): Future[WakuLightPushResult] {.async.} =
+  ## Publishes `message` through the lightpush service peer `peer`, with the
+  ## node's lightpush flow. With RLN mounted the flow proves `message` only if it
+  ## carries no proof, so an already-proven task reuses its nonce.
+  try:
+    return
+      await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
+  except CancelledError as exc:
+    # The send service cancels an attempt at its timeout and at its stop.
+    raise exc
+  except CatchableError as e:
+    return lightpushResultInternalError(e.msg)
+
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage, mixify: bool = false
 ): Future[WakuLightPushResult] {.async.} =
-  ## Selects a lightpush service peer for `shard` and publishes `message`
-  ## through the node's lightpush flow. With RLN mounted the flow proves
-  ## `message` only if it carries no proof, so an already-proven task reuses its
-  ## nonce. Returns SERVICE_NOT_AVAILABLE when no peer is available.
+  ## Selects a lightpush service peer for `shard` and publishes `message` through
+  ## it. Returns SERVICE_NOT_AVAILABLE when no peer is available.
   let peerOpt =
     if mixify:
       self.selectMixLightpushPeer(shard)
@@ -171,12 +221,4 @@ proc lightpushPublishToAny*(
         "no mix-capable lightpush peer available for shard"
       )
     return lightpushResultServiceUnavailable("no lightpush peer available for shard")
-  try:
-    return
-      await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
-  except CancelledError as exc:
-    # The send service cancelled this attempt during its stop. Raise the cancel
-    # again, so that `deliver` ends with the cancel and counts no failed attempt.
-    raise exc
-  except CatchableError as e:
-    return lightpushResultInternalError(e.msg)
+  return await self.lightpushPublishTo(shard, message, peer, mixify)

@@ -14,13 +14,10 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
-    [send_service, send_processor, lightpush_processor, delivery_task],
+    [send_service, transports, delivery_task],
   logos_delivery/api/events/messaging_client_events
-import ../testlib/[futures, testasync, wakunodeconf, wakucore, wakunode]
+import ../testlib/[fake_transport, futures, testasync, wakunodeconf, wakucore, wakunode]
 import ../waku_store/store_utils
-import ../waku_lightpush/lightpush_utils
-import logos_delivery/waku/waku_lightpush/common
-import logos_delivery/waku/node/waku_node/lightpush
 
 ## Store-based reliability asks a store node for a propagated message's hash, in
 ## clear from this node's own address. It must never ask for a mixed message.
@@ -29,25 +26,35 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc newTask(id: string, pubsubTopic = PubsubTopic("/waku/2/rs/3/0")): DeliveryTask =
+proc newTask(
+    id: string, pubsubTopic = PubsubTopic("/waku/2/rs/3/0"), ephemeral = false
+): DeliveryTask =
   let msg = WakuMessage(
     contentTopic: "/test/1/store-validation/proto",
     payload: id.toBytes(),
     timestamp: 1_700_000_000_000_000_000,
+    ephemeral: ephemeral,
   )
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
     state: DeliveryState.Entry,
   )
 
+proc id(task: DeliveryTask): string =
+  return task.msg.id
+
+proc hashHex(task: DeliveryTask): string =
+  ## The message hash as the events carry it.
+  return task.msgHash.to0xHex()
+
 proc propagatedAt(id: string, time: Moment): DeliveryTask =
   ## A task that propagated at `time` and waits for a Store confirmation.
   let task = newTask(id)
   task.state = DeliveryState.SuccessfullyPropagated
   task.firstPropagatedTime = Opt.some(time)
+  task.storeAnswer = Future[void].Raising([CancelledError]).init("test store answer")
   return task
 
 suite "SendService - store validation and mix":
@@ -59,86 +66,16 @@ suite "SendService - store validation and mix":
   asyncTeardown:
     discard await waku.stop()
 
-  proc service(reliability: bool): SendService =
-    ## The policy under test never sends, so the plain chain is enough.
-    let manager =
-      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let chain = setupSendProcessorChain(waku, AnonymityLevel.None).expect("chain")
-    return SendService.new(reliability, waku, manager, chain).expect("SendService.new")
-
-  proc propagatedTask(overMix: bool, ephemeral = false): DeliveryTask =
-    let task = propagatedAt("t", Moment.now())
-    task.msg.ephemeral = ephemeral
-    task.propagatedAnonymously = overMix
-    return task
-
   asyncTest "the store client is mounted even on a node that serves no store":
     ## `checkStoreForMessages` is `preferP2PReliability and isStoreMounted()`,
     ## and every node mounts the store client, so reliability alone decides.
     check waku.isStoreMounted()
 
-  asyncTest "a plainly propagated message is confirmed against a store node":
-    check service(reliability = true).awaitsStoreValidation(
-      propagatedTask(overMix = false)
-    )
-
-  asyncTest "a message that went out over mix is never confirmed against a store node":
-    ## The query would carry its hash, in clear, from this node's own address.
-    check not service(reliability = true).awaitsStoreValidation(
-      propagatedTask(overMix = true)
-    )
-
-  asyncTest "an ephemeral message is not confirmed either, mixed or not":
-    let reliable = service(reliability = true)
-    check:
-      not reliable.awaitsStoreValidation(
-        propagatedTask(overMix = false, ephemeral = true)
-      )
-      not reliable.awaitsStoreValidation(
-        propagatedTask(overMix = true, ephemeral = true)
-      )
-
-  asyncTest "nothing is confirmed when reliability is off":
-    check not service(reliability = false).awaitsStoreValidation(
-      propagatedTask(overMix = false)
-    )
-
-  asyncTest "a task that has not propagated is not confirmed yet":
-    let task = propagatedTask(overMix = false)
-    task.state = DeliveryState.NextRoundRetry
-    check not service(reliability = true).awaitsStoreValidation(task)
-
-## A scripted processor sets the outcome that a real processor would, so these
-## tests drive the completion events with no live mixnet.
-type ScriptedProc = ref object of BaseSendProcessor
-  overMix: bool
-  calls: int
-  retryCalls: seq[int] ## Calls, counted from 1, that leave the task for a retry.
-  resender: BaseSendProcessor ## Sends a task again after a Store miss, nil for none.
-
-method canResend(self: ScriptedProc, task: DeliveryTask): bool {.gcsafe.} =
-  return not self.resender.isNil() and self.resender.canResend(task)
-
-method resendImpl(
-    self: ScriptedProc, task: DeliveryTask
-): Future[void] {.async: (raises: [CancelledError]).} =
-  await self.resender.resendImpl(task)
-
-method process(self: ScriptedProc, task: DeliveryTask): Future[void] {.async.} =
-  inc self.calls
-  if self.calls in self.retryCalls:
-    task.state = DeliveryState.NextRoundRetry
-    return
-  task.state = DeliveryState.SuccessfullyPropagated
-  task.propagatedAnonymously = self.overMix
-  if task.firstPropagatedTime.isNone():
-    task.firstPropagatedTime = Opt.some(Moment.now())
-
 const FastLoop = chronos.milliseconds(10)
   ## The loop interval of a test service. It keeps each wait for a loop short.
 
 proc reliableService(
-    waku: Waku, processor: BaseSendProcessor, maxValidationAge = DeliveryWindow
+    waku: Waku, relay: FakeTransport, maxValidationAge = StoreValidationWindow
 ): SendService =
   ## A service with Store-based reliability on and fast loops.
   let manager =
@@ -148,9 +85,23 @@ proc reliableService(
       true,
       waku,
       manager,
-      processor,
+      transportsOf((Transport.Relay, relay)),
       maxValidationAge = maxValidationAge,
-      retryInterval = FastLoop,
+      storeValidationInterval = FastLoop,
+    )
+    .expect("SendService.new")
+
+proc mixService(waku: Waku, reliability: bool): SendService =
+  ## A service that sends each message over a fake mix, as the fake of a live mixnet.
+  let manager =
+    RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+  return SendService
+    .new(
+      reliability,
+      waku,
+      manager,
+      transportsOf((Transport.Mix, FakeTransport.new())),
+      AnonymityLevel.Required,
     )
     .expect("SendService.new")
 
@@ -160,26 +111,26 @@ type SendEvent {.pure.} = enum
   Failed
 
 type SendEventLog = ref object
-  ## Records the request ids of send events and wakes the tests that wait for one.
+  ## Records the message hashes of send events and wakes the tests that wait for one.
   brokerCtx: BrokerContext
-  ids: array[SendEvent, seq[RequestId]]
+  ids: array[SendEvent, seq[string]]
   changed: AsyncEvent
   propagatedListener: MessagePropagatedEventListener
   sentListener: MessageSentEventListener
   errorListener: MessageErrorEventListener
 
-proc record(log: SendEventLog, event: SendEvent, id: RequestId) =
+proc record(log: SendEventLog, event: SendEvent, id: string) =
   log.ids[event].add(id)
   log.changed.fire()
 
 proc newSendEventLog(brokerCtx: BrokerContext): SendEventLog =
   let log = SendEventLog(brokerCtx: brokerCtx, changed: newAsyncEvent())
   let onPropagated = proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Propagated, event.requestId)
+    log.record(SendEvent.Propagated, event.messageHash)
   let onSent = proc(event: MessageSentEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Sent, event.requestId)
+    log.record(SendEvent.Sent, event.messageHash)
   let onError = proc(event: MessageErrorEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Failed, event.requestId)
+    log.record(SendEvent.Failed, event.messageHash)
   log.propagatedListener =
     MessagePropagatedEvent.listen(brokerCtx, onPropagated).expect("listen propagated")
   log.sentListener = MessageSentEvent.listen(brokerCtx, onSent).expect("listen sent")
@@ -202,11 +153,11 @@ proc waitEvent(
   let deadline = Moment.now() + timeout
   while true:
     log.changed.clear()
-    if task.requestId in log.ids[event]:
+    if task.hashHex in log.ids[event]:
       return true
     let remaining = deadline - Moment.now()
     if remaining <= ZeroDuration or not await log.changed.wait().withTimeout(remaining):
-      return task.requestId in log.ids[event]
+      return task.hashHex in log.ids[event]
 
 suite "SendService - mix completion":
   var waku {.threadvar.}: Waku
@@ -232,17 +183,13 @@ suite "SendService - mix completion":
     let listener = countSent(sent)
     defer:
       await MessageSentEvent.dropListener(waku.brokerCtx, listener)
-    let manager =
-      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let service = SendService
-      .new(true, waku, manager, ScriptedProc(overMix: true), AnonymityLevel.Preferred)
-      .expect("SendService.new") # reliability = on
+    let service = mixService(waku, reliability = true)
     let task = newTask("mixed-once")
 
-    check service.enqueue(task).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
+    check service.enqueue(task).isOk()
     check await sent.waitCount(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check not await sent.waitCount(2).withTimeout(FUTURE_TIMEOUT_SHORT)
 
@@ -253,73 +200,15 @@ suite "SendService - mix completion":
     let listener = countSent(sent)
     defer:
       await MessageSentEvent.dropListener(waku.brokerCtx, listener)
-    let manager =
-      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let service = SendService
-      .new(false, waku, manager, ScriptedProc(overMix: true), AnonymityLevel.Preferred)
-      .expect("SendService.new") # reliability = false
+    let service = mixService(waku, reliability = false)
     let task = newTask("mixed-no-reliability")
-    check service.enqueue(task).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
+    check service.enqueue(task).isOk()
     checkUntilTimeout:
       task.propagatedEventEmitted
     check not await sent.waitCount(1).withTimeout(FUTURE_TIMEOUT_SHORT)
-
-suite "SendService - Store validation window":
-  var waku {.threadvar.}: Waku
-  var log {.threadvar.}: SendEventLog
-
-  asyncSetup:
-    waku = (await Waku.new(testConf())).expect("Waku.new")
-    log = newSendEventLog(waku.brokerCtx)
-
-  asyncTeardown:
-    await log.teardown()
-    discard await waku.stop()
-
-  asyncTest "the time while the service is stopped does not count against the window":
-    ## The task propagates, then the service stops for longer than the window.
-    ## After the restart the task still waits for its Store confirmation.
-    let window = chronos.milliseconds(500)
-    let service = reliableService(waku, ScriptedProc(), maxValidationAge = window)
-    let task = newTask("restart")
-    check service.enqueue(task).isOk()
-    service.startSendService()
-    check await log.waitEvent(SendEvent.Propagated, task)
-    await service.stopSendService()
-    check:
-      task.storeAnswer.isNil()
-      task.storeValidationWaited < window
-    await sleepAsync(window * 2)
-
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    check not await log.waitEvent(SendEvent.Failed, task, chronos.milliseconds(100))
-    checkUntilTimeout:
-      not task.storeAnswer.isNil()
-    task.storeAnswer.complete()
-    check await log.waitEvent(SendEvent.Sent, task)
-    check:
-      task.state == DeliveryState.SuccessfullyValidated
-      log.ids[SendEvent.Failed].len == 0
-
-  asyncTest "the waits of a task add up to the window":
-    ## A task that already waited most of the window fails soon after a restart.
-    let window = chronos.milliseconds(500)
-    let service = reliableService(waku, ScriptedProc(), maxValidationAge = window)
-    let task = newTask("adds-up")
-    task.storeValidationWaited = window - chronos.milliseconds(50)
-    check service.enqueue(task).isOk()
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    check await log.waitEvent(SendEvent.Failed, task)
-    check:
-      task.state == DeliveryState.FailedToDeliver
-      task.storeValidationWaited >= window
 
 suite "SendService - Store validation batches":
   var waku {.threadvar.}: Waku
@@ -327,7 +216,7 @@ suite "SendService - Store validation batches":
 
   asyncSetup:
     waku = (await Waku.new(testConf())).expect("Waku.new")
-    service = reliableService(waku, ScriptedProc())
+    service = reliableService(waku, FakeTransport.new())
 
   asyncTeardown:
     discard await waku.stop()
@@ -342,7 +231,7 @@ suite "SendService - Store validation batches":
       let batch = service.nextStoreValidationBatch(tasks, now)
       check:
         batch.len == size
-        batch[0].requestId == RequestId("t" & $first)
+        batch[0].id == "t" & $first
       for task in batch:
         task.lastStoreQueryTime = Opt.some(now)
     check service.nextStoreValidationBatch(tasks, now).len == 0
@@ -354,17 +243,18 @@ suite "SendService - Store validation batches":
     let later = service.nextStoreValidationBatch(tasks, now + chronos.seconds(5))
     check:
       later.len == 100
-      later[0].requestId == RequestId("t250")
-      later[1].requestId == RequestId("t0")
-      later[99].requestId == RequestId("t98")
+      later[0].id == "t250"
+      later[1].id == "t0"
+      later[99].id == "t98"
 
-  asyncTest "a task that propagated within ArchiveTime or over mix is not in a batch":
+  asyncTest "a task that propagated within ArchiveTime or has its Store answer is not in a batch":
     let now = Moment.now()
     let young = propagatedAt("young", now - chronos.seconds(1))
-    let mixed = propagatedAt("mixed", now - chronos.seconds(10))
-    mixed.propagatedAnonymously = true
+    let confirmed = propagatedAt("confirmed", now - chronos.seconds(10))
+    confirmed.confirmed = true
+    confirmed.storeAnswer.complete()
     let plain = propagatedAt("plain", now - chronos.seconds(10))
-    check service.nextStoreValidationBatch(@[young, mixed, plain], now) == @[plain]
+    check service.nextStoreValidationBatch(@[young, confirmed, plain], now) == @[plain]
 
 suite "SendService - Store validation loop":
   ## The Store node answers only after `allowAnswer` completes, with the hashes listed in
@@ -453,8 +343,8 @@ suite "SendService - Store validation loop":
     await storeNode.stop()
     discard await waku.stop()
 
-  proc startedService(processor: BaseSendProcessor = ScriptedProc()): SendService =
-    let service = reliableService(waku, processor)
+  proc startedService(relay = FakeTransport.new()): SendService =
+    let service = reliableService(waku, relay)
     service.startSendService()
     return service
 
@@ -464,22 +354,21 @@ suite "SendService - Store validation loop":
       stored = true,
       pubsubTopic = PubsubTopic("/waku/2/rs/3/0"),
   ): Future[DeliveryTask] {.async.} =
-    ## Sends a task, waits for the report of its propagation, and makes it old
-    ## enough for the next Store query. Unless `stored` is false, the Store lists
-    ## its hash.
+    ## Sends a task, waits until it propagated, and makes it old enough for the
+    ## next Store query. Unless `stored` is false, the Store lists its hash.
     let task = newTask(id, pubsubTopic)
-    check:
-      service.enqueue(task).isOk()
-      await log.waitEvent(SendEvent.Propagated, task)
+    check service.enqueue(task).isOk()
+    checkUntilTimeout:
+      task.awaitsStore()
     if stored:
       storedHashes.add(task.msgHash)
     task.firstPropagatedTime = Opt.some(Moment.now() - chronos.seconds(10))
     return task
 
-  asyncTest "a slow Store query does not delay a retry":
-    ## A's Store query stays pending while B's failed send is retried.
-    let processor = ScriptedProc(retryCalls: @[2])
-    let service = startedService(processor)
+  asyncTest "a slow Store query does not delay a send":
+    ## The Store query of A stays pending while B propagates.
+    let relay = FakeTransport.new()
+    let service = startedService(relay)
     defer:
       await service.stopSendService()
 
@@ -489,11 +378,12 @@ suite "SendService - Store validation loop":
       await queryStarted.withTimeout(chronos.seconds(5))
 
     let taskB = newTask("slow-store-b")
+    check service.enqueue(taskB).isOk()
+    checkUntilTimeout:
+      taskB.awaitsStore()
     check:
-      service.enqueue(taskB).isOk()
-      await log.waitEvent(SendEvent.Propagated, taskB)
       waku.node.peerManager.hasActiveStoreRequest(storeNode.peerInfo.peerId)
-      processor.calls == 3
+      relay.calls.len == 2
 
     allowAnswer.complete()
     check:
@@ -503,7 +393,7 @@ suite "SendService - Store validation loop":
   asyncTest "an answer for a task whose validation window ended is ignored":
     ## A's confirmation arrives after its validation window ended and the service
     ## failed A.
-    let service = reliableService(waku, ScriptedProc(), chronos.seconds(2))
+    let service = reliableService(waku, FakeTransport.new(), chronos.seconds(2))
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -519,7 +409,7 @@ suite "SendService - Store validation loop":
     check:
       await log.waitEvent(SendEvent.Sent, taskC)
       taskA.state == DeliveryState.FailedToDeliver
-      taskA.requestId notin log.ids[SendEvent.Sent]
+      taskA.hashHex notin log.ids[SendEvent.Sent]
 
   asyncTest "stopping the service ends a pending Store query":
     let service = startedService()
@@ -531,27 +421,9 @@ suite "SendService - Store validation loop":
       await stopping.join().withTimeout(chronos.seconds(3))
       not waku.node.peerManager.hasActiveStoreRequest(storeNode.peerInfo.peerId)
 
-  asyncTest "a restart during the Store wait sends nothing again, and the Store confirms the send":
-    let processor = ScriptedProc()
-    let service = startedService(processor)
-    let task = await service.sendAged("restart-in-store-wait")
-    check await queryStarted.withTimeout(chronos.seconds(5))
-
-    await service.stopSendService()
-    # Old enough for the first Store query after the restart.
-    task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    allowAnswer.complete()
-    check:
-      await log.waitEvent(SendEvent.Sent, task)
-      processor.calls == 1
-      log.ids[SendEvent.Propagated].countIt(it == task.requestId) == 1
-
-  asyncTest "a message the Store does not report yet is asked again, and the send processor does not run again":
-    let processor = ScriptedProc()
-    let service = startedService(processor)
+  asyncTest "a message the Store does not report is asked again, and it is not sent again":
+    let relay = FakeTransport.new()
+    let service = startedService(relay)
     defer:
       await service.stopSendService()
     allowAnswer.complete()
@@ -569,7 +441,7 @@ suite "SendService - Store validation loop":
     check:
       await log.waitEvent(SendEvent.Sent, task)
       task.state == DeliveryState.SuccessfullyValidated
-      processor.calls == 1
+      relay.calls.len == 1
 
   proc sendAgedTogether(
       service: SendService, pubsubTopics: seq[PubsubTopic]
@@ -579,9 +451,9 @@ suite "SendService - Store validation loop":
     var tasks: seq[DeliveryTask]
     for i, pubsubTopic in pubsubTopics:
       let task = newTask("shard-task-" & $i, pubsubTopic)
-      check:
-        service.enqueue(task).isOk()
-        await log.waitEvent(SendEvent.Propagated, task)
+      check service.enqueue(task).isOk()
+      checkUntilTimeout:
+        task.awaitsStore()
       storedHashes.add(task.msgHash)
       tasks.add(task)
     let old = Moment.now() - chronos.seconds(10)
@@ -703,147 +575,3 @@ suite "SendService - Store validation loop":
     check:
       otherQueries > 0
       await log.waitEvent(SendEvent.Sent, task)
-
-  asyncTest "a message the Store does not report is sent again through lightpush":
-    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
-    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
-      raiseAssert "mountMetadata: " & error
-    var pushed: seq[WakuMessageHash]
-    proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      pushed.add(computeMessageHash(pubsubTopic, message))
-      return lightpushSuccessResult(1)
-
-    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
-    await lightpushNode.start()
-    defer:
-      await lightpushNode.stop()
-    waku.node.mountLightPushClient()
-    waku.node.peerManager.addServicePeer(
-      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
-    )
-
-    let processor =
-      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
-    let service = startedService(processor)
-    defer:
-      await service.stopSendService()
-    allowAnswer.complete()
-
-    let task = await service.sendAged("resent-after-miss", stored = false)
-    checkUntilTimeout:
-      task.msgHash in pushed
-    check processor.calls == 1
-
-    storedHashes.add(task.msgHash)
-    task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
-    check await log.waitEvent(SendEvent.Sent, task)
-
-  asyncTest "a lightpush resend that does not answer does not stop the Store rounds":
-    ## A resend waits for a lightpush peer that does not answer. A second task that
-    ## the Store reports must get `Sent` in the next round, not after the resend
-    ## timeout of 5 s.
-    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
-    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
-      raiseAssert "mountMetadata: " & error
-    let pushStarted = newFuture[void]("push started")
-    let releasePush = newFuture[void]("release push")
-    proc stalledHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      if not pushStarted.finished():
-        pushStarted.complete()
-      await releasePush
-      return lightpushSuccessResult(1)
-
-    discard await newTestWakuLightpushNode(lightpushNode.switch, stalledHandler)
-    await lightpushNode.start()
-    defer:
-      # The handler must end before the stop, or the stop of the node waits for it.
-      if not releasePush.finished():
-        releasePush.complete()
-      await lightpushNode.stop()
-    waku.node.mountLightPushClient()
-    waku.node.peerManager.addServicePeer(
-      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
-    )
-
-    let service = startedService(
-      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
-    )
-    defer:
-      await service.stopSendService()
-    allowAnswer.complete()
-
-    discard await service.sendAged("missed", stored = false)
-    check await pushStarted.withTimeout(chronos.seconds(5))
-
-    let stored = await service.sendAged("stored-after-stalled-resend")
-    check await log.waitEvent(SendEvent.Sent, stored)
-
-  asyncTest "a message the Store reports is not sent again":
-    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
-    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
-      raiseAssert "mountMetadata: " & error
-    var pushed: seq[WakuMessageHash]
-    proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      pushed.add(computeMessageHash(pubsubTopic, message))
-      return lightpushSuccessResult(1)
-
-    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
-    await lightpushNode.start()
-    defer:
-      await lightpushNode.stop()
-    waku.node.mountLightPushClient()
-    waku.node.peerManager.addServicePeer(
-      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
-    )
-
-    let service = startedService(
-      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
-    )
-    defer:
-      await service.stopSendService()
-    allowAnswer.complete()
-
-    let task = await service.sendAged("reported")
-    check await log.waitEvent(SendEvent.Sent, task)
-    check pushed.len == 0
-
-  asyncTest "a message the Store never reports is sent again at most MaxStoreMissResends times":
-    let lightpushNode = newTestWakuNode(generateSecp256k1Key())
-    lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
-      raiseAssert "mountMetadata: " & error
-    var pushed: seq[WakuMessageHash]
-    proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      pushed.add(computeMessageHash(pubsubTopic, message))
-      return lightpushSuccessResult(1)
-
-    discard await newTestWakuLightpushNode(lightpushNode.switch, pushHandler)
-    await lightpushNode.start()
-    defer:
-      await lightpushNode.stop()
-    waku.node.mountLightPushClient()
-    waku.node.peerManager.addServicePeer(
-      lightpushNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
-    )
-
-    let service = startedService(
-      ScriptedProc(resender: LightpushSendProcessor.new(waku, waku.brokerCtx))
-    )
-    defer:
-      await service.stopSendService()
-    allowAnswer.complete()
-
-    let task = await service.sendAged("never-reported", stored = false)
-    for _ in 0 ..< MaxStoreMissResends + 3:
-      task.lastStoreQueryTime = Opt.some(Moment.now() - chronos.seconds(10))
-      await sleepAsync(chronos.milliseconds(100))
-    check:
-      pushed.len == MaxStoreMissResends
-      task.resendCount == MaxStoreMissResends

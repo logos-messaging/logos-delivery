@@ -12,7 +12,7 @@ import metrics
 import logos_delivery/api/types, logos_delivery/waku/waku_core/metric_labels
 
 declarePublicCounter logos_delivery_send_store_validation_timeouts,
-  "messages propagated but failed without store-node validation within the retry window"
+  "messages propagated but failed without store-node validation within the validation window"
 declarePublicCounter logos_delivery_recv_messages,
   "messages delivered to the application, live from the network or history from Store",
   ["source"]

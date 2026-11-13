@@ -8,14 +8,14 @@ export api_types, request_broker, broker_context
 type MessagingApi* = concept c
   subscribe(c, contentTopic = ContentTopic) is Future[Result[void, string]]
   unsubscribe(c, contentTopic = ContentTopic) is Result[void, string]
-  send(c, envelope = MessageEnvelope) is Future[Result[RequestId, string]]
+  send(c, envelope = MessageEnvelope) is Future[SendResult]
 
 # Semi detached MessagingClient send interface.
 # Can be used without MessagingClient, under the same context of MessagingClient instance.
 RequestBroker:
   proc MessagingSend(
     envelope: MessageEnvelope
-  ): Future[Result[RequestId, string]] {.async.}
+  ): Future[Result[SendResult, string]] {.async.}
 
 # Semi detached MessagingClient subscription interface, same pattern as MessagingSend.
 RequestBroker(sync):

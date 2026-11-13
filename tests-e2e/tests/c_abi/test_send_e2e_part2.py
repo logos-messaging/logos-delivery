@@ -5,6 +5,7 @@ from src.libs.common import delay, to_base64
 from src.libs.custom_logger import get_custom_logger
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    SEND_TOO_LARGE_MSG,
     EventCollector,
     assert_event_invariants,
     create_message_bindings,
@@ -94,7 +95,7 @@ class TestS06CoreSenderRelayOnly(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -164,7 +165,7 @@ class TestS07CoreSenderRelayAndStore(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 sent = wait_for_sent(
                     collector=sender_collector,
@@ -174,7 +175,7 @@ class TestS07CoreSenderRelayAndStore(StepsCommon):
                 assert sent is not None, (
                     f"No message_sent event within {SENT_TIMEOUT_S}s after propagation. " f"Collected events: {sender_collector.events}"
                 )
-                assert sent["requestId"] == request_id
+                assert sent["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -253,7 +254,7 @@ class TestRelayToLightpushFallback(StepsCommon):
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error event: {error}"
@@ -317,7 +318,7 @@ class TestRelayToLightpushFallback(StepsCommon):
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     sent = wait_for_sent(
                         collector=sender_collector,
@@ -328,7 +329,7 @@ class TestRelayToLightpushFallback(StepsCommon):
                         f"No message_sent event within {SENT_AFTER_STORE_TIMEOUT_S}s "
                         f"after propagation. Collected events: {sender_collector.events}"
                     )
-                    assert sent["requestId"] == request_id
+                    assert sent["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error event: {error}"
@@ -404,7 +405,7 @@ class TestS10EdgeSenderLightpushOnly(StepsCommon):
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     sent = wait_for_sent(sender_collector, request_id, timeout_s=NO_SENT_OBSERVATION_S)
                     assert sent is None, f"Unexpected message_sent event (no store peer): {sent}"
@@ -465,7 +466,7 @@ class TestS12IsolatedSenderNoPeers(StepsCommon):
                 f"(MaxTimeInCache={MAX_TIME_IN_CACHE_S}s + slack) for isolated sender. "
                 f"Collected events: {sender_collector.events}"
             )
-            assert error["requestId"] == request_id
+            assert error["messageHash"] == request_id
 
             propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
             assert propagated is None, f"Unexpected message_propagated event for isolated sender: {propagated}"
@@ -475,9 +476,9 @@ class TestS14LightpushNonRetryableError(StepsCommon):
     """
     S14 — Lightpush non-retryable error via oversized message.
     Edge sender publishes a message exceeding DefaultMaxWakuMessageSize (150KiB)
-    through a lightpush service node. The server validates message size and
-    returns INVALID_MESSAGE (420), a non-retryable error.
-    Expected: send() returns Ok(RequestId), then message_error event.
+    through a lightpush service node. The sender checks the message size
+    before it charges anything for the message.
+    Expected: send() returns a TooLarge error, and no event arrives.
     """
 
     def test_s14_oversized_message_triggers_error(self):
@@ -517,31 +518,15 @@ class TestS14LightpushNonRetryableError(StepsCommon):
                 )
 
                 send_result = edge_sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
+                assert send_result.is_err(), f"send() of an oversized message must return an error, got: {send_result.ok_value}"
+                logger.info(f"S14 send error: {send_result.err()}")
+                assert SEND_TOO_LARGE_MSG in send_result.err(), send_result.err()
+                assert "size exceeded" in send_result.err().lower(), f"Error message doesn't indicate size violation: {send_result.err()}"
 
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
-
-                error = wait_for_error(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=PROPAGATED_TIMEOUT_S,
-                )
-                assert error is not None, (
-                    f"No message_error event within {PROPAGATED_TIMEOUT_S}s "
-                    f"after sending oversized message. "
-                    f"Collected events: {sender_collector.events}"
-                )
-                assert error["requestId"] == request_id
-                logger.info(f"S14 received error event: {error}")
-
-                error_msg = error.get("error", "").lower()
-                assert "size exceeded" in error_msg, f"Error message doesn't indicate size violation: {error}"
-
-                propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
-                assert propagated is None, f"Unexpected message_propagated for an invalid message: {propagated}"
-
-                assert_event_invariants(sender_collector, request_id)
+                # A refused send gets no event.
+                delay(SERVICE_DOWN_SETTLE_S)
+                message_events = [event for event in sender_collector.snapshot() if event.get("eventType", "").startswith("message_")]
+                assert not message_events, f"Unexpected message events for a refused send: {message_events}"
 
 
 class TestS15LightpushRetryableErrorRecovery(StepsCommon):
@@ -620,7 +605,7 @@ class TestS15LightpushRetryableErrorRecovery(StepsCommon):
                         f"after relay peer joined. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after recovery: {error}"

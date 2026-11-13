@@ -13,7 +13,7 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/tables
+import std/[sequtils, tables]
 import results, chronos, chronicles
 import bearssl/rand
 import stew/byteutils
@@ -46,6 +46,15 @@ const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## The trailing `/N` is the wire-format version and is bumped only
   ## on breaking on-the-wire changes; implementations pin one version.
 
+const SegmentRetryInterval = chronos.seconds(1)
+  ## The pause before the next send of a segment that got `QueueFull`.
+
+const QueueFullRetryWindow = chronos.minutes(1)
+  ## How long the channel sends a segment again while the node holds too many sends.
+
+const RateLimitedRetryWindow = chronos.minutes(30)
+  ## How long the channel sends a segment again while the rate-limit budget is spent.
+
 type
   MessagePersistence {.pure.} = enum
     Persistent
@@ -60,11 +69,12 @@ type
     totalExpectedSegments: int
       ## Total segments produced by `segmentation.performSegmentation`
       ## for this `channelReqId`. Set once in `send`, never mutated.
-    inflightMessagingIds: seq[RequestId]
-      ## Messaging-layer ids minted by the send handler that have not
+    inflightMessageHashes: seq[string]
+      ## The message hashes that the messaging `send` returned and that have not
       ## yet produced a final event. Removed on `MessageSentEvent` / `MessageErrorEvent`.
     confirmedCount: int
     failedCount: int
+    lastError: string
 
   ChannelReqs = Table[RequestId, ChannelReqState]
     ## Key: channelReqId (the parent id returned by channel `send`). Value:
@@ -90,6 +100,10 @@ type
     sentListener: MessageSentEventListener
     errorListener: MessageErrorEventListener
     closed: bool
+    segmentRetries: seq[Future[void]] ## One `retrySegment` for each refused segment.
+    segmentRetryInterval: Duration
+    queueFullRetryWindow: Duration
+    rateLimitedRetryWindow: Duration
 
 func init(
     T: type ChannelReqState,
@@ -99,7 +113,7 @@ func init(
   return ChannelReqState(
     persistenceReqType: persistenceReqType,
     totalExpectedSegments: totalExpectedSegments,
-    inflightMessagingIds: @[],
+    inflightMessageHashes: @[],
     confirmedCount: 0,
     failedCount: 0,
   )
@@ -122,6 +136,8 @@ proc stop*(self: ReliableChannel) {.async: (raises: []).} =
   await MessageErrorEvent.dropListener(self.brokerCtx, self.errorListener)
   if not self.cleanupFut.isNil():
     await self.cleanupFut.cancelAndWait()
+  await cancelAndWait(self.segmentRetries)
+  self.segmentRetries = @[]
   await self.sdsHandler.stop()
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
@@ -135,7 +151,7 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.
     return
-  if state.inflightMessagingIds.len != 0:
+  if state.inflightMessageHashes.len != 0:
     return
   if state.confirmedCount + state.failedCount < state.totalExpectedSegments:
     return
@@ -148,7 +164,7 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
       ChannelMessageErrorEvent(
         channelId: self.channelId,
         requestId: channelReqId,
-        error: "one or more segments failed",
+        error: "one or more segments failed: " & state.lastError,
       ),
     )
   else:
@@ -162,24 +178,26 @@ type MessagingOutcome {.pure.} = enum
   Failed
 
 proc onMessageFinal(
-    self: ReliableChannel, messagingReqId: RequestId, outcome: MessagingOutcome
+    self: ReliableChannel, messageHash: string, outcome: MessagingOutcome, error = ""
 ) =
   for channelReqId, state in self.channelReqs.mpairs:
-    let idx = state.inflightMessagingIds.find(messagingReqId)
+    let idx = state.inflightMessageHashes.find(messageHash)
     if idx < 0:
       continue
-    state.inflightMessagingIds.del(idx)
+    state.inflightMessageHashes.del(idx)
     case outcome
     of MessagingOutcome.Sent:
       state.confirmedCount.inc()
     of MessagingOutcome.Failed:
       state.failedCount.inc()
+      state.lastError = error
     self.tryFinalizeChannelReq(channelReqId)
     return
 
-proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId) =
+proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId, error: string) =
   try:
     self.channelReqs[channelReqId].failedCount.inc()
+    self.channelReqs[channelReqId].lastError = error
   except KeyError as e:
     error "unreachable: channelReqId not found in markSegmentFailed",
       channelReqId = $channelReqId, error = e.msg
@@ -187,13 +205,70 @@ proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId) =
   self.tryFinalizeChannelReq(channelReqId)
 
 proc markSegmentInflight(
-    self: ReliableChannel, channelReqId: RequestId, messagingReqId: RequestId
+    self: ReliableChannel, channelReqId: RequestId, messageHash: string
 ) =
   try:
-    self.channelReqs[channelReqId].inflightMessagingIds.add(messagingReqId)
+    self.channelReqs[channelReqId].inflightMessageHashes.add(messageHash)
   except KeyError as e:
     error "unreachable: channelReqId not found in markSegmentInflight",
       channelReqId = $channelReqId, error = e.msg
+
+proc sendSegment(
+    self: ReliableChannel, envelope: MessageEnvelope
+): Future[SendResult] {.async: (raises: []).} =
+  let sendResult = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
+    return err(SendError.init(SendErrorKind.Other, error))
+  return sendResult
+
+func retryWindow(self: ReliableChannel, error: SendError): Duration =
+  ## How long the channel sends a refused segment again.
+  ## Zero for a refusal that a later send cannot clear.
+  case error.kind
+  of SendErrorKind.QueueFull:
+    self.queueFullRetryWindow
+  of SendErrorKind.RateLimited:
+    self.rateLimitedRetryWindow
+  of SendErrorKind.TooLarge, SendErrorKind.Duplicate, SendErrorKind.Other:
+    ZeroDuration
+
+proc retrySegment(
+    self: ReliableChannel,
+    channelReqId: RequestId,
+    envelope: MessageEnvelope,
+    refusal: SendError,
+) {.async: (raises: [CancelledError]).} =
+  ## The messaging layer keeps no message that it refused, so the channel does.
+  let started = Moment.now()
+  var lastError = refusal
+  while true:
+    let pause =
+      if lastError.kind == SendErrorKind.RateLimited and
+          lastError.retryAfter > ZeroDuration:
+        lastError.retryAfter
+      else:
+        self.segmentRetryInterval
+    # The window is the window of the last refusal, because its kind can change.
+    let window = self.retryWindow(lastError)
+    if window == ZeroDuration or Moment.now() + pause > started + window:
+      break
+    await sleepAsync(pause)
+    let messageHash = (await self.sendSegment(envelope)).valueOr:
+      lastError = error
+      continue
+    self.markSegmentInflight(channelReqId, messageHash.to0xHex())
+    return
+
+  self.markSegmentFailed(channelReqId, "messaging send failed: " & $lastError)
+
+proc startSegmentRetry(
+    self: ReliableChannel,
+    channelReqId: RequestId,
+    envelope: MessageEnvelope,
+    refusal: SendError,
+) =
+  ## The channel request stays open while it runs, as the segment has no result yet.
+  self.segmentRetries.keepItIf(not it.finished())
+  self.segmentRetries.add(self.retrySegment(channelReqId, envelope, refusal))
 
 proc send*(
     self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
@@ -203,7 +278,7 @@ proc send*(
   ##   segmentation -> sds -> encryption -> dispatch
   ##
   ## The returned `RequestId` is the channel-level parent of one-or-more
-  ## messaging-layer `RequestId`s; the mapping is held in
+  ## messaging-layer message hashes; the mapping is held in
   ## `self.channelReqs` until every segment is final.
   if payload.len == 0:
     return err("empty payload")
@@ -259,19 +334,14 @@ proc send*(
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    let messagingReqId = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
-      MessageErrorEvent.emit(
-        self.brokerCtx,
-        MessageErrorEvent(
-          requestId: channelReqId,
-          messageHash: "",
-          error: "messaging send failed: " & error,
-        ),
-      )
-      self.markSegmentFailed(channelReqId)
+    let messageHash = (await self.sendSegment(envelope)).valueOr:
+      if self.retryWindow(error) > ZeroDuration:
+        self.startSegmentRetry(channelReqId, envelope, error)
+      else:
+        self.markSegmentFailed(channelReqId, "messaging send failed: " & $error)
       continue
 
-    self.markSegmentInflight(channelReqId, messagingReqId)
+    self.markSegmentInflight(channelReqId, messageHash.to0xHex())
 
   return ok(channelReqId)
 
@@ -317,9 +387,13 @@ proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []
     meta: LipWireReliableChannelVersion.toBytes(),
   )
 
-  (await MessagingSend.request(self.brokerCtx, envelope)).isOkOr:
+  let sendResult = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
     debug "SDS repair rebroadcast dropped: dispatch failed",
       channelId = self.channelId, error = error
+    return
+  sendResult.isOkOr:
+    debug "SDS repair rebroadcast dropped: send refused",
+      channelId = self.channelId, error = $error
 
 proc onMessageReceived(
     self: ReliableChannel, messageHash: string, payload: seq[byte]
@@ -348,17 +422,11 @@ proc onMessageReceived(
   ## SDS returns every payload deliverable now, in causal order — the
   ## message itself plus any parked segments it released. Empty = consumed
   ## by SDS (parked or duplicate). `err` is a real ingress failure here: the
-  ## marker/contentTopic filter already ran, so surface it as an error event
-  ## rather than dropping it silently.
+  ## marker/contentTopic filter already ran. `MessageErrorEvent` reports only a
+  ## send of this node, so the failure goes to the log.
   let deliverables = (await self.sdsHandler.handleIncoming(sdsWire)).valueOr:
-    MessageErrorEvent.emit(
-      self.brokerCtx,
-      MessageErrorEvent(
-        requestId: RequestId(""),
-        messageHash: messageHash,
-        error: "SDS handleIncoming failed: " & error,
-      ),
-    )
+    debug "SDS handleIncoming failed",
+      channelId = self.channelId, messageHash = messageHash, error = error
     return
 
   for item in deliverables:
@@ -400,6 +468,9 @@ proc new*(
     channelReqs: initTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
     crypto: encryption,
+    segmentRetryInterval: SegmentRetryInterval,
+    queueFullRetryWindow: QueueFullRetryWindow,
+    rateLimitedRetryWindow: RateLimitedRetryWindow,
   )
 
   ## SDS-R repair rebroadcasts go straight to the dispatch tail.
@@ -428,14 +499,14 @@ proc new*(
     error "MessageReceivedEvent.listen failed", channelId = channelId, error = error
     MessageReceivedEventListener()
 
-  ## Send-completion events are tagged with the per-segment messaging
-  ## `requestId` — globally unique, so we don't need any channel filter
+  ## Send-completion events are tagged with the per-segment message
+  ## hash — globally unique, so we don't need any channel filter
   ## up front. The handler scans this channel's pending entries for a
-  ## match and is a no-op when the id belongs to a different channel.
+  ## match and is a no-op when the hash belongs to a different channel.
   chn.sentListener = MessageSentEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageFinal(evt.requestId, MessagingOutcome.Sent),
+      chn.onMessageFinal(evt.messageHash, MessagingOutcome.Sent),
   ).valueOr:
     error "MessageSentEvent.listen failed", channelId = channelId, error = error
     MessageSentEventListener()
@@ -443,7 +514,7 @@ proc new*(
   chn.errorListener = MessageErrorEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageFinal(evt.requestId, MessagingOutcome.Failed),
+      chn.onMessageFinal(evt.messageHash, MessagingOutcome.Failed, evt.error),
   ).valueOr:
     error "MessageErrorEvent.listen failed", channelId = channelId, error = error
     MessageErrorEventListener()

@@ -8,6 +8,7 @@ proc shortenIntervals*(node: LogosDelivery) =
   node.messagingClient.recvService.backfill.timestampVariance = 1.seconds
   node.messagingClient.recvService.backfill.activityWriteInterval = 500.milliseconds
   node.messagingClient.sendService.archiveTime = 300.milliseconds
+  node.messagingClient.sendService.attemptInterval = 1.seconds
   # A shorter interval would exceed a filter service's 30 requests per minute
   # per peer, and a peer that rejects the loop's request is removed.
   node.waku.node.subscriptionManager.edgeFilterLoopInterval = 2.seconds

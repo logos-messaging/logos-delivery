@@ -10,7 +10,8 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/subscriptions,
   logos_delivery/waku/persistency/persistency,
-  logos_delivery/messaging/delivery_service/[recv_service, send_service]
+  logos_delivery/messaging/delivery_service/[recv_service, send_service],
+  logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 # Surfaces the messaging API interface (and its Message* events) to consumers.
 export messaging_client
@@ -38,8 +39,8 @@ proc start*(self: MessagingClient): Result[void, string] =
   # place belongs to another owner.
   ?MessagingSend.setProvider(
     self.brokerCtx,
-    proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-      return await self.send(envelope),
+    proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+      return ok(await self.send(envelope)),
   )
 
   MessagingSubscribe.setProvider(
@@ -61,6 +62,7 @@ proc start*(self: MessagingClient): Result[void, string] =
 
   self.persistencyJob = getMessagingJob(self.brokerCtx)
   self.recvService.startRecvService(self.persistencyJob)
+  self.rateLimitManager.start()
   self.sendService.startSendService()
 
   self.started = true
@@ -78,6 +80,7 @@ proc stop*(self: MessagingClient) {.async.} =
   MessagingSubscribe.clearProvider(self.brokerCtx)
   MessagingUnsubscribe.clearProvider(self.brokerCtx)
   await self.sendService.stopSendService()
+  await self.rateLimitManager.stop()
   await self.recvService.stopRecvService()
   if not self.persistencyJob.isNil():
     let persistency = GetPersistency.request(self.brokerCtx)

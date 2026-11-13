@@ -24,3 +24,6 @@ proc validateWakuMessageFields*(msg: WakuMessage): ProtobufResult[void] =
   ok()
 
 protobufCodec(WakuMessage, validateWakuMessageFields)
+
+proc encodedSize*(message: WakuMessage): int =
+  Protobuf.computeSize(message)

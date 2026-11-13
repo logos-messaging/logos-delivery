@@ -73,6 +73,9 @@ func lighpushErrorResult*(
 ): WakuLightPushResult =
   return err((statusCode, Opt.some(desc)))
 
+const AlreadySeenMessageDesc* = "Dropping already-seen message"
+  ## The answer for a message that the relay of the node already has.
+
 func mapPubishingErrorToPushResult*(
     publishOutcome: PublishOutcome, maxMessageSize: int
 ): WakuLightPushResult =
@@ -84,9 +87,7 @@ func mapPubishingErrorToPushResult*(
       (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Empty topic, skipping publish"))
     )
   of DuplicateMessage:
-    return err(
-      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Dropping already-seen message"))
-    )
+    return err((LightPushErrorCode.INVALID_MESSAGE, Opt.some(AlreadySeenMessageDesc)))
   of NoPeersToPublish:
     return err(
       (

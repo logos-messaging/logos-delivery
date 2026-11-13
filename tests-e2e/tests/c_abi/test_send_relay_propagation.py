@@ -95,7 +95,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_a is not None, (
                     f"No message_propagated event for TOPIC_A within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_a["requestId"] == request_id_a
+                assert propagated_a["messageHash"] == request_id_a
 
                 propagated_b = wait_for_propagated(
                     collector=sender_collector,
@@ -105,7 +105,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_b is not None, (
                     f"No message_propagated event for TOPIC_B within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_b["requestId"] == request_id_b
+                assert propagated_b["messageHash"] == request_id_b
 
                 # No cross-talk: neither request should produce an error.
                 for request_id in (request_id_a, request_id_b):
