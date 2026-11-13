@@ -33,6 +33,8 @@ jobs:
       - uses: logos-co/setup-nix-cache-action@v1
         with:
           install-nix: true
+          extra-nix-config: |
+            connect-timeout = 5
           attic-token-ci: ${{ secrets.ATTIC_TOKEN_CI }}
           attic-token-public: ${{ secrets.ATTIC_TOKEN_PUBLIC }}
 
