@@ -117,7 +117,7 @@ package main
 		completeResp(c->resp, errCode, text, strlen(text));
 	}
 
-	#define LOGOS_DELIVERY_CALL(call)                                                        \
+	#define LOGOS_DELIVERY_CALL(call)                                              \
 	do {                                                                           \
 		int ret = call;                                                              \
 		if (ret != 0) {                                                              \

@@ -31,7 +31,7 @@ void waitForCallback()
   pthread_mutex_unlock(&mutex);
 }
 
-#define LOGOS_DELIVERY_CALL(call)                                                  \
+#define LOGOS_DELIVERY_CALL(call)                                        \
   do                                                                     \
   {                                                                      \
     int ret = call;                                                      \

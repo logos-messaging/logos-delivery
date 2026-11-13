@@ -25,12 +25,12 @@ do {                                                                       \
   }                                                                        \
 } while (0)
 
-#define LOGOS_DELIVERY_CALL(call)                                                        \
+#define LOGOS_DELIVERY_CALL(call)                                              \
 do {                                                                           \
   int ret = call;                                                              \
   if (ret != 0) {                                                              \
     char msg[128];                                                             \
-    snprintf(msg, 128, "LOGOS_DELIVERY_CALL failed with code %d", ret);                  \
+    snprintf(msg, 128, "LOGOS_DELIVERY_CALL failed with code %d", ret);        \
     napi_fatal_error(#call, NAPI_AUTO_LENGTH, "failed", NAPI_AUTO_LENGTH);     \
   }                                                                            \
 } while (0)
