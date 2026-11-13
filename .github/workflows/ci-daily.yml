@@ -41,6 +41,5 @@ jobs:
           RESULT: ${{ needs.ci.result }}
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          NIGHTLY_DISCORD_MENTION: ${{ vars.NIGHTLY_DISCORD_MENTION }}
-          NIGHTLY_OWNER: ${{ vars.NIGHTLY_OWNER }}
+          NIGHTLY_OWNER: Ivansete-status
         run: scripts/nightly_notify.sh

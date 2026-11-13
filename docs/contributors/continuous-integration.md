@@ -43,5 +43,4 @@ defaultValue: params.IMAGE_TAG ?: 'deploy-waku-test',
 Settings:
 
 * `DISCORD_WEBHOOK_URL` secret - the channel the posts go to. Without it only the issue is updated.
-* `NIGHTLY_DISCORD_MENTION` variable - optional, prefixed to failure posts, e.g. `<@&role-id>`.
-* `NIGHTLY_OWNER` variable - optional, GitHub login the tracking issue is assigned to. Who owns the nightly (one person or a weekly rotation) is still open in #4342.
+* `NIGHTLY_OWNER` in `ci-daily.yml` - the GitHub login the tracking issue is assigned to. The owner is `Ivansete-status`. GitHub notifies the owner of the assignment and of each further comment, so the Discord posts mention no role.
