@@ -1,18 +1,18 @@
 ## App description
-This is a very simple example that shows how to invoke libwaku functions from a C program.
+This is a very simple example that shows how to invoke liblogosdelivery functions from a C program.
 
 ## Build
 1. Open terminal
-2. cd to nwaku root folder
-3. make cwaku_example -j8
+2. cd to logos-delivery root folder
+3. make c-logos-delivery-example -j8
 
-This will create liblogosdelivery.so and cwaku_example binary within the build folder.
+This will create liblogosdelivery.so and c-logos-delivery-example binary within the build folder.
 
 ## Run
 1. Open terminal
-2. cd to nwaku root folder
+2. cd to logos-delivery root folder
 3. export LD_LIBRARY_PATH=build
-4. `./build/cwaku_example -h 0.0.0.0 -p 60001`
+4. `./build/c-logos-delivery-example -h 0.0.0.0 -p 60001`
 
 Options are short flags: `-h <host> -p <tcp-port> -k <key> -r <relay> -a <peers>`.
 The discv5 UDP port is derived as `-p` + 1, so two local instances do not clash.
@@ -28,7 +28,7 @@ Run one node, pick option 4, and count the distinct messages it put on the
 channel's content topic:
 
 ```
-./build/cwaku_example -h 127.0.0.1 -p 60000 > run.log 2>&1
+./build/c-logos-delivery-example -h 127.0.0.1 -p 60000 > run.log 2>&1
 # pick option 4, then:
 grep large-message run.log | grep -oE '0x[0-9a-f]{64}' | sort -u | wc -l
 ```
@@ -42,8 +42,8 @@ This needs two nodes, and each must run **from its own directory**:
 
 ```
 mkdir -p /tmp/nodeA /tmp/nodeB
-(cd /tmp/nodeB && <repo>/build/cwaku_example -h 127.0.0.1 -p 60141)
-(cd /tmp/nodeA && <repo>/build/cwaku_example -h 127.0.0.1 -p 60142)
+(cd /tmp/nodeB && <repo>/build/c-logos-delivery-example -h 127.0.0.1 -p 60141)
+(cd /tmp/nodeA && <repo>/build/c-logos-delivery-example -h 127.0.0.1 -p 60142)
 ```
 
 On the sender, use option 2 with the receiver's

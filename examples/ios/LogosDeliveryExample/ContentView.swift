@@ -1,14 +1,14 @@
 //
 //  ContentView.swift
-//  WakuExample
+//  LogosDeliveryExample
 //
-//  Minimal chat PoC using libwaku on iOS
+//  Minimal chat PoC using liblogosdelivery on iOS
 //
 
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var wakuNode = WakuNode()
+    @StateObject private var logosDeliveryNode = LogosDeliveryNode()
     @State private var messageText = ""
 
     var body: some View {
@@ -21,11 +21,11 @@ struct ContentView: View {
                         .fill(statusColor)
                         .frame(width: 10, height: 10)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(wakuNode.status.rawValue)
+                        Text(logosDeliveryNode.status.rawValue)
                             .font(.caption)
-                        if wakuNode.status == .running {
+                        if logosDeliveryNode.status == .running {
                             HStack(spacing: 4) {
-                                Text(wakuNode.isConnected ? "Connected" : "Discovering...")
+                                Text(logosDeliveryNode.isConnected ? "Connected" : "Discovering...")
                                 Text("•")
                                 filterStatusView
                             }
@@ -33,13 +33,13 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
 
                             // Subscription maintenance status
-                            if wakuNode.subscriptionMaintenanceActive {
+                            if logosDeliveryNode.subscriptionMaintenanceActive {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.triangle.2.circlepath")
                                         .foregroundColor(.blue)
                                     Text("Maintenance active")
-                                    if wakuNode.failedSubscribeAttempts > 0 {
-                                        Text("(\(wakuNode.failedSubscribeAttempts) retries)")
+                                    if logosDeliveryNode.failedSubscribeAttempts > 0 {
+                                        Text("(\(logosDeliveryNode.failedSubscribeAttempts) retries)")
                                             .foregroundColor(.orange)
                                     }
                                 }
@@ -49,22 +49,22 @@ struct ContentView: View {
                         }
                     }
                     Spacer()
-                    if wakuNode.status == .stopped {
+                    if logosDeliveryNode.status == .stopped {
                         Button("Start") {
-                            wakuNode.start()
+                            logosDeliveryNode.start()
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                    } else if wakuNode.status == .running {
-                        if !wakuNode.filterSubscribed {
+                    } else if logosDeliveryNode.status == .running {
+                        if !logosDeliveryNode.filterSubscribed {
                             Button("Resub") {
-                                wakuNode.resubscribe()
+                                logosDeliveryNode.resubscribe()
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
                         Button("Stop") {
-                            wakuNode.stop()
+                            logosDeliveryNode.stop()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -77,15 +77,15 @@ struct ContentView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(wakuNode.receivedMessages.reversed()) { message in
+                            ForEach(logosDeliveryNode.receivedMessages.reversed()) { message in
                                 MessageBubble(message: message)
                                     .id(message.id)
                             }
                         }
                         .padding()
                     }
-                    .onChange(of: wakuNode.receivedMessages.count) { _, newCount in
-                        if let lastMessage = wakuNode.receivedMessages.first {
+                    .onChange(of: logosDeliveryNode.receivedMessages.count) { _, newCount in
+                        if let lastMessage = logosDeliveryNode.receivedMessages.first {
                             withAnimation {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
@@ -99,7 +99,7 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     TextField("Message", text: $messageText)
                         .textFieldStyle(.roundedBorder)
-                        .disabled(wakuNode.status != .running)
+                        .disabled(logosDeliveryNode.status != .running)
 
                     Button(action: sendMessage) {
                         Image(systemName: "paperplane.fill")
@@ -116,9 +116,9 @@ struct ContentView: View {
 
             // Toast overlay for errors
             VStack {
-                ForEach(wakuNode.errorQueue) { error in
+                ForEach(logosDeliveryNode.errorQueue) { error in
                     ToastView(error: error) {
-                        wakuNode.dismissError(error)
+                        logosDeliveryNode.dismissError(error)
                     }
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
@@ -128,12 +128,12 @@ struct ContentView: View {
                 Spacer()
             }
             .padding(.top, 8)
-            .animation(.easeInOut(duration: 0.3), value: wakuNode.errorQueue)
+            .animation(.easeInOut(duration: 0.3), value: logosDeliveryNode.errorQueue)
         }
     }
 
     private var statusColor: Color {
-        switch wakuNode.status {
+        switch logosDeliveryNode.status {
         case .stopped: return .gray
         case .starting: return .yellow
         case .running: return .green
@@ -143,11 +143,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private var filterStatusView: some View {
-        if wakuNode.filterSubscribed {
+        if logosDeliveryNode.filterSubscribed {
             Text("Filter OK")
                 .foregroundColor(.green)
-        } else if wakuNode.failedSubscribeAttempts > 0 {
-            Text("Filter retrying (\(wakuNode.failedSubscribeAttempts))")
+        } else if logosDeliveryNode.failedSubscribeAttempts > 0 {
+            Text("Filter retrying (\(logosDeliveryNode.failedSubscribeAttempts))")
                 .foregroundColor(.orange)
         } else {
             Text("Filter pending")
@@ -156,14 +156,14 @@ struct ContentView: View {
     }
 
     private var canSend: Bool {
-        wakuNode.status == .running && wakuNode.isConnected && !messageText.trimmingCharacters(in: .whitespaces).isEmpty
+        logosDeliveryNode.status == .running && logosDeliveryNode.isConnected && !messageText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
 
-        wakuNode.publish(message: text)
+        logosDeliveryNode.publish(message: text)
         messageText = ""
     }
 }

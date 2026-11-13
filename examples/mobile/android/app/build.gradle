@@ -69,6 +69,13 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
 
+// -PreactNativeArchitectures=arm64-v8a builds only the ABIs whose
+// liblogosdelivery.so is in jniLibs/.
+def reactNativeArchitectures() {
+    def value = project.getProperties().get("reactNativeArchitectures")
+    return value ? value.split(",") : ["x86_64", "arm64-v8a", "x86"]
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -82,8 +89,8 @@ android {
         versionCode 1
         versionName "1.0"
         ndk {
-            abiFilters "x86_64", "arm64-v8a", "x86" /* "armeabi-v7a", */
-            moduleName "waku_jni"
+            abiFilters(*reactNativeArchitectures())
+            moduleName "logos_delivery_jni"
             ldLibs "log"
             cFlags "-std=c99"
         }

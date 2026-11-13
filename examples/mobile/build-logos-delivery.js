@@ -5,13 +5,9 @@ const {spawn} = require('child_process');
 const args = process.argv.slice(2);
 const forceFlagIndex = args.indexOf('--force');
 
-const nwakuRootFolder = '../../';
-// Stable messaging header + the advanced kernel header it includes. Both must
-// be copied so the kernel header's `#include "liblogosdelivery.h"` resolves.
-const headers = [
-  {src: 'library/liblogosdelivery.h', dst: 'android/app/src/main/jni/liblogosdelivery.h'},
-  {src: 'library/liblogosdelivery_kernel.h', dst: 'android/app/src/main/jni/liblogosdelivery_kernel.h'},
-];
+const repoRootFolder = '../../';
+// The headers stay in build/android/<abi>/, where Android.mk reads them: they
+// include the generated/ header written next to the library.
 
 // Android --------------------------------------------------------------------------------------
 
@@ -20,7 +16,7 @@ const androidSrcFolder = 'build/android';
 const androidDstFolder = 'android/app/src/main/jniLibs';
 const androidFilesToCheck = ['liblogosdelivery.so', 'librln.so'];
 
-const androidDstFiles = headers.map(h => h.dst);
+const androidDstFiles = [];
 androidArchitectures.forEach(architecture => {
   androidFilesToCheck.forEach(file => {
     androidDstFiles.push(`${androidDstFolder}/${architecture}/${file}`);
@@ -43,23 +39,13 @@ if (!filesExist || forceFlagIndex !== -1) {
         androidFilesToCheck.forEach(file => {
           androidDstFiles.push(`${androidDstFolder}/${architecture}/${file}`);
           fs.copyFile(
-            `${nwakuRootFolder}/${androidSrcFolder}/${architecture}/${file}`,
+            `${repoRootFolder}/${androidSrcFolder}/${architecture}/${file}`,
             `${androidDstFolder}/${architecture}/${file}`,
             err => {
               if (err) throw err;
             },
           );
         });
-      });
-      console.log('Copying headers...');
-      headers.forEach(header => {
-        fs.copyFile(
-          `${nwakuRootFolder}/${header.src}`,
-          header.dst,
-          err => {
-            if (err) throw err;
-          },
-        );
       });
     } else {
       console.error(`make exited with ${code}`);

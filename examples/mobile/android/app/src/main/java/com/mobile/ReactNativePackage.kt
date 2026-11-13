@@ -15,5 +15,5 @@ class MyAppPackage : ReactPackage {
 
     override fun createNativeModules(
         reactContext: ReactApplicationContext
-    ): MutableList<NativeModule> = listOf(WakuModule(reactContext)).toMutableList()
+    ): MutableList<NativeModule> = listOf(LogosDeliveryModule(reactContext)).toMutableList()
 }
