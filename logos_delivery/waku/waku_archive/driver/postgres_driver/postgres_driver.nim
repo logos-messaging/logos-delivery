@@ -14,6 +14,7 @@ import
   ../../common,
   ../../driver,
   ../../../common/databases/db_postgres as waku_postgres,
+  ../../../common/databases/db_postgres/query_metrics,
   ./postgres_healthcheck,
   ./partitions_manager
 
@@ -138,6 +139,17 @@ const SelectWithCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
 const SelectCursorByHashName = "SelectMessageByHashInMessagesLookup"
 const SelectCursorByHashDef = """SELECT timestamp FROM messages_lookup
     WHERE messageHash = $1"""
+
+static:
+  # an unlisted statement would be labelled unknown_query_metric
+  for name in [
+    InsertRowStmtName, InsertRowInMessagesLookupStmtName, SelectNoCursorAscStmtName,
+    SelectNoCursorNoDataAscStmtName, SelectNoCursorDescStmtName,
+    SelectNoCursorNoDataDescStmtName, SelectWithCursorDescStmtName,
+    SelectWithCursorNoDataDescStmtName, SelectWithCursorAscStmtName,
+    SelectWithCursorNoDataAscStmtName, SelectCursorByHashName,
+  ]:
+    doAssert stmtLabel(name) == name, "statement missing in PreparedStmtNames: " & name
 
 const
   DefaultMaxNumConns = 50

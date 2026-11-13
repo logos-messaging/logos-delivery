@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tables, sequtils, sets, strutils],
+  std/[tables, sequtils, sets],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
@@ -236,8 +236,9 @@ proc setCapacity*(peerStore: PeerStore, capacity: int) =
   peerStore.capacity = capacity
 
 proc getWakuProtos*(peerStore: PeerStore): seq[string] =
+  ## Only our codecs: peers advertise any protocol string they like.
   toSeq(peerStore[ProtoBook].book.values()).flatten().deduplicate().filterIt(
-    it.startsWith("/vac/waku")
+    it in WakuCodecs
   )
 
 proc getPeersByDirection*(

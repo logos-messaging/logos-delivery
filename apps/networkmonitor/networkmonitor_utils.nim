@@ -10,6 +10,7 @@ import
 
 type NodeLocation* = object
   country*: string
+  countryCode*: string
   city*: string
   lat*: string
   long*: string
@@ -36,6 +37,7 @@ proc decodeBytes*(
       return ok(
         NodeLocation(
           country: jsonContent["country"].getStr(),
+          countryCode: jsonContent{"countryCode"}.getStr(),
           city: jsonContent["city"].getStr(),
           lat: $jsonContent["lat"].getFloat(),
           long: $jsonContent["lon"].getFloat(),
@@ -44,6 +46,13 @@ proc decodeBytes*(
       )
     except Exception:
       return err("failed to get the location: " & getCurrentExceptionMsg())
+
+func countryLabel*(countryCode: string): string =
+  ## ISO 3166-1 alpha-2: two uppercase ASCII letters.
+  if countryCode.len == 2 and countryCode[0] in {'A' .. 'Z'} and
+      countryCode[1] in {'A' .. 'Z'}:
+    return countryCode
+  return "other"
 
 proc encodeString*(value: string): RestResult[string] =
   ok(value)

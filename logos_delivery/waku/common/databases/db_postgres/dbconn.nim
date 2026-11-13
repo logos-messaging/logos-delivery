@@ -515,7 +515,9 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling flushSend: " & $error)
 
   let sendDuration = getTime().toUnixFloat() - queryStartTime
-  logos_delivery_query_time_secs.set(sendDuration, [stmtName, "sendToDBQuery"])
+  logos_delivery_query_time_secs.set(
+    sendDuration, [stmtLabel(stmtName), "sendToDBQuery"]
+  )
 
   queryStartTime = getTime().toUnixFloat()
 
@@ -523,9 +525,9 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling waitQueryToFinish: " & $error)
 
   let waitDuration = getTime().toUnixFloat() - queryStartTime
-  logos_delivery_query_time_secs.set(waitDuration, [stmtName, "waitFinish"])
+  logos_delivery_query_time_secs.set(waitDuration, [stmtLabel(stmtName), "waitFinish"])
 
-  logos_delivery_query_count.inc(labelValues = [stmtName])
+  logos_delivery_query_count.inc(labelValues = [stmtLabel(stmtName)])
 
   if "insert" notin stmtName.toLower():
     debug "dbConnQueryPrepared",

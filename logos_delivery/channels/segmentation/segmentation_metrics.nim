@@ -13,7 +13,7 @@
 {.push raises: [].}
 
 import metrics
-import segmentation
+import logos_delivery/waku/waku_core/metric_labels, segmentation
 
 declarePublicCounter logos_delivery_segmentation_sets_dropped,
   "inbound payloads that will never be reassembled", ["reason"]
@@ -23,10 +23,10 @@ declarePublicCounter logos_delivery_segmentation_payloads_reassembled,
   "inbound payloads reassembled from a complete segment set"
 
 proc recordSetDropped*(reason: SegmentSetDropReason) =
-  logos_delivery_segmentation_sets_dropped.inc(labelValues = [$reason])
+  logos_delivery_segmentation_sets_dropped.inc(labelValues = [enumLabel(reason)])
 
 proc recordSegmentDiscarded*(reason: SegmentDiscardReason) =
-  logos_delivery_segmentation_segments_discarded.inc(labelValues = [$reason])
+  logos_delivery_segmentation_segments_discarded.inc(labelValues = [enumLabel(reason)])
 
 proc recordPayloadReassembled*() =
   logos_delivery_segmentation_payloads_reassembled.inc()
