@@ -550,6 +550,23 @@ suite "Node config - Messaging API flags":
     let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
     check not conf.messaging.isSet()
 
+suite "Waku external config - mix hop addresses":
+  const MixKey = "c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
+
+  proc allowsAllAddresses(cmdLine: seq[string]): bool =
+    let conf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+    return wakuConf.mixConf.get().allowAllAddresses
+
+  test "the bare switch allows all addresses, and a node without it does not":
+    check:
+      allowsAllAddresses(@["--mix=true", "--mix-allow-all-addresses"])
+      allowsAllAddresses(
+        @["--mix=true", "--mixkey=" & MixKey, "--mix-allow-all-addresses"]
+      )
+      not allowsAllAddresses(@["--mix=true"])
+
 func parsePkgVersion(nimbleFile: string): (int, int, int) =
   for line in nimbleFile.splitLines():
     if line.startsWith("version"):
@@ -696,6 +713,7 @@ suite "Waku external config - ignored dependent flags":
     conf.quicPort = Opt.some(Port(9002))
     conf.websocketSecureKeyPath = "/key.pem"
     conf.rlnRelayCredIndex = Opt.some(1'u)
+    conf.mixAllowAllAddresses = true
 
     ## When / Then
     check warningsOf(conf) ==
@@ -705,6 +723,7 @@ suite "Waku external config - ignored dependent flags":
         "--metrics-server-port is ignored: --metrics-server is not enabled",
         "--websocket-secure-key-path is ignored: --websocket-secure-support is not enabled",
         "--quic-port is ignored: --quic-support is not enabled",
+        "--mix-allow-all-addresses is ignored: --mix is not enabled",
         "--rln-relay-membership-index is ignored: --rln-relay is not enabled",
       ]
 

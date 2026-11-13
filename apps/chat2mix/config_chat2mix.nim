@@ -91,6 +91,13 @@ type
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    mixAllowAllAddresses* {.
+      desc:
+        "Let mix paths use a mix node at a private or a loopback address. Without it, mix uses a mix node only at a public address or through a circuit relay. Set it on a node of a local simulation, a test or a private network.",
+      defaultValue: false,
+      name: "mix-allow-all-addresses"
+    .}: bool
+
     keepAlive* {.
       desc: "Enable keep-alive for idle connections: true|false",
       defaultValue: false,

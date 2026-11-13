@@ -34,7 +34,11 @@ proc boundTcpPort(node: WakuNode): Port =
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let mixKeys = generateKeyPair().expect("mix key pair")
-  (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+  (
+    await node.mountMix(
+      DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+    )
+  ).isOkOr:
     raiseAssert "Failed to mount mix: " & $error
 
 proc mixHealth(node: WakuNode): ProtocolHealth =
@@ -328,7 +332,11 @@ suite "Waku Mix - pool size":
     # Mount before start, as the node factory does: a switch that runs cannot
     # mount a new protocol.
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, @[])).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
 
     await node.start()
@@ -408,6 +416,7 @@ suite "Waku Mix - pool size":
         DefaultClusterId,
         mixKeys.privateKey,
         @[bootnode("/ip4/127.0.0.1/tcp/60030"), bootnode("/ip6/::1/tcp/60031")],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
@@ -497,6 +506,77 @@ method resolveIp(
 .} =
   return @[initTAddress("127.0.0.1", port), initTAddress("127.0.0.2", port)]
 
+suite "Waku Mix - hop address classes":
+  ## Each node of a path dials the next one. By default, a path uses a mix node
+  ## only at a public address or through a circuit relay. The nodes of this suite
+  ## do not start, so they dial nothing.
+  const
+    PublicAddr = "/ip4/8.8.8.8/tcp/60501"
+    PrivateAddr = "/ip4/192.168.1.1/tcp/60503"
+    LoopbackAddr = "/ip4/127.0.0.1/tcp/60504"
+
+  proc relayedAddr(): string =
+    let relayId = PeerId.init(generateSecp256k1Key()).tryGet()
+    "/ip4/8.8.8.8/tcp/60502/p2p/" & $relayId & "/p2p-circuit"
+
+  proc mixNode(
+      bootnodes: seq[MixNodePubInfo] = @[], allowAllAddresses = false
+  ): Future[WakuNode] {.async.} =
+    let node = newTestWakuNode(generateSecp256k1Key())
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId,
+        mixKeys.privateKey,
+        bootnodes,
+        allowAllAddresses = allowAllAddresses,
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    return node
+
+  proc discover(node: WakuNode, address: string) =
+    ## Stores a mix key and its address in the peer store, as discovery does.
+    let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId,
+        @[MultiAddress.init(address).tryGet()],
+        mixPubKey = Opt.some(mixKeys.publicKey),
+      )
+    )
+
+  asyncTest "by default the pool counts a discovered mix node only at a public or relayed address":
+    let node = await mixNode()
+
+    node.discover(PrivateAddr)
+    node.discover(LoopbackAddr)
+    check node.getMixNodePoolSize() == 0
+
+    node.discover(PublicAddr)
+    node.discover(relayedAddr())
+    check node.getMixNodePoolSize() == 2
+
+  asyncTest "by default the pool counts a configured mix node only at a public or relayed address":
+    let node = await mixNode(
+      @[
+        mixBootnode(PublicAddr),
+        mixBootnode(relayedAddr()),
+        mixBootnode(PrivateAddr),
+        mixBootnode(LoopbackAddr),
+      ]
+    )
+    check node.getMixNodePoolSize() == 2
+
+  asyncTest "with all addresses allowed the pool counts a mix node at each address":
+    let node = await mixNode(
+      @[mixBootnode(PublicAddr), mixBootnode(relayedAddr())], allowAllAddresses = true
+    )
+    node.discover(PrivateAddr)
+    node.discover(LoopbackAddr)
+    check node.getMixNodePoolSize() == 4
+
 suite "Waku Mix - bootstrap nodes":
   ## Presets pin `dns4` names. The mount seeds the pool with the literal entries
   ## and resolves the names in the background: mix routes literal addresses only.
@@ -506,7 +586,11 @@ suite "Waku Mix - bootstrap nodes":
   ): Future[WakuNode] {.async.} =
     let node = newTestWakuNode(generateSecp256k1Key(), nameResolver = nameResolver)
     let mixKeys = generateKeyPair().expect("mix key pair")
-    (await node.mountMix(DefaultClusterId, mixKeys.privateKey, bootnodes)).isOkOr:
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, bootnodes, allowAllAddresses = true
+      )
+    ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
     await node.start()
     await node.mixNodesResolved()
@@ -541,6 +625,7 @@ suite "Waku Mix - bootstrap nodes":
         DefaultClusterId,
         mixKeys.privateKey,
         @[selfEntry, mixBootnode("/ip4/127.0.0.1/tcp/60106")],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
@@ -712,6 +797,7 @@ suite "Waku Mix - name resolution in the background":
           pubKey: keys.publicKey,
         ),
       ],
+      allowAllAddresses = true,
     )
     check await mount.withTimeout(chronos.seconds(1)) # no wait on the names
     if mount.finished():
@@ -751,6 +837,7 @@ suite "Waku Mix - name resolution in the background":
             pubKey: keys.publicKey,
           ),
         ],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -778,6 +865,7 @@ suite "Waku Mix - name resolution in the background":
           mixBootnode("/dns4/fast-04.invalid/tcp/30303"),
           mixBootnode("/dns4/slow-01.invalid/tcp/30303"),
         ],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
@@ -797,6 +885,7 @@ suite "Waku Mix - name resolution in the background":
         DefaultClusterId,
         keys.privateKey,
         @[mixBootnode("/dns4/gated-01.invalid/tcp/30303")],
+        allowAllAddresses = true,
       )
     ).isOkOr:
       raiseAssert "mount failed: " & error
