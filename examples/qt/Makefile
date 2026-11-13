@@ -5,14 +5,17 @@
 ## This may be needed in Ubuntu: sudo apt install qtdeclarative5-dev qtquickcontrols2-5-dev
 
 CXX = g++
-CXXFLAGS = -g3 -fpermissive -fPIC `pkg-config --cflags Qt5Core Qt5Gui Qt5Qml Qt5Quick`
-LDFLAGS = `pkg-config --libs Qt5Core Qt5Gui Qt5Qml Qt5Quick` -llogosdelivery -L../../build/
-MOC = moc
+# Passed in by the repository's `make qt-logos-delivery-example`.
+TINYCBOR_VENDOR_DIR ?= $(error TINYCBOR_VENDOR_DIR is not set: build with `make qt-logos-delivery-example` from the repository root)
+
+CXXFLAGS = -g3 -fpermissive -fPIC -I../../build -I$(TINYCBOR_VENDOR_DIR) `pkg-config --cflags Qt5Core Qt5Gui Qt5Qml Qt5Quick`
+LDFLAGS = `pkg-config --libs Qt5Core Qt5Gui Qt5Qml Qt5Quick` -llogosdelivery -L../../build/ ../../build/libtinycbor.a
+MOC ?= moc
 
 TARGET = main-qt
 SRC = main_qt.cpp
-MOC_SRC = waku_handler.moc.cpp
-HEADERS = waku_handler.h
+MOC_SRC = logos_delivery_handler.moc.cpp
+HEADERS = logos_delivery_handler.h
 
 all: $(TARGET)
 

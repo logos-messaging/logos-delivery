@@ -21,14 +21,16 @@ brew install libpq
 
 ## Compilation
 
-From the nwaku root folder:
+From the logos-delivery root folder:
 
 ```code
-go build -o waku-go examples/golang/waku.go
+make go-logos-delivery-example
 ```
 
+It passes the TinyCBOR include path and archive that the generated header needs.
+
 ## Run
-From the nwaku root folder:
+From the logos-delivery root folder:
 
 
 ```code
@@ -36,5 +38,5 @@ export LD_LIBRARY_PATH=build
 ```
 
 ```code
-./waku-go
+./build/go-logos-delivery-example
 ```

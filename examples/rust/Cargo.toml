@@ -1,5 +1,5 @@
 [package]
-name = "waku-rust-simple-example"
+name = "logos-delivery-rust-simple-example"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,3 +7,6 @@ edition = "2021"
 
 [build-dependencies]
 cc = "1.0.52"
+
+[dependencies]
+ciborium = "0.2"
