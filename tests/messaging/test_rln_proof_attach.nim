@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, times, strutils]
+import std/[sequtils, times, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 import
   logos_delivery/waku/[waku, waku_core, rln],
