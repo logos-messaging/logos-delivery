@@ -18,7 +18,6 @@
 #   GITHUB_RUN_ID            id of the nightly run, set by Actions
 #   GH_TOKEN                 token with actions:read and issues:write
 #   DISCORD_WEBHOOK_URL      optional; without it only the issue is updated
-#   NIGHTLY_DISCORD_MENTION  optional; prefixed to failure posts, e.g. <@&role-id>
 #   NIGHTLY_OWNER            optional; GitHub login the tracking issue is assigned to
 set -euo pipefail
 
@@ -65,17 +64,16 @@ failed_jobs() {
       | "- [\(.name)](\(.html_url)) \(.conclusion)"'
 }
 
-# post <title> <color> <description> <mention>
+# post <title> <color> <description>
 post() {
   if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
     echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the Discord notification"
     return 0
   fi
   # Discord caps an embed description at 4096 characters.
-  jq -n --arg content "$4" --arg title "$1" --argjson color "$2" \
+  jq -n --arg title "$1" --argjson color "$2" \
     --arg desc "$3" --arg url "$run_url" \
-    '{content: $content,
-      embeds: [{title: $title, color: $color, url: $url,
+    '{embeds: [{title: $title, color: $color, url: $url,
                 description: (if ($desc | length) > 4000 then $desc[:4000] + "\n…" else $desc end)}]}' |
     curl -fsS --retry 3 --retry-all-errors -H "Content-Type: application/json" \
       -X POST --data-binary @- --config <(printf 'url = "%s"\n' "$DISCORD_WEBHOOK_URL")
@@ -83,7 +81,6 @@ post() {
 
 red=15158332
 green=3066993
-mention=${NIGHTLY_DISCORD_MENTION:-}
 
 if [ "$RESULT" = success ]; then
   if [ -z "$issue" ]; then
@@ -92,7 +89,7 @@ if [ "$RESULT" = success ]; then
   fi
   read -r number _ <<<"$issue"
   # Post first: if the post fails, the issue stays open and a re-run posts again.
-  post "✅ Nightly CI is green again" "$green" "Closing $(issue_url "$number")" ""
+  post "✅ Nightly CI is green again" "$green" "Closing $(issue_url "$number")"
   gh issue close "$number" -R "$repo" --comment "Back to green: $run_url"
   exit 0
 fi
@@ -111,7 +108,7 @@ if [ -z "$issue" ]; then
     gh issue edit "$url" -R "$repo" --add-assignee "$NIGHTLY_OWNER" ||
       echo "::warning::could not assign $url to $NIGHTLY_OWNER"
   fi
-  post "❌ Nightly CI failed" "$red" "$(printf 'Failed jobs:\n%s\n\nTracking issue: %s' "$failed" "$url")" "$mention"
+  post "❌ Nightly CI failed" "$red" "$(printf 'Failed jobs:\n%s\n\nTracking issue: %s' "$failed" "$url")"
   exit 0
 fi
 
@@ -127,4 +124,4 @@ else
   gh issue comment "$number" -R "$repo" --body "Still failing, day $days: $report"
   title="❌ Nightly CI still failing (day $days)"
 fi
-post "$title" "$red" "$(printf 'Failed jobs:\n%s\n\nTracking issue: %s' "$failed" "$(issue_url "$number")")" "$mention"
+post "$title" "$red" "$(printf 'Failed jobs:\n%s\n\nTracking issue: %s' "$failed" "$(issue_url "$number")")"
