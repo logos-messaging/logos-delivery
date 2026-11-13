@@ -393,8 +393,8 @@
       }
     },
     "ffi": {
-      "version": "#ca34fd1b5b43a86edd3b364e92d9a4ff0173fe33",
-      "vcsRevision": "ca34fd1b5b43a86edd3b364e92d9a4ff0173fe33",
+      "version": "#d0ec470adeeb653ad1b3e78d50ba103ec46821e7",
+      "vcsRevision": "d0ec470adeeb653ad1b3e78d50ba103ec46821e7",
       "url": "https://github.com/logos-messaging/nim-ffi",
       "downloadMethod": "git",
       "dependencies": [
@@ -404,7 +404,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "1eda1f67a43d8fedd640a316283477c449853d17"
+        "sha1": "16bfdbf83ed11c80e08bb2fac897a7055b8121c2"
       }
     },
     "lsquic": {

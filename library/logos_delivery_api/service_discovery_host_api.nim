@@ -113,7 +113,7 @@ BrokerImplement FfiServiceDiscoveryHost of IServiceDiscoveryHost:
   method hostCheck(
       self: FfiServiceDiscoveryHost
   ): Future[Result[void, string]] {.async.} =
-    let missing = ffiReverseMissing(SdWires)
+    let missing = ?ffiReverseMissing(SdWires)
     if missing.len > 0:
       return err(
         "the host has not implemented " & missing.join(", ") &

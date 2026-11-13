@@ -77,7 +77,7 @@ requires "nim >= 2.2.6",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-requires "https://github.com/logos-messaging/nim-ffi#ca34fd1b5b43a86edd3b364e92d9a4ff0173fe33"
+requires "https://github.com/logos-messaging/nim-ffi#d0ec470adeeb653ad1b3e78d50ba103ec46821e7"
 
 # No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
 requires "https://github.com/logos-messaging/nim-sds.git#4b08d508dbfa69c0e2e3883db67adf1fe5a0c994"
