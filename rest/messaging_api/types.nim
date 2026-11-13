@@ -28,9 +28,7 @@ type MessagingJsonEnvelope* = object
 type MessagingPostMessageRequest* = MessagingJsonEnvelope
 
 type MessagingSendResponse* = object
-  ## Returned by the send endpoint on success; correlates with
-  ## `MessageSentEvent` / `MessageErrorEvent`.
-  requestId*: string
+  messageHash*: string
 
 #### Type conversion
 
@@ -111,13 +109,13 @@ proc writeValue*(
     writer: var JsonWriter[RestJson], value: MessagingSendResponse
 ) {.raises: [IOError].} =
   writer.beginRecord()
-  writer.writeField("requestId", value.requestId)
+  writer.writeField("messageHash", value.messageHash)
   writer.endRecord()
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var MessagingSendResponse
 ) {.raises: [SerializationError, IOError].} =
-  var requestId = Opt.none(string)
+  var messageHash = Opt.none(string)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -130,19 +128,19 @@ proc readValue*(
       reader.raiseUnexpectedField(err, "MessagingSendResponse")
 
     case fieldName
-    of "requestId":
-      requestId = Opt.some(reader.readValue(string))
+    of "messageHash":
+      messageHash = Opt.some(reader.readValue(string))
     else:
       skipUnrecognizedField(reader, value)
 
-  if requestId.isNone():
-    reader.raiseUnexpectedValue("Field `requestId` is missing")
+  if messageHash.isNone():
+    reader.raiseUnexpectedValue("Field `messageHash` is missing")
 
-  value = MessagingSendResponse(requestId: requestId.get())
+  value = MessagingSendResponse(messageHash: messageHash.get())
 
 #### Event observability DTOs
 ##
-## Send-related events (sent / propagated / error) are grouped per request id.
+## Send-related events (sent / propagated / error) are grouped per message hash.
 ## Received messages carry the full `WakuMessage` (serialized as
 ## `RelayWakuMessage`) and the `source` it came from (`live` / `history`),
 ## matching the nim `MessageReceivedEvent`. Both surfaces are populated by the
@@ -150,19 +148,18 @@ proc readValue*(
 
 type
   SendEventKind* {.pure.} = enum
-    Queued = "queued"
     Sent = "sent"
     Propagated = "propagated"
     Error = "error"
 
   SendEventRecord* = object
     kind*: SendEventKind
-    messageHash*: string
+    errorKind*: Opt[MessageErrorKind] ## set only for `Error`
     error*: string ## populated only for `Error`
     timestamp*: int64 ## nanoseconds, stamped when cached
 
-  SendStatus* = object ## All send events observed so far for a single request id.
-    requestId*: string
+  SendStatus* = object ## All send events observed so far for a single message.
+    messageHash*: string ## the hash that the send endpoint returned
     events*: seq[SendEventRecord]
 
   ReceivedMessageRecord* = object
@@ -180,7 +177,8 @@ proc writeValue*(
 ) {.raises: [IOError].} =
   writer.beginRecord()
   writer.writeField("kind", $value.kind)
-  writer.writeField("messageHash", value.messageHash)
+  if value.errorKind.isSome():
+    writer.writeField("errorKind", $value.errorKind.get())
   if value.error.len > 0:
     writer.writeField("error", value.error)
   writer.writeField("timestamp", value.timestamp)
@@ -190,7 +188,7 @@ proc writeValue*(
     writer: var JsonWriter[RestJson], value: SendStatus
 ) {.raises: [IOError].} =
   writer.beginRecord()
-  writer.writeField("requestId", value.requestId)
+  writer.writeField("messageHash", value.messageHash)
   writer.writeField("events", value.events)
   writer.endRecord()
 
@@ -209,8 +207,6 @@ proc readValue*(
 ) {.raises: [SerializationError, IOError].} =
   let s = reader.readValue(string)
   case s
-  of "queued":
-    value = SendEventKind.Queued
   of "sent":
     value = SendEventKind.Sent
   of "propagated":
@@ -237,7 +233,7 @@ proc readValue*(
 ) {.raises: [SerializationError, IOError].} =
   var
     kind = Opt.none(SendEventKind)
-    messageHash = ""
+    errorKind = Opt.none(MessageErrorKind)
     error = ""
     timestamp = int64(0)
 
@@ -245,8 +241,15 @@ proc readValue*(
     case fieldName
     of "kind":
       kind = Opt.some(reader.readValue(SendEventKind))
-    of "messageHash":
-      messageHash = reader.readValue(string)
+    of "errorKind":
+      let name = reader.readValue(string)
+      case name
+      of $MessageErrorKind.NotPropagated:
+        errorKind = Opt.some(MessageErrorKind.NotPropagated)
+      of $MessageErrorKind.NotStored:
+        errorKind = Opt.some(MessageErrorKind.NotStored)
+      else:
+        reader.raiseUnexpectedValue("Invalid send error kind: " & name)
     of "error":
       error = reader.readValue(string)
     of "timestamp":
@@ -258,26 +261,26 @@ proc readValue*(
     reader.raiseUnexpectedValue("Field `kind` is missing")
 
   value = SendEventRecord(
-    kind: kind.get(), messageHash: messageHash, error: error, timestamp: timestamp
+    kind: kind.get(), errorKind: errorKind, error: error, timestamp: timestamp
   )
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var SendStatus
 ) {.raises: [SerializationError, IOError].} =
   var
-    requestId = ""
+    messageHash = ""
     events: seq[SendEventRecord] = @[]
 
   for fieldName in readObjectFields(reader):
     case fieldName
-    of "requestId":
-      requestId = reader.readValue(string)
+    of "messageHash":
+      messageHash = reader.readValue(string)
     of "events":
       events = reader.readValue(seq[SendEventRecord])
     else:
       skipUnrecognizedField(reader, value)
 
-  value = SendStatus(requestId: requestId, events: events)
+  value = SendStatus(messageHash: messageHash, events: events)
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var ReceivedMessageRecord

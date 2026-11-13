@@ -74,8 +74,8 @@ proc logosdelivery_send(
   )
 
   # Send the message via the messaging layer's own API.
-  let requestId = (await self.messagingClient.send(envelope)).valueOr:
+  let messageHash = (await self.messagingClient.send(envelope)).valueOr:
     let errMsg = $error
     return err("Send failed: " & errMsg)
 
-  return ok($requestId)
+  return ok(messageHash.to0xHex())

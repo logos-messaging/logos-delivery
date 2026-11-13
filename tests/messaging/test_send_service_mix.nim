@@ -28,7 +28,7 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
-    [send_service, send_processor, mix_processor, delivery_task]
+    [send_service, send_processor, mix_processor, relay_processor, delivery_task]
 import ../testlib/[futures, testasync, wakucore, wakunodeconf]
 
 ## Tests for the anonymity levels of the send path. The first suite mounts no
@@ -46,26 +46,41 @@ method sendImpl(self: PlainSendProcessor, task: DeliveryTask): Future[void] {.as
   task.state = DeliveryState.SuccessfullyPropagated
   task.firstPropagatedTime = Opt.some(Moment.now())
 
-type RetryingProcessor = ref object of BaseSendProcessor
-  ## Leaves every task for a retry, with `reason` in `errorDesc`.
-  reason: string
+type HasPeerProcessor = ref object of BaseSendProcessor
+  ## Has a peer and hands each task to the next processor of the chain.
 
-method isValidProcessor(self: RetryingProcessor, task: DeliveryTask): bool {.gcsafe.} =
+method isValidProcessor(self: HasPeerProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
-method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.async.} =
+method sendImpl(self: HasPeerProcessor, task: DeliveryTask): Future[void] {.async.} =
+  task.state = DeliveryState.Fallback
+
+type NoPeerProcessor = ref object of BaseSendProcessor
+  ## A plain processor with no peer to send through.
+
+method hasSendPeer(
+    self: NoPeerProcessor, task: DeliveryTask
+): bool {.gcsafe, raises: [].} =
+  return false
+
+type FailingProcessor = ref object of BaseSendProcessor
+  ## Fails each task, with `reason` in `errorDesc`.
+  reason: string
+
+method isValidProcessor(self: FailingProcessor, task: DeliveryTask): bool {.gcsafe.} =
+  return true
+
+method sendImpl(self: FailingProcessor, task: DeliveryTask): Future[void] {.async.} =
   task.errorDesc = self.reason
-  task.state = DeliveryState.NextRoundRetry
+  task.state = DeliveryState.FailedToDeliver
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc buildTask(
-    id: string, admittedAgo: Duration, contentTopic = "/test/1/anonymity/proto"
-): DeliveryTask =
-  ## An admitted task with no RLN, so `sendUntilPropagated` does not call
-  ## `admitAndProve`. The id is the payload, so two tasks never have one hash.
+proc buildTask(id: string, contentTopic = "/test/1/anonymity/proto"): DeliveryTask =
+  ## A task with no RLN.
+  ## The id is the payload, so two tasks never have one hash.
   let msg = WakuMessage(
     contentTopic: contentTopic,
     payload: id.toBytes(),
@@ -73,17 +88,15 @@ proc buildTask(
   )
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
     state: DeliveryState.Entry,
-    firstAdmittedTime: Opt.some(Moment.now() - admittedAgo),
   )
 
 proc sizedTask(id: string, size: int): DeliveryTask =
-  ## An admitted task whose lightpush request over mix has `size` bytes.
-  let task = buildTask(id, chronos.seconds(5))
+  ## A task whose lightpush request over mix has `size` bytes.
+  let task = buildTask(id)
   for n in 0 .. size:
     task.msg.payload = newSeq[byte](n)
     if mixLightpushSize(task.pubsubTopic, task.msg).size == size:
@@ -92,12 +105,11 @@ proc sizedTask(id: string, size: int): DeliveryTask =
   raiseAssert "no payload gives a request of " & $size & " bytes"
 
 proc mixLimit(): int =
-  let task = buildTask("probe", chronos.seconds(5))
+  let task = buildTask("probe")
   return mixLightpushSize(task.pubsubTopic, task.msg).limit
 
 proc sizedProofTask(id: string, size, proofBytes: int): DeliveryTask =
-  let task = buildTask(id, ZeroDuration)
-  task.firstAdmittedTime = Opt.none(Moment)
+  let task = buildTask(id)
   task.msg.timestamp = getNowInNanosecondTime()
   task.msg.proof = newSeq[byte](proofBytes)
   for n in 0 .. size:
@@ -120,7 +132,7 @@ proc countingRln(waku: Waku, proofBytes: int): ref int =
     Opt.some(RlnPlugin(generateProof: generate, proofSize: Opt.some(proofBytes)))
   return draws
 
-suite "SendService - mix size before admission":
+suite "SendService - mix size at send":
   var waku {.threadvar.}: Waku
   asyncSetup:
     waku = (await Waku.new(testConf())).expect("Waku.new")
@@ -134,23 +146,18 @@ suite "SendService - mix size before admission":
       .new(RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1))
       .expect("RateLimitManager.new")
 
-  asyncTest "proof overhead rejects Required before admission and leaves budget for a fitting task":
+  proc requiredService(manager: RateLimitManager): SendService =
+    ## A service that runs.
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
+    let service = SendService.new(false, waku, manager, mix).expect("SendService.new")
+    service.startSendService()
+    return service
+
+  asyncTest "proof overhead refuses a Required send, and a task that fits with its proof passes":
     const proofBytes = 289
     let draws = countingRln(waku, proofBytes)
     let manager = newManager()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let service = SendService
-      .new(
-        false,
-        waku,
-        manager,
-        mix,
-        AnonymityLevel.Required,
-        retryInterval = chronos.hours(1),
-      )
-      .expect("SendService.new")
+    let service = requiredService(manager)
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -166,66 +173,55 @@ suite "SendService - mix size before admission":
       await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
 
     let large = sizedProofTask("unproven-fits", mixLimit(), 0)
-    check service.enqueue(large).isOk()
-    checkUntilTimeout:
-      errors.len == 1
+    let refused = service.enqueue(large)
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.TooLarge
+        refused.error.desc.startsWith(MixTooLargeReason)
     check:
-      large.state == DeliveryState.FailedToDeliver
-      large.errorDesc.startsWith(MixTooLargeReason)
-      large.firstAdmittedTime.isNone()
       large.msg.proof.len == 0
       large.tryCount == 0
       not large.anonymized
       draws[] == 0
       manager.sentInCurrentEpoch == 0
-      not large.queuedEventEmitted
 
+    # A task that fits with its proof passes the size check.
+    # Mix has no pool, so the send is refused for that reason.
     let fits = sizedProofTask("proven-fits", mixLimit(), proofBytes)
-    check service.enqueue(fits).isOk()
-    checkUntilTimeout:
-      fits.state == DeliveryState.NextRoundRetry
+    let noPool = service.enqueue(fits)
+    check noPool.isErr()
+    if noPool.isErr():
+      check:
+        noPool.error.kind == SendErrorKind.NotConnected
+        noPool.error.desc == MixUnavailableReason
     check:
-      draws[] == 1
-      manager.sentInCurrentEpoch == 1
-      fits.firstAdmittedTime.isSome()
-      fits.msg.proof.len == proofBytes
-      mixLightpushSize(fits.pubsubTopic, fits.msg).size == mixLimit()
-      fits.errorDesc == MixUnavailableReason
-      errors.len == 1
-
-  asyncTest "Required rejects one byte above the proven limit without spending budget":
-    let draws = countingRln(waku, 289)
-    let manager = newManager()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let service = SendService
-      .new(false, waku, manager, mix, retryInterval = chronos.hours(1))
-      .expect("SendService.new")
-    service.startSendService()
-    defer:
-      await service.stopSendService()
-    let task = sizedProofTask("proven-too-large", mixLimit() + 1, 289)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
-    check:
-      task.errorDesc.contains("the request has " & $(mixLimit() + 1) & " bytes")
       draws[] == 0
       manager.sentInCurrentEpoch == 0
-      task.firstAdmittedTime.isNone()
+      errors.len == 0 # a refused send gets no event
+
+  asyncTest "Required refuses one byte above the proven limit without spending budget":
+    let draws = countingRln(waku, 289)
+    let manager = newManager()
+    let service = requiredService(manager)
+    let task = sizedProofTask("proven-too-large", mixLimit() + 1, 289)
+    let refused = service.enqueue(task)
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.TooLarge
+        refused.error.desc.contains("the request has " & $(mixLimit() + 1) & " bytes")
+    check:
+      draws[] == 0
+      manager.sentInCurrentEpoch == 0
 
   asyncTest "Preferred spends one proof and one admission for its plain fallback":
     let draws = countingRln(waku, 289)
     let manager = newManager()
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
     mix.chain(plain)
-    let service = SendService
-      .new(false, waku, manager, mix, retryInterval = chronos.hours(1))
-      .expect("SendService.new")
+    let service = SendService.new(false, waku, manager, mix).expect("SendService.new")
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -241,43 +237,35 @@ suite "SendService - mix size before admission":
       not task.anonymized
       task.tryCount == 0
 
-  asyncTest "a supplied proof uses its actual length before admission":
+  asyncTest "a supplied proof uses its actual length at send":
     let draws = countingRln(waku, 400)
     let task = sizedProofTask("supplied-proof", mixLimit(), 289)
     task.msg.proof = newSeq[byte](289)
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    check mix.checkBeforeAdmission(task)
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
+    check mix.checkBeforeAdmission(task).isOk()
     check:
       draws[] == 0
       task.msg.proof.len == 289
       mixLightpushSize(task.pubsubTopic, task.msg).size == mixLimit()
     task.msg.proof.add(1)
-    check not mix.checkBeforeAdmission(task)
+    check mix.checkBeforeAdmission(task).error.kind == SendErrorKind.TooLarge
     check draws[] == 0
 
-  asyncTest "an undeclared proof size fails Required before drawing a proof":
+  asyncTest "an undeclared proof size refuses a Required send before drawing a proof":
     let draws = countingRln(waku, 289)
     var plugin = waku.node.rlnPlugin.get()
     plugin.proofSize = Opt.none(int)
     waku.node.rlnPlugin = Opt.some(plugin)
     let manager = newManager()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let service = SendService
-      .new(false, waku, manager, mix, retryInterval = chronos.hours(1))
-      .expect("SendService.new")
-    service.startSendService()
-    defer:
-      await service.stopSendService()
+    let service = requiredService(manager)
     let task = sizedProofTask("unknown-proof", mixLimit(), 0)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
+    let refused = service.enqueue(task)
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.Other
+        refused.error.desc.contains("does not declare its proof size")
     check:
-      task.errorDesc.contains("does not declare its proof size")
       draws[] == 0
       manager.sentInCurrentEpoch == 0
 
@@ -326,14 +314,12 @@ suite "SendService - anonymity level":
     discard await waku.stop()
 
   asyncTest "a Required task fails at once when mix cannot deliver":
-    ## `Required` has no second path, so the task fails at once with the reason.
+    ## `Required` has no second path, so the task fails with the reason.
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
     mix.chain(plain)
 
-    let task = buildTask("required", chronos.seconds(5))
+    let task = buildTask("required")
     await mix.process(task)
 
     check:
@@ -341,60 +327,58 @@ suite "SendService - anonymity level":
       task.state == DeliveryState.FailedToDeliver
       task.errorDesc == MixUnavailableReason
 
-  asyncTest "a Required task past its window still never reaches the plain path":
-    ## With mix unusable, the reasons decide before the window, so a `Required`
-    ## task past its window fails with the reason and never reaches the plain path.
-    let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    let task = buildTask("required-past-window", chronos.minutes(10))
-    await mix.process(task)
-
-    check:
-      plain.calls == 0
-      task.state == DeliveryState.FailedToDeliver
-      task.errorDesc == MixUnavailableReason
-
   asyncTest "a Preferred task takes the plain path at once when mix cannot deliver":
     ## No wait can mount mix, so the task goes to the plain path at once. The
     ## mounted suite covers a mounted mix that cannot attempt the send.
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
     mix.chain(plain)
 
-    let task = buildTask("preferred-early", chronos.seconds(5))
+    let task = buildTask("preferred-early")
     await mix.process(task)
 
     check:
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
 
-  asyncTest "Preferred gets a second delivery window, the other levels do not":
+  asyncTest "enqueue emits no event, and the service emits the outcome later":
+    ## `enqueue` sends nothing, so the error comes one time, later.
+    ## The error event has the reason that the processor gave.
+    var errors: seq[MessageErrorEvent]
+    let listener = MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(e: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(e),
+      )
+      .expect("listen")
+    defer:
+      await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    let service = SendService
+      .new(false, waku, manager, FailingProcessor(reason: "scripted reason"))
+      .expect("SendService.new")
 
-    proc serviceFor(level: AnonymityLevel): SendService =
-      let chain = setupSendProcessorChain(waku, level).expect("send processor chain")
-      return
-        SendService.new(false, waku, manager, chain, level).expect("SendService.new")
-
-    let plainService = serviceFor(AnonymityLevel.None)
-    let mixOnlyService = serviceFor(AnonymityLevel.Required)
-    let bestEffortService = serviceFor(AnonymityLevel.Preferred)
-
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    let task = buildTask("failfast")
     check:
-      plainService.maxDeliveryTime == DeliveryWindow
-      mixOnlyService.maxDeliveryTime == DeliveryWindow
-      bestEffortService.maxDeliveryTime == DeliveryWindow + DeliveryWindow
+      service.enqueue(task).isOk()
+      errors.len == 0 # no event inside `enqueue`
+    checkUntilTimeout:
+      errors.len == 1
+    await sleepAsync(FUTURE_TIMEOUT_SHORT)
+    check:
+      task.state == DeliveryState.FailedToDeliver
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
+      errors.mapIt(it.error) == @["scripted reason"]
 
-  asyncTest "enqueue emits no event, and the service emits the outcome later":
-    ## A `Required` task that mix cannot attempt fails with no network call.
-    ## `enqueue` makes no attempt, so the error comes once, later.
+  asyncTest "a Required send is refused when mix cannot attempt it":
+    ## `Required` has no second path.
+    ## So an app must learn at once that the node cannot send, with the reason.
     let errors = EventCounter()
     let listener = MessageErrorEvent
       .listen(
@@ -410,22 +394,20 @@ suite "SendService - anonymity level":
     let chain = setupSendProcessorChain(waku, AnonymityLevel.Required).expect(
         "send processor chain"
       )
-    let service = SendService
-      .new(false, waku, manager, chain, AnonymityLevel.Required)
-      .expect("SendService.new")
-
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
     service.startSendService()
     defer:
       await service.stopSendService()
-    let task = buildTask("failfast", chronos.seconds(1))
+
+    let refused = service.enqueue(buildTask("required-no-mix"))
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.NotConnected
+        refused.error.desc == MixUnavailableReason
     check:
-      service.enqueue(task).isOk()
-      errors.value == 0 # no event inside `enqueue`
-    check await errors.waitCount(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
-    check not await errors.waitCount(2).withTimeout(FUTURE_TIMEOUT_SHORT)
-    check:
-      task.state == DeliveryState.FailedToDeliver
-      errors.value == 1 # ... and exactly one later
+      manager.sentInCurrentEpoch == 0
+      not await errors.waitCount(1).withTimeout(FUTURE_TIMEOUT_SHORT)
 
 suite "SendService - anonymity level with a mounted mix":
   ## Mix is mounted before start, as the node factory does. The tests fill the
@@ -457,24 +439,15 @@ suite "SendService - anonymity level with a mounted mix":
     )
     waku.node.peerManager.switch.peerStore.setShardInfo(peerId, @[0'u16])
 
-  asyncTest "a Required task waits for a short pool during its grace, then fails":
-    ## A short pool is a reason mix cannot attempt the task. A `Required` task
-    ## waits while its admission is within `MixUnusableGrace`, then fails with
-    ## that reason.
+  asyncTest "a Required task fails with a short pool":
+    ## A short pool is a reason that mix cannot attempt the task.
     for i in 0 ..< MinMixPoolSize - 1:
       addMixPeer(60100 + i, lightpush = true)
     check not waku.mixReady()
 
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let task = buildTask("short-pool", ZeroDuration)
-    await mix.process(task)
-    check:
-      task.state == DeliveryState.NextRoundRetry
-      task.errorDesc == MixUnavailableReason # written while it waits
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
+    let task = buildTask("short-pool")
+    check not mix.hasSendPeer(task)
     await mix.process(task)
     check:
       task.state == DeliveryState.FailedToDeliver
@@ -482,52 +455,30 @@ suite "SendService - anonymity level with a mounted mix":
 
     # One more routable member and the pool can build a path.
     addMixPeer(60103, lightpush = true)
-    check waku.mixReady()
+    check:
+      waku.mixReady()
+      mix.hasSendPeer(task)
 
-  asyncTest "a Required task past its grace is attempted once mix can attempt it":
-    ## The grace bounds only the wait for a mix that cannot attempt the task.
-    for i in 0 ..< MinMixPoolSize - 1:
-      addMixPeer(60210 + i, lightpush = true)
-    check not waku.mixReady()
-
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let task = buildTask("held-then-usable", ZeroDuration)
-    await mix.process(task)
-    check task.state == DeliveryState.NextRoundRetry
-
-    addMixPeer(60210 + MinMixPoolSize - 1, lightpush = true)
-    check waku.mixReady()
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
-    let fut = mix.process(task)
-    check task.tryCount == 1 # mix attempts it
-    await fut.cancelAndWait()
-
-  asyncTest "a Required task too large for mix fails at once, also with a short pool":
-    ## No pass can make the message fit, so the task does not wait for the pool.
+  asyncTest "a Required task too large for mix fails for its size, also with a short pool":
     for i in 0 ..< MinMixPoolSize - 1:
       addMixPeer(60400 + i, lightpush = true)
     check not waku.mixReady()
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
     mix.chain(plain)
     let limit = mixLimit()
 
-    # A message at the limit fits, so the short pool holds it within the grace.
+    # A message at the limit fits, so it fails for the short pool.
     let fits = sizedTask("at-the-limit-short-pool", limit)
-    fits.firstAdmittedTime = Opt.some(Moment.now())
     check await mix.process(fits).withTimeout(FUTURE_TIMEOUT)
     check:
-      fits.state == DeliveryState.NextRoundRetry
+      fits.state == DeliveryState.FailedToDeliver
       fits.errorDesc == MixUnavailableReason
 
     let early = sizedTask("too-large-short-pool", limit + 1)
     check await mix.process(early).withTimeout(FUTURE_TIMEOUT)
     check:
+      mix.checkBeforeAdmission(early).error.kind == SendErrorKind.TooLarge
       early.state == DeliveryState.FailedToDeliver
       early.errorDesc ==
         MixTooLargeReason & ": the request has " & $(limit + 1) & " bytes, the limit is " &
@@ -549,9 +500,7 @@ suite "SendService - anonymity level with a mounted mix":
       addMixPeer(60410 + i, lightpush = true)
     check waku.mixReady()
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
     mix.chain(plain)
 
     let task = sizedTask("too-large-preferred", mixLimit() + 1)
@@ -564,7 +513,7 @@ suite "SendService - anonymity level with a mounted mix":
       not task.propagatedAnonymously
       mix.fellBackFor() == MixUnusable.None # a size hand-over records no mix outage
 
-  asyncTest "a Required task waits with no exit on the shard during its grace, then fails":
+  asyncTest "a Required task fails with no exit on the shard":
     ## A full pool with no lightpush member on the shard has no exit, as in a
     ## seeded pool before identify and waku-metadata fill its books.
     for i in 0 ..< MinMixPoolSize:
@@ -574,16 +523,10 @@ suite "SendService - anonymity level with a mounted mix":
       waku.selectMixLightpushPeer(shard).isNone()
 
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
     mix.chain(plain)
 
-    let task = buildTask("no-exit", ZeroDuration)
-    await mix.process(task)
-    check task.state == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    let task = buildTask("no-exit")
     await mix.process(task)
     check:
       plain.calls == 0
@@ -591,19 +534,16 @@ suite "SendService - anonymity level with a mounted mix":
       task.errorDesc == MixNoExitReason
 
   asyncTest "a Preferred task that mix cannot attempt takes the plain path at once":
-    ## No wait for the window: with no exit on the shard, a fresh `Preferred`
-    ## task goes to the plain path in the same round.
+    ## With no exit on the shard, a `Preferred` task goes to the plain path.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60120 + i, lightpush = false)
     check waku.mixReady()
 
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
     mix.chain(plain)
 
-    let fresh = buildTask("no-exit-preferred", chronos.seconds(5))
+    let fresh = buildTask("no-exit-preferred")
     await mix.process(fresh)
     check:
       plain.calls == 1
@@ -617,13 +557,11 @@ suite "SendService - anonymity level with a mounted mix":
     check waku.mixReady()
 
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
     mix.chain(plain)
     check mix.fellBackFor() == MixUnusable.None
 
-    let spent = buildTask("no-exit-spent", chronos.minutes(2))
+    let spent = buildTask("no-exit-spent")
     await mix.process(spent)
     check:
       plain.calls == 1
@@ -631,7 +569,7 @@ suite "SendService - anonymity level with a mounted mix":
       spent.errorDesc.len == 0 # the plain path reports its own outcome
       mix.fellBackFor() == MixUnusable.NoExit
 
-    let again = buildTask("no-exit-spent-again", chronos.minutes(2))
+    let again = buildTask("no-exit-spent-again")
     await mix.process(again)
     check:
       plain.calls == 2
@@ -639,16 +577,96 @@ suite "SendService - anonymity level with a mounted mix":
 
     addMixPeer(60184, lightpush = true)
     check waku.selectMixLightpushPeer(shard).isSome()
-    let back = buildTask("exit-back", chronos.seconds(5))
+    let back = buildTask("exit-back")
     let fut = mix.process(back)
     check:
       back.tryCount == 1 # mix attempts it
       mix.fellBackFor() == MixUnusable.None # ... and the recovery was logged
     await fut.cancelAndWait()
 
-  asyncTest "an expired task reports the reason a processor left on it":
-    ## A processor that leaves a task for a retry can write why in `errorDesc`.
-    ## The error event of the expired task gives it in place of the generic text.
+  asyncTest "a Preferred send needs a usable mix or a peer of the plain path":
+    ## With no usable mix, a `Preferred` send goes to the plain path at once.
+    ## So `send` must refuse it when the plain path has no peer.
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
+    mix.chain(NoPeerProcessor())
+    let service = SendService.new(false, waku, manager, mix).expect("SendService.new")
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+
+    check not waku.mixReady()
+    check service.enqueue(buildTask("no-mix-no-peer")).error.kind ==
+      SendErrorKind.NotConnected
+
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60190 + i, lightpush = true)
+    check waku.mixReady()
+    check service.enqueue(buildTask("mix-usable")).isOk()
+
+  asyncTest "a Preferred task that mix attempted does not go to the plain path":
+    ## The exit can publish the message and its reply can get lost.
+    ## A plain send after that shows the sender of a message that is on the network.
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60220 + i, lightpush = true)
+    check waku.mixReady()
+
+    let plain = PlainSendProcessor()
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred)
+    mix.chain(plain)
+
+    # No pool member answers, so the mix attempt fails.
+    let task = buildTask("mix-attempt-fails")
+    check await mix.process(task).withTimeout(MixReplyTimeout + chronos.seconds(10))
+    check:
+      task.anonymized # mix attempted it
+      task.tryCount == 1
+      plain.calls == 0
+      task.state == DeliveryState.FailedToDeliver
+      task.errorDesc.len > 0
+
+  asyncTest "an RLN rejection fails the task and starts the refresh of the backend":
+    ## The refresh is for the next `send`.
+    ## The task gets no new proof.
+    let refreshes = new int
+    waku.node.rlnPlugin = Opt.some(
+      RlnPlugin(
+        onProofRejected: proc() {.gcsafe, raises: [].} =
+          refreshes[].inc()
+      )
+    )
+
+    let task = buildTask("rln-rejected")
+    task.msg.proof = @[1'u8, 2, 3] # a proof that the service rejected
+
+    task.failRlnRejected(waku, "rln proof rejected")
+    check:
+      task.state == DeliveryState.FailedToDeliver
+      task.errorDesc == "rln proof rejected"
+      refreshes[] == 1
+
+  asyncTest "a send that a service refuses for its RLN proof fails with one event, and it is not sent again":
+    let refreshes = new int
+    proc generate(
+        message: WakuMessage
+    ): Future[Result[seq[byte], rln_types.RlnError]] {.async.} =
+      return ok(@[1'u8, 2, 3])
+
+    waku.node.rlnPlugin = Opt.some(
+      RlnPlugin(
+        generateProof: generate,
+        onProofRejected: proc() {.gcsafe, raises: [].} =
+          refreshes[].inc(),
+      )
+    )
+    let publishes = new int
+    proc refuse(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      publishes[].inc()
+      return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, "no valid proof")
+
     var errors: seq[MessageErrorEvent]
     let listener = MessageErrorEvent
       .listen(
@@ -660,123 +678,40 @@ suite "SendService - anonymity level with a mounted mix":
     defer:
       await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
 
+    let chain = HasPeerProcessor()
+    chain.chain(RelaySendProcessor.new(false, refuse, waku, waku.brokerCtx))
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let service = SendService
-      .new(false, waku, manager, RetryingProcessor(reason: "scripted reason"))
-      .expect("SendService.new")
-
-    # Past its delivery window, so the end of its first attempt fails it.
-    let task = buildTask("reaper", DeliveryWindow + chronos.seconds(1))
-    check service.enqueue(task).isOk()
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
     service.startSendService()
     defer:
       await service.stopSendService()
+
+    let task = buildTask("rln-refused")
+    task.msg.timestamp = getNowInNanosecondTime()
+    task.msgHash = computeMessageHash(task.pubsubTopic, task.msg)
+    check service.enqueue(task).isOk()
     checkUntilTimeout:
       errors.len == 1
+    await sleepAsync(FUTURE_TIMEOUT_SHORT)
     check:
-      task.state == DeliveryState.FailedToDeliver
-      errors.mapIt(it.requestId) == @[task.requestId]
-      errors.mapIt(it.error) == @["scripted reason"]
-
-  asyncTest "a Preferred task falls back to the plain path once the window elapsed":
-    ## The window ends the mix phase of a task that mix did not deliver. Only a
-    ## usable mix shows this: with an unusable mix the reasons decide first.
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60140 + i, lightpush = true)
-
-    let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    # Mix had the task since admission and did not deliver it.
-    let task = buildTask("preferred-late", chronos.minutes(2))
-    await mix.process(task)
-
-    check:
-      plain.calls == 1
-      task.state == DeliveryState.SuccessfullyPropagated
-
-  asyncTest "an RLN proof refresh starts a new Preferred mix window":
-    ## `parkForRlnProofRefresh` clears `firstAdmittedTime`, so the new proof
-    ## draws a new nonce. The window runs from that field, so the refreshed task
-    ## gets a whole window again and mix attempts it.
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60145 + i, lightpush = true)
-
-    let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    # A backend with a refresh hook, so the park waits for the refresh.
-    waku.node.rlnPlugin = Opt.some(
-      RlnPlugin(
-        onProofRejected: proc() {.gcsafe, raises: [].} =
-          discard
-      )
-    )
-
-    let task = buildTask("rln-park", chronos.minutes(2))
-    task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
-
-    # The park clears the proof and `firstAdmittedTime`, which resets the window.
-    task.parkForRlnProofRefresh(waku, "rln proof rejected")
-    check:
-      task.state == DeliveryState.NextRoundRetry
-      task.msg.proof.len == 0
-
-    let fut = mix.process(task)
-    check:
-      task.tryCount == 1 # a whole window again, so mix attempts it
-      plain.calls == 0 # no hand-over
-    await fut.cancelAndWait()
+      publishes[] == 1
+      refreshes[] == 1
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
+      errors.mapIt(it.error) == @["no valid proof"]
 
   asyncTest "an RLN rejection fails the task when no backend can refresh":
-    ## No RLN backend is mounted, so no refresh follows and a retry would be
-    ## rejected the same way. The task fails with the rejection instead of
-    ## waiting for a retry.
-    let task = buildTask("rln-no-refresh", chronos.minutes(2))
-    task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
+    ## No RLN backend is mounted.
+    let task = buildTask("rln-no-refresh")
+    task.msg.proof = @[1'u8, 2, 3] # a proof that the service rejected
 
-    task.parkForRlnProofRefresh(waku, "rln proof rejected")
+    task.failRlnRejected(waku, "rln proof rejected")
     check:
       task.state == DeliveryState.FailedToDeliver
       task.errorDesc == "rln proof rejected"
 
-  asyncTest "a task parked for budget does not spend its mix window":
-    ## The window runs from admission. A task that did not pass admission has
-    ## spent none of it, however old its message is, so mix attempts it.
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60150 + i, lightpush = true)
-
-    let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    let task = buildTask("late-admission", chronos.minutes(2))
-    task.firstAdmittedTime = Opt.none(Moment) # parked for epoch budget
-
-    let fut = mix.process(task)
-    check:
-      task.tryCount == 1 # the window is intact, so mix attempts it
-      plain.calls == 0
-    await fut.cancelAndWait()
-
-    # The same processor hands over a task that has spent its window, so the
-    # case above cannot pass on a window that never elapses.
-    let spent = buildTask("late-admission-spent", chronos.minutes(2))
-    await mix.process(spent)
-    check:
-      plain.calls == 1
-      spent.state == DeliveryState.SuccessfullyPropagated
-
-  asyncTest "a Required task waits during its grace when mix cannot encode its own hop, then fails":
+  asyncTest "a Required task fails when mix cannot encode its own hop":
     ## The pool is usable and the self hop is not, so no reply path can be built.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60160 + i, lightpush = true)
@@ -790,16 +725,10 @@ suite "SendService - anonymity level with a mounted mix":
       not waku.mixReady()
 
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
     mix.chain(plain)
 
-    let task = buildTask("self-hop", ZeroDuration)
-    await mix.process(task)
-    check task.state == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    let task = buildTask("self-hop")
     await mix.process(task)
     check:
       plain.calls == 0
@@ -812,37 +741,14 @@ suite "SendService - anonymity level with a mounted mix":
     )
     check waku.mixReady()
 
-  asyncTest "a Required task past its window is still attempted over a usable mix":
-    ## Tests the `fallbackAllowed` guard on the window branch, which only a usable
-    ## mix reaches: a `Required` task past its window must never go out in clear.
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60200 + i, lightpush = true)
-    check waku.mixReady()
-
-    let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    let task = buildTask("required-spent-usable", chronos.minutes(10))
-    let fut = mix.process(task)
-    check:
-      task.tryCount == 1 # attempted, window or no window
-      plain.calls == 0 # never handed over
-    await fut.cancelAndWait()
-    check plain.calls == 0
-
   asyncTest "a mix attempt marks the task before it can know whether it worked":
     ## The exit publishes before it replies, so the mark must be set before any
     ## reply. The test cancels the attempt before a reply can arrive.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60170 + i, lightpush = true)
 
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let task = buildTask("announced-at-attempt", chronos.seconds(5))
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
+    let task = buildTask("announced-at-attempt")
 
     let fut = mix.process(task)
     await sleepAsync(chronos.milliseconds(10))
@@ -861,10 +767,8 @@ suite "SendService - anonymity level with a mounted mix":
       waku.mixReady()
       waku.selectMixLightpushPeer(shard).isSome()
 
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
-    )
-    let task = buildTask("usable", chronos.seconds(5))
+    let mix = MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Required)
+    let task = buildTask("usable")
     let fut = mix.process(task)
     check task.tryCount == 1 # the pre-check let the attempt start
     await fut.cancelAndWait()

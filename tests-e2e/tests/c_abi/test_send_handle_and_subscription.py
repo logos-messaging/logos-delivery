@@ -6,6 +6,7 @@ from src.steps.common import StepsCommon
 from src.libs.common import to_base64
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    send_when_connected,
     EventCollector,
     assert_event_invariants,
     create_message_bindings,
@@ -151,7 +152,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                     contentTopic=content_topic,
                 )
 
-                send_result = sender.send_message(message=message)
+                send_result = send_when_connected(sender, message)
                 assert send_result.is_ok(), f"send() failed: {send_result.err()}"
 
                 request_id = send_result.ok_value
@@ -165,7 +166,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -233,7 +234,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                     contentTopic=content_topic,
                 )
 
-                send_result = sender.send_message(message=message)
+                send_result = send_when_connected(sender, message)
                 assert send_result.is_ok(), f"send() failed after unsubscribe: {send_result.err()}"
 
                 request_id = send_result.ok_value
@@ -248,7 +249,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s "
                     f"after unsubscribe + send. Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"

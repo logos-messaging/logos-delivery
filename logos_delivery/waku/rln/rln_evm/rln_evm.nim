@@ -349,6 +349,7 @@ proc toRlnPlugin*(rlnEvm: RlnEvm): RlnPlugin =
     validateProof: validate,
     generateProof: generate,
     proofSize: Opt.some(protocol_types.RateLimitProof().encode().len),
+    epochSizeSec: Opt.some(rlnEvm.rlnEpochSizeSec),
     getEpochQuota: quota,
   )
 

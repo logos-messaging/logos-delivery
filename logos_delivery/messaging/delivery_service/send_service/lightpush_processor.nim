@@ -7,9 +7,6 @@ import ./[delivery_task, send_processor]
 logScope:
   topics = "send service lightpush processor"
 
-const ResendTimeout = chronos.seconds(5)
-  ## Bounds one resend, as `sendPushRequest` has no timeout of its own.
-
 type LightpushSendProcessor* = ref object of BaseSendProcessor
   waku: Waku
 
@@ -23,82 +20,40 @@ method isValidProcessor*(
 ): bool {.gcsafe.} =
   return self.waku.lightpushPeerAvailable(task.pubsubTopic)
 
-method canResend*(self: LightpushSendProcessor, task: DeliveryTask): bool {.gcsafe.} =
-  return self.waku.lightpushPeerAvailable(task.pubsubTopic)
-
-method resendImpl*(
+method hasSendPeer*(
     self: LightpushSendProcessor, task: DeliveryTask
-) {.async: (raises: [CancelledError]).} =
-  ## Sends a message that no Store node reported once more. A service node that
-  ## has not seen the message, such as a Store node that joined the mesh after the
-  ## first propagation, relays it. Relay is not used, as GossipSub drops a message
-  ## that it already saw.
-  task.resendCount.inc()
-  try:
-    let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
-    if not await publish.withTimeout(ResendTimeout):
-      debug "Lightpush resend timed out",
-        requestId = task.requestId, msgHash = task.loggedHash()
-      return
-    publish.read().isOkOr:
-      debug "Lightpush resend failed",
-        requestId = task.requestId,
-        msgHash = task.loggedHash(),
-        error = error.desc.get($error.code)
-      return
-    debug "Message resent via Lightpush after a Store miss",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      resendCount = task.resendCount
-  except CancelledError as exc:
-    raise exc
-  except CatchableError as exc:
-    debug "Lightpush resend failed",
-      requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
+): bool {.gcsafe, raises: [].} =
+  return self.waku.lightpushPeerAvailable(task.pubsubTopic)
 
 method sendImpl*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): Future[void] {.async.} =
   task.tryCount.inc()
   debug "Trying message delivery via Lightpush",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     error "LightpushSendProcessor.sendImpl failed",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      error = error.desc.get($error.code)
+      msgHash = task.msgHash.to0xHex(), error = error.sendErrorDesc()
 
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))
+      task.failRlnRejected(self.waku, error.sendErrorDesc())
       return
 
-    case error.code
-    of LightPushErrorCode.NO_PEERS_TO_RELAY, LightPushErrorCode.TOO_MANY_REQUESTS,
-        LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-        LightPushErrorCode.INTERNAL_SERVER_ERROR:
-      task.state = DeliveryState.NextRoundRetry
-    else:
-      # the message is malformed, send error
-      task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = error.desc.get($error.code)
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = error.sendErrorDesc()
     return
 
   if numLightpushServers > 0:
-    debug "Message propagated via Lightpush",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Message propagated via Lightpush", msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
-    if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = Opt.some(Moment.now())
-    # TODO: with a simple retry processor it might be more accurate to say `Sent`
+    task.firstPropagatedTime = Opt.some(Moment.now())
   else:
     # Controversial state, publish says ok but no peer. It should not happen.
-    debug "Lightpush publish returned zero peers, the task waits for a retry",
-      requestId = task.requestId
-    task.state = DeliveryState.NextRoundRetry
+    debug "Lightpush publish returned zero peers", msgHash = task.msgHash.to0xHex()
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc = NoSendPeerReason
 
   return

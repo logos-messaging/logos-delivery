@@ -7,7 +7,6 @@ import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
   rest/messaging_api/client as messaging_rest_client,
-  logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/waku/[
     common/base64,
     waku_core,
@@ -94,19 +93,6 @@ suite "LogosDelivery - entry layer selection":
       not node.reliableChannelManager.isNil()
       node.ensureMessaging().isOk()
       node.ensureChannels().isOk()
-    (await node.stop()).isOkOr:
-      raiseAssert "stop failed: " & error
-
-  asyncTest "messaging: the messaging flags reach the send service":
-    var conf = nodeConf(EntryLayer.messaging)
-    conf.messaging.anonymityLevel = Opt.some(AnonymityLevel.Preferred)
-    var node: LogosDelivery
-    lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(conf)).valueOr:
-        raiseAssert error
-    check:
-      node.messagingClient.sendService.maxDeliveryTime ==
-        maxDeliveryTime(AnonymityLevel.Preferred)
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 

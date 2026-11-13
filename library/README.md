@@ -228,7 +228,7 @@ int logosdelivery_ctx_send(
 
 Note: The `payload` field should be base64-encoded.
 
-**Returns:** Request ID in the callback message that can be used to track message delivery.
+**Returns:** The message hash (`0x...`) in the callback message. Each event of the send carries this hash. A refused send returns an error that starts with `Send failed: ` and, for the kinds `RateLimited`, `NotConnected`, `TooLarge` and `Duplicate`, the kind of the refusal. [MESSAGE_EVENTS.md](MESSAGE_EVENTS.md) describes the kinds.
 
 ### Events
 
@@ -250,7 +250,7 @@ uint64_t logosdelivery_add_event_listener(
 );
 ```
 
-Event names: `onMessageQueued`, `onMessageSent`, `onMessageError`,
+Event names: `onMessageSent`, `onMessageError`,
 `onMessagePropagated`, `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
 `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
 `onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.

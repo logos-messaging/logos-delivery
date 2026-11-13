@@ -211,7 +211,7 @@ suite "Waku Mix - end to end transport":
   asyncTest "four mixed sends in flight at once all get their own reply":
     ## Four mixed sends from one node at once each complete on their own reply
     ## and release their own credentials. The send service relies on this when
-    ## retries and first attempts run at the same time.
+    ## the sends of two or more tasks run at the same time.
     let mixnet = await setupMixNet(23900)
     defer:
       await teardownMixNet(mixnet)
@@ -385,9 +385,7 @@ suite "Waku Mix - end to end transport":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
     let chain = setupSendProcessorChain(waku, AnonymityLevel.Required).expect("chain")
-    let service = SendService
-      .new(false, waku, manager, chain, AnonymityLevel.Required)
-      .expect("SendService.new")
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
     let msg = WakuMessage(
       payload: toBytes("mix-e2e-send-service over mix"),
       contentTopic: "/mix-e2e/1/probe/proto",
@@ -395,18 +393,16 @@ suite "Waku Mix - end to end transport":
       timestamp: getNowInNanosecondTime(),
     )
     let task = DeliveryTask(
-      requestId: RequestId("mix-e2e-required"),
       pubsubTopic: shard,
       msg: msg,
       msgHash: computeMessageHash(shard, msg),
       state: DeliveryState.Entry,
-      firstAdmittedTime: Opt.some(Moment.now()), # admitted: no budget, no proof
     )
     let before = hopCounts()
-    check service.enqueue(task).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
+    check service.enqueue(task).isOk()
     checkUntilTimeout:
       task.propagatedEventEmitted
     let after = hopCounts()

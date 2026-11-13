@@ -4,6 +4,7 @@ from src.libs.common import delay
 from src.libs.custom_logger import get_custom_logger
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    send_when_connected,
     EventCollector,
     create_message_bindings,
     enr_udp_port,
@@ -73,7 +74,7 @@ class TestWrapperAutoPortAllocation(StepsCommon):
             assert peer_result.is_ok(), f"peer start failed: {peer_result.err()}"
 
             with peer_result.ok_value:
-                send_result = sender.send_message(message=create_message_bindings())
+                send_result = send_when_connected(sender, create_message_bindings())
                 assert send_result.is_ok(), f"send failed: {send_result.err()}"
 
                 request_id = send_result.ok_value

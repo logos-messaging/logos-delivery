@@ -6,6 +6,7 @@ from src.libs.common import delay, to_base64
 from src.node.subprocess_node import ChannelSenderProcess
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    send_when_connected,
     EventCollector,
     create_message_bindings,
     get_node_multiaddr,
@@ -249,7 +250,7 @@ class TestChannelDelivery:
 
                 # Plain relay publish: right content topic, but no Reliable-Channel
                 # marker, so B's channel ingress filter must drop it.
-                send_result = sender.send_message(create_message_bindings(contentTopic=RC06_CONTENT_TOPIC, payload=payload_b64))
+                send_result = send_when_connected(sender, create_message_bindings(contentTopic=RC06_CONTENT_TOPIC, payload=payload_b64))
                 assert send_result.is_ok(), f"send_message failed: {send_result.err()}"
 
                 # It reaches B's messaging layer, so the drop below is the marker
@@ -406,9 +407,10 @@ class TestChannelDelivery:
         """RC09: A sends m1 while B is not up yet; B joins and still ends up with
         both m1 and m2.
 
-        Recovery here is the send service's relay retry, not SDS: A republishes
-        m1 while it is unacknowledged (within MaxTimeInCache) and it lands as
-        soon as B joins the mesh. SDS-R is not exercised — a repair request only
+        Recovery here is the retry of the channel, not SDS: send() refuses m1
+        while A has no peer, the channel sends it again (within
+        NotConnectedRetryWindow), and it lands as soon as B joins the mesh.
+        SDS-R is not exercised — a repair request only
         rides out after T_req, a hash in [repairTMin, repairTMax) = [30s, 300s)
         that logos-delivery does not expose, so it cannot be driven from an E2E
         test. That path is RC10 — see test_rc10_missing_dependency_is_parked

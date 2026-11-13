@@ -1,6 +1,6 @@
 # Run a Messaging API node
 
-A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{requestId}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
+A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`, which returns the hash of the message. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{messageHash}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
 
 ## Network
 
@@ -23,7 +23,7 @@ The `sent` event of a send confirms that a Store node has the message. Run Store
 
 ## Readiness
 
-Before the first send, wait until the `connectionStatus` field of `GET /health` is `Connected` or `PartiallyConnected`.
+Before the first send, wait until the `connectionStatus` field of `GET /health` is `Connected` or `PartiallyConnected`. A send answers HTTP `503` while the node has no peer to send the message through.
 
 ## Service limits
 

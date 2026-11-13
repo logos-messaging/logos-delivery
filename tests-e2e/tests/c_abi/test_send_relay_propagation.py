@@ -2,6 +2,7 @@ from src.steps.common import StepsCommon
 from src.libs.common import to_base64
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    send_when_connected,
     EventCollector,
     assert_event_invariants,
     create_message_bindings,
@@ -69,7 +70,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                     payload=to_base64("S29 shard X payload"),
                     contentTopic=self.TOPIC_A,
                 )
-                send_a = sender.send_message(message=message_a)
+                send_a = send_when_connected(sender, message_a)
                 assert send_a.is_ok(), f"send() on TOPIC_A failed: {send_a.err()}"
                 request_id_a = send_a.ok_value
                 assert request_id_a, "send() on TOPIC_A returned an empty RequestId"
@@ -79,7 +80,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                     payload=to_base64("S29 shard Y payload"),
                     contentTopic=self.TOPIC_B,
                 )
-                send_b = sender.send_message(message=message_b)
+                send_b = send_when_connected(sender, message_b)
                 assert send_b.is_ok(), f"send() on TOPIC_B failed: {send_b.err()}"
                 request_id_b = send_b.ok_value
                 assert request_id_b, "send() on TOPIC_B returned an empty RequestId"
@@ -95,7 +96,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_a is not None, (
                     f"No message_propagated event for TOPIC_A within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_a["requestId"] == request_id_a
+                assert propagated_a["messageHash"] == request_id_a
 
                 propagated_b = wait_for_propagated(
                     collector=sender_collector,
@@ -105,7 +106,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_b is not None, (
                     f"No message_propagated event for TOPIC_B within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_b["requestId"] == request_id_b
+                assert propagated_b["messageHash"] == request_id_b
 
                 # No cross-talk: neither request should produce an error.
                 for request_id in (request_id_a, request_id_b):

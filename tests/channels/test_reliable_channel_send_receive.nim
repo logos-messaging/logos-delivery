@@ -1,11 +1,11 @@
 {.used.}
 
-import results, std/[net, os]
+import results, std/[importutils, net, os, tables]
 from std/times import epochTime
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
 
-import ../testlib/[wakucore, wakunodeconf]
+import ../testlib/[wakucore, wakunodeconf, messaging_send]
 
 import logos_delivery
 import logos_delivery/waku/waku_core
@@ -304,7 +304,7 @@ suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->
     ## rate_limit -> encrypt -> dispatch) via a fake `MessagingSend` provider that
-    ## returns a canned `RequestId` instead of hitting the network.
+    ## returns a canned message hash instead of hitting the network.
     ## Emitting the delivery-layer `MessageSentEvent` must drive the
     ## channel-level state machine through `Confirmed` and produce a
     ## `ChannelMessageSentEvent` (channel-level terminal event) for the
@@ -312,7 +312,7 @@ suite "Reliable Channel - send state machine":
     const
       channelId = ChannelId("sm-success-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-success")
-      fakeMsgReqId = RequestId("fake-msg-req-1")
+      FakeMsgId = "fake-msg-req-1"
 
     var waku: LogosDelivery
     var manager: ReliableChannelManager
@@ -325,9 +325,9 @@ suite "Reliable Channel - send state machine":
     var sendCalls = 0
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         sendCalls.inc
-        return ok(fakeMsgReqId),
+        return ok(SendResult.ok(fakeHash(FakeMsgId))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -355,7 +355,7 @@ suite "Reliable Channel - send state machine":
 
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: fakeMsgReqId, messageHash: ""),
+      waku_message_events.MessageSentEvent(messageHash: fakeHash(FakeMsgId).to0xHex()),
     )
 
     let finalised = await sentFut.withTimeout(1.seconds)
@@ -365,11 +365,188 @@ suite "Reliable Channel - send state machine":
 
     (await waku.stop()).expect("stop")
 
+  proc refusingChannel(
+      channelId: ChannelId, contentTopic: ContentTopic, refusals: ref seq[SendError]
+  ): Future[(LogosDelivery, ReliableChannelManager, BrokerContext)] {.async.} =
+    ## A node with one channel and a fake `MessagingSend` provider.
+    ## The provider refuses a send with the first error of `refusals` and removes it.
+    ## It accepts each send after the last error.
+    var waku: LogosDelivery
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+    let manager = waku.reliableChannelManager
+
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+        if refusals[].len > 0:
+          let refusal = refusals[][0]
+          refusals[].delete(0)
+          return ok(SendResult.err(refusal))
+        return ok(SendResult.ok(fakeHash("accepted-segment"))),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+    return (waku, manager, brokerCtx)
+
+  proc channelError(
+      brokerCtx: BrokerContext, channelId: ChannelId
+  ): Future[ChannelMessageErrorEvent] =
+    ## Completes with the first error event of the channel.
+    let errored = newFuture[ChannelMessageErrorEvent]("channel-errored")
+    discard ChannelMessageErrorEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageErrorEvent) {.async: (raises: []).} =
+          if not errored.finished() and evt.channelId == channelId:
+            errored.complete(evt)
+        ,
+      )
+      .expect("listen ChannelMessageErrorEvent")
+    return errored
+
+  asyncTest "a refusal that a later send cannot clear fails the channel request":
+    ## The app of the channel needs the reason of the refusal.
+    const
+      channelId = ChannelId("sm-refused-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-refused")
+    let refusals = new seq[SendError]
+    refusals[] = @[SendError.init(SendErrorKind.TooLarge, "too many bytes")]
+    let (waku, manager, brokerCtx) =
+      await refusingChannel(channelId, contentTopic, refusals)
+    let errored = channelError(brokerCtx, channelId)
+
+    let channelReqId = (await manager.send(channelId, "hello".toBytes())).expect("send")
+
+    check await errored.withTimeout(1.seconds)
+    if errored.finished():
+      check:
+        errored.read().requestId == channelReqId
+        errored.read().error ==
+          "one or more segments failed: messaging send failed: TooLarge: too many bytes"
+
+    (await waku.stop()).expect("stop")
+
+  asyncTest "a segment refused for the rate limit or for no peer is sent again":
+    ## The messaging `send` keeps no message that it refused.
+    ## So the channel must send the segment again, or the message is lost.
+    privateAccess(ReliableChannel)
+    const
+      channelId = ChannelId("sm-retry-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-retry")
+    let refusals = new seq[SendError]
+    refusals[] = @[
+      SendError.init(SendErrorKind.RateLimited, "budget spent", 10.milliseconds),
+      SendError.init(SendErrorKind.NotConnected, "no peer"),
+    ]
+    let (waku, manager, brokerCtx) =
+      await refusingChannel(channelId, contentTopic, refusals)
+    manager.channels[channelId].segmentRetryInterval = 10.milliseconds
+    let errored = channelError(brokerCtx, channelId)
+
+    let sentFut = newFuture[RequestId]("channel-sent")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if not sentFut.finished() and evt.channelId == channelId:
+            sentFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+
+    let channelReqId = (await manager.send(channelId, "hello".toBytes())).expect("send")
+
+    # The provider accepts the third send of the segment.
+    let retryDeadline = Moment.now() + 1.seconds
+    while Moment.now() < retryDeadline and refusals[].len > 0:
+      await sleepAsync(5.milliseconds)
+    check refusals[].len == 0
+
+    # The channel takes the event only after it has the hash of the accepted send.
+    let sentDeadline = Moment.now() + 1.seconds
+    while Moment.now() < sentDeadline and not sentFut.finished():
+      waku_message_events.MessageSentEvent.emit(
+        brokerCtx,
+        waku_message_events.MessageSentEvent(
+          messageHash: fakeHash("accepted-segment").to0xHex()
+        ),
+      )
+      await sleepAsync(5.milliseconds)
+
+    check sentFut.finished()
+    if sentFut.finished():
+      check sentFut.read() == channelReqId
+    check not errored.finished()
+
+    (await waku.stop()).expect("stop")
+
+  asyncTest "a segment refused for longer than its retry window fails the channel request":
+    privateAccess(ReliableChannel)
+    const
+      channelId = ChannelId("sm-retry-window-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-retry-window")
+    let refusals = new seq[SendError]
+    for _ in 0 ..< 1000:
+      refusals[].add(SendError.init(SendErrorKind.NotConnected, "no peer"))
+    let (waku, manager, brokerCtx) =
+      await refusingChannel(channelId, contentTopic, refusals)
+    manager.channels[channelId].segmentRetryInterval = 10.milliseconds
+    manager.channels[channelId].notConnectedRetryWindow = 50.milliseconds
+    let errored = channelError(brokerCtx, channelId)
+
+    let channelReqId = (await manager.send(channelId, "hello".toBytes())).expect("send")
+
+    check await errored.withTimeout(1.seconds)
+    if errored.finished():
+      check:
+        errored.read().requestId == channelReqId
+        errored.read().error ==
+          "one or more segments failed: messaging send failed: NotConnected: no peer"
+    check refusals[].len < 1000 - 1 # the channel sent the segment again
+
+    (await waku.stop()).expect("stop")
+
+  asyncTest "a segment whose refusal changes its kind gets the retry window of the new kind":
+    ## The rate limit asks for a wait that is longer than the window for no peer.
+    privateAccess(ReliableChannel)
+    const
+      channelId = ChannelId("sm-retry-kind-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-retry-kind")
+    let refusals = new seq[SendError]
+    refusals[] = @[
+      SendError.init(SendErrorKind.NotConnected, "no peer"),
+      SendError.init(SendErrorKind.RateLimited, "budget spent", 100.milliseconds),
+    ]
+    let (waku, manager, brokerCtx) =
+      await refusingChannel(channelId, contentTopic, refusals)
+    manager.channels[channelId].segmentRetryInterval = 10.milliseconds
+    manager.channels[channelId].notConnectedRetryWindow = 50.milliseconds
+    let errored = channelError(brokerCtx, channelId)
+
+    discard (await manager.send(channelId, "hello".toBytes())).expect("send")
+
+    # The provider accepts the third send of the segment.
+    let retryDeadline = Moment.now() + 2.seconds
+    while Moment.now() < retryDeadline and refusals[].len > 0:
+      await sleepAsync(5.milliseconds)
+    await sleepAsync(150.milliseconds)
+    check:
+      refusals[].len == 0
+      not errored.finished()
+
+    (await waku.stop()).expect("stop")
+
   asyncTest "two independent channelReqIds are finalised independently":
     ## Two `send()` calls -> two independent `channelReqId`s, each a
     ## single segment because both payloads fit one chunk (the
     ## multi-segment case is covered by the prune tests below). The fake
-    ## `MessagingSend` provider returns distinct `messagingReqId`s;
+    ## `MessagingSend` provider returns distinct message hashes;
     ## finalising the first emits `ChannelMessageSentEvent` for its
     ## `channelReqId`, finalising the second as a failure emits
     ## `ChannelMessageErrorEvent` for the other.
@@ -385,13 +562,13 @@ suite "Reliable Channel - send state machine":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    var msgReqIds: seq[RequestId]
+    var msgHashes: seq[WakuMessageHash]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-        let id = RequestId("fake-msg-req-" & $(msgReqIds.len + 1))
-        msgReqIds.add(id)
-        return ok(id),
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+        let id = fakeHash("fake-msg-req-" & $(msgHashes.len + 1))
+        msgHashes.add(id)
+        return ok(SendResult.ok(id)),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -426,13 +603,13 @@ suite "Reliable Channel - send state machine":
       (await manager.send(channelId, "second".toBytes())).expect("send 2")
 
     let dispatchDeadline = Moment.now() + 1.seconds
-    while Moment.now() < dispatchDeadline and msgReqIds.len < 2:
+    while Moment.now() < dispatchDeadline and msgHashes.len < 2:
       await sleepAsync(5.milliseconds)
-    check msgReqIds.len == 2
+    check msgHashes.len == 2
 
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+      waku_message_events.MessageSentEvent(messageHash: msgHashes[0].to0xHex()),
     )
     let sentArrived = await sentFut.withTimeout(1.seconds)
     check sentArrived
@@ -445,7 +622,9 @@ suite "Reliable Channel - send state machine":
     waku_message_events.MessageErrorEvent.emit(
       brokerCtx,
       waku_message_events.MessageErrorEvent(
-        requestId: msgReqIds[1], messageHash: "", error: "synthetic"
+        messageHash: msgHashes[1].to0xHex(),
+        kind: MessageErrorKind.NotPropagated,
+        error: "synthetic",
       ),
     )
     let erroredArrived = await erroredFut.withTimeout(1.seconds)
@@ -457,7 +636,7 @@ suite "Reliable Channel - send state machine":
 
   asyncTest "channelReqId not pruned until ALL its segments are final":
     ## Multi-sibling prune rule: one `send()` of a payload spanning four
-    ## segments yields four `messagingReqId`s under a single
+    ## segments yields four message hashes under a single
     ## `channelReqId`. Finalising three of them must NOT emit the
     ## channel-level terminal event; only the fourth may, and exactly once.
     const
@@ -472,13 +651,13 @@ suite "Reliable Channel - send state machine":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    var msgReqIds: seq[RequestId]
+    var msgHashes: seq[WakuMessageHash]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-        let id = RequestId("prune-msg-req-" & $(msgReqIds.len + 1))
-        msgReqIds.add(id)
-        return ok(id),
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+        let id = fakeHash("prune-msg-req-" & $(msgHashes.len + 1))
+        msgHashes.add(id)
+        return ok(SendResult.ok(id)),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -515,21 +694,21 @@ suite "Reliable Channel - send state machine":
     let channelReqId = (await manager.send(channelId, payload)).expect("send")
 
     let dispatchDeadline = Moment.now() + 5.seconds
-    while Moment.now() < dispatchDeadline and msgReqIds.len < 4:
+    while Moment.now() < dispatchDeadline and msgHashes.len < 4:
       await sleepAsync(5.milliseconds)
-    check msgReqIds.len == 4
+    check msgHashes.len == 4
 
     for i in 0 .. 2:
       waku_message_events.MessageSentEvent.emit(
         brokerCtx,
-        waku_message_events.MessageSentEvent(requestId: msgReqIds[i], messageHash: ""),
+        waku_message_events.MessageSentEvent(messageHash: msgHashes[i].to0xHex()),
       )
     await sleepAsync(100.milliseconds)
     check not sentFut.finished()
 
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: msgReqIds[3], messageHash: ""),
+      waku_message_events.MessageSentEvent(messageHash: msgHashes[3].to0xHex()),
     )
     let finalised = await sentFut.withTimeout(1.seconds)
     check finalised
@@ -556,13 +735,13 @@ suite "Reliable Channel - send state machine":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    var msgReqIds: seq[RequestId]
+    var msgHashes: seq[WakuMessageHash]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-        let id = RequestId("prune-fail-msg-req-" & $(msgReqIds.len + 1))
-        msgReqIds.add(id)
-        return ok(id),
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+        let id = fakeHash("prune-fail-msg-req-" & $(msgHashes.len + 1))
+        msgHashes.add(id)
+        return ok(SendResult.ok(id)),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -602,14 +781,14 @@ suite "Reliable Channel - send state machine":
     let channelReqId = (await manager.send(channelId, payload)).expect("send")
 
     let dispatchDeadline = Moment.now() + 5.seconds
-    while Moment.now() < dispatchDeadline and msgReqIds.len < 4:
+    while Moment.now() < dispatchDeadline and msgHashes.len < 4:
       await sleepAsync(5.milliseconds)
-    check msgReqIds.len == 4
+    check msgHashes.len == 4
 
     for i in 0 .. 2:
       waku_message_events.MessageSentEvent.emit(
         brokerCtx,
-        waku_message_events.MessageSentEvent(requestId: msgReqIds[i], messageHash: ""),
+        waku_message_events.MessageSentEvent(messageHash: msgHashes[i].to0xHex()),
       )
     await sleepAsync(100.milliseconds)
     check not erroredFut.finished()
@@ -617,7 +796,9 @@ suite "Reliable Channel - send state machine":
     waku_message_events.MessageErrorEvent.emit(
       brokerCtx,
       waku_message_events.MessageErrorEvent(
-        requestId: msgReqIds[3], messageHash: "", error: "synthetic"
+        messageHash: msgHashes[3].to0xHex(),
+        kind: MessageErrorKind.NotPropagated,
+        error: "synthetic",
       ),
     )
     let errored = await erroredFut.withTimeout(1.seconds)
@@ -646,24 +827,24 @@ suite "Reliable Channel - send state machine":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    var msgReqIds: seq[RequestId]
+    var msgHashes: seq[WakuMessageHash]
     var sendsReturned = 0
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         ## Call 2 fires the first segment's terminal event and then
         ## yields, so the listener task runs while the second segment
         ## is still mid-`await` inside `send` — the exact race window
         ## the regression test targets.
-        let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
-        msgReqIds.add(id)
-        if msgReqIds.len == 2:
+        let id = fakeHash("race-msg-req-" & $(msgHashes.len + 1))
+        msgHashes.add(id)
+        if msgHashes.len == 2:
           MessageSentEvent.emit(
-            brokerCtx, MessageSentEvent(requestId: msgReqIds[0], messageHash: "")
+            brokerCtx, MessageSentEvent(messageHash: msgHashes[0].to0xHex())
           )
           await sleepAsync(50.milliseconds)
         sendsReturned.inc()
-        return ok(id),
+        return ok(SendResult.ok(id)),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -691,9 +872,9 @@ suite "Reliable Channel - send state machine":
     ## Drain the first segment fully before queueing the second, so
     ## inter-send ordering isn't itself under test here.
     let firstDispatched = Moment.now() + 1.seconds
-    while Moment.now() < firstDispatched and msgReqIds.len < 1:
+    while Moment.now() < firstDispatched and msgHashes.len < 1:
       await sleepAsync(5.milliseconds)
-    check msgReqIds.len == 1
+    check msgHashes.len == 1
 
     let channelReqId2 =
       (await manager.send(channelId, "second".toBytes())).expect("send 2")
@@ -713,7 +894,7 @@ suite "Reliable Channel - send state machine":
     ## `inflightMessagingIds` and this event would silently miss.
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: msgReqIds[1], messageHash: ""),
+      waku_message_events.MessageSentEvent(messageHash: msgHashes[1].to0xHex()),
     )
 
     let arrived = await bothFinalised.withTimeout(2.seconds)
@@ -751,8 +932,8 @@ suite "Reliable Channel - SDS persistence":
 
     MessagingSend.replaceProvider(
       globalBrokerContext(),
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-        return ok(RequestId("persist-msg-req-1")),
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+        return ok(SendResult.ok(fakeHash("persist-msg-req-1"))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -1086,10 +1267,10 @@ suite "Reliable Channel - SDS protocol semantics":
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         ## Noop encryption is identity, so the envelope payload IS the SDS wire.
         capturedWires.add(envelope.payload)
-        return ok(RequestId("semantics-req-" & $capturedWires.len)),
+        return ok(SendResult.ok(fakeHash("semantics-req-" & $capturedWires.len))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -1154,10 +1335,10 @@ suite "Reliable Channel - SDS protocol semantics":
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         ## Noop encryption is identity, so the envelope payload IS the SDS wire.
         capturedWires.add(envelope.payload)
-        return ok(RequestId("ack-req-" & $capturedWires.len)),
+        return ok(SendResult.ok(fakeHash("ack-req-" & $capturedWires.len))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 
@@ -1387,10 +1568,10 @@ suite "Reliable Channel - SDS protocol semantics":
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
         ## Noop encryption is identity, so the envelope payload IS the SDS wire.
         capturedWires.add(envelope.payload)
-        return ok(RequestId("unique-req-" & $capturedWires.len)),
+        return ok(SendResult.ok(fakeHash("unique-req-" & $capturedWires.len))),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 

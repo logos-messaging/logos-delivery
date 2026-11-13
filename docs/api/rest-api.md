@@ -62,28 +62,35 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `GET /messaging/v1/subscriptions` | | `["/app/1/topic/proto", ...]`, sorted |
 | `POST /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `DELETE /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
-| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"requestId":"..."}` |
+| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"messageHash":"0x..."}` |
 | `GET /messaging/v1/events/send` | | every buffered send status, then cleared |
-| `GET /messaging/v1/events/send/{requestId}` | | the send status of one request, then cleared; `404` while nothing is buffered for it |
+| `GET /messaging/v1/events/send/{messageHash}` | | the send status of one message, then cleared; `404` while nothing is buffered for it |
 | `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
-A send is asynchronous. `200` means that the node accepted the message. The result arrives as send events with the same `requestId`:
+`200` means that the node accepted the message, and `messageHash` is the hash of the message on the network. The node sets the timestamp of the message when it accepts it, so the hash does not change. The node refuses a message that it cannot send now, and then no event comes:
 
-* `queued`: the send waits for rate-limit budget (only when rate limiting is on)
+* HTTP `429`: the rate-limit budget of the epoch is spent. `Retry-After` gives the seconds until the budget refills. An ephemeral message also gets `429` when the budget is near its end. With RLN, the RLN budget also limits the sends.
+* HTTP `503`: the node has no peer to send the message through. With `--anonymity-level=Required`, mix cannot send the message now.
+* HTTP `413`: the message is above the `--max-msg-size` of the node, or above the size of one mix message at `--anonymity-level=Required`.
+* HTTP `409`: the node already sends a message with this hash.
+* HTTP `429` with `Retry-After: 1`: the node already has 50 sends that did not get their last event.
+
+The delivery is asynchronous. Its result arrives as send events with the same `messageHash`:
+
 * `propagated`: the message reached at least one peer
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
-* `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)
+* `error`: the send failed. Its `errorKind` is `NotPropagated` when the one send of the message failed or gave no result within about 15 s, or `NotStored` when no Store peer confirmed the message within about 60 s of its propagation.
 
-After a `sent` or `error` event, no more events come for that message.
+After a `sent` or `error` event, no more events come for that message. The node sends each message one time, and it keeps no message for a later send. To send a message again after an `error` event or a refusal, make a new send. It gets a new timestamp and a new hash. When the node stops, each send without its last event gets an `error` event.
 
 * The `sent` event needs reliability. A send without mix also needs a Store peer.
 * A message sent with `"ephemeral": true` gets no `sent` event, because Store nodes do not keep ephemeral messages.
 * Reliability is on by default, and off for the `twn` and `status.prod` presets. `--reliability` overrides that.
 * Without reliability, or for an ephemeral message, `propagated` is the last event.
 * Later versions can add new event types. A client must skip an event type that it does not know.
-* `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
+* `GET /messaging/v1/events/send/{messageHash}` answers `404` while the node has no event for that message: the hash is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 
-The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it.
+The receivers can have the message after an `error` event. With `--anonymity-level=Preferred`, the node uses mix when mix can send the message, and the plain path when it cannot. A send that mix attempted does not go to the plain path.
 
 * Each received message comes as a JSON object with:
   * the message hash
@@ -100,9 +107,9 @@ With the `backfill-enabled` setting on (the default), the node saves the state o
 * Each message has a `seq` number that goes up by 1 for each message. A jump in `seq` between two calls is the number of dropped messages, or of messages that another client got. `seq` starts again at 1 when the node restarts.
 * The metric `logos_delivery_rest_received_dropped_total` counts the dropped messages.
 
-The send buffer keeps the statuses of the newest requests and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
+The send buffer keeps the statuses of the newest sends and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
 
-Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. A send to a full send queue gets HTTP `429` with a `Retry-After` header.
+Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`.
 
 ### Node configuration
 To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).
