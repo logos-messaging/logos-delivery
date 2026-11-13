@@ -94,7 +94,7 @@ make logosdeliverynode
 make logosdeliverynode NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
-Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
+Note: The build uses `--mm:orc` memory management (`NIM_MM` in the Makefile; `make NIM_MM=refc` selects refc). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
@@ -491,9 +491,9 @@ nim c -r \
 - Default sinks are optimized for production
 
 ### Memory Management
-- Uses `refc` (reference counting with cycle collection)
-- Automatically enforced by the build system (hardcoded in `logos_delivery.nimble`)
-- Do not override unless absolutely necessary, as it breaks compatibility
+- Uses `orc` (reference counting with a cycle collector)
+- `refc` stays supported for hosts that still use it: `make NIM_MM=refc`, tested in CI
+- Set by the build system (`NIM_MM` in the Makefile, read by `logos_delivery.nimble`)
 
 ### RLN Dependencies
 - RLN code requires a Rust toolchain, which explains Rust imports in some modules

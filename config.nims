@@ -142,6 +142,10 @@ when defined(macosx):
   on
 --opt:
   speed
+# nat_traversal defines a `=deepCopy` hook, which ORC rejects unless deepcopy
+# is on. refc has it on already.
+--deepcopy:
+  on
 
 # All feature defines go here
 --define:
