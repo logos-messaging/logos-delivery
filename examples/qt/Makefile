@@ -5,7 +5,8 @@
 ## This may be needed in Ubuntu: sudo apt install qtdeclarative5-dev qtquickcontrols2-5-dev
 
 CXX = g++
-TINYCBOR_VENDOR_DIR = $(shell ls -dt ../../nimbledeps/pkgs2/ffi-* | head -1)/ffi/codegen/templates/cpp/vendor
+# Passed in by the repository's `make qt-logos-delivery-example`.
+TINYCBOR_VENDOR_DIR ?= $(error TINYCBOR_VENDOR_DIR is not set: build with `make qt-logos-delivery-example` from the repository root)
 
 CXXFLAGS = -g3 -fpermissive -fPIC -I../../build -I$(TINYCBOR_VENDOR_DIR) `pkg-config --cflags Qt5Core Qt5Gui Qt5Qml Qt5Quick`
 LDFLAGS = `pkg-config --libs Qt5Core Qt5Gui Qt5Qml Qt5Quick` -llogosdelivery -L../../build/ ../../build/libtinycbor.a

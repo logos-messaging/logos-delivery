@@ -639,7 +639,7 @@ cpp-logos-delivery-example: | build liblogosdelivery tinycbor
 # binding.gyp finds TinyCBOR under nimbledeps/ itself.
 nodejs-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
-		npx --yes node-gyp rebuild --directory=examples/nodejs/
+		npx --yes node-gyp rebuild --directory=examples/nodejs/ --tinycbor_dir="$(TINYCBOR_VENDOR_DIR)"
 
 go-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -653,7 +653,7 @@ rust-logos-delivery-example: | build liblogosdelivery
 # Needs Qt 5 (qtdeclarative5-dev on Ubuntu) and moc on PATH.
 qt-logos-delivery-example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(MAKE) -C examples/qt && cp examples/qt/main-qt build/$@
+		$(MAKE) -C examples/qt TINYCBOR_VENDOR_DIR="$(TINYCBOR_VENDOR_DIR)" && cp examples/qt/main-qt build/$@
 
 # ctypes binds by name at run time, so only the syntax can be checked here.
 py-logos-delivery-example:

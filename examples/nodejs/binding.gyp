@@ -5,7 +5,7 @@
       "sources": [ "logos_delivery_addon.c", "../cbindings/base64.c" ],
       "include_dirs": [
         "../../build",
-        "<!(ls -dt ../../nimbledeps/pkgs2/ffi-* | head -1)/ffi/codegen/templates/cpp/vendor"
+        "<(tinycbor_dir)"
       ],
       "libraries": [ "-llogosdelivery", "-L../../../build/", "../../../build/libtinycbor.a" ]
     }
