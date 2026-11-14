@@ -249,6 +249,10 @@ proc writePayload(
 
   return ok()
 
+proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
+  ## True when a round asked a peer for the message and it has not arrived.
+  self.pendingSet.contains(hash)
+
 proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
@@ -280,8 +284,8 @@ proc reconcileRound(
     recvPayload: RangesData,
     lowerBound: Timestamp,
     peerId: PeerId,
-): (RangesData, int) =
-  ## Returns the reply and the number of differences in this round.
+): (RangesData, seq[WakuMessageHash], int) =
+  ## Returns the reply, the hashes to send, and the number of promised elements.
   ## It must not become async: nothing may await between processPayload and
   ## trackPromised, so that none of the promised elements is here yet.
   var
@@ -301,13 +305,11 @@ proc reconcileRound(
   trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
   self.trackPromised(idsToRecv)
-  # A promise counts as a difference even if its placeholder insert fails.
-  let diffs = idsToRecv.len + self.scheduleTransfers(peerId, hashToSend)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
 
-  return (sendPayload, diffs)
+  return (sendPayload, hashToSend, idsToRecv.len)
 
 proc processRequest(
     self: SyncReconciliation, conn: Connection
@@ -353,12 +355,16 @@ proc processRequest(
     if recvPayload.isFinished():
       break
 
-    let (sendPayload, roundDiffs) =
+    let (sendPayload, hashToSend, promised) =
       self.reconcileRound(recvPayload, lowerBound, conn.peerId)
-    diffs += roundDiffs
 
     (await writePayload(conn, sendPayload)).isOkOr:
       return err(error)
+
+    # The peer learns from this reply which messages to accept.
+    # So the transfers are queued after the reply is written.
+    # A promise counts as a difference even if its placeholder insert fails.
+    diffs += promised + self.scheduleTransfers(conn.peerId, hashToSend)
 
     trace "sync payload sent",
       local = self.peerManager.switch.peerInfo.peerId,

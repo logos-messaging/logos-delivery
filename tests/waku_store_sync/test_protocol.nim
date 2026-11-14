@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, random, algorithm],
+  std/[sets, sequtils, random, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -25,7 +25,6 @@ import
     waku_store_sync/storage/range_processing,
     waku_store_sync/reconciliation,
     waku_store_sync/transfer,
-    waku_store_sync/protocols_metrics,
     waku_archive/archive,
     waku_archive/driver,
     waku_archive/common,
@@ -42,15 +41,6 @@ proc collectDiffs*(
     let sid = chan.recv() # synchronous receive
     received.incl sid.hash
   result = received
-
-proc failureCount(reason: string): float64 =
-  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
-  try:
-    return logos_delivery_transfer_receive_failures.valueByName(
-      "logos_delivery_transfer_receive_failures_total", [reason]
-    )
-  except ValueError:
-    return 0.0
 
 proc newLimitedReceiver(
     maxMessageSize: int
@@ -1613,6 +1603,61 @@ suite "Waku Sync: reconciliation":
 
     check needsQ.len == 0
 
+  asyncTest "a round queues its transfers after it writes its reply":
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+
+    # Given a server whose item set is larger than the flow-control window
+    let
+      count = YamuxDefaultWindowSize div 16
+      first = now() - 60.seconds.nanos
+    var rng = initRand()
+    for i in 0 ..< count:
+      server.messageIngress(
+        SyncID(time: first + Timestamp(i), hash: randomHash(rng)),
+        DefaultPubsubTopic,
+        DefaultContentTopic,
+      )
+
+    # When a peer with no items asks for them and reads only the start of the reply
+    let
+      bounds =
+        SyncID(time: first - 1, hash: EmptyFingerprint) ..
+        SyncID(time: first + Timestamp(count), hash: FullFingerprint)
+      payload = RangesData(
+        cluster: DefaultClusterId,
+        shards: @[],
+        ranges: @[(bounds, RangeType.ItemSet)],
+        itemSets: @[ItemSet(elements: @[], reconciled: false)],
+      )
+      conn = await clientSwitch.dial(
+        serverPeerInfo.peerId, serverPeerInfo.addrs, WakuReconciliationCodec
+      )
+    await conn.writeLp(payload.deltaEncode())
+    var replyStart = newSeq[byte](1024)
+    discard await conn.readOnce(addr replyStart[0], replyStart.len)
+
+    # Then the server queues no transfer, because the peer cannot know the items yet
+    check remoteNeeds.len == 0
+
+    # And when the peer reads the rest of the reply, the server queues them all
+    proc readRest() {.async.} =
+      try:
+        while true:
+          discard await conn.readOnce(addr replyStart[0], replyStart.len)
+      except CatchableError:
+        discard
+
+    let reading = readRest()
+    checkUntilTimeout:
+      remoteNeeds.len == count
+    await conn.close()
+    await reading
+
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":
     # Given a peer that reads the first sync payload and never answers
@@ -2145,3 +2190,87 @@ suite "Waku Sync: transfer":
     check received == expected
 
     check clientIds.len == 0 ]#
+
+suite "Waku Sync: transfer request check":
+  var
+    receiverSwitch {.threadvar.}: Switch
+    senderSwitch {.threadvar.}: Switch
+    receiver {.threadvar.}: SyncTransfer
+    receiverArchive {.threadvar.}: WakuArchive
+    requestedMsg {.threadvar.}: WakuMessage
+
+  asyncSetup:
+    requestedMsg = fakeWakuMessage(payload = "requested")
+    let requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+    receiverSwitch = newTestSwitch()
+    senderSwitch = newTestSwitch()
+    await allFutures(receiverSwitch.start(), senderSwitch.start())
+    receiverArchive = newWakuArchive(newSqliteArchiveDriver())
+    receiver = SyncTransfer.new(
+      peerManager = PeerManager.new(receiverSwitch),
+      wakuArchive = receiverArchive,
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      localWantsRx = newAsyncQueue[PeerId](),
+      remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
+      maxMessageSize = int(DefaultMaxWakuMessageSize),
+      isRequested = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+        hash == requestedHash,
+    )
+    await receiver.start()
+    receiverSwitch.mount(receiver)
+
+  asyncTeardown:
+    await receiver.stop()
+    await allFutures(receiverSwitch.stop(), senderSwitch.stop())
+
+  asyncTest "messages that no round asked for are not archived, and the stream stays open":
+    let
+      unrequested = @[
+        fakeWakuMessage(payload = "pushed 1"),
+        fakeWakuMessage(payload = "pushed 2"),
+        fakeWakuMessage(payload = "pushed 3"),
+      ]
+      unrequestedHashes = unrequested.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+      notRequestedBefore = failureCount("not_requested")
+
+    # When a peer pushes three messages that no round asked for, then the requested one
+    let conn = await senderSwitch.dial(
+      receiverSwitch.peerInfo.peerId, receiverSwitch.peerInfo.addrs, WakuTransferCodec
+    )
+    for msg in unrequested:
+      await conn.writeLp(
+        WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+      )
+    await conn.writeLp(
+      WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: requestedMsg).encode()
+    )
+
+    # Then the receiver archives the requested one only, and counts the other three
+    checkUntilTimeout:
+      await receiverArchive.holdsMessages(@[requestedHash])
+    for hash in unrequestedHashes:
+      check not await receiverArchive.holdsMessages(@[hash])
+    check failureCount("not_requested") == notRequestedBefore + 3
+    await conn.close()
+
+  asyncTest "a stream of messages that no round asked for is reset":
+    let notRequestedBefore = failureCount("not_requested")
+
+    # When a peer pushes ten messages in a row that no round asked for
+    let conn = await senderSwitch.dial(
+      receiverSwitch.peerInfo.peerId, receiverSwitch.peerInfo.addrs, WakuTransferCodec
+    )
+    for i in 0 ..< 10:
+      let msg = fakeWakuMessage(payload = "pushed " & $i)
+      await conn.writeLp(
+        WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+      )
+
+    # Then the receiver counts them and resets the stream
+    checkUntilTimeout:
+      failureCount("not_requested") == notRequestedBefore + 10
+    let readRes = catch:
+      await conn.readLp(1024)
+    check readRes.isErr()
+    await conn.close()

@@ -29,6 +29,15 @@ proc transferCount*(direction: TransferDirection): float64 =
   except ValueError:
     return 0.0
 
+proc failureCount*(reason: string): float64 =
+  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
+  try:
+    return logos_delivery_transfer_receive_failures.valueByName(
+      "logos_delivery_transfer_receive_failures_total", [reason]
+    )
+  except ValueError:
+    return 0.0
+
 proc randomHash*(rng: var Rand): WakuMessageHash =
   var hash = EmptyWakuMessageHash
 
