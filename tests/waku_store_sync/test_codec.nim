@@ -284,11 +284,8 @@ suite "Waku Store Sync - reconciliation header":
       res.get().shards == @[3'u16]
       res.get().ranges.len == 0
 
-  test "a zero-length payload decodes as empty":
-    let res = RangesData.deltaDecode(@[])
-    check:
-      res.isOk()
-      res.get().ranges.len == 0
+  test "a zero-length payload is a decode error":
+    check RangesData.deltaDecode(@[]).isErr()
 
 suite "Waku Store Sync - first range":
   let
