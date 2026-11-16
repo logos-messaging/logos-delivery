@@ -1719,6 +1719,22 @@ suite "Waku Sync: sync peer shard set":
 
     assert res.isOk(), res.error
 
+  asyncTest "a discovered peer that answers outside the scope is skipped in the next round":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch)
+    let
+      mismatchesBefore = reconciliationFailures("scope_mismatch")
+      noPeerBefore = reconciliationFailures("no_peer")
+
+    let first = await client.storeSynchronization()
+    let second = await client.storeSynchronization()
+
+    check:
+      first.isErr()
+      second.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
+      reconciliationFailures("no_peer") == noPeerBefore + 1
+
   asyncTest "a session that fails signals both its start and its end to transfer":
     let wants = newAsyncQueue[PeerId]()
     client = await newRecon(clientSwitch, @[1'u16, 2], wants = wants)
