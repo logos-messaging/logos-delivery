@@ -327,6 +327,10 @@ proc processRequest(
   # round never crosses a bound that moved by the round-trip time.
   let lowerBound = calculateTimeRange(self.clock(), self.relayJitter, self.syncRange).a
 
+  # The peer marks the hashes of a reply pending when it reads the reply. Its next
+  # payload proves that, on any transport, so the pushes of a round wait for it.
+  var unanswered: seq[WakuMessageHash]
+
   while true:
     let recvPayload = (await readPayload(conn)).valueOr:
       return err(error)
@@ -352,19 +356,20 @@ proc processRequest(
           $recvPayload.cluster & ", shards " & $recvPayload.shards
       )
 
+    diffs += self.scheduleTransfers(conn.peerId, unanswered)
+    unanswered.setLen(0)
+
     if recvPayload.isFinished():
       break
 
     let (sendPayload, hashToSend, promised) =
       self.reconcileRound(recvPayload, lowerBound, conn.peerId)
 
+    # A promise counts as a difference even if its placeholder insert fails.
+    diffs += promised
+
     (await writePayload(conn, sendPayload)).isOkOr:
       return err(error)
-
-    # The peer learns from this reply which messages to accept.
-    # So the transfers are queued after the reply is written.
-    # A promise counts as a difference even if its placeholder insert fails.
-    diffs += promised + self.scheduleTransfers(conn.peerId, hashToSend)
 
     trace "sync payload sent",
       local = self.peerManager.switch.peerInfo.peerId,
@@ -372,7 +377,12 @@ proc processRequest(
       payload = sendPayload
 
     if sendPayload.isFinished():
+      # The peer does not answer a finished reply. It marked these hashes
+      # pending in an earlier round.
+      diffs += self.scheduleTransfers(conn.peerId, hashToSend)
       break
+
+    unanswered = hashToSend
 
   # Signal to transfer protocol that this reconciliation is done
   await self.localWantsTx.addLast(conn.peerId)

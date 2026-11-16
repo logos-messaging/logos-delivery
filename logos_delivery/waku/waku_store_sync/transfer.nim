@@ -36,9 +36,6 @@ logScope:
 const DefaultReadCap =
   int(DefaultMaxWakuMessageSize) + DefaultSafetyBufferProtocolOverhead
 
-# A push can overtake the reply that names it, so a few in a row are expected.
-const MaxUnrequestedInARow = 10
-
 type RequestedCheck* = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].}
   ## True when a reconciliation round asked for the message.
 
@@ -46,7 +43,6 @@ type SyncTransfer* = ref object of LPProtocol
   wakuArchive: WakuArchive
   peerManager: PeerManager
 
-  # Nil accepts every message.
   isRequested: RequestedCheck
 
   # Send IDs to reconciliation protocol for storage
@@ -196,7 +192,6 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
 proc initProtocolHandler(self: SyncTransfer) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
     var endReason = ""
-    var unrequestedInARow = 0
     while true:
       ## removed DOS prototection until we can design something better
       #[ if not self.inSessions.contains(conn.peerId):
@@ -239,20 +234,13 @@ proc initProtocolHandler(self: SyncTransfer) =
 
       let hash = computeMessageHash(pubsub, msg)
 
-      # Under packet loss on QUIC a push can overtake the reply that names it,
-      # and is dropped. The reply still marks it pending, so a round after the
-      # pending entry expires asks for it again.
-      if not self.isRequested.isNil() and not self.isRequested(hash):
+      # A requested message that arrives after its pending entry expired is
+      # dropped, and a later round asks for it again.
+      if not self.isRequested(hash):
         debug "Transfer message not requested",
           remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
         logos_delivery_transfer_receive_failures.inc(labelValues = ["not_requested"])
-        unrequestedInARow.inc()
-        if unrequestedInARow >= MaxUnrequestedInARow:
-          endReason = "too many messages not requested"
-          await conn.reset()
-          break
         continue
-      unrequestedInARow = 0
 
       try:
         #TODO verify msg RLN proof...
@@ -293,8 +281,10 @@ proc new*(
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
     maxMessageSize: int,
     syncRange: Duration = DefaultSyncRange,
-    isRequested: RequestedCheck = nil,
+    isRequested: RequestedCheck,
 ): T =
+  doAssert not isRequested.isNil(), "SyncTransfer needs a request check"
+
   var transfer = SyncTransfer(
     peerManager: peerManager,
     wakuArchive: wakuArchive,

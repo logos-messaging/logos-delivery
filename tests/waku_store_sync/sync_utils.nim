@@ -1,4 +1,4 @@
-import std/random, chronos, metrics
+import std/[random, sets], chronos, metrics
 
 import
   logos_delivery/waku/[
@@ -12,6 +12,12 @@ import
   ../testlib/wakucore
 
 randomize()
+
+var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
+  ## The hashes that a test receiver accepts as asked for by a round.
+
+proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+  requestedInTest.contains(hash)
 
 type TransferDirection* {.pure.} = enum
   Sent
@@ -98,6 +104,7 @@ proc newTestWakuTransfer*(
     localWantsRx = wantsRx,
     remoteNeedsRx = needsRx,
     maxMessageSize = int(DefaultMaxWakuMessageSize),
+    isRequested = isRequestedInTest,
   )
 
   await proto.start()
