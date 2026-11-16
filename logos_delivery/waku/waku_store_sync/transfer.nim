@@ -36,9 +36,14 @@ logScope:
 const DefaultReadCap =
   int(DefaultMaxWakuMessageSize) + DefaultSafetyBufferProtocolOverhead
 
+type RequestedCheck* = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].}
+  ## True when a reconciliation round asked for the message.
+
 type SyncTransfer* = ref object of LPProtocol
   wakuArchive: WakuArchive
   peerManager: PeerManager
+
+  isRequested: RequestedCheck
 
   # Send IDs to reconciliation protocol for storage
   idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
@@ -229,6 +234,14 @@ proc initProtocolHandler(self: SyncTransfer) =
 
       let hash = computeMessageHash(pubsub, msg)
 
+      # A requested message that arrives after its pending entry expired is
+      # dropped, and a later round asks for it again.
+      if not self.isRequested(hash):
+        debug "Transfer message not requested",
+          remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
+        logos_delivery_transfer_receive_failures.inc(labelValues = ["not_requested"])
+        continue
+
       try:
         #TODO verify msg RLN proof...
         (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
@@ -268,10 +281,14 @@ proc new*(
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
     maxMessageSize: int,
     syncRange: Duration = DefaultSyncRange,
+    isRequested: RequestedCheck,
 ): T =
+  doAssert not isRequested.isNil(), "SyncTransfer needs a request check"
+
   var transfer = SyncTransfer(
     peerManager: peerManager,
     wakuArchive: wakuArchive,
+    isRequested: isRequested,
     idsTx: idsTx,
     localWantsRx: localWantsRx,
     remoteNeedsRx: remoteNeedsRx,

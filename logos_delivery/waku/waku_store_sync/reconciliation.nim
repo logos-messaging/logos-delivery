@@ -249,6 +249,10 @@ proc writePayload(
 
   return ok()
 
+proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
+  ## True when a round asked a peer for the message and it has not arrived.
+  self.pendingSet.contains(hash)
+
 proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
@@ -280,8 +284,8 @@ proc reconcileRound(
     recvPayload: RangesData,
     lowerBound: Timestamp,
     peerId: PeerId,
-): (RangesData, int) =
-  ## Returns the reply and the number of differences in this round.
+): (RangesData, seq[WakuMessageHash], int) =
+  ## Returns the reply, the hashes to send, and the number of promised elements.
   ## It must not become async: nothing may await between processPayload and
   ## trackPromised, so that none of the promised elements is here yet.
   var
@@ -301,13 +305,11 @@ proc reconcileRound(
   trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
   self.trackPromised(idsToRecv)
-  # A promise counts as a difference even if its placeholder insert fails.
-  let diffs = idsToRecv.len + self.scheduleTransfers(peerId, hashToSend)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
 
-  return (sendPayload, diffs)
+  return (sendPayload, hashToSend, idsToRecv.len)
 
 proc processRequest(
     self: SyncReconciliation, conn: Connection
@@ -324,6 +326,10 @@ proc processRequest(
   # Fixed for the session, so that a range the peer sends back in a later
   # round never crosses a bound that moved by the round-trip time.
   let lowerBound = calculateTimeRange(self.clock(), self.relayJitter, self.syncRange).a
+
+  # The peer marks the hashes of a reply pending when it reads the reply. Its next
+  # payload proves that, on any transport, so the pushes of a round wait for it.
+  var unanswered: seq[WakuMessageHash]
 
   while true:
     let recvPayload = (await readPayload(conn)).valueOr:
@@ -350,12 +356,17 @@ proc processRequest(
           $recvPayload.cluster & ", shards " & $recvPayload.shards
       )
 
+    diffs += self.scheduleTransfers(conn.peerId, unanswered)
+    unanswered.setLen(0)
+
     if recvPayload.isFinished():
       break
 
-    let (sendPayload, roundDiffs) =
+    let (sendPayload, hashToSend, promised) =
       self.reconcileRound(recvPayload, lowerBound, conn.peerId)
-    diffs += roundDiffs
+
+    # A promise counts as a difference even if its placeholder insert fails.
+    diffs += promised
 
     (await writePayload(conn, sendPayload)).isOkOr:
       return err(error)
@@ -366,7 +377,12 @@ proc processRequest(
       payload = sendPayload
 
     if sendPayload.isFinished():
+      # The peer does not answer a finished reply. It marked these hashes
+      # pending in an earlier round.
+      diffs += self.scheduleTransfers(conn.peerId, hashToSend)
       break
+
+    unanswered = hashToSend
 
   # Signal to transfer protocol that this reconciliation is done
   await self.localWantsTx.addLast(conn.peerId)

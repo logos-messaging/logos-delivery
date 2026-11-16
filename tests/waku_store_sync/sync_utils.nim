@@ -1,4 +1,4 @@
-import std/random, chronos, metrics
+import std/[random, sets], chronos, metrics
 
 import
   logos_delivery/waku/[
@@ -13,6 +13,12 @@ import
 
 randomize()
 
+var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
+  ## The hashes that a test receiver accepts as asked for by a round.
+
+proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+  requestedInTest.contains(hash)
+
 type TransferDirection* {.pure.} = enum
   Sent
   Received
@@ -25,6 +31,15 @@ proc transferCount*(direction: TransferDirection): float64 =
   try:
     return logos_delivery_total_transfer_messages_exchanged.valueByName(
       "logos_delivery_total_transfer_messages_exchanged_total", [label]
+    )
+  except ValueError:
+    return 0.0
+
+proc failureCount*(reason: string): float64 =
+  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
+  try:
+    return logos_delivery_transfer_receive_failures.valueByName(
+      "logos_delivery_transfer_receive_failures_total", [reason]
     )
   except ValueError:
     return 0.0
@@ -89,6 +104,7 @@ proc newTestWakuTransfer*(
     localWantsRx = wantsRx,
     remoteNeedsRx = needsRx,
     maxMessageSize = int(DefaultMaxWakuMessageSize),
+    isRequested = isRequestedInTest,
   )
 
   await proto.start()
