@@ -18,6 +18,7 @@ import
   ../../logos_delivery/waku/[
     node/peer_manager,
     waku_core,
+    waku_enr,
     waku_core/message,
     waku_core/message/digest,
     waku_store_sync/common,
@@ -1642,6 +1643,19 @@ proc addDiscovered(switch: Switch, peer: Switch, shards: seq[uint16]) =
   PeerManager.new(switch).addPeer(info)
   switch.peerStore.setShardInfo(info.peerId, shards)
 
+proc addDiscovered(switch: Switch, peer: Switch) =
+  ## A peer whose shards are not known: no metadata and no ENR.
+  PeerManager.new(switch).addPeer(peer.peerInfo.toRemotePeerInfo())
+
+proc addDiscoveredWithEnr(
+    switch: Switch, peer: Switch, cluster: uint16, shards: seq[uint16]
+) =
+  var builder = EnrBuilder.init(generateSecp256k1Key())
+  doAssert builder.withWakuRelaySharding(RelayShards.init(cluster, shards).get()).isOk()
+  var info = peer.peerInfo.toRemotePeerInfo()
+  info.enr = Opt.some(builder.build().get())
+  PeerManager.new(switch).addPeer(info)
+
 suite "Waku Sync: sync peer shard set":
   var
     clientSwitch {.threadvar.}: Switch
@@ -1676,6 +1690,34 @@ suite "Waku Sync: sync peer shard set":
       res.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore
       reconciliationFailures("no_peer") == noPeerBefore + 1
+
+  asyncTest "a node skips a discovered peer whose ENR has its shards on another cluster":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscoveredWithEnr(sameSwitch, 9, @[1'u16, 2])
+    let noPeerBefore = reconciliationFailures("no_peer")
+
+    let res = await client.storeSynchronization()
+
+    check:
+      res.isErr()
+      reconciliationFailures("no_peer") == noPeerBefore + 1
+
+  asyncTest "a node syncs with a discovered peer whose ENR has its cluster and shards":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscoveredWithEnr(sameSwitch, DefaultClusterId, @[2'u16, 1])
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+
+  asyncTest "a node syncs with a peer whose shards are unknown when none advertises its own":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
+    clientSwitch.addDiscovered(sameSwitch)
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
 
   asyncTest "a session that fails signals both its start and its end to transfer":
     let wants = newAsyncQueue[PeerId]()

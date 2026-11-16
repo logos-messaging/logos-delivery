@@ -192,18 +192,48 @@ proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesDa
     peer_shards = remote.shards,
     fix = "give both nodes the same --cluster-id, --shard and --content-topic values"
 
+type PeerScope = enum
+  Unknown
+  Same
+  Other
+
+proc peerScope(self: SyncReconciliation, peer: RemotePeerInfo): PeerScope =
+  ## The metadata protocol already rejected peers of another cluster, so only
+  ## the shards it reported are compared. An ENR also carries its cluster.
+  if peer.shards.len > 0:
+    return if peer.shards.toHashSet() == self.shards: Same else: Other
+
+  if peer.enr.isNone():
+    return Unknown
+  let record = peer.enr.get().toTyped().valueOr:
+      return Unknown
+  let sharding = record.relaySharding().valueOr:
+    return Unknown
+
+  if sharding.clusterId == self.cluster and sharding.shardIds.toHashSet() == self.shards:
+    return Same
+  return Other
+
 proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## The configured peer when there is one, so that a mismatch with it is
-  ## reported rather than hidden. Otherwise a peer that advertises our shards.
+  ## reported rather than hidden. Otherwise a peer that advertises our scope,
+  ## or else one whose scope is not known yet.
   let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
   if slotted.isSome():
     return slotted
 
+  var unknownScope = Opt.none(RemotePeerInfo)
   for peer in self.peerManager.selectPeers(WakuReconciliationCodec):
-    if peer.getShards().toHashSet() == self.shards:
+    case self.peerScope(peer)
+    of Same:
       return Opt.some(peer)
+    of Unknown:
+      if unknownScope.isNone():
+        unknownScope = Opt.some(peer)
+    of Other:
+      discard
 
-  return Opt.none(RemotePeerInfo)
+  return unknownScope
 
 proc nextSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## Logs the transitions between having a sync peer and having none.
