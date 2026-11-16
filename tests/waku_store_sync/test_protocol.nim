@@ -1613,6 +1613,89 @@ suite "Waku Sync: reconciliation":
 
     check needsQ.len == 0
 
+proc reconciliationFailures(reason: string): float64 =
+  try:
+    return logos_delivery_reconciliation_failures.valueByName(
+      "logos_delivery_reconciliation_failures_total", [reason]
+    )
+  except ValueError:
+    return 0.0
+
+proc newRecon(
+    switch: Switch, shards: seq[uint16], peerManager: PeerManager = nil
+): Future[SyncReconciliation] =
+  newTestWakuRecon(
+    switch,
+    shards,
+    DefaultSyncRange,
+    newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+    newAsyncQueue[PeerId](),
+    newAsyncQueue[(PeerId, WakuMessageHash)](),
+    peerManager = peerManager,
+  )
+
+proc addDiscovered(switch: Switch, peer: Switch, shards: seq[uint16]) =
+  let info = peer.peerInfo.toRemotePeerInfo()
+  PeerManager.new(switch).addPeer(info)
+  switch.peerStore.setShardInfo(info.peerId, shards)
+
+suite "Waku Sync: sync peer shard set":
+  var
+    clientSwitch {.threadvar.}: Switch
+    sameSwitch {.threadvar.}: Switch
+    otherSwitch {.threadvar.}: Switch
+    same {.threadvar.}: SyncReconciliation
+    other {.threadvar.}: SyncReconciliation
+    client {.threadvar.}: SyncReconciliation
+
+  asyncSetup:
+    clientSwitch = newTestSwitch()
+    sameSwitch = newTestSwitch()
+    otherSwitch = newTestSwitch()
+    await allFutures(clientSwitch.start(), sameSwitch.start(), otherSwitch.start())
+    same = await newRecon(sameSwitch, @[1'u16, 2])
+    other = await newRecon(otherSwitch, @[3'u16])
+
+  asyncTeardown:
+    await allFutures(client.stop(), same.stop(), other.stop())
+    await allFutures(clientSwitch.stop(), sameSwitch.stop(), otherSwitch.stop())
+
+  asyncTest "a node skips a discovered peer that advertises another shard set":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let res = await client.storeSynchronization()
+
+    check:
+      res.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore
+
+  asyncTest "a node syncs with the discovered peer that advertises its shard set":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
+    clientSwitch.addDiscovered(sameSwitch, @[2'u16, 1])
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+
+  asyncTest "a configured peer with another shard set is selected and the mismatch counted":
+    let peerManager = PeerManager.new(clientSwitch)
+    peerManager.addServicePeer(
+      otherSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
+    )
+    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
+    clientSwitch.addDiscovered(sameSwitch, @[1'u16, 2])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let res = await client.storeSynchronization()
+
+    # Both ends of the session count it: the peer and the node itself.
+    check:
+      res.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
+
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":
     # Given a peer that reads the first sync payload and never answers

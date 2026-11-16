@@ -49,8 +49,13 @@ proc newTestWakuRecon*(
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     cluster: uint16 = DefaultClusterId,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
+    peerManager: PeerManager = nil,
 ): Future[SyncReconciliation] {.async.} =
-  let peerManager = PeerManager.new(switch)
+  let peerManager =
+    if peerManager.isNil():
+      PeerManager.new(switch)
+    else:
+      peerManager
 
   let res = await SyncReconciliation.new(
     cluster = cluster,

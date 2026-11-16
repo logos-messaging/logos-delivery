@@ -73,6 +73,10 @@ type SyncReconciliation* = ref object of LPProtocol
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
 
+  # Configured peers already reported outside the sync scope, so that the
+  # warning is logged once, not on every interval.
+  outOfScopePeers: HashSet[PeerId]
+
   # futures
   periodicSyncFut: Future[void]
   periodicPruneFut: Future[void]
@@ -167,6 +171,38 @@ func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
   ## The match of WAKU-SYNC: the same cluster and the same set of shards.
   payload.cluster == self.cluster and payload.shards.toHashSet() == self.shards
 
+func isConfiguredPeer(self: SyncReconciliation, peerId: PeerId): bool =
+  let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
+  slotted.isSome() and slotted.get().peerId == peerId
+
+proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesData) =
+  logos_delivery_reconciliation_failures.inc(labelValues = ["scope_mismatch"])
+
+  # A discovered peer is a remote anomaly, already logged at debug by the caller.
+  if not self.isConfiguredPeer(peerId) or self.outOfScopePeers.containsOrIncl(peerId):
+    return
+
+  warn "Store sync peer is outside the sync scope, no message is synced with it",
+    peer_id = peerId,
+    cluster = self.cluster,
+    shards = self.shards.toSeq(),
+    peer_cluster = remote.cluster,
+    peer_shards = remote.shards,
+    fix = "give both nodes the same --cluster-id, --shard and --content-topic values"
+
+proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
+  ## The configured peer when there is one, so that a mismatch with it is
+  ## reported rather than hidden. Otherwise a peer that advertises our shards.
+  let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
+  if slotted.isSome():
+    return slotted
+
+  for peer in self.peerManager.selectPeers(WakuReconciliationCodec):
+    if peer.getShards().toHashSet() == self.shards:
+      return Opt.some(peer)
+
+  return Opt.none(RemotePeerInfo)
+
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
 ): RangesData =
@@ -218,6 +254,7 @@ proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.}
     try:
       await conn.readLp(DefaultMaxPayloadSize)
     except LPStreamError as exc:
+      logos_delivery_reconciliation_failures.inc(labelValues = ["read_error"])
       await conn.close()
       return err("remote " & $conn.peerId & " connection read error: " & exc.msg)
 
@@ -226,6 +263,7 @@ proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.}
   )
 
   let payload = RangesData.deltaDecode(buffer).valueOr:
+    logos_delivery_reconciliation_failures.inc(labelValues = ["decode_error"])
     await conn.close()
     return err("remote " & $conn.peerId & " payload decoding error: " & error)
 
@@ -244,6 +282,7 @@ proc writePayload(
   try:
     await conn.writeLP(rawPayload)
   except LPStreamError as exc:
+    logos_delivery_reconciliation_failures.inc(labelValues = ["write_error"])
     await conn.close()
     return err("remote " & $conn.peerId & " connection write error: " & exc.msg)
 
@@ -337,6 +376,7 @@ proc processRequest(
       payload = recvPayload
 
     if not self.matchesScope(recvPayload):
+      self.reportOutOfScope(conn.peerId, recvPayload)
       # The empty payload of WAKU-SYNC aborts the session.
       # A peer that sent an empty payload already aborted it, and gets no reply.
       if recvPayload.ranges.len > 0:
@@ -373,6 +413,7 @@ proc processRequest(
 
   logos_delivery_reconciliation_roundtrips.observe(roundTrips)
   logos_delivery_reconciliation_differences.observe(diffs)
+  self.outOfScopePeers.excl(conn.peerId)
 
   await conn.close()
 
@@ -404,17 +445,7 @@ proc initiate(
       itemSets: @[],
     )
 
-  let sendPayload = initPayload.deltaEncode()
-
-  logos_delivery_total_bytes_exchanged.inc(
-    sendPayload.len, labelValues = [Reconciliation, Sending]
-  )
-
-  try:
-    await connection.writeLP(sendPayload)
-  except LPStreamError as exc:
-    await connection.close()
-    return err("remote " & $connection.peerId & " connection write error: " & exc.msg)
+  ?await writePayload(connection, initPayload)
 
   trace "sync payload sent",
     local = self.peerManager.switch.peerInfo.peerId,
@@ -432,13 +463,14 @@ proc storeSynchronization*(
     syncRange: Duration = self.syncRange,
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
-    self.peerManager.selectPeer(WakuReconciliationCodec).valueOr:
-      return err("no suitable peer found for sync")
+    self.selectSyncPeer().valueOr:
+      return err("no peer found for sync with the shards: " & $self.shards.toSeq())
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
 
   let conn: Connection = connOpt.valueOr:
-    return err("fail to dial remote " & $peer.peerId)
+    logos_delivery_reconciliation_failures.inc(labelValues = ["dial_error"])
+    return err("fail to dial remote: " & $peer.peerId)
 
   debug "Sync session initialized",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
