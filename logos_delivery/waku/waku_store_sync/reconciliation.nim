@@ -226,7 +226,9 @@ proc peerScope(self: SyncReconciliation, peer: RemotePeerInfo): PeerScope =
 proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## The configured peer when there is one, so that a mismatch with it is
   ## reported rather than hidden. Otherwise a peer that advertises our scope,
-  ## or else one whose scope is not known yet.
+  ## then one whose scope is not known, then one that advertises another.
+  ## Metadata advertises the relay shards, which can differ from the sync
+  ## scope, so only a session that answers outside the scope rules a peer out.
   let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
   if slotted.isSome():
     return slotted
@@ -236,7 +238,9 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
     if self.outOfScopePeers.getOrDefault(peerId) <= now:
       self.outOfScopePeers.del(peerId)
 
-  var unknownScope = Opt.none(RemotePeerInfo)
+  var
+    unknownScope = Opt.none(RemotePeerInfo)
+    otherScope = Opt.none(RemotePeerInfo)
   for peer in self.peerManager.selectPeers(WakuReconciliationCodec):
     if self.isOutOfScope(peer.peerId):
       continue
@@ -247,9 +251,12 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
       if unknownScope.isNone():
         unknownScope = Opt.some(peer)
     of Other:
-      discard
+      if otherScope.isNone():
+        otherScope = Opt.some(peer)
 
-  return unknownScope
+  if unknownScope.isSome():
+    return unknownScope
+  return otherScope
 
 proc nextSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## Logs the transitions between having a sync peer and having none.

@@ -1676,30 +1676,40 @@ suite "Waku Sync: sync peer shard set":
     await allFutures(client.stop(), same.stop(), other.stop())
     await allFutures(clientSwitch.stop(), sameSwitch.stop(), otherSwitch.stop())
 
-  asyncTest "a node skips a discovered peer that advertises another shard set":
+  asyncTest "a peer that advertises another shard set is tried, then skipped once it mismatches":
     client = await newRecon(clientSwitch, @[1'u16, 2])
     clientSwitch.addDiscovered(otherSwitch, @[3'u16])
     let
       mismatchesBefore = reconciliationFailures("scope_mismatch")
       noPeerBefore = reconciliationFailures("no_peer")
 
-    let res = await client.storeSynchronization()
+    let first = await client.storeSynchronization()
+    let second = await client.storeSynchronization()
 
     check:
-      res.isErr()
-      reconciliationFailures("scope_mismatch") == mismatchesBefore
+      first.isErr()
+      second.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
       reconciliationFailures("no_peer") == noPeerBefore + 1
 
-  asyncTest "a node skips a discovered peer whose ENR has its shards on another cluster":
+  asyncTest "a peer whose relay advertises more shards than it syncs is still synced with":
     client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscoveredWithEnr(sameSwitch, 9, @[1'u16, 2])
-    let noPeerBefore = reconciliationFailures("no_peer")
+    clientSwitch.addDiscovered(sameSwitch, @[1'u16, 2, 3])
 
     let res = await client.storeSynchronization()
 
-    check:
-      res.isErr()
-      reconciliationFailures("no_peer") == noPeerBefore + 1
+    assert res.isOk(), res.error
+
+  asyncTest "a peer of another cluster in its ENR is tried after one with unknown shards":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscoveredWithEnr(otherSwitch, 9, @[1'u16, 2])
+    clientSwitch.addDiscovered(sameSwitch)
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+    check reconciliationFailures("scope_mismatch") == mismatchesBefore
 
   asyncTest "a node syncs with a discovered peer whose ENR has its cluster and shards":
     client = await newRecon(clientSwitch, @[1'u16, 2])
@@ -1750,10 +1760,12 @@ suite "Waku Sync: sync peer shard set":
     client = await newRecon(clientSwitch, @[1'u16, 2])
     clientSwitch.addDiscovered(otherSwitch, @[3'u16])
     clientSwitch.addDiscovered(sameSwitch, @[2'u16, 1])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
 
     let res = await client.storeSynchronization()
 
     assert res.isOk(), res.error
+    check reconciliationFailures("scope_mismatch") == mismatchesBefore
 
   asyncTest "a configured peer with another shard set is selected and the mismatch counted":
     let peerManager = PeerManager.new(clientSwitch)
