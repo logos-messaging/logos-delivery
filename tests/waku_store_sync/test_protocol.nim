@@ -1075,8 +1075,10 @@ suite "Waku Sync: reconciliation":
       discard await conn.readLp(64 * 1024)
     await conn.close()
 
-    # A session that ends signals the transfer protocol a second time.
-    check localWants.len == 1
+    # A session that ends signals the transfer protocol a second time, after
+    # the stream is closed, so the client may see the close first.
+    checkUntilTimeout:
+      localWants.len == 2
 
   asyncTest "sync 2 nodes same hashes":
     server = await newTestWakuRecon(
