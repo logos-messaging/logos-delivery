@@ -68,8 +68,9 @@ type SyncReconciliation* = ref object of LPProtocol
   # Elements a peer promised in a round. They are in the storage under
   # PendingPubsubTopic until they arrive or their deadline passes.
   pendingTimeout: Duration
-  pendingSet: HashSet[WakuMessageHash]
-  pendingQueue: Deque[(SyncID, Moment)] # with their deadline, in order
+  pendingFrom: Table[WakuMessageHash, PeerId] # with the peer that promised it
+  pendingQueue: Deque[(SyncID, Moment)] # with their deadline, extended ones last
+  lastDelivery: Table[PeerId, Moment] # when a promised element of the peer arrived
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
 
@@ -93,8 +94,9 @@ proc insertConfirmed(
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
 ) =
-  if self.pendingSet.contains(id.hash):
-    self.pendingSet.excl(id.hash)
+  var promiser: PeerId
+  if self.pendingFrom.pop(id.hash, promiser):
+    self.lastDelivery[promiser] = Moment.now()
     # The pending entry has no real topic, so it is replaced rather than kept.
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
@@ -110,17 +112,25 @@ proc insertConfirmed(
 
 proc expirePending(self: SyncReconciliation) =
   ## Drops the promised elements that did not arrive by their deadline, so that
-  ## the next round asks for them again.
+  ## the next round asks for them again. A peer that delivered within the last
+  ## timeout gets one more timeout: a large backlog can take longer than one.
   let now = Moment.now()
   while self.pendingQueue.len > 0:
     let (id, deadline) = self.pendingQueue.peekFirst()
     if deadline > now:
       break
     discard self.pendingQueue.popFirst()
-    if not self.pendingSet.contains(id.hash):
+    if not self.pendingFrom.contains(id.hash):
       continue
 
-    self.pendingSet.excl(id.hash)
+    let extended =
+      self.lastDelivery.getOrDefault(self.pendingFrom.getOrDefault(id.hash)) +
+      self.pendingTimeout
+    if extended > now:
+      self.pendingQueue.addLast((id, extended))
+      continue
+
+    self.pendingFrom.del(id.hash)
     self.deferredTx.del(id.hash)
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
@@ -251,9 +261,9 @@ proc writePayload(
 
 proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
   ## True when a round asked a peer for the message and it has not arrived.
-  self.pendingSet.contains(hash)
+  self.pendingFrom.contains(hash)
 
-proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
+proc trackPromised(self: SyncReconciliation, peerId: PeerId, idsToRecv: seq[SyncID]) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
   let deadline = Moment.now() + self.pendingTimeout
@@ -262,7 +272,7 @@ proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
       error "failed to insert pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
       continue
-    self.pendingSet.incl(id.hash)
+    self.pendingFrom[id.hash] = peerId
     self.pendingQueue.addLast((id, deadline))
 
 proc scheduleTransfers(
@@ -272,7 +282,7 @@ proc scheduleTransfers(
   var queued = 0
   for hash in hashToSend:
     # A pending element is not in the archive yet, so it is sent on arrival.
-    if self.pendingSet.contains(hash):
+    if self.pendingFrom.contains(hash):
       self.deferredTx.mgetOrPut(hash, initHashSet[PeerId]()).incl(peerId)
       continue
     self.queueTransfer(peerId, hash)
@@ -304,7 +314,7 @@ proc reconcileRound(
 
   trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
-  self.trackPromised(idsToRecv)
+  self.trackPromised(peerId, idsToRecv)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()

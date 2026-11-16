@@ -341,6 +341,80 @@ suite "Waku Sync: reconciliation":
     # Then the second server does not queue it
     check remoteNeeds.len == 1
 
+  asyncTest "a promised message stays pending while its peer delivers, and expires once it stops":
+    # Given two servers holding three messages and an empty client with a 1 s timeout
+    let
+      msgs = toSeq(1 .. 3).mapIt(
+          fakeWakuMessage(
+            payload = "late " & $it, ts = now(), contentTopic = DefaultContentTopic
+          )
+        )
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 1.seconds,
+    )
+    for i in 0 ..< msgs.len:
+      server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+
+    proc deliver(i: int) {.async.} =
+      await clientIds.put(
+        (
+          SyncID(time: msgs[i].timestamp, hash: hashes[i]),
+          DefaultPubsubTopic,
+          DefaultContentTopic,
+        )
+      )
+      # The receiver inserts the id as soon as it takes it off the queue.
+      while clientIds.len > 0:
+        await sleepAsync(10.milliseconds)
+
+    # When the first server promises all three and delivers two of them, the
+    # second one 800 ms after the promise
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 3
+    await sleepAsync(400.milliseconds)
+    await deliver(0)
+    await sleepAsync(400.milliseconds)
+    await deliver(1)
+
+    # Then after the timeout of the promise, the third one is still pending, so
+    # the second server does not queue it
+    await sleepAsync(500.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    # A server queues its pushes when it reads the last payload of the client.
+    await sleepAsync(200.milliseconds)
+    check:
+      client.isPending(hashes[2])
+      remoteNeeds.len == 3
+
+    # And one timeout after the last delivery, it expires, so the second server
+    # promises and queues it
+    await sleepAsync(800.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 4
+    check remoteNeeds.contains((clientPeerInfo.peerId, hashes[2]))
+
   asyncTest "a peer that asks twice for a pending message gets it once":
     # Given a server holding one message, an empty client and an empty third node
     # whose own pending entries expire fast
