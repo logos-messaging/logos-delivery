@@ -305,9 +305,11 @@ proc processFingerprintRange*(
     output.ranges.add((inputBounds, RangeType.Skip))
     return
 
+  # An empty range is not marked reconciled: the peer then replies with its
+  # items, which tells this node what to accept over transfer.
   if idxSlice.isNone():
     output.ranges.add((inputBounds, RangeType.ItemSet))
-    let state = ItemSet(elements: @[], reconciled: true)
+    let state = ItemSet(elements: @[], reconciled: false)
     output.itemSets.add(state)
     return
 
@@ -326,7 +328,7 @@ proc processFingerprintRange*(
 
     if sliceOpt.isNone():
       output.ranges.add((partitionBounds, RangeType.ItemSet))
-      let state = ItemSet(elements: @[], reconciled: true)
+      let state = ItemSet(elements: @[], reconciled: false)
       output.itemSets.add(state)
       continue
 

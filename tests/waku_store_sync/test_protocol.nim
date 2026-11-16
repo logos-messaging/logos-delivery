@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, random, algorithm],
+  std/[sets, sequtils, random, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -26,7 +26,6 @@ import
     waku_store_sync/storage/range_processing,
     waku_store_sync/reconciliation,
     waku_store_sync/transfer,
-    waku_store_sync/protocols_metrics,
     waku_archive/archive,
     waku_archive/driver,
     waku_archive/common,
@@ -44,22 +43,6 @@ proc collectDiffs*(
     received.incl sid.hash
   result = received
 
-proc reasonCount(counter: Counter, reason: string): float64 =
-  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
-  try:
-    return counter.valueByName(counter.name & "_total", [reason])
-  except ValueError:
-    return 0.0
-
-# The counters are globals; reading them from a test is safe.
-proc failureCount(reason: string): float64 =
-  {.gcsafe.}:
-    reasonCount(logos_delivery_transfer_receive_failures, reason)
-
-proc reconciliationFailures(reason: string): float64 =
-  {.gcsafe.}:
-    reasonCount(logos_delivery_reconciliation_failures, reason)
-
 proc newLimitedReceiver(
     maxMessageSize: int
 ): Future[(Switch, SyncTransfer, WakuArchive)] {.async.} =
@@ -74,6 +57,7 @@ proc newLimitedReceiver(
       localWantsRx = newAsyncQueue[PeerId](),
       remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
       maxMessageSize = maxMessageSize,
+      isRequested = isRequestedInTest,
     )
   await switch.start()
   await transfer.start()
@@ -1161,7 +1145,7 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    check:
+    checkUntilTimeout:
       remoteNeeds.len == diffs.len
     for hash in diffs:
       check remoteNeeds.contains((clientPeerInfo.peerId, hash))
@@ -1280,7 +1264,8 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    check remoteNeeds.len == diffCount
+    checkUntilTimeout:
+      remoteNeeds.len == diffCount
     let (_, deliveredHash) = await remoteNeeds.get()
     check deliveredHash in diffMsgHashes
 
@@ -1326,7 +1311,8 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    check remoteNeeds.len == diffCount
+    checkUntilTimeout:
+      remoteNeeds.len == diffCount
 
     for _ in 0 ..< diffCount:
       let (_, deliveredHash) = await remoteNeeds.get()
@@ -1379,7 +1365,8 @@ suite "Waku Sync: reconciliation":
     let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
-    check remoteNeeds.len == diffCount
+    checkUntilTimeout:
+      remoteNeeds.len == diffCount
 
     for _ in 0 ..< 1000:
       let (_, deliveredHash) = await remoteNeeds.get()
@@ -1658,6 +1645,53 @@ suite "Waku Sync: reconciliation":
 
     check needsQ.len == 0
 
+  asyncTest "a round queues its transfers when the peer answers its reply":
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+
+    # Given a server with ten items
+    let
+      count = 10
+      first = now() - 60.seconds.nanos
+    var rng = initRand()
+    for i in 0 ..< count:
+      server.messageIngress(
+        SyncID(time: first + Timestamp(i), hash: randomHash(rng)),
+        DefaultPubsubTopic,
+        DefaultContentTopic,
+      )
+
+    # When a peer with no items asks for them and reads the whole reply
+    let
+      bounds =
+        SyncID(time: first - 1, hash: EmptyFingerprint) ..
+        SyncID(time: first + Timestamp(count), hash: FullFingerprint)
+      payload = RangesData(
+        cluster: DefaultClusterId,
+        shards: @[],
+        ranges: @[(bounds, RangeType.ItemSet)],
+        itemSets: @[ItemSet(elements: @[], reconciled: false)],
+      )
+      conn = await clientSwitch.dial(
+        serverPeerInfo.peerId, serverPeerInfo.addrs, WakuReconciliationCodec
+      )
+    await conn.writeLp(payload.deltaEncode())
+    discard await conn.readLp(64 * 1024)
+
+    # Then the server queues no transfer, because only an answer proves the peer read it
+    await sleepAsync(200.milliseconds)
+    check remoteNeeds.len == 0
+
+    # And when the peer answers, the server queues them all
+    await conn.writeLp(RangesData(cluster: DefaultClusterId, shards: @[]).deltaEncode())
+    checkUntilTimeout:
+      remoteNeeds.len == count
+    await conn.close()
+
 proc newRecon(
     switch: Switch,
     shards: seq[uint16],
@@ -1878,11 +1912,12 @@ suite "Waku Sync: transfer handler cancellation":
         localWantsRx = newAsyncQueue[PeerId](),
         remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
         maxMessageSize = int(DefaultMaxWakuMessageSize),
+        isRequested = isRequestedInTest,
       )
       stream = BufferStream.new()
-      payload = WakuMessageAndTopic(
-        pubsub: DefaultPubsubTopic, message: fakeWakuMessage()
-      ).encode()
+      msg = fakeWakuMessage()
+      payload = WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+    requestedInTest.incl(computeMessageHash(DefaultPubsubTopic, msg))
 
     # When its handler reads a message and is cancelled during the insert
     let handling = receiver.handler(stream, WakuTransferCodec)
@@ -1952,6 +1987,7 @@ suite "Waku Sync: transfer":
       localWantsRx = serverLocalWants,
       remoteNeedsRx = serverRemoteNeeds,
       maxMessageSize = int(DefaultMaxWakuMessageSize),
+      isRequested = isRequestedInTest,
     )
 
     clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
@@ -1965,6 +2001,7 @@ suite "Waku Sync: transfer":
       localWantsRx = clientLocalWants,
       remoteNeedsRx = clientRemoteNeeds,
       maxMessageSize = int(DefaultMaxWakuMessageSize),
+      isRequested = isRequestedInTest,
     )
 
     await server.start()
@@ -1979,6 +2016,8 @@ suite "Waku Sync: transfer":
     serverPeerManager.addPeer(clientPeerInfo)
     clientPeermanager.addPeer(serverPeerInfo)
 
+    requestedInTest.clear()
+
   asyncTeardown:
     await server.stop()
     await client.stop()
@@ -1989,6 +2028,7 @@ suite "Waku Sync: transfer":
     let msg = fakeWakuMessage()
     let hash = computeMessageHash(DefaultPubsubTopic, msg)
     let msgs = @[msg]
+    requestedInTest.incl(hash)
 
     serverDriver = await serverDriver.put(DefaultPubsubTopic, msgs)
 
@@ -2026,6 +2066,8 @@ suite "Waku Sync: transfer":
       largeHash = computeMessageHash(DefaultPubsubTopic, largeMsg)
       atLimitHash = computeMessageHash(DefaultPubsubTopic, atLimitMsg)
       laterHash = computeMessageHash(DefaultPubsubTopic, laterMsg)
+    for hash in [largeHash, atLimitHash, laterHash]:
+      requestedInTest.incl(hash)
 
     serverDriver =
       await serverDriver.put(DefaultPubsubTopic, @[largeMsg, atLimitMsg, laterMsg])
@@ -2067,6 +2109,7 @@ suite "Waku Sync: transfer":
       smallMsg = fakeWakuMessage()
       smallHash = computeMessageHash(DefaultPubsubTopic, smallMsg)
     serverDriver = await serverDriver.put(DefaultPubsubTopic, bigMsgs & @[smallMsg])
+    requestedInTest.incl(smallHash)
     let refusedBefore = failureCount("too_large")
 
     # When the server sends the big messages back to back, then the small one
@@ -2096,6 +2139,7 @@ suite "Waku Sync: transfer":
         int(DefaultMaxWakuMessageSize) + DefaultSafetyBufferProtocolOverhead
       encodedLen(bigMsg) < YamuxDefaultWindowSize
     serverDriver = await serverDriver.put(DefaultPubsubTopic, @[bigMsg, smallMsg])
+    requestedInTest.incl(smallHash)
     let refusedBefore = failureCount("too_large")
 
     # When the client refuses it once
@@ -2147,7 +2191,10 @@ suite "Waku Sync: transfer":
         remoteNeedsRx = senderNeeds,
         maxMessageSize = int(DefaultMaxWakuMessageSize),
         syncRange = 2.seconds,
+        isRequested = isRequestedInTest,
       )
+    for hash in [firstSmallHash, secondSmallHash]:
+      requestedInTest.incl(hash)
     await senderSwitch.start()
     await sender.start()
     senderSwitch.mount(sender)
@@ -2189,6 +2236,7 @@ suite "Waku Sync: transfer":
       msg = fakeWakuMessage()
       hash = computeMessageHash(DefaultPubsubTopic, msg)
     clientDriver = await clientDriver.put(DefaultPubsubTopic, @[msg])
+    requestedInTest.incl(hash)
     let readErrorsBefore = failureCount("read_error")
 
     # When a stream to the server starts with ten varint continuation bytes
@@ -2234,6 +2282,7 @@ suite "Waku Sync: transfer":
       specPayload = lengthDelimited(1, specMsg.encode()) & lengthDelimited(2, topic)
       oldPayload = lengthDelimited(1, topic) & lengthDelimited(2, oldMsg.encode())
       decodeErrorsBefore = failureCount("decode_error")
+    requestedInTest.incl(specHash)
 
     # When a stream to the server carries a payload in the old numbering, then one
     # numbered as WAKU-SYNC
@@ -2275,6 +2324,7 @@ suite "Waku Sync: transfer":
       encodedLen(aboveLimitMsg) == readLimit + 1
     serverDriver =
       await serverDriver.put(DefaultPubsubTopic, @[atLimitMsg, aboveLimitMsg])
+    requestedInTest.incl(atLimitHash)
     let refusedBefore = failureCount("too_large")
 
     # When the server sends both
@@ -2292,6 +2342,7 @@ suite "Waku Sync: transfer":
       msg = fakeWakuMessage()
       hash = computeMessageHash(DefaultPubsubTopic, msg)
     clientDriver = await clientDriver.put(DefaultPubsubTopic, @[msg])
+    requestedInTest.incl(hash)
     let
       readErrorsBefore = failureCount("read_error")
       refusedBefore = failureCount("too_large")
@@ -2352,3 +2403,62 @@ suite "Waku Sync: transfer":
     check received == expected
 
     check clientIds.len == 0 ]#
+
+suite "Waku Sync: transfer request check":
+  var
+    receiverSwitch {.threadvar.}: Switch
+    senderSwitch {.threadvar.}: Switch
+    receiver {.threadvar.}: SyncTransfer
+    receiverArchive {.threadvar.}: WakuArchive
+    requestedMsg {.threadvar.}: WakuMessage
+
+  asyncSetup:
+    requestedMsg = fakeWakuMessage(payload = "requested")
+    let requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+    receiverSwitch = newTestSwitch()
+    senderSwitch = newTestSwitch()
+    await allFutures(receiverSwitch.start(), senderSwitch.start())
+    receiverArchive = newWakuArchive(newSqliteArchiveDriver())
+    receiver = SyncTransfer.new(
+      peerManager = PeerManager.new(receiverSwitch),
+      wakuArchive = receiverArchive,
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      localWantsRx = newAsyncQueue[PeerId](),
+      remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
+      maxMessageSize = int(DefaultMaxWakuMessageSize),
+      isRequested = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
+        hash == requestedHash,
+    )
+    await receiver.start()
+    receiverSwitch.mount(receiver)
+
+  asyncTeardown:
+    await receiver.stop()
+    await allFutures(receiverSwitch.stop(), senderSwitch.stop())
+
+  asyncTest "messages that no round asked for are not archived, and the stream stays open":
+    let
+      unrequested = toSeq(1 .. 12).mapIt(fakeWakuMessage(payload = "pushed " & $it))
+      unrequestedHashes = unrequested.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      requestedHash = computeMessageHash(DefaultPubsubTopic, requestedMsg)
+      notRequestedBefore = failureCount("not_requested")
+
+    # When a peer pushes twelve messages that no round asked for, then the requested one
+    let conn = await senderSwitch.dial(
+      receiverSwitch.peerInfo.peerId, receiverSwitch.peerInfo.addrs, WakuTransferCodec
+    )
+    for msg in unrequested:
+      await conn.writeLp(
+        WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+      )
+    await conn.writeLp(
+      WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: requestedMsg).encode()
+    )
+
+    # Then the receiver archives the requested one only, and counts the other twelve
+    checkUntilTimeout:
+      await receiverArchive.holdsMessages(@[requestedHash])
+    for hash in unrequestedHashes:
+      check not await receiverArchive.holdsMessages(@[hash])
+    check failureCount("not_requested") == notRequestedBefore + 12
+    await conn.close()
