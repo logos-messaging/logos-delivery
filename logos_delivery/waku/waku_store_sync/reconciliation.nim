@@ -348,15 +348,12 @@ proc reconcileRound(
 
   return (sendPayload, diffs)
 
-proc processRequest(
+proc runSession(
     self: SyncReconciliation, conn: Connection
 ): Future[Result[void, string]] {.async.} =
   var
     roundTrips = 0
     diffs = 0
-
-  # Signal to transfer protocol that this reconciliation is starting
-  await self.localWantsTx.addLast(conn.peerId)
 
   self.expirePending()
 
@@ -408,9 +405,6 @@ proc processRequest(
     if sendPayload.isFinished():
       break
 
-  # Signal to transfer protocol that this reconciliation is done
-  await self.localWantsTx.addLast(conn.peerId)
-
   logos_delivery_reconciliation_roundtrips.observe(roundTrips)
   logos_delivery_reconciliation_differences.observe(diffs)
   self.outOfScopePeers.excl(conn.peerId)
@@ -418,6 +412,16 @@ proc processRequest(
   await conn.close()
 
   return ok()
+
+proc processRequest(
+    self: SyncReconciliation, conn: Connection
+): Future[Result[void, string]] {.async.} =
+  # The transfer protocol toggles its session state on each signal, so the end
+  # is signalled whatever the outcome, or the state of the peer flips.
+  await self.localWantsTx.addLast(conn.peerId)
+  let res = await self.runSession(conn)
+  await self.localWantsTx.addLast(conn.peerId)
+  return res
 
 proc initiate(
     self: SyncReconciliation,

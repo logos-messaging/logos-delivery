@@ -1622,14 +1622,17 @@ proc reconciliationFailures(reason: string): float64 =
     return 0.0
 
 proc newRecon(
-    switch: Switch, shards: seq[uint16], peerManager: PeerManager = nil
+    switch: Switch,
+    shards: seq[uint16],
+    peerManager: PeerManager = nil,
+    wants = newAsyncQueue[PeerId](),
 ): Future[SyncReconciliation] =
   newTestWakuRecon(
     switch,
     shards,
     DefaultSyncRange,
     newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
-    newAsyncQueue[PeerId](),
+    wants,
     newAsyncQueue[(PeerId, WakuMessageHash)](),
     peerManager = peerManager,
   )
@@ -1670,6 +1673,18 @@ suite "Waku Sync: sync peer shard set":
     check:
       res.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore
+
+  asyncTest "a session that fails signals both its start and its end to transfer":
+    let wants = newAsyncQueue[PeerId]()
+    client = await newRecon(clientSwitch, @[1'u16, 2], wants = wants)
+
+    let res = await client.storeSynchronization(
+      Opt.some(otherSwitch.peerInfo.toRemotePeerInfo())
+    )
+
+    check:
+      res.isErr()
+      wants.len == 2
 
   asyncTest "a node syncs with the discovered peer that advertises its shard set":
     client = await newRecon(clientSwitch, @[1'u16, 2])
