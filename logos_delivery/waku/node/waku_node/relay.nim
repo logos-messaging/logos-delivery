@@ -249,7 +249,9 @@ proc registerRlnValidator(
     case res.verdict
     of ProofVerdict.Valid:
       trace "Message validity is verified, relaying", proof = proof
-      logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
+      logos_delivery_rln_valid_messages_total.inc(
+        labelValues = [node.wakuRelay.metricTopics.topicLabel(topic)]
+      )
       return pubsub.ValidationResult.Accept
     of ProofVerdict.Invalid:
       trace "Message validity could not be verified, discarding", proof = proof

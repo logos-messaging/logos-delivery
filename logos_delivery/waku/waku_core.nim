@@ -5,6 +5,7 @@ import
   ./waku_core/peers,
   ./waku_core/subscription,
   ./waku_core/multiaddrstr,
-  ./waku_core/codecs
+  ./waku_core/codecs,
+  ./waku_core/metric_labels
 
-export topics, time, message, peers, subscription, multiaddrstr, codecs
+export topics, time, message, peers, subscription, multiaddrstr, codecs, metric_labels

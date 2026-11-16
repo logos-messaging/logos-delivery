@@ -14,5 +14,5 @@ INCLUDEPATH += .
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 # Input
-HEADERS += waku_handler.h
-SOURCES += main_qt.cpp waku_hand.moc.cpp waku_handler.moc.cpp
+HEADERS += logos_delivery_handler.h
+SOURCES += main_qt.cpp logos_delivery_hand.moc.cpp logos_delivery_handler.moc.cpp

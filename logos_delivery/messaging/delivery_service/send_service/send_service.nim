@@ -78,7 +78,6 @@ type SendService* = ref object of RootObj
   attempts: int
     ## The number of attempts that ended, in admission or in a send. Only tests
     ## read it.
-  subscribeOnSend: bool ## True only for the None anonymity level.
   sendProcessor: BaseSendProcessor
   rateLimitManager: RateLimitManager
     ## Charges first transmissions against the per-epoch budget; re-publishes
@@ -186,13 +185,9 @@ proc new*(
     archiveTime: ArchiveTime,
     sendQueueCapacity: sendQueueCapacity,
     retryInterval: retryInterval,
-    subscribeOnSend: anonymityLevel == AnonymityLevel.None,
   )
 
   return ok(sendService)
-
-proc subscribesOnSend*(self: SendService): bool =
-  return self.subscribeOnSend
 
 func isFull*(self: SendService): bool =
   return self.deliveryTasks.len >= self.sendQueueCapacity

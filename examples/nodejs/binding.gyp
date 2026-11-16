@@ -1,9 +1,13 @@
 {
   "targets": [
     {
-      "target_name": "waku",
-      "sources": [ "waku_addon.c", "../cbindings/base64.c" ],
-      "libraries": [ "-llogosdelivery", "-L../../../build/" ]
+      "target_name": "logosDelivery",
+      "sources": [ "logos_delivery_addon.c", "../cbindings/base64.c" ],
+      "include_dirs": [
+        "../../build",
+        "<(tinycbor_dir)"
+      ],
+      "libraries": [ "-llogosdelivery", "-L../../../build/", "../../../build/libtinycbor.a" ]
     }
   ]
 }

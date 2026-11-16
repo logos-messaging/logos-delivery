@@ -90,8 +90,6 @@ The receivers can have the message after an `error` event. While a message waits
   * the full `WakuMessage`
   * a `source`: `live` for a message that arrived when it was published, or `history` for a message that a Store peer returned at startup or after the node came back online
 * The node keeps messages only for the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not enough.
-* With `--anonymity-level=None` (the default), a send subscribes the node to its content topic, so the sender also receives its own messages.
-* With `--anonymity-level=Preferred` or `Required`, a send makes no subscription. A client that wants to receive its own messages must subscribe to their content topics.
 
 A content topic that the client subscribes for the first time gets no earlier messages. From then on, the node fills the gaps of the topic from Store. When live delivery goes down and comes back, the node fetches the messages of the topic from a few minutes before it noticed the outage up to the recovery, and delivers them with the `source` `history`. The fetch can include a message that the node already delivered live; the node drops such a message when it still has it in its duplicate filter, and the `source` tells the client the rest.
 

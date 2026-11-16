@@ -5,10 +5,7 @@ import
   chronos/timer as chtimer,
   chronicles,
   chronos,
-  results,
-  libp2p/peerid
-
-from std/sugar import `=>`
+  results
 
 import ./tester_message, ./lpt_metrics
 
@@ -38,8 +35,17 @@ type
     lateCount*: uint32
     duplicateCount*: uint32
     helper: StatHelper
+    peerIndex: int ## order the sender was first seen in, its metric label
 
   PerPeerStatistics* = Table[string, Statistics]
+
+const MaxPeerLabels = 16
+
+func peerIndexLabel(index: int): string =
+  ## A run has few senders, and their peer ids must not become metric labels.
+  if index < MaxPeerLabels:
+    return "peer-" & $index
+  return "other"
 
 func `$`*(a: Duration): string {.inline.} =
   ## Original stringify implementation from chronos/timer.nim is not capable of printing 0ns
@@ -57,9 +63,7 @@ proc init*(T: type Statistics, expectedMessageCount: int = 1000): T =
   result.received = initTable[uint32, MessageInfo](expectedMessageCount)
   return result
 
-proc addMessage*(
-    self: var Statistics, sender: string, msg: ProtocolTesterMessage, msgHash: string
-) =
+proc addMessage*(self: var Statistics, msg: ProtocolTesterMessage, msgHash: string) =
   if self.allMessageCount == 0:
     self.allMessageCount = msg.count
     self.firstReceivedIdx = msg.index
@@ -76,7 +80,7 @@ proc addMessage*(
     ),
   )
   logos_delivery_lpt_receiver_received_bytes.inc(
-    labelValues = [sender], amount = msg.size.int64
+    labelValues = [peerIndexLabel(self.peerIndex)], amount = msg.size.int64
   )
   if self.received.hasKeyOrPut(msg.index, currentArrived):
     inc(self.duplicateCount)
@@ -85,9 +89,12 @@ proc addMessage*(
       index = msg.index,
       hash = msgHash,
       times_duplicated = self.helper.duplicates[msg.index].dupCount
-    logos_delivery_lpt_receiver_duplicate_messages_count.inc(labelValues = [sender])
+    logos_delivery_lpt_receiver_duplicate_messages_count.inc(
+      labelValues = [peerIndexLabel(self.peerIndex)]
+    )
     logos_delivery_lpt_receiver_distinct_duplicate_messages_count.set(
-      labelValues = [sender], value = self.helper.duplicates.len()
+      labelValues = [peerIndexLabel(self.peerIndex)],
+      value = self.helper.duplicates.len(),
     )
     return
 
@@ -104,9 +111,12 @@ proc addMessage*(
   self.helper.prevIndex = msg.index
   self.helper.prevArrivedAt = currentArrived.info.arrivedAt
   inc(self.receivedMessages)
-  logos_delivery_lpt_receiver_received_messages_count.inc(labelValues = [sender])
+  logos_delivery_lpt_receiver_received_messages_count.inc(
+    labelValues = [peerIndexLabel(self.peerIndex)]
+  )
   logos_delivery_lpt_receiver_missing_messages_count.set(
-    labelValues = [sender], value = (self.helper.maxIndex - self.receivedMessages).int64
+    labelValues = [peerIndexLabel(self.peerIndex)],
+    value = (self.helper.maxIndex - self.receivedMessages).int64,
   )
 
 proc addMessage*(
@@ -116,12 +126,12 @@ proc addMessage*(
     msgHash: string,
 ) =
   if not self.contains(peerId):
-    self[peerId] = Statistics.init()
-
-  let shortSenderId = PeerId.init(msg.sender).map(p => p.shortLog()).valueOr(msg.sender)
+    var stats = Statistics.init()
+    stats.peerIndex = self.len
+    self[peerId] = stats
 
   discard catch:
-    self[peerId].addMessage(shortSenderId, msg, msgHash)
+    self[peerId].addMessage(msg, msgHash)
 
   logos_delivery_lpt_receiver_sender_peer_count.set(value = self.len)
 
@@ -195,14 +205,14 @@ proc dupMsgs(self: Statistics): string =
 
 proc echoStat*(self: Statistics, peerId: string) =
   let (minL, maxL, avgL) = self.calcLatency()
-  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
-    labelValues = [peerId, "min"], value = minL.nanos()
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerIndexLabel(self.peerIndex), "min"], value = minL.nanos()
   )
-  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
-    labelValues = [peerId, "avg"], value = avgL.nanos()
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerIndexLabel(self.peerIndex), "avg"], value = avgL.nanos()
   )
-  logos_delivery_lpt_receiver_latencies.set( # bounded-label: tester peers of a test run
-    labelValues = [peerId, "max"], value = maxL.nanos()
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerIndexLabel(self.peerIndex), "max"], value = maxL.nanos()
   )
 
   let printable = catch:

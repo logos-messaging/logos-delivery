@@ -45,8 +45,7 @@ execute_command "which gcc g++ make cmake cargo rustc python nasm"
 # make installs the pinned Nimble, which then installs Nim and the locked
 # dependencies into nimbledeps/, so no Nim is needed on PATH. make also builds
 # the C libraries itself: the librln target inits the vendor/zerokit submodule,
-# Nat.mk builds miniupnpc and libnatpmp from the package nimble installed, and
-# libbacktrace is disabled by default. The vendor tree those steps used is gone.
+# and libbacktrace is disabled by default. The vendor tree those steps used is gone.
 
 echo "3. -.-.-.- Build -.-.-.- "
 if [ "$target" = all ] || [ "$target" = logosdeliverynode ]; then

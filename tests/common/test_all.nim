@@ -13,4 +13,5 @@ import
   ./test_dburl,
   ./test_collector,
   ./test_getaddrinfo_async,
-  ./test_system_resolver
+  ./test_system_resolver,
+  ./test_logging

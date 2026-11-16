@@ -4,6 +4,10 @@
 {.used.}
 
 import std/[os, streams, strutils], unittest2
+# tests/nim.cfg makes the chronicles sinks dynamic; importing logging here
+# gives them a writer before any suite logs.
+import logos_delivery/waku/common/logging
+export logging
 
 type JUnitReport = ref object of OutputFormatter
   junit: JUnitOutputFormatter

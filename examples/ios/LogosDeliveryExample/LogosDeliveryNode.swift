@@ -1,8 +1,8 @@
 //
-//  WakuNode.swift
-//  WakuExample
+//  LogosDeliveryNode.swift
+//  LogosDeliveryExample
 //
-//  Swift wrapper around libwaku C API for edge mode (lightpush + filter)
+//  Swift wrapper around liblogosdelivery C API for edge mode (lightpush + filter)
 //  Uses Swift actors for thread safety and UI responsiveness
 //
 
@@ -10,25 +10,25 @@ import Foundation
 
 // MARK: - Data Types
 
-/// Message received from Waku network
+/// Message received from Logos Delivery network
 struct WakuMessage: Identifiable, Equatable, Sendable {
-    let id: String  // messageHash from Waku - unique identifier for deduplication
+    let id: String  // messageHash from Logos Delivery - unique identifier for deduplication
     let payload: String
     let contentTopic: String
     let timestamp: Date
 }
 
-/// Waku node status
-enum WakuNodeStatus: String, Sendable {
+/// Logos Delivery node status
+enum LogosDeliveryNodeStatus: String, Sendable {
     case stopped = "Stopped"
     case starting = "Starting..."
     case running = "Running"
     case error = "Error"
 }
 
-/// Status updates from WakuActor to WakuNode
-enum WakuStatusUpdate: Sendable {
-    case statusChanged(WakuNodeStatus)
+/// Status updates from LogosDeliveryActor to LogosDeliveryNode
+enum LogosDeliveryStatusUpdate: Sendable {
+    case statusChanged(LogosDeliveryNodeStatus)
     case connectionChanged(isConnected: Bool)
     case filterSubscriptionChanged(subscribed: Bool, failedAttempts: Int)
     case maintenanceChanged(active: Bool)
@@ -54,6 +54,8 @@ private final class CallbackContext: @unchecked Sendable {
     private var _resumed = false
     var success: Bool = false
     var result: String?
+    /// Set by the create callback before it resumes.
+    var createdCtx: UnsafeMutablePointer<LogosDeliveryCtx>?
 
     var continuation: CheckedContinuation<(success: Bool, result: String?), Never>? {
         get {
@@ -86,15 +88,15 @@ private final class CallbackContext: @unchecked Sendable {
     }
 }
 
-// MARK: - WakuActor
+// MARK: - LogosDeliveryActor
 
-/// Actor that isolates all Waku operations from the main thread
+/// Actor that isolates all Logos Delivery operations from the main thread
 /// All C API calls and mutable state are contained here
-actor WakuActor {
+actor LogosDeliveryActor {
 
     // MARK: - State
 
-    private var ctx: UnsafeMutableRawPointer?
+    private var ctx: UnsafeMutablePointer<LogosDeliveryCtx>?
     private var seenMessageHashes: Set<String> = []
     private var isSubscribed: Bool = false
     private var isSubscribing: Bool = false
@@ -104,14 +106,14 @@ actor WakuActor {
 
     // Stream continuations for communicating with UI
     private var messageContinuation: AsyncStream<WakuMessage>.Continuation?
-    private var statusContinuation: AsyncStream<WakuStatusUpdate>.Continuation?
+    private var statusContinuation: AsyncStream<LogosDeliveryStatusUpdate>.Continuation?
 
     // Event stream from C callbacks
     private var eventContinuation: AsyncStream<String>.Continuation?
 
     // Configuration
     let defaultPubsubTopic = "/waku/2/rs/1/0"
-    let defaultContentTopic = "/waku-ios-example/1/chat/proto"
+    let defaultContentTopic = "/logos-delivery-ios-example/1/chat/proto"
     private let staticPeer = "/dns4/node-01.do-ams3.waku.sandbox.status.im/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ"
 
     // Subscription maintenance settings
@@ -130,31 +132,29 @@ actor WakuActor {
     private static let eventCallback: FFICallback = { ret, msg, len, userData in
         guard ret == RET_OK, let msg = msg else { return }
         let str = String(cString: msg)
-        WakuActor.sharedEventContinuation?.yield(str)
+        LogosDeliveryActor.sharedEventContinuation?.yield(str)
     }
 
-    // LogosDeliveryScalarRawFn: `msg` is a byte run of `len` bytes.
-    private static let syncCallback: LogosDeliveryScalarRawFn = { ret, msg, len, userData in
-        guard let userData = userData else { return }
-        let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
-        let success = (ret == RET_OK)
-        var resultStr: String? = nil
-        if let msg = msg {
-            resultStr = String(cString: msg)
-        }
-        context.resumeOnce(returning: (success, resultStr))
-    }
-
-    // LogosDelivery*ReplyFn, shared by every entry point that takes a request
-    // struct: no length, and the failure text arrives in its own argument.
+    // LogosDelivery*ReplyFn: `reply` points at the reply text, or is nil on
+    // failure, which `errMsg` then describes.
     private static let syncReplyCallback:
-        @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
+        @convention(c) (Int32, UnsafePointer<UnsafePointer<CChar>?>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
             ret, reply, errMsg, userData in
             guard let userData = userData else { return }
-            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeRetainedValue()
             let success = (ret == RET_OK)
-            let text = reply ?? errMsg
+            let text = reply?.pointee ?? errMsg
             context.resumeOnce(returning: (success, text.map { String(cString: $0) }))
+        }
+
+    // LogosDeliveryCreateFn: hands over the context, or the failure text.
+    private static let createCallback:
+        @convention(c) (Int32, UnsafeMutablePointer<LogosDeliveryCtx>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
+            ret, newCtx, errMsg, userData in
+            guard let userData = userData else { return }
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeRetainedValue()
+            context.createdCtx = newCtx
+            context.resumeOnce(returning: (ret == RET_OK, errMsg.map { String(cString: $0) }))
         }
 
     // MARK: - Stream Setup
@@ -163,7 +163,7 @@ actor WakuActor {
         self.messageContinuation = continuation
     }
 
-    func setStatusContinuation(_ continuation: AsyncStream<WakuStatusUpdate>.Continuation?) {
+    func setStatusContinuation(_ continuation: AsyncStream<LogosDeliveryStatusUpdate>.Continuation?) {
         self.statusContinuation = continuation
     }
 
@@ -179,7 +179,7 @@ actor WakuActor {
 
     func start() async {
         guard ctx == nil else {
-            print("[WakuActor] Already started")
+            print("[LogosDeliveryActor] Already started")
             return
         }
 
@@ -188,7 +188,7 @@ actor WakuActor {
         // Create event stream for C callbacks
         let eventStream = AsyncStream<String> { continuation in
             self.eventContinuation = continuation
-            WakuActor.sharedEventContinuation = continuation
+            LogosDeliveryActor.sharedEventContinuation = continuation
         }
 
         // Start event processing task
@@ -232,7 +232,7 @@ actor WakuActor {
         // Close event stream
         eventContinuation?.finish()
         eventContinuation = nil
-        WakuActor.sharedEventContinuation = nil
+        LogosDeliveryActor.sharedEventContinuation = nil
 
         statusContinuation?.yield(.statusChanged(.stopped))
         statusContinuation?.yield(.connectionChanged(isConnected: false))
@@ -250,27 +250,27 @@ actor WakuActor {
         // Unsubscribe and stop in background (fire and forget)
         Task.detached {
             // Unsubscribe
-            _ = await self.callWakuSync { waku_filter_unsubscribe_all(ctxToStop, WakuActor.syncCallback, $0) }
-            print("[WakuActor] Unsubscribed from filter")
+            _ = await self.callLogosDeliverySync { logosdelivery_ctx_waku_filter_unsubscribe_all(ctxToStop, LogosDeliveryActor.syncReplyCallback, $0) }
+            print("[LogosDeliveryActor] Unsubscribed from filter")
 
             // Stop
-            _ = await self.callWakuSync { logosdelivery_stop_node(ctxToStop, WakuActor.syncCallback, $0) }
-            print("[WakuActor] Node stopped")
+            _ = await self.callLogosDeliverySync { logosdelivery_ctx_stop_node(ctxToStop, LogosDeliveryActor.syncReplyCallback, $0) }
+            print("[LogosDeliveryActor] Node stopped")
 
             // Destroy
-            logosdelivery_destroy(ctxToStop)
-            print("[WakuActor] Node destroyed")
+            logosdelivery_ctx_destroy(ctxToStop)
+            print("[LogosDeliveryActor] Node destroyed")
         }
     }
 
     func publish(message: String, contentTopic: String? = nil) async {
         guard let context = ctx else {
-            print("[WakuActor] Node not started")
+            print("[LogosDeliveryActor] Node not started")
             return
         }
 
         guard hasPeers else {
-            print("[WakuActor] No peers connected yet")
+            print("[LogosDeliveryActor] No peers connected yet")
             statusContinuation?.yield(.error("No peers connected yet. Please wait..."))
             return
         }
@@ -283,27 +283,25 @@ actor WakuActor {
         {"payload":"\(payloadBase64)","contentTopic":"\(topic)","timestamp":\(timestamp)}
         """
 
-        let result = await callWakuSync { userData in
+        let result = await callLogosDeliverySync { userData in
             _ = self.defaultPubsubTopic.withCString { topicPtr in
                 jsonMessage.withCString { msgPtr in
-                    var req = WakuLightpushPublishReq(
-                        pubSubTopic: topicPtr, jsonWakuMessage: msgPtr)
-                    return waku_lightpush_publish(
-                        context, WakuActor.syncReplyCallback, userData, &req)
+                    logosdelivery_ctx_waku_lightpush_publish(
+                        context, topicPtr, msgPtr, LogosDeliveryActor.syncReplyCallback, userData)
                 }
             }
         }
 
         if result.success {
-            print("[WakuActor] Published message")
+            print("[LogosDeliveryActor] Published message")
         } else {
-            print("[WakuActor] Publish error: \(result.result ?? "unknown")")
+            print("[LogosDeliveryActor] Publish error: \(result.result ?? "unknown")")
             statusContinuation?.yield(.error("Failed to send message"))
         }
     }
 
     func resubscribe() async {
-        print("[WakuActor] Force resubscribe requested")
+        print("[LogosDeliveryActor] Force resubscribe requested")
         isSubscribed = false
         isSubscribing = false
         statusContinuation?.yield(.filterSubscriptionChanged(subscribed: false, failedAttempts: 0))
@@ -329,30 +327,21 @@ actor WakuActor {
         }
         """
 
-        // Create node - logosdelivery_create_node is special, it returns the context directly
-        let createResult = await withCheckedContinuation { (continuation: CheckedContinuation<(ctx: UnsafeMutableRawPointer?, success: Bool, result: String?), Never>) in
-            let callbackCtx = CallbackContext()
+        // Create node: the context arrives in the create callback.
+        let callbackCtx = CallbackContext()
+        let created = await withCheckedContinuation { (continuation: CheckedContinuation<(success: Bool, result: String?), Never>) in
+            callbackCtx.continuation = continuation
             let userDataPtr = Unmanaged.passRetained(callbackCtx).toOpaque()
-
-            // Set up a simple callback for logosdelivery_create_node
-            let newCtx = config.withCString { configPtr -> UnsafeMutableRawPointer? in
-                var req = LogosdeliveryCreateNodeCtorReq(configJson: configPtr)
-                return logosdelivery_create_node(&req, { ret, reply, errMsg, userData in
-                    guard let userData = userData else { return }
-                    let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
-                    context.success = (ret == RET_OK)
-                    if let text = reply ?? errMsg {
-                        context.result = String(cString: text)
-                    }
-                }, userDataPtr)
+            // A failed call has already reported through the callback.
+            _ = config.withCString { configPtr in
+                logosdelivery_ctx_create(configPtr, LogosDeliveryActor.createCallback, userDataPtr)
             }
-
-            // Small delay to ensure callback completes
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
-                Unmanaged<CallbackContext>.fromOpaque(userDataPtr).release()
-                continuation.resume(returning: (newCtx, callbackCtx.success, callbackCtx.result))
+            // The callback releases userDataPtr: a late reply must still find it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+                callbackCtx.resumeOnce(returning: (false, "Timeout"))
             }
         }
+        let createResult = (ctx: callbackCtx.createdCtx, success: created.success, result: created.result)
 
         guard createResult.ctx != nil else {
             statusContinuation?.yield(.statusChanged(.error))
@@ -370,12 +359,12 @@ actor WakuActor {
             "onChannelMessageSent", "onChannelMessageError",
         ]
         for name in eventNames {
-            _ = logosdelivery_add_event_listener(ctx, name, WakuActor.eventCallback, nil)
+            _ = logosdelivery_add_event_listener(createResult.ctx!.pointee.ptr, name, LogosDeliveryActor.eventCallback, nil)
         }
 
         // Start node
-        let startResult = await callWakuSync { userData in
-            logosdelivery_start_node(self.ctx, WakuActor.syncCallback, userData)
+        let startResult = await callLogosDeliverySync { userData in
+            _ = logosdelivery_ctx_start_node(self.ctx, LogosDeliveryActor.syncReplyCallback, userData)
         }
 
         guard startResult.success else {
@@ -385,27 +374,27 @@ actor WakuActor {
             return false
         }
 
-        print("[WakuActor] Node started")
+        print("[LogosDeliveryActor] Node started")
         return true
     }
 
     private func connectToPeer() async -> Bool {
         guard let context = ctx else { return false }
 
-        print("[WakuActor] Connecting to static peer...")
+        print("[LogosDeliveryActor] Connecting to static peer...")
 
-        let result = await callWakuSync { userData in
+        let result = await callLogosDeliverySync { userData in
             _ = self.staticPeer.withCString { peerPtr in
-                var req = WakuConnectReq(peerMultiAddr: peerPtr, timeoutMs: 10000)
-                return waku_connect(context, WakuActor.syncReplyCallback, userData, &req)
+                logosdelivery_ctx_waku_connect(
+                    context, peerPtr, 10000, LogosDeliveryActor.syncReplyCallback, userData)
             }
         }
 
         if result.success {
-            print("[WakuActor] Connected to peer successfully")
+            print("[LogosDeliveryActor] Connected to peer successfully")
             return true
         } else {
-            print("[WakuActor] Failed to connect: \(result.result ?? "unknown")")
+            print("[LogosDeliveryActor] Failed to connect: \(result.result ?? "unknown")")
             return false
         }
     }
@@ -417,13 +406,11 @@ actor WakuActor {
         isSubscribing = true
         let topic = contentTopic ?? defaultContentTopic
 
-        let result = await callWakuSync { userData in
+        let result = await callLogosDeliverySync { userData in
             _ = self.defaultPubsubTopic.withCString { topicPtr in
                 topic.withCString { contentPtr in
-                    var req = WakuFilterSubscribeReq(
-                        pubSubTopic: topicPtr, contentTopics: contentPtr)
-                    return waku_filter_subscribe(
-                        context, WakuActor.syncReplyCallback, userData, &req)
+                    logosdelivery_ctx_waku_filter_subscribe(
+                        context, topicPtr, contentPtr, LogosDeliveryActor.syncReplyCallback, userData)
                 }
             }
         }
@@ -431,12 +418,12 @@ actor WakuActor {
         isSubscribing = false
 
         if result.success {
-            print("[WakuActor] Subscribe request successful to \(topic)")
+            print("[LogosDeliveryActor] Subscribe request successful to \(topic)")
             isSubscribed = true
             statusContinuation?.yield(.filterSubscriptionChanged(subscribed: true, failedAttempts: 0))
             return true
         } else {
-            print("[WakuActor] Subscribe error: \(result.result ?? "unknown")")
+            print("[LogosDeliveryActor] Subscribe error: \(result.result ?? "unknown")")
             isSubscribed = false
             return false
         }
@@ -445,10 +432,10 @@ actor WakuActor {
     private func pingFilterPeer() async -> Bool {
         guard let context = ctx else { return false }
 
-        let result = await callWakuSync { userData in
+        let result = await callLogosDeliverySync { userData in
             _ = self.staticPeer.withCString { peerPtr in
-                var req = WakuPingPeerReq(peerAddr: peerPtr, timeoutMs: 10000)
-                return waku_ping_peer(context, WakuActor.syncReplyCallback, userData, &req)
+                logosdelivery_ctx_waku_ping_peer(
+                    context, peerPtr, 10000, LogosDeliveryActor.syncReplyCallback, userData)
             }
         }
 
@@ -459,12 +446,12 @@ actor WakuActor {
 
     private func startMaintenanceLoop() {
         guard maintenanceTask == nil else {
-            print("[WakuActor] Maintenance loop already running")
+            print("[LogosDeliveryActor] Maintenance loop already running")
             return
         }
 
         statusContinuation?.yield(.maintenanceChanged(active: true))
-        print("[WakuActor] Starting subscription maintenance loop")
+        print("[LogosDeliveryActor] Starting subscription maintenance loop")
 
         maintenanceTask = Task { [weak self] in
             guard let self = self else { return }
@@ -475,30 +462,30 @@ actor WakuActor {
             while !Task.isCancelled {
                 guard await self.isRunning else { break }
 
-                print("[WakuActor] Maintaining subscription...")
+                print("[LogosDeliveryActor] Maintaining subscription...")
 
                 let pingSuccess = await self.pingFilterPeer()
                 let currentlySubscribed = await self.isSubscribed
 
                 if pingSuccess && currentlySubscribed {
-                    print("[WakuActor] Subscription is live, waiting 30s")
+                    print("[LogosDeliveryActor] Subscription is live, waiting 30s")
                     try? await Task.sleep(nanoseconds: self.maintenanceIntervalSeconds)
                     continue
                 }
 
                 if !isFirstPingOnConnection && !pingSuccess {
-                    print("[WakuActor] Ping failed - subscription may be lost")
+                    print("[LogosDeliveryActor] Ping failed - subscription may be lost")
                     await self.statusContinuation?.yield(.filterSubscriptionChanged(subscribed: false, failedAttempts: failedSubscribes))
                 }
                 isFirstPingOnConnection = false
 
-                print("[WakuActor] No active subscription found. Sending subscribe request...")
+                print("[LogosDeliveryActor] No active subscription found. Sending subscribe request...")
 
                 await self.resetSubscriptionState()
                 let subscribeSuccess = await self.subscribe()
 
                 if subscribeSuccess {
-                    print("[WakuActor] Subscribe request successful")
+                    print("[LogosDeliveryActor] Subscribe request successful")
                     failedSubscribes = 0
                     try? await Task.sleep(nanoseconds: self.maintenanceIntervalSeconds)
                     continue
@@ -506,20 +493,20 @@ actor WakuActor {
 
                 failedSubscribes += 1
                 await self.statusContinuation?.yield(.filterSubscriptionChanged(subscribed: false, failedAttempts: failedSubscribes))
-                print("[WakuActor] Subscribe request failed. Attempt \(failedSubscribes)/\(self.maxFailedSubscribes)")
+                print("[LogosDeliveryActor] Subscribe request failed. Attempt \(failedSubscribes)/\(self.maxFailedSubscribes)")
 
                 if failedSubscribes < self.maxFailedSubscribes {
-                    print("[WakuActor] Retrying in 2s...")
+                    print("[LogosDeliveryActor] Retrying in 2s...")
                     try? await Task.sleep(nanoseconds: self.retryWaitSeconds)
                 } else {
-                    print("[WakuActor] Max subscribe failures reached")
+                    print("[LogosDeliveryActor] Max subscribe failures reached")
                     await self.statusContinuation?.yield(.error("Filter subscription failed after \(self.maxFailedSubscribes) attempts"))
                     failedSubscribes = 0
                     try? await Task.sleep(nanoseconds: self.maintenanceIntervalSeconds)
                 }
             }
 
-            print("[WakuActor] Subscription maintenance loop stopped")
+            print("[LogosDeliveryActor] Subscription maintenance loop stopped")
             await self.statusContinuation?.yield(.maintenanceChanged(active: false))
         }
     }
@@ -590,7 +577,7 @@ actor WakuActor {
 
     // MARK: - Helper for synchronous C calls
 
-    private func callWakuSync(_ work: @escaping (UnsafeMutableRawPointer) -> Void) async -> (success: Bool, result: String?) {
+    private func callLogosDeliverySync(_ work: @escaping (UnsafeMutableRawPointer) -> Void) async -> (success: Bool, result: String?) {
         await withCheckedContinuation { continuation in
             let context = CallbackContext()
             context.continuation = continuation
@@ -599,27 +586,27 @@ actor WakuActor {
             work(userDataPtr)
 
             // Set a timeout to avoid hanging forever
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+            // The callback releases userDataPtr: a late reply must still find it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
                 // Try to resume with timeout - will be ignored if callback already resumed
                 let didTimeout = context.resumeOnce(returning: (false, "Timeout"))
                 if didTimeout {
-                    print("[WakuActor] Call timed out")
+                    print("[LogosDeliveryActor] Call timed out")
                 }
-                Unmanaged<CallbackContext>.fromOpaque(userDataPtr).release()
             }
         }
     }
 }
 
-// MARK: - WakuNode (MainActor UI Wrapper)
+// MARK: - LogosDeliveryNode (MainActor UI Wrapper)
 
-/// Main-thread UI wrapper that consumes updates from WakuActor via AsyncStreams
+/// Main-thread UI wrapper that consumes updates from LogosDeliveryActor via AsyncStreams
 @MainActor
-class WakuNode: ObservableObject {
+class LogosDeliveryNode: ObservableObject {
 
     // MARK: - Published Properties (UI State)
 
-    @Published var status: WakuNodeStatus = .stopped
+    @Published var status: LogosDeliveryNodeStatus = .stopped
     @Published var receivedMessages: [WakuMessage] = []
     @Published var errorQueue: [TimestampedError] = []
     @Published var isConnected: Bool = false
@@ -629,11 +616,11 @@ class WakuNode: ObservableObject {
 
     // Topics (read-only access to actor's config)
     var defaultPubsubTopic: String { "/waku/2/rs/1/0" }
-    var defaultContentTopic: String { "/waku-ios-example/1/chat/proto" }
+    var defaultContentTopic: String { "/logos-delivery-ios-example/1/chat/proto" }
 
     // MARK: - Private Properties
 
-    private let actor = WakuActor()
+    private let actor = LogosDeliveryActor()
     private var messageTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
 
@@ -650,7 +637,7 @@ class WakuNode: ObservableObject {
 
     func start() {
         guard status == .stopped || status == .error else {
-            print("[WakuNode] Already started or starting")
+            print("[LogosDeliveryNode] Already started or starting")
             return
         }
 
@@ -662,7 +649,7 @@ class WakuNode: ObservableObject {
         }
 
         // Create status stream
-        let statusStream = AsyncStream<WakuStatusUpdate> { continuation in
+        let statusStream = AsyncStream<LogosDeliveryStatusUpdate> { continuation in
             Task {
                 await self.actor.setStatusContinuation(continuation)
             }
@@ -731,7 +718,7 @@ class WakuNode: ObservableObject {
 
     // MARK: - Private Methods
 
-    private func handleStatusUpdate(_ update: WakuStatusUpdate) {
+    private func handleStatusUpdate(_ update: LogosDeliveryStatusUpdate) {
         switch update {
         case .statusChanged(let newStatus):
             status = newStatus

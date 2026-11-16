@@ -3,13 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "prestart": "node build-nwaku.js",
+    "prestart": "node build-logos-delivery.js",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "force-generate-mobile-libs": "node build-nwaku.js --force"
+    "force-generate-mobile-libs": "node build-logos-delivery.js --force"
   },
   "dependencies": {
     "react": "18.2.0",

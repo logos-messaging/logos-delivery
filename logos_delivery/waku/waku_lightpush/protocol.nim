@@ -79,8 +79,7 @@ proc handleRequest*(
     let desc = decodeRpcFailure & ": " & $error
     debug "Failed to decode Lightpush request", error = desc
     let errorCode = LightPushErrorCode.BAD_REQUEST
-    # bounded-label: LightPushErrorCode enum
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [statusLabel(errorCode)])
     return LightPushResponse(
       requestId: UnknownRequestId, # due to decode failure we don't know requestId
       statusCode: errorCode,
@@ -89,8 +88,7 @@ proc handleRequest*(
 
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
-    # bounded-label: LightPushErrorCode enum
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [statusLabel(error.code)])
     debug "Failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc

@@ -591,7 +591,8 @@ procSuite "Peer Manager":
     # Then it is refused
     check otherClusterRes.isErr()
 
-    # When its peer manager runs
+    # When its peer manager, configured with shard 517, runs
+    node.peerManager.metricTopics = TopicLabels.init(0, [517'u16])
     node.peerManager.start()
 
     # Then the peer count of shard 517 is set

@@ -236,8 +236,8 @@
 
   leopard = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-leopard";
-    rev = "b1868c6f2e794666e6cc43ac9aefe8828f4a78b4";
-    sha256 = "18hnb7vyz3ca2dkp07hpjyl1qpn7ppfi50r6pw97sfkw6ln9j15b";
+    rev = "3a24aa1f4b7ce227e8d30c51357ae241cf6b478d";
+    sha256 = "1whm0sl856v6nn6l277qzyg7n4vc51l0ilvgmc2wf4lamvmp6gaf";
     fetchSubmodules = true;
   };
 
