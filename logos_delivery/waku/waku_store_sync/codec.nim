@@ -304,8 +304,9 @@ proc getItemSet(
   return ok(itemSet)
 
 proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
+  # WAKU-SYNC defines the empty payload as the header alone. Zero bytes are malformed.
   if buffer.len == 0:
-    return ok(RangesData())
+    return err("Zero-length payload")
 
   var
     payload = RangesData()
