@@ -76,6 +76,8 @@ type SyncReconciliation* = ref object of LPProtocol
   # Configured peers already reported outside the sync scope, so that the
   # warning is logged once, not on every interval.
   outOfScopePeers: HashSet[PeerId]
+  # Whether the lack of a peer with the same shard set was already logged.
+  noSyncPeerLogged: bool
 
   # futures
   periodicSyncFut: Future[void]
@@ -202,6 +204,21 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
       return Opt.some(peer)
 
   return Opt.none(RemotePeerInfo)
+
+proc nextSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
+  ## Logs the transitions between having a sync peer and having none.
+  let peer = self.selectSyncPeer()
+  if peer.isNone():
+    logos_delivery_reconciliation_failures.inc(labelValues = ["no_peer"])
+    if not self.noSyncPeerLogged:
+      self.noSyncPeerLogged = true
+      info "No store sync peer with the same cluster and shards",
+        cluster = self.cluster, shards = self.shards.toSeq()
+  elif self.noSyncPeerLogged:
+    self.noSyncPeerLogged = false
+    info "Store sync peer found", peer_id = peer.get().peerId
+
+  return peer
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
@@ -467,7 +484,7 @@ proc storeSynchronization*(
     syncRange: Duration = self.syncRange,
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
-    self.selectSyncPeer().valueOr:
+    self.nextSyncPeer().valueOr:
       return err("no peer found for sync with the shards: " & $self.shards.toSeq())
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)

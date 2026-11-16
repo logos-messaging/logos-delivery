@@ -1666,13 +1666,16 @@ suite "Waku Sync: sync peer shard set":
   asyncTest "a node skips a discovered peer that advertises another shard set":
     client = await newRecon(clientSwitch, @[1'u16, 2])
     clientSwitch.addDiscovered(otherSwitch, @[3'u16])
-    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+    let
+      mismatchesBefore = reconciliationFailures("scope_mismatch")
+      noPeerBefore = reconciliationFailures("no_peer")
 
     let res = await client.storeSynchronization()
 
     check:
       res.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore
+      reconciliationFailures("no_peer") == noPeerBefore + 1
 
   asyncTest "a session that fails signals both its start and its end to transfer":
     let wants = newAsyncQueue[PeerId]()
