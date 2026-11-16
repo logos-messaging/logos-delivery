@@ -201,7 +201,7 @@ proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesDa
     peer_shards = remote.shards,
     fix = "give both nodes the same --cluster-id, --shard and --content-topic values"
 
-type PeerScope = enum
+type PeerScope {.pure.} = enum
   Unknown
   Same
   Other
@@ -210,18 +210,19 @@ proc peerScope(self: SyncReconciliation, peer: RemotePeerInfo): PeerScope =
   ## The metadata protocol already rejected peers of another cluster, so only
   ## the shards it reported are compared. An ENR also carries its cluster.
   if peer.shards.len > 0:
-    return if peer.shards.toHashSet() == self.shards: Same else: Other
+    return
+      if peer.shards.toHashSet() == self.shards: PeerScope.Same else: PeerScope.Other
 
   if peer.enr.isNone():
-    return Unknown
+    return PeerScope.Unknown
   let record = peer.enr.get().toTyped().valueOr:
-      return Unknown
+      return PeerScope.Unknown
   let sharding = record.relaySharding().valueOr:
-    return Unknown
+    return PeerScope.Unknown
 
   if sharding.clusterId == self.cluster and sharding.shardIds.toHashSet() == self.shards:
-    return Same
-  return Other
+    return PeerScope.Same
+  return PeerScope.Other
 
 proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## The configured peer when there is one, so that a mismatch with it is
@@ -245,12 +246,12 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
     if self.isOutOfScope(peer.peerId):
       continue
     case self.peerScope(peer)
-    of Same:
+    of PeerScope.Same:
       return Opt.some(peer)
-    of Unknown:
+    of PeerScope.Unknown:
       if unknownScope.isNone():
         unknownScope = Opt.some(peer)
-    of Other:
+    of PeerScope.Other:
       if otherScope.isNone():
         otherScope = Opt.some(peer)
 
