@@ -44,14 +44,21 @@ proc collectDiffs*(
     received.incl sid.hash
   result = received
 
-proc failureCount(reason: string): float64 =
+proc reasonCount(counter: Counter, reason: string): float64 =
   ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
   try:
-    return logos_delivery_transfer_receive_failures.valueByName(
-      "logos_delivery_transfer_receive_failures_total", [reason]
-    )
+    return counter.valueByName(counter.name & "_total", [reason])
   except ValueError:
     return 0.0
+
+# The counters are globals; reading them from a test is safe.
+proc failureCount(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_transfer_receive_failures, reason)
+
+proc reconciliationFailures(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_reconciliation_failures, reason)
 
 proc newLimitedReceiver(
     maxMessageSize: int
@@ -1613,14 +1620,6 @@ suite "Waku Sync: reconciliation":
     assert res.isOk(), $res.error
 
     check needsQ.len == 0
-
-proc reconciliationFailures(reason: string): float64 =
-  try:
-    return logos_delivery_reconciliation_failures.valueByName(
-      "logos_delivery_reconciliation_failures_total", [reason]
-    )
-  except ValueError:
-    return 0.0
 
 proc newRecon(
     switch: Switch,
