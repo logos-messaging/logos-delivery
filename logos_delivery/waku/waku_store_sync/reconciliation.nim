@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[deques, sequtils, sets, tables],
+  std/[heapqueue, sequtils, sets, tables],
   stew/byteutils,
   results,
   chronicles,
@@ -40,6 +40,10 @@ const DefaultMaxPayloadSize = 64 * 1024 * 1024
   ## The largest reconciliation payload that a node reads. An item set entry
   ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
 
+type PromiseOrigin = object
+  peer: PeerId
+  session: uint64 # numbers the reconciliation sessions of this node
+
 type SyncReconciliation* = ref object of LPProtocol
   cluster: uint16
   shards: HashSet[uint16] # Empty set means all shards.
@@ -51,7 +55,7 @@ type SyncReconciliation* = ref object of LPProtocol
   storage: SyncStorage
 
   # Receive IDs from transfer protocol for storage
-  idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+  idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
 
   # Send Hashes to transfer protocol for reception
   localWantsTx: AsyncQueue[(PeerId)]
@@ -68,9 +72,12 @@ type SyncReconciliation* = ref object of LPProtocol
   # Elements a peer promised in a round. They are in the storage under
   # PendingPubsubTopic until they arrive or their deadline passes.
   pendingTimeout: Duration
-  pendingFrom: Table[WakuMessageHash, PeerId] # with the peer that promised it
-  pendingQueue: Deque[(SyncID, Moment)] # with their deadline, extended ones last
-  lastDelivery: Table[PeerId, Moment] # when a promised element of the peer arrived
+  pendingFrom: Table[WakuMessageHash, PromiseOrigin]
+  pendingQueue: HeapQueue[(Moment, SyncID)] # earliest deadline first
+  sessionCount: uint64
+  # By session: its peer, and when the peer last sent an element that it
+  # promised in it
+  lastDelivery: Table[uint64, tuple[peer: PeerId, time: Moment]]
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
 
@@ -93,10 +100,13 @@ proc insertConfirmed(
     id: SyncID,
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
+    sender: Opt[PeerId],
 ) =
-  var promiser: PeerId
-  if self.pendingFrom.pop(id.hash, promiser):
-    self.lastDelivery[promiser] = Moment.now()
+  ## `sender` is the peer that transferred the element, none for other sources.
+  var origin: PromiseOrigin
+  if self.pendingFrom.pop(id.hash, origin):
+    if sender.isSome() and sender.get() == origin.peer:
+      self.lastDelivery[origin.session] = (origin.peer, Moment.now())
     # The pending entry has no real topic, so it is replaced rather than kept.
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
@@ -110,24 +120,35 @@ proc insertConfirmed(
     error "failed to insert new message",
       msg_hash = byteutils.toHex(id.hash), error = $error
 
+proc latestDelivery(self: SyncReconciliation, origin: PromiseOrigin): Opt[Moment] =
+  ## The last time that `origin.peer` sent an element that it promised in the
+  ## session of `origin` or in an earlier one. The peer sends its pushes in
+  ## order, so the elements of a later session wait behind those of an earlier
+  ## one, but not the reverse.
+  var latest = Opt.none(Moment)
+  for session, delivery in self.lastDelivery:
+    if session <= origin.session and delivery.peer == origin.peer and
+        (latest.isNone() or delivery.time > latest.get()):
+      latest = Opt.some(delivery.time)
+  return latest
+
 proc expirePending(self: SyncReconciliation) =
   ## Drops the promised elements that did not arrive by their deadline, so that
-  ## the next round asks for them again. A peer that delivered within the last
-  ## timeout gets one more timeout: a large backlog can take longer than one.
+  ## the next round asks for them again. An element whose peer delivered an
+  ## element of the same or an earlier session within the last timeout gets one
+  ## more timeout: a large backlog can take longer than one.
   let now = Moment.now()
-  while self.pendingQueue.len > 0:
-    let (id, deadline) = self.pendingQueue.peekFirst()
-    if deadline > now:
-      break
-    discard self.pendingQueue.popFirst()
-    if not self.pendingFrom.contains(id.hash):
+  while self.pendingQueue.len > 0 and self.pendingQueue[0][0] <= now:
+    let (_, id) = self.pendingQueue.pop()
+    var origin: PromiseOrigin
+    self.pendingFrom.withValue(id.hash, found):
+      origin = found[]
+    do:
       continue
 
-    let extended =
-      self.lastDelivery.getOrDefault(self.pendingFrom.getOrDefault(id.hash)) +
-      self.pendingTimeout
-    if extended > now:
-      self.pendingQueue.addLast((id, extended))
+    let delivered = self.latestDelivery(origin)
+    if delivered.isSome() and delivered.get() + self.pendingTimeout > now:
+      self.pendingQueue.push((delivered.get() + self.pendingTimeout, id))
       continue
 
     self.pendingFrom.del(id.hash)
@@ -135,6 +156,14 @@ proc expirePending(self: SyncReconciliation) =
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
+
+  # A delivery one timeout ago or earlier can no longer extend an element.
+  var idle: seq[uint64]
+  for session, delivery in self.lastDelivery:
+    if delivery.time + self.pendingTimeout <= now:
+      idle.add(session)
+  for session in idle:
+    self.lastDelivery.del(session)
 
 proc messageIngress*(
     self: SyncReconciliation, pubsubTopic: PubsubTopic, msg: WakuMessage
@@ -148,7 +177,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic, Opt.none(PeerId))
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -163,7 +192,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.insertConfirmed(id, pubsubTopic, msg.contentTopic)
+  self.insertConfirmed(id, pubsubTopic, msg.contentTopic, Opt.none(PeerId))
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -171,7 +200,7 @@ proc messageIngress*(
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
 ) =
-  self.insertConfirmed(id, pubsubTopic, contentTopic)
+  self.insertConfirmed(id, pubsubTopic, contentTopic, Opt.none(PeerId))
 
 func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
   ## The match of WAKU-SYNC: the same cluster and the same set of shards.
@@ -263,7 +292,9 @@ proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
   ## True when a round asked a peer for the message and it has not arrived.
   self.pendingFrom.contains(hash)
 
-proc trackPromised(self: SyncReconciliation, peerId: PeerId, idsToRecv: seq[SyncID]) =
+proc trackPromised(
+    self: SyncReconciliation, origin: PromiseOrigin, idsToRecv: seq[SyncID]
+) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
   let deadline = Moment.now() + self.pendingTimeout
@@ -272,8 +303,8 @@ proc trackPromised(self: SyncReconciliation, peerId: PeerId, idsToRecv: seq[Sync
       error "failed to insert pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
       continue
-    self.pendingFrom[id.hash] = peerId
-    self.pendingQueue.addLast((id, deadline))
+    self.pendingFrom[id.hash] = origin
+    self.pendingQueue.push((deadline, id))
 
 proc scheduleTransfers(
     self: SyncReconciliation, peerId: PeerId, hashToSend: seq[WakuMessageHash]
@@ -294,6 +325,7 @@ proc reconcileRound(
     recvPayload: RangesData,
     lowerBound: Timestamp,
     peerId: PeerId,
+    session: uint64,
 ): (RangesData, seq[WakuMessageHash], int) =
   ## Returns the reply, the hashes to send, and the number of promised elements.
   ## It must not become async: nothing may await between processPayload and
@@ -314,7 +346,7 @@ proc reconcileRound(
 
   trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
-  self.trackPromised(peerId, idsToRecv)
+  self.trackPromised(PromiseOrigin(peer: peerId, session: session), idsToRecv)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
@@ -332,6 +364,9 @@ proc processRequest(
   await self.localWantsTx.addLast(conn.peerId)
 
   self.expirePending()
+
+  self.sessionCount.inc()
+  let session = self.sessionCount
 
   # Fixed for the session, so that a range the peer sends back in a later
   # round never crosses a bound that moved by the round-trip time.
@@ -373,7 +408,7 @@ proc processRequest(
       break
 
     let (sendPayload, hashToSend, promised) =
-      self.reconcileRound(recvPayload, lowerBound, conn.peerId)
+      self.reconcileRound(recvPayload, lowerBound, conn.peerId, session)
 
     # A promise counts as a difference even if its placeholder insert fails.
     diffs += promised
@@ -533,7 +568,7 @@ proc new*(
     syncRange: timer.Duration = DefaultSyncRange,
     syncInterval: timer.Duration = DefaultSyncInterval,
     relayJitter: timer.Duration = DefaultGossipSubJitter,
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     localWantsTx: AsyncQueue[PeerId],
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
@@ -634,9 +669,9 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
 
 proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
   while true: # infinite loop
-    let (id, pubsub, content) = await self.idsRx.popfirst()
+    let (id, pubsub, content, sender) = await self.idsRx.popfirst()
 
-    self.messageIngress(id, pubsub, content)
+    self.insertConfirmed(id, pubsub, content, Opt.some(sender))
 
 method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   if self.started:

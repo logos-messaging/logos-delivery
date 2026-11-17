@@ -46,7 +46,7 @@ type SyncTransfer* = ref object of LPProtocol
   isRequested: RequestedCheck
 
   # Send IDs to reconciliation protocol for storage
-  idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+  idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
 
   # Receive Hashes from reconciliation protocol for reception
   localWantsRx: AsyncQueue[PeerId]
@@ -256,7 +256,7 @@ proc initProtocolHandler(self: SyncTransfer) =
 
       let id = SyncID(time: msg.timestamp, hash: hash)
 
-      await self.idsTx.addLast((id, pubsub, msg.contentTopic))
+      await self.idsTx.addLast((id, pubsub, msg.contentTopic, conn.peerId))
 
       continue
 
@@ -276,7 +276,7 @@ proc new*(
     T: type SyncTransfer,
     peerManager: PeerManager,
     wakuArchive: WakuArchive,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     localWantsRx: AsyncQueue[PeerId],
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
     maxMessageSize: int,

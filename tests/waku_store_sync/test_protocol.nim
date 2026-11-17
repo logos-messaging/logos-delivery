@@ -52,7 +52,7 @@ proc newLimitedReceiver(
     transfer = SyncTransfer.new(
       peerManager = PeerManager.new(switch),
       wakuArchive = archive,
-      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
       localWantsRx = newAsyncQueue[PeerId](),
       remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
       maxMessageSize = maxMessageSize,
@@ -64,7 +64,7 @@ proc newLimitedReceiver(
   return (switch, transfer, archive)
 
 proc newSecondServer(
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     pendingTimeout: Duration = DefaultSyncInterval,
@@ -82,6 +82,24 @@ proc newSecondServer(
     pendingTimeout = pendingTimeout,
   )
   return (switch, server, switch.peerInfo.toRemotePeerInfo())
+
+proc deliver(
+    ids: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    msg: WakuMessage,
+    sender: PeerId,
+) {.async.} =
+  ## Hands `msg` to the reconciliation that reads `ids`, as a transfer from
+  ## `sender` would. It inserts the id as soon as it takes it off the queue.
+  await ids.put(
+    (
+      SyncID(time: msg.timestamp, hash: computeMessageHash(DefaultPubsubTopic, msg)),
+      DefaultPubsubTopic,
+      DefaultContentTopic,
+      sender,
+    )
+  )
+  while ids.len > 0:
+    await sleepAsync(10.milliseconds)
 
 proc encodedLen(msg: WakuMessage): int =
   WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode().len
@@ -111,7 +129,7 @@ suite "Waku Sync: reconciliation":
   var clientSwitch {.threadvar.}: Switch
 
   var
-    idsChannel {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+    idsChannel {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
     localWants {.threadvar.}: AsyncQueue[PeerId]
     remoteNeeds {.threadvar.}: AsyncQueue[(PeerId, WakuMessageHash)]
 
@@ -127,7 +145,7 @@ suite "Waku Sync: reconciliation":
 
     await allFutures(serverSwitch.start(), clientSwitch.start())
 
-    idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+    idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
     localWants = newAsyncQueue[PeerId]()
     remoteNeeds = newAsyncQueue[(PeerId, WakuMessageHash)]()
 
@@ -303,7 +321,7 @@ suite "Waku Sync: reconciliation":
     let
       msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
       (switchB, serverB, serverBPeerInfo) =
         await newSecondServer(idsChannel, localWants, remoteNeeds)
     defer:
@@ -328,12 +346,7 @@ suite "Waku Sync: reconciliation":
     var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), res.error
     check remoteNeeds.len == 1
-    await clientIds.put(
-      (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
-    )
-    # The receiver inserts the id as soon as it takes it off the queue.
-    while clientIds.len > 0:
-      await sleepAsync(10.milliseconds)
+    await clientIds.deliver(msg, serverPeerInfo.peerId)
     await sleepAsync(600.milliseconds)
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
@@ -342,7 +355,7 @@ suite "Waku Sync: reconciliation":
     check remoteNeeds.len == 1
 
   asyncTest "a promised message stays pending while its peer delivers, and expires once it stops":
-    # Given two servers holding three messages and an empty client with a 1 s timeout
+    # Given two servers holding three messages and an empty client with a 2 s timeout
     let
       msgs = toSeq(1 .. 3).mapIt(
           fakeWakuMessage(
@@ -350,7 +363,179 @@ suite "Waku Sync: reconciliation":
           )
         )
       hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 2.seconds,
+    )
+    for i in 0 ..< msgs.len:
+      server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+
+    # When the first server promises all three and delivers two of them, the
+    # second one 1.8 s after the promise
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 3
+    await sleepAsync(800.milliseconds)
+    await clientIds.deliver(msgs[0], serverPeerInfo.peerId)
+    await sleepAsync(1.seconds)
+    await clientIds.deliver(msgs[1], serverPeerInfo.peerId)
+
+    # Then after the timeout of the promise, the third one is still pending, so
+    # the second server does not queue it
+    await sleepAsync(300.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    # A server queues its pushes when it reads the last payload of the client.
+    await sleepAsync(200.milliseconds)
+    check:
+      client.isPending(hashes[2])
+      remoteNeeds.len == 3
+
+    # And one timeout after the last delivery, it expires, so the second server
+    # promises and queues it
+    await sleepAsync(1600.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 4
+    check remoteNeeds.contains((clientPeerInfo.peerId, hashes[2]))
+
+  asyncTest "a delivery for a later session does not keep an earlier promise pending":
+    # Given a server holding one message, a second server holding two, and an
+    # empty client with a 2 s timeout
+    let
+      msgs = toSeq(1 .. 2).mapIt(
+          fakeWakuMessage(
+            payload = "session " & $it, ts = now(), contentTopic = DefaultContentTopic
+          )
+        )
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 2.seconds,
+    )
+    server.messageIngress(hashes[0], DefaultPubsubTopic, msgs[0])
+    for i in 0 ..< msgs.len:
+      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+
+    # When the first server promises the first message, and in a later session
+    # promises the second one and delivers it after the first promise's timeout
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 1
+    await sleepAsync(500.milliseconds)
+    server.messageIngress(hashes[1], DefaultPubsubTopic, msgs[1])
+    res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 2
+    await sleepAsync(1600.milliseconds)
+    await clientIds.deliver(msgs[1], serverPeerInfo.peerId)
+
+    # Then the first message expires, so the second server queues it
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 3
+
+  asyncTest "a delivery for an earlier session keeps a later promise pending":
+    # Given a server holding one message, a second server holding two, and an
+    # empty client with a 2 s timeout
+    let
+      msgs = toSeq(1 .. 2).mapIt(
+          fakeWakuMessage(
+            payload = "backlog " & $it, ts = now(), contentTopic = DefaultContentTopic
+          )
+        )
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 2.seconds,
+    )
+    server.messageIngress(hashes[0], DefaultPubsubTopic, msgs[0])
+    for i in 0 ..< msgs.len:
+      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+
+    # When the first server promises the first message, in a later session
+    # promises the second one, and delivers the first one 1.5 s after that
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 1
+    server.messageIngress(hashes[1], DefaultPubsubTopic, msgs[1])
+    res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 2
+    await sleepAsync(1500.milliseconds)
+    await clientIds.deliver(msgs[0], serverPeerInfo.peerId)
+
+    # Then after the timeout of the second promise, the second message is still
+    # pending, so the second server does not queue it
+    await sleepAsync(700.milliseconds)
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    # A server queues its pushes when it reads the last payload of the client.
+    await sleepAsync(200.milliseconds)
+    check:
+      client.isPending(hashes[1])
+      remoteNeeds.len == 2
+
+  asyncTest "an arrival by relay or from another peer does not keep a promise pending":
+    # Given two servers holding three messages and an empty client with a 1 s timeout
+    let
+      msgs = toSeq(1 .. 3).mapIt(
+          fakeWakuMessage(
+            payload = "elsewhere " & $it, ts = now(), contentTopic = DefaultContentTopic
+          )
+        )
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
       (switchB, serverB, serverBPeerInfo) =
         await newSecondServer(idsChannel, localWants, remoteNeeds)
     defer:
@@ -372,43 +557,19 @@ suite "Waku Sync: reconciliation":
       server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
       serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
 
-    proc deliver(i: int) {.async.} =
-      await clientIds.put(
-        (
-          SyncID(time: msgs[i].timestamp, hash: hashes[i]),
-          DefaultPubsubTopic,
-          DefaultContentTopic,
-        )
-      )
-      # The receiver inserts the id as soon as it takes it off the queue.
-      while clientIds.len > 0:
-        await sleepAsync(10.milliseconds)
-
-    # When the first server promises all three and delivers two of them, the
-    # second one 800 ms after the promise
+    # When the first server promises all three, and before the timeout one of
+    # them arrives by relay and one from the second server
     var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), res.error
     checkUntilTimeout:
       remoteNeeds.len == 3
-    await sleepAsync(400.milliseconds)
-    await deliver(0)
-    await sleepAsync(400.milliseconds)
-    await deliver(1)
-
-    # Then after the timeout of the promise, the third one is still pending, so
-    # the second server does not queue it
-    await sleepAsync(500.milliseconds)
-    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
-    assert res.isOk(), res.error
-    # A server queues its pushes when it reads the last payload of the client.
-    await sleepAsync(200.milliseconds)
-    check:
-      client.isPending(hashes[2])
-      remoteNeeds.len == 3
-
-    # And one timeout after the last delivery, it expires, so the second server
-    # promises and queues it
     await sleepAsync(800.milliseconds)
+    client.messageIngress(hashes[0], DefaultPubsubTopic, msgs[0])
+    await clientIds.deliver(msgs[1], serverBPeerInfo.peerId)
+
+    # Then the third one expires at the timeout of the promise, so the second
+    # server queues it
+    await sleepAsync(300.milliseconds)
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
     checkUntilTimeout:
@@ -421,7 +582,7 @@ suite "Waku Sync: reconciliation":
     let
       msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
       (switchC, nodeC, _) = await newSecondServer(
         idsChannel, localWants, remoteNeeds, pendingTimeout = 500.milliseconds
       )
@@ -447,11 +608,7 @@ suite "Waku Sync: reconciliation":
     check remoteNeeds.len == 1
 
     # And the message then arrives at the client
-    await clientIds.put(
-      (SyncID(time: msg.timestamp, hash: hash), DefaultPubsubTopic, DefaultContentTopic)
-    )
-    while clientIds.len > 0:
-      await sleepAsync(10.milliseconds)
+    await clientIds.deliver(msg, serverPeerInfo.peerId)
 
     # Then the client queues it for the third node one time
     check:
@@ -1698,7 +1855,7 @@ suite "Waku Sync: reconciliation":
     server.messageIngress(hash, DefaultPubsubTopic, msg)
     client.messageIngress(hash, DefaultPubsubTopic, msg)
 
-    let idsQ = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+    let idsQ = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
     let wantsQ = newAsyncQueue[PeerId]()
     let needsQ = newAsyncQueue[(PeerId, Fingerprint)]()
 
@@ -1792,7 +1949,7 @@ suite "Waku Sync: reconciliation stop":
     # When a node syncs with it periodically and is stopped during a round
     let client = await newTestWakuRecon(
       clientSwitch,
-      idsRx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      idsRx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
       wantsTx = newAsyncQueue[PeerId](),
       needsTx = newAsyncQueue[(PeerId, WakuMessageHash)](),
       syncInterval = 100.milliseconds,
@@ -1817,7 +1974,7 @@ suite "Waku Sync: transfer handler cancellation":
       receiver = SyncTransfer.new(
         peerManager = PeerManager.new(newTestSwitch()),
         wakuArchive = newWakuArchive(driver),
-        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
         localWantsRx = newAsyncQueue[PeerId](),
         remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
         maxMessageSize = int(DefaultMaxWakuMessageSize),
@@ -1853,10 +2010,10 @@ suite "Waku Sync: transfer":
     clientArchive {.threadvar.}: WakuArchive
 
   var
-    serverIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+    serverIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
     serverLocalWants {.threadvar.}: AsyncQueue[PeerId]
     serverRemoteNeeds {.threadvar.}: AsyncQueue[(PeerId, WakuMessageHash)]
-    clientIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+    clientIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
     clientLocalWants {.threadvar.}: AsyncQueue[PeerId]
     clientRemoteNeeds {.threadvar.}: AsyncQueue[(PeerId, WakuMessageHash)]
 
@@ -1885,7 +2042,7 @@ suite "Waku Sync: transfer":
     serverPeerManager = PeerManager.new(serverSwitch)
     clientPeerManager = PeerManager.new(clientSwitch)
 
-    serverIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+    serverIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
     serverLocalWants = newAsyncQueue[PeerId]()
     serverRemoteNeeds = newAsyncQueue[(PeerId, WakuMessageHash)]()
 
@@ -1899,7 +2056,7 @@ suite "Waku Sync: transfer":
       isRequested = isRequestedInTest,
     )
 
-    clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)]()
+    clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
     clientLocalWants = newAsyncQueue[PeerId]()
     clientRemoteNeeds = newAsyncQueue[(PeerId, WakuMessageHash)]()
 
@@ -2095,7 +2252,7 @@ suite "Waku Sync: transfer":
       sender = SyncTransfer.new(
         peerManager = senderPeerManager,
         wakuArchive = newWakuArchive(senderDriver),
-        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
         localWantsRx = newAsyncQueue[PeerId](),
         remoteNeedsRx = senderNeeds,
         maxMessageSize = int(DefaultMaxWakuMessageSize),
@@ -2331,7 +2488,7 @@ suite "Waku Sync: transfer request check":
     receiver = SyncTransfer.new(
       peerManager = PeerManager.new(receiverSwitch),
       wakuArchive = receiverArchive,
-      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
       localWantsRx = newAsyncQueue[PeerId](),
       remoteNeedsRx = newAsyncQueue[(PeerId, WakuMessageHash)](),
       maxMessageSize = int(DefaultMaxWakuMessageSize),
