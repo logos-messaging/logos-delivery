@@ -1710,12 +1710,12 @@ proc newRecon(
 
 proc addDiscovered(switch: Switch, peer: Switch, shards: seq[uint16]) =
   let info = peer.peerInfo.toRemotePeerInfo()
-  PeerManager.new(switch).addPeer(info)
+  switch.peerStore.addPeer(info)
   switch.peerStore.setShardInfo(info.peerId, shards)
 
 proc addDiscovered(switch: Switch, peer: Switch) =
   ## A peer whose shards are not known: no metadata and no ENR.
-  PeerManager.new(switch).addPeer(peer.peerInfo.toRemotePeerInfo())
+  switch.peerStore.addPeer(peer.peerInfo.toRemotePeerInfo())
 
 proc addDiscoveredWithEnr(
     switch: Switch, peer: Switch, cluster: uint16, shards: seq[uint16]
@@ -1724,7 +1724,7 @@ proc addDiscoveredWithEnr(
   doAssert builder.withWakuRelaySharding(RelayShards.init(cluster, shards).get()).isOk()
   var info = peer.peerInfo.toRemotePeerInfo()
   info.enr = Opt.some(builder.build().get())
-  PeerManager.new(switch).addPeer(info)
+  switch.peerStore.addPeer(info)
 
 suite "Waku Sync: sync peer shard set":
   var
