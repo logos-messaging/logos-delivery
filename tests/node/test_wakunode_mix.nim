@@ -506,10 +506,10 @@ method resolveIp(
 .} =
   return @[initTAddress("127.0.0.1", port), initTAddress("127.0.0.2", port)]
 
-suite "Waku Mix - hop address classes":
+suite "Waku Mix - hop address policy":
   ## Each node of a path dials the next one. By default, a path uses a mix node
-  ## only at a public address or through a circuit relay. The nodes of this suite
-  ## do not start, so they dial nothing.
+  ## only at a public address. The nodes of this suite do not start, so they
+  ## dial nothing.
   const
     PublicAddr = "/ip4/8.8.8.8/tcp/60501"
     PrivateAddr = "/ip4/192.168.1.1/tcp/60503"
@@ -547,18 +547,18 @@ suite "Waku Mix - hop address classes":
       )
     )
 
-  asyncTest "by default the pool counts a discovered mix node only at a public or relayed address":
+  asyncTest "by default the pool counts a discovered mix node only at a public address":
     let node = await mixNode()
 
     node.discover(PrivateAddr)
     node.discover(LoopbackAddr)
+    node.discover(relayedAddr())
     check node.getMixNodePoolSize() == 0
 
     node.discover(PublicAddr)
-    node.discover(relayedAddr())
-    check node.getMixNodePoolSize() == 2
+    check node.getMixNodePoolSize() == 1
 
-  asyncTest "by default the pool counts a configured mix node only at a public or relayed address":
+  asyncTest "by default the pool counts a configured mix node only at a public address":
     let node = await mixNode(
       @[
         mixBootnode(PublicAddr),
@@ -567,7 +567,7 @@ suite "Waku Mix - hop address classes":
         mixBootnode(LoopbackAddr),
       ]
     )
-    check node.getMixNodePoolSize() == 2
+    check node.getMixNodePoolSize() == 1
 
   asyncTest "with all addresses allowed the pool counts a mix node at each address":
     let node = await mixNode(
