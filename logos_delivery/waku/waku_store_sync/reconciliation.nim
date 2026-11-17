@@ -79,7 +79,7 @@ type SyncReconciliation* = ref object of LPProtocol
   # Peers whose last session ended outside the sync scope. A discovered one
   # is skipped until it expires; a configured one is warned about once.
   outOfScopePeers: Table[PeerId, Moment] # with the end of their skip
-  # Whether the lack of a peer with the same shard set was already logged.
+  # Whether the lack of a store sync peer was already logged.
   noSyncPeerLogged: bool
 
   # futures
@@ -266,7 +266,7 @@ proc nextSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
     logos_delivery_reconciliation_failures.inc(labelValues = ["no_peer"])
     if not self.noSyncPeerLogged:
       self.noSyncPeerLogged = true
-      info "No store sync peer with the same cluster and shards",
+      info "No store sync peer to sync with",
         cluster = self.cluster, shards = self.shards.toSeq()
   elif self.noSyncPeerLogged:
     self.noSyncPeerLogged = false
@@ -555,7 +555,7 @@ proc storeSynchronization*(
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
     self.nextSyncPeer().valueOr:
-      return err("no peer found for sync with the shards: " & $self.shards.toSeq())
+      return err("no store sync peer found for the shards: " & $self.shards.toSeq())
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
 
