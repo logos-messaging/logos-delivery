@@ -504,11 +504,16 @@ proc processRequest(
     self: SyncReconciliation, conn: Connection
 ): Future[Result[void, string]] {.async.} =
   # The transfer protocol toggles its session state on each signal, so the end
-  # is signalled whatever the outcome, or the state of the peer flips.
+  # is signalled whatever the outcome, cancellation included, or the state of
+  # the peer flips.
   await self.localWantsTx.addLast(conn.peerId)
-  let res = await self.runSession(conn)
-  await self.localWantsTx.addLast(conn.peerId)
-  return res
+  try:
+    return await self.runSession(conn)
+  finally:
+    try:
+      self.localWantsTx.addLastNoWait(conn.peerId)
+    except AsyncQueueFullError:
+      error "could not signal the end of a sync session", peer_id = conn.peerId
 
 proc initiate(
     self: SyncReconciliation,
