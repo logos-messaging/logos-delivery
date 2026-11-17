@@ -142,8 +142,8 @@ when defined(macosx):
   on
 --opt:
   speed
-# nat_traversal defines a `=deepCopy` hook, which ORC rejects unless deepcopy
-# is on. refc has it on already.
+# ORC rejects `deepCopy` unless deepcopy is on. `PeerManager.candidatePeers`
+# calls `deepCopy`, and nat_traversal defines a `=deepCopy` hook. refc has it on already.
 --deepcopy:
   on
 
