@@ -727,7 +727,7 @@ hence would have reachability issues.""",
 
   mixAllowAllAddresses* {.
     desc:
-      "Let mix paths use a mix node at a private or a loopback address. Without it, mix uses a mix node only at a public address or through a circuit relay. Set it on a node of a local simulation, a test or a private network. (requires --mix)",
+      "Let mix paths use a mix node at a private, a loopback or a circuit relay address. Without it, mix uses a mix node only at a public address. Set it on a node of a local simulation, a test or a private network. (requires --mix)",
     defaultValue: false,
     name: "mix-allow-all-addresses"
   .}: bool

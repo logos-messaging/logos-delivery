@@ -71,7 +71,7 @@ type MessagingClientConf* = object
   anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
     ## Sender anonymity level. A level above `None` mounts and uses mix.
   mixAllowAllAddresses* {.name: "mix-allow-all-addresses".}: Opt[bool]
-    ## Let mix paths use a mix node at a private or a loopback address. For a
+    ## Let mix paths use a mix node at a private, a loopback or a circuit relay address. For a
     ## local simulation, a test or a private network.
   store*: Opt[bool] ## Enable the store protocol.
   storenode* {.name: "storenode".}: Opt[string]

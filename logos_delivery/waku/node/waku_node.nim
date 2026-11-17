@@ -622,8 +622,8 @@ proc mountMix*(
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
     allowAllAddresses: bool = false,
 ): Future[Result[void, string]] {.async.} =
-  ## With `allowAllAddresses`, a path can use a mix node at a private or a
-  ## loopback address. See `WakuMix.new`.
+  ## With `allowAllAddresses`, a path can use a mix node at a private, a loopback or
+  ## a circuit relay address. See `WakuMix.new`.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
