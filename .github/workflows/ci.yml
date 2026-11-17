@@ -77,6 +77,17 @@ jobs:
           - '!**/*.md'
           manifest:
           - 'logos_delivery.nimble'
+          # What can break one Nim or memory manager and not another.
+          toolchain:
+          - 'Makefile'
+          - 'nimble.lock'
+          - '*.nimble'
+          - 'config.nims'
+          - 'library/config.nims'
+          - '.github/actions/nim-config/**'
+          - '.github/actions/nimble-deps/**'
+          - '.github/workflows/ci.yml'
+          - '.github/workflows/tests.yml'
 
     outputs:
       # A push to master runs everything so every master commit keeps a full CI record.
@@ -87,6 +98,12 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
       manifest: ${{ steps.filter.outputs.manifest }}
+      # The Nim and memory manager pairs of .github/actions/nim-config that the
+      # build and tests jobs run. A PR that touches no toolchain file runs the
+      # default one only.
+      configs: >-
+        ${{ (inputs.full || github.event_name == 'push' || steps.filter.outputs.toolchain == 'true')
+        && '["default","refc","nim-latest","nim-latest-refc"]' || '["default"]' }}
 
   # PR level: jobs gated on the changes job.
 
@@ -181,9 +198,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-15]
-        # The Nim and memory manager pairs, defined in .github/actions/nim-config.
-        # Keep the list in step with tests.yml.
-        config: [default, refc, nim-latest, nim-latest-refc]
+        config: ${{ fromJSON(needs.changes.outputs.configs) }}
         # The other configs run on Linux only, to keep the run time down.
         exclude:
           - {os: macos-15, config: refc}
@@ -411,6 +426,7 @@ jobs:
     uses: ./.github/workflows/tests.yml
     with:
       full: ${{ inputs.full == true }}
+      configs: ${{ needs.changes.outputs.configs }}
 
   build-docker-image:
     needs: changes
