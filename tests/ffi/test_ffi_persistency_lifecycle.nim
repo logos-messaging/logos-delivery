@@ -40,7 +40,7 @@
 ## Requires the shared library. Build it with:
 ##   nim c $(tr '\n' ' ' < nimble.paths) --nimMainPrefix:liblogosdelivery \
 ##     --out:build/liblogosdelivery.dylib --app:lib --noMain --threads:on \
-##     --mm:refc --opt:speed --passL:librln_v2.0.2.a --passL:-lm \
+##     --mm:orc --opt:speed --passL:librln_v2.0.2.a --passL:-lm \
 ##     -d:chronicles_log_level=INFO library/liblogosdelivery.nim
 ## Override the location with LIBLOGOSDELIVERY=<path>.
 ##
