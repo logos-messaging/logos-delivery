@@ -77,6 +77,17 @@ jobs:
           - '!**/*.md'
           manifest:
           - 'logos_delivery.nimble'
+          # What can break one Nim or memory manager and not another.
+          toolchain:
+          - 'Makefile'
+          - 'nimble.lock'
+          - '*.nimble'
+          - 'config.nims'
+          - 'library/config.nims'
+          - '.github/actions/nim-config/**'
+          - '.github/actions/nimble-deps/**'
+          - '.github/workflows/ci.yml'
+          - '.github/workflows/tests.yml'
 
     outputs:
       # A push to master runs everything so every master commit keeps a full CI record.
@@ -87,6 +98,12 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
       manifest: ${{ steps.filter.outputs.manifest }}
+      # The Nim and memory manager pairs of .github/actions/nim-config that the
+      # build and tests jobs run. A PR that touches no toolchain file runs the
+      # default one only.
+      configs: >-
+        ${{ (inputs.full || github.event_name == 'push' || steps.filter.outputs.toolchain == 'true')
+        && '["default","refc","nim-latest","nim-latest-refc"]' || '["default"]' }}
 
   # PR level: jobs gated on the changes job.
 
@@ -181,13 +198,25 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-15]
+        config: ${{ fromJSON(needs.changes.outputs.configs) }}
+        # The other configs run on Linux only, to keep the run time down.
+        exclude:
+          - {os: macos-15, config: refc}
+          - {os: macos-15, config: nim-latest}
+          - {os: macos-15, config: nim-latest-refc}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
 
-    name: build-${{ matrix.os }}
+    # The default config keeps its old name, which branch protection refers to.
+    name: build-${{ matrix.os }}${{ matrix.config != 'default' && format('-{0}', matrix.config) || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Select Nim and memory manager
+        uses: ./.github/actions/nim-config
+        with:
+          config: ${{ matrix.config }}
 
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
@@ -205,9 +234,9 @@ jobs:
           path: |
             nimcache
             build/nimcache
-          key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ matrix.config }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-
+            ${{ runner.os }}-${{ runner.arch }}-nimcache-v1-${{ hashFiles('nimble.lock', 'config.nims', 'logos_delivery.nimble', 'Makefile') }}-build-${{ matrix.config }}-
 
       - name: Build binaries
         # -j1: `all` builds logosdeliverynode and liblogosdelivery with two
@@ -229,7 +258,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: compile-warnings-build-${{ matrix.os }}
+          name: compile-warnings-build-${{ matrix.os }}-${{ matrix.config }}
           path: build/compile-warnings.txt
           retention-days: 1
 
@@ -252,7 +281,7 @@ jobs:
       # can run the C ABI suite against it without rebuilding. Only the Linux
       # build is uploaded since those jobs run on ubuntu-22.04.
       - name: Upload liblogosdelivery.so
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-22.04' && matrix.config == 'default'
         uses: actions/upload-artifact@v4
         with:
           name: liblogosdelivery
@@ -397,6 +426,7 @@ jobs:
     uses: ./.github/workflows/tests.yml
     with:
       full: ${{ inputs.full == true }}
+      configs: ${{ needs.changes.outputs.configs }}
 
   build-docker-image:
     needs: changes

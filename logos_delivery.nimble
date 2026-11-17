@@ -17,8 +17,9 @@ const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
 ### Dependencies
-# Only Nim 2.2.6 is tested; newer releases are accepted for callers that pin their own.
-requires "nim >= 2.2.6",
+# 2.2.12 is the first Nim ORC is safe on (nim-lang/Nim#25693). CI tests the
+# locked Nim and the newest release.
+requires "nim >= 2.2.12",
   # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
   # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
   # solver keeps the name node on the newest tag.
@@ -116,6 +117,10 @@ proc getMyCPU(): string =
 proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
+proc getMmFlag(): string =
+  ## The Makefile's NIM_MM: orc or refc.
+  return " --mm:" & getEnv("NIM_MM", "orc") & " "
+
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
@@ -125,7 +130,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  selfExec "c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  selfExec "c --out:build/" & filepath & ".bin" & getMmFlag() & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -134,7 +139,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  selfExec "c --out:build/" & name & getMmFlag() & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 proc test(name: string, params = "-d:chronicles_log_level=INFO") =
