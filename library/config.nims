@@ -30,8 +30,8 @@ switch("define", "chronicles_runtime_filtering=on")
 when not defined(android) and not defined(ios):
   switch("define", "chronicles_sinks=textlines,json")
   switch("define", "chronicles_default_output_device=dynamic")
-# Metric collection, and for heap-usage-by-instance-type metrics and object
-# base-type strings.
+# Metric collection, and object base-type strings. The heap-usage-by-instance-type
+# metrics that nimTypeNames also enables are only reported under refc.
 switch("define", "metrics")
 switch("define", "nimTypeNames")
 # https://github.com/status-im/nim-confutils/issues/9

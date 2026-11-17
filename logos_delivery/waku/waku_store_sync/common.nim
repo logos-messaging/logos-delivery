@@ -84,6 +84,3 @@ proc cmp*(x, y: SyncID): int =
 
 proc `<`*(x, y: SyncID): bool =
   cmp(x, y) == -1
-
-proc `>`*(x, y: SyncID): bool =
-  cmp(x, y) == 1

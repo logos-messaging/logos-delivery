@@ -1,4 +1,5 @@
 import
+  ./common/gcc_lto_workaround,
   ./waku_core/topics,
   ./waku_core/time,
   ./waku_core/message,
