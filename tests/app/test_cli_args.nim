@@ -351,6 +351,39 @@ suite "Waku external config - store sync":
       ignoredFlagWarnings(conf, defaults, wakuConf) ==
         @["--store-sync is ignored: --store is not enabled"]
 
+  test "Store sync without any shard fails the conf build":
+    ## Given --cluster-id=99 --store --store-sync, which leaves static
+    ## sharding with no shard
+    var conf = defaultKernelConf().get()
+    conf.clusterId = Opt.some(99'u16)
+    conf.store = Opt.some(true)
+    conf.storeSync = true
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check:
+      res.isErr()
+      res.error.contains("store-sync requires at least one shard")
+
+  test "Store sync with a shard builds the store sync conf":
+    ## Given
+    var conf = defaultKernelConf().get()
+    conf.clusterId = Opt.some(99'u16)
+    conf.store = Opt.some(true)
+    conf.storeSync = true
+    conf.shards = @[0'u16]
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check:
+      wakuConf.subscribeShards == @[0'u16]
+      wakuConf.storeServiceConf.get().storeSyncConf.isSome()
+
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":
     check string(parseCmdArg(EthRpcUrl, "https://example.com/path")) ==
