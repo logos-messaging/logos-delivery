@@ -1903,6 +1903,26 @@ suite "Waku Sync: sync peer shard set":
     assert res.isOk(), res.error
     check samePeerId notin client.outOfScopePeers
 
+  asyncTest "expired skips are pruned on a mismatch when a peer is configured":
+    privateAccess(SyncReconciliation)
+    let peerManager = PeerManager.new(clientSwitch)
+    peerManager.addServicePeer(
+      sameSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
+    )
+    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
+    let stalePeerId = sameSwitch.peerInfo.peerId
+    client.outOfScopePeers[stalePeerId] = Moment.now() - 1.seconds
+
+    # A peer with another scope dials the node.
+    let res = await other.storeSynchronization(
+      Opt.some(clientSwitch.peerInfo.toRemotePeerInfo())
+    )
+
+    check:
+      res.isErr()
+      stalePeerId notin client.outOfScopePeers
+      otherSwitch.peerInfo.peerId in client.outOfScopePeers
+
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":
     # Given a peer that reads the first sync payload and never answers

@@ -183,10 +183,19 @@ func isConfiguredPeer(self: SyncReconciliation, peerId: PeerId): bool =
 proc isOutOfScope(self: SyncReconciliation, peerId: PeerId): bool =
   self.outOfScopePeers.getOrDefault(peerId, Moment.low()) > Moment.now()
 
+proc pruneOutOfScope(self: SyncReconciliation) =
+  let now = Moment.now()
+  for peerId in toSeq(self.outOfScopePeers.keys()):
+    if self.outOfScopePeers.getOrDefault(peerId) <= now:
+      self.outOfScopePeers.del(peerId)
+
 proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesData) =
   logos_delivery_reconciliation_failures.inc(labelValues = ["scope_mismatch"])
 
   let reported = self.isOutOfScope(peerId)
+  # Pruned on insert too: with a configured peer or no periodic sync, peer
+  # selection never runs, and inbound sessions still add entries.
+  self.pruneOutOfScope()
   self.outOfScopePeers[peerId] = Moment.now() + OutOfScopeTimeout
 
   # A discovered peer is a remote anomaly, already logged at debug by the caller.
@@ -234,10 +243,7 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   if slotted.isSome():
     return slotted
 
-  let now = Moment.now()
-  for peerId in toSeq(self.outOfScopePeers.keys()):
-    if self.outOfScopePeers.getOrDefault(peerId) <= now:
-      self.outOfScopePeers.del(peerId)
+  self.pruneOutOfScope()
 
   var
     unknownScope = Opt.none(RemotePeerInfo)
