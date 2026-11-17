@@ -90,9 +90,7 @@ proc deliver(
     msg: WakuMessage,
     sender: PeerId,
 ) {.async.} =
-  ## Hands `msg` to the reconciliation that reads `ids`, as a transfer from
-  ## `sender` would. The message stops being pending when the reconciliation
-  ## takes it off the queue.
+  ## Queues `msg` on `ids` as the transfer does when `sender` pushes it.
   await ids.put(
     (
       SyncID(time: msg.timestamp, hash: computeMessageHash(DefaultPubsubTopic, msg)),
@@ -356,8 +354,7 @@ suite "Waku Sync: reconciliation":
     pendingNowInTest += 600.milliseconds
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
-    # Each side of a session signals its start and its end, and its end comes
-    # after its pushes.
+    # Both sides signal the end of a session after they queue its pushes.
     checkUntilTimeout:
       localWants.len == 8
 
@@ -416,8 +413,7 @@ suite "Waku Sync: reconciliation":
     pendingNowInTest += 300.milliseconds
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
-    # Each side of a session signals its start and its end, and its end comes
-    # after its pushes.
+    # Both sides signal the end of a session after they queue its pushes.
     checkUntilTimeout:
       localWants.len == 8
     check:
@@ -544,8 +540,7 @@ suite "Waku Sync: reconciliation":
     pendingNowInTest += 700.milliseconds
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
-    # Each side of a session signals its start and its end, and its end comes
-    # after its pushes.
+    # Both sides signal the end of a session after they queue its pushes.
     checkUntilTimeout:
       localWants.len == 12
     check:
@@ -652,8 +647,7 @@ suite "Waku Sync: reconciliation":
     pendingNowInTest += 500.milliseconds
     res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
     assert res.isOk(), res.error
-    # Each side of a session signals its start and its end, and its end comes
-    # after its pushes.
+    # Both sides signal the end of a session after they queue its pushes.
     checkUntilTimeout:
       localWants.len == 8
     check:
@@ -702,8 +696,7 @@ suite "Waku Sync: reconciliation":
     pendingNowInTest += 600.milliseconds
     res = await nodeC.storeSynchronization(Opt.some(clientPeerInfo))
     assert res.isOk(), res.error
-    # Each side of a session signals its start and its end, and its end comes
-    # after its pushes.
+    # Both sides signal the end of a session after they queue its pushes.
     checkUntilTimeout:
       localWants.len == 12
     check remoteNeeds.len == 1
@@ -2650,11 +2643,10 @@ suite "Waku Sync: late pushes":
       receiverArchive = newWakuArchive(newSqliteArchiveDriver())
       senderIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
       receiverIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      # The test counts the start and the end signals of the sessions of the sender.
       senderSessions = newAsyncQueue[PeerId]()
       receiverWants = newAsyncQueue[PeerId]()
-      # The rounds of the sender queue its pushes here, and the transfer of the
-      # sender sends only the pushes that the test moves on to `releasedPushes`.
+      # The sender's transfer sends only the pushes that the test moves from
+      # `queuedPushes` to `releasedPushes`.
       queuedPushes = newAsyncQueue[(PeerId, WakuMessageHash)]()
       releasedPushes = newAsyncQueue[(PeerId, WakuMessageHash)]()
       receiverNeeds = newAsyncQueue[(PeerId, WakuMessageHash)]()
@@ -2725,8 +2717,7 @@ suite "Waku Sync: late pushes":
     # Then the receiver archived each message, the sender queued each one time,
     # and the receiver counted none of the pushes as not requested
     let archivedAll = await receiverArchive.holdsMessages(hashes)
-    # The sender signals the start and the end of each of its four sessions, and
-    # it signals the end after it queued the pushes of the session.
+    # Four sessions, each signalled at its start and at its end, after its pushes.
     checkUntilTimeout:
       senderSessions.len == 8
     check:

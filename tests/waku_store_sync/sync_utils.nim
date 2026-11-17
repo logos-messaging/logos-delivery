@@ -20,8 +20,7 @@ proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
   requestedInTest.contains(hash)
 
 var pendingNowInTest* {.threadvar.}: Moment
-  ## The time of the pending deadlines of a reconciliation that uses
-  ## `pendingClockInTest`, which a test moves forward in place of a wait.
+  ## Read by `pendingClockInTest`. A test moves it forward instead of sleeping.
 
 proc pendingClockInTest*(): Moment {.gcsafe, raises: [].} =
   pendingNowInTest

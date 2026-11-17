@@ -41,13 +41,11 @@ const DefaultMaxPayloadSize = 64 * 1024 * 1024
   ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
 
 const MaxPendingTimeouts = 6
-  ## A promised element expires at most this many pending timeouts after its
-  ## round, also while its peer still delivers, since no round asks another peer
-  ## for an element while it is pending.
+  ## Caps the extension of a promise, in pending timeouts after its round,
+  ## because no round asks another peer for an element while it is pending.
 
 type PromiseOrigin = object
-  ## The round that promised an element. All the elements of a round share one
-  ## `ref PromiseOrigin`.
+  ## Shared by the elements of a round, so that the peer id is stored once.
   peer: PeerId
   session: uint64 # numbers the reconciliation sessions of this node
   limit: Moment # no delivery extends an element of the round past this time
@@ -83,12 +81,11 @@ type SyncReconciliation* = ref object of LPProtocol
   # Elements a peer promised in a round. They are in the storage under
   # PendingPubsubTopic until they arrive or their deadline passes.
   pendingTimeout: Duration
-  pendingClock: proc(): Moment {.gcsafe, raises: [].} # Source of the deadline times
+  pendingClock: proc(): Moment {.gcsafe, raises: [].} # monotonic, unlike `clock`
   pendingFrom: Table[WakuMessageHash, ref PromiseOrigin]
-  pendingQueue: HeapQueue[(Moment, SyncID)] # earliest deadline first
+  pendingQueue: HeapQueue[(Moment, SyncID)]
   sessionCount: uint64
-  # By session: its peer, and when the peer last sent an element that it
-  # promised in it
+  # By session: when its peer last delivered an element promised in it
   lastDelivery: Table[uint64, tuple[peer: PeerId, time: Moment]]
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
@@ -114,7 +111,7 @@ proc insertConfirmed(
     contentTopic: ContentTopic,
     sender: Opt[PeerId],
 ) =
-  ## `sender` is the peer that transferred the element, none for other sources.
+  ## `sender` is none when the element did not arrive by transfer.
   var origin: ref PromiseOrigin
   if self.pendingFrom.pop(id.hash, origin):
     if sender.isSome() and sender.get() == origin.peer:
@@ -133,12 +130,9 @@ proc insertConfirmed(
       msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc latestDelivery(self: SyncReconciliation, origin: PromiseOrigin): Opt[Moment] =
-  ## The last time that `origin.peer` sent an element that it promised in the
-  ## session of `origin` or in an earlier one. The peer sends its pushes in
-  ## order, so the elements of a later session wait behind those of an earlier
-  ## one, but not the reverse. A hash that is pending at the peer goes out when
-  ## it arrives there, so it can come after the pushes of a later session, and
-  ## then its element can expire as before.
+  ## A peer sends its pushes in order, so a delivery for a session shows that
+  ## the elements of its later sessions are still queued. The exception is a
+  ## hash that was pending at the peer: it goes out when it arrives there.
   var latest = Opt.none(Moment)
   for session, delivery in self.lastDelivery:
     if session <= origin.session and delivery.peer == origin.peer and
@@ -148,10 +142,8 @@ proc latestDelivery(self: SyncReconciliation, origin: PromiseOrigin): Opt[Moment
 
 proc expirePending(self: SyncReconciliation) =
   ## Drops the promised elements that did not arrive by their deadline, so that
-  ## the next round asks for them again. An element whose peer delivered an
-  ## element of the same or an earlier session within the last timeout gets one
-  ## more timeout, up to `MaxPendingTimeouts` after its round: a large backlog
-  ## can take longer than one.
+  ## the next round asks for them again. A large backlog can take longer than
+  ## one timeout, so a recent delivery by the same peer extends a deadline.
   let now = self.pendingClock()
   while self.pendingQueue.len > 0 and self.pendingQueue[0][0] <= now:
     let (_, id) = self.pendingQueue.pop()
