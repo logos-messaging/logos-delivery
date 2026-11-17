@@ -44,4 +44,4 @@ Settings:
 
 * `DISCORD_WEBHOOK_URL` secret - the channel the posts go to. Without it only the issue is updated.
 * `NIGHTLY_DISCORD_MENTION` variable - optional, prefixed to failure posts, e.g. `<@&role-id>`.
-* `NIGHTLY_OWNER` variable - optional, GitHub login the tracking issue is assigned to. Who owns the nightly (one person or a weekly rotation) is still open in #4342.
+* `NIGHTLY_OWNER` variable - optional, GitHub login the tracking issue is assigned to. Set in the repo Actions variables.
