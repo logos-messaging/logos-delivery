@@ -30,9 +30,9 @@ runs:
           # Repoints the lock's nim entry; deleting it makes Nimble re-solve
           # every dependency, which fails. Bump on each Nim release.
           nim-latest*)
-            jq '.packages.nim.version = "2.4.0"
-              | .packages.nim.vcsRevision = "14991af742d0833503741fd9a0918133d1bcf8a4"
-              | .packages.nim.checksums.sha1 = "e4e638a20c4650cc6b463f8b19f5009db3a916b5"' \
+            jq '.packages.nim.version = "2.4.2"
+              | .packages.nim.vcsRevision = "b27dcb4f70883978e984e427cc24b64eeb7c875f"
+              | .packages.nim.checksums.sha1 = "ca3c55dbfc8144af6b6ff0b3ff9a075959374e7c"' \
               nimble.lock > nimble.lock.tmp && mv nimble.lock.tmp nimble.lock ;;
         esac
         echo "NIM_MM=$mm" >> "$GITHUB_ENV"
