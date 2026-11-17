@@ -156,7 +156,8 @@ when defined(macosx):
 # enable metric collection
 --define:
   metrics
-# for heap-usage-by-instance-type metrics and object base-type strings
+# for object base-type strings, and for the heap-usage-by-instance-type
+# metrics, which only refc reports
 --define:
   nimTypeNames
 
