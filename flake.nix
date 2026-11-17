@@ -133,8 +133,9 @@
           # here and one built by the MSYS2 CI job share a C runtime.
           libc = "msvcrt";
         };
-        # nimbleOverlay is deliberately absent: nimble is a devShell tool and
-        # a mingw-hosted nimble neither builds nor is ever run.
+        # nimOverlay keeps the cross build on the locked Nim. nimbleOverlay is
+        # deliberately absent: nimble is a devShell tool and a mingw-hosted
+        # nimble neither builds nor is ever run.
         overlays = [ (import rust-overlay) nimOverlay ];
       };
 
