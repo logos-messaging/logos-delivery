@@ -23,6 +23,12 @@ proc isSubscribed*(self: Waku, contentTopic: ContentTopic): Result[bool, string]
   ## True if the node already subscribes to `contentTopic`.
   return self.node.subscriptionManager.isSubscribed(contentTopic)
 
+proc contentTopicShards*(
+    self: Waku, contentTopic: ContentTopic
+): Result[seq[PubsubTopic], string] =
+  ## The shards of `contentTopic`, the same shards that `subscribe` uses.
+  return self.node.subscriptionManager.contentTopicShards(contentTopic)
+
 proc isContentSubscribed*(
     self: Waku, shard: PubsubTopic, contentTopic: ContentTopic
 ): bool =

@@ -4,7 +4,9 @@ import results, std/[sequtils, net, sets, os, osproc, tables, tempfiles, strutil
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo]
 import brokers/broker_context
-import ../testlib/[wakucore, wakunode, wakunodeconf, testasync, short_intervals]
+import
+  ../testlib/
+    [wakucore, wakunode, wakunodeconf, testasync, short_intervals, history_query_events]
 import ../testlib/futures
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
@@ -12,6 +14,7 @@ import logos_delivery/messaging/messaging_metrics
 import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/recv_service
 import logos_delivery/messaging/delivery_service/recv_service/backfill
+import logos_delivery/messaging/delivery_service/history_query_service
 import logos_delivery/waku/persistency/persistency
 import logos_delivery/waku/requests/health_requests
 import logos_delivery/waku/node/health_monitor/health_status
@@ -1049,3 +1052,106 @@ suite "Messaging API, Receive Service (backfill)":
       check await node.caughtUp()
       check node.isRunning()
       (await node.stop()).expect("stop node")
+
+proc queryMissedMessage(
+    net: TestNetwork, topic: ContentTopic, queries: HistoryQueryEvents
+) {.async.} =
+  ## A query gives the message that `setupNetwork` archives before the subscribe.
+  ## The receive service never gives this message.
+  ## The history query counters count it, and the `history` receive counter does not.
+  let history = $MessageSource.History
+  let recvBefore = logos_delivery_recv_messages.value([history])
+  let countBefore = logos_delivery_history_query_messages.value()
+  let bytesBefore = logos_delivery_history_query_message_bytes.value()
+  let first = (
+    await net.subscriber.messagingClient.queryHistory(
+      HistoryQuery.init(topic, net.subscribedAt - chronos.minutes(2).nanos)
+    )
+  ).expect("queryHistory")
+  check await queries.waitFinished(TestTimeout)
+  check:
+    queries.payloads() == @[MissedPayload]
+    queries.messages.allIt(it.requestId == first)
+    queries.completed[0].requestId == first
+    queries.completed[0].messageCount == 1
+    queries.errors.len == 0
+    logos_delivery_history_query_messages.value() == countBefore + 1
+    logos_delivery_history_query_message_bytes.value() ==
+      bytesBefore + float64(MissedPayload.len)
+    logos_delivery_recv_messages.value([history]) == recvBefore
+  check await net.events.nothingMore(0)
+
+suite "Messaging API history query":
+  asyncTest "a history query gives the messages from before the subscribe and ends at a stop":
+    let topic = ContentTopic("/waku/2/history-query/proto")
+    let net = await setupNetwork(topic)
+    defer:
+      await net.teardown()
+    let queries = HistoryQueryEvents.new(net.subscriber.waku.brokerCtx)
+    defer:
+      await queries.teardown()
+    let client = net.subscriber.messagingClient
+    let minute = chronos.minutes(1).nanos
+    let millisecond = chronos.milliseconds(1).nanos
+    # Phase 1: the message from before the subscribe.
+    await net.queryMissedMessage(topic, queries)
+    # Phase 2: a query with no end time for a topic that the app did not subscribe to.
+    # It also gives a message from a sender whose clock is ahead.
+    # A message that the archive gets after the first pass comes in the second pass.
+    # The messages of the first pass come once.
+    queries.reset()
+    let otherTopic = ContentTopic("/waku/2/history-query-other/proto")
+    let queryAt = now()
+    discard
+      await net.archiveAt(otherTopic, queryAt - 500 * millisecond, "before the query")
+    discard await net.archiveAt(otherTopic, queryAt + 500 * millisecond, "clock ahead")
+    let second = (
+      await client.queryHistory(HistoryQuery.init(otherTopic, queryAt - minute))
+    ).expect("queryHistory of a topic that the app did not subscribe to")
+    checkUntilTimeoutCustom(TestTimeout, 20.milliseconds):
+      queries.messages.len == 2
+    discard await net.archiveAt(
+      otherTopic, queryAt - 100 * millisecond, "archived after the first pass"
+    )
+    check await queries.waitFinished(TestTimeout)
+    check:
+      queries.payloads() ==
+        @["before the query", "clock ahead", "archived after the first pass"]
+      queries.completed[0].requestId == second
+      queries.completed[0].messageCount == 3
+      queries.errors.len == 0
+    # Phase 3: an invalid content topic fails at once, and the query emits no event.
+    queries.reset()
+    check (
+      await client.queryHistory(
+        HistoryQuery.init(ContentTopic("not-a-topic"), queryAt - minute)
+      )
+    ).isErr()
+    await sleepAsync(100.milliseconds)
+    check:
+      queries.messages.len == 0
+      queries.completed.len == 0
+      queries.errors.len == 0
+    # Phase 4: a stop of the messaging client cancels a query in its archive wait.
+    # The query emits no more events.
+    discard (await client.queryHistory(HistoryQuery.init(otherTopic, now() - minute))).expect(
+      "queryHistory before the stop"
+    )
+    checkUntilTimeoutCustom(TestTimeout, 20.milliseconds):
+      queries.messages.len == 3
+    check client.historyQueryService.activeQueryCount == 1
+    await client.stop()
+    check client.historyQueryService.activeQueryCount == 0
+    check not await queries.waitFinished(chronos.seconds(4))
+    check queries.messages.len == 3
+    check (await client.queryHistory(HistoryQuery.init(otherTopic, now() - minute))).isErr()
+
+  asyncTest "an Edge node gets the messages from before the subscribe":
+    let topic = ContentTopic("/waku/2/history-query-edge/proto")
+    let net = await setupNetwork(topic, mode = LogosDeliveryMode.Edge)
+    defer:
+      await net.teardown()
+    let queries = HistoryQueryEvents.new(net.subscriber.waku.brokerCtx)
+    defer:
+      await queries.teardown()
+    await net.queryMissedMessage(topic, queries)

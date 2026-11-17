@@ -22,6 +22,7 @@ import
     waku_lightpush_legacy/protocol_metrics,
     node/peer_manager,
     waku_filter_v2/client,
+    node/subscription_manager,
   ],
   ../waku_relay/utils,
   ../waku_archive/archive_utils,
@@ -488,6 +489,14 @@ suite "Sharding":
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
         )
         assertResultOk(await resubscribedHandlers[i].waitForResult(FUTURE_TIMEOUT))
+
+    asyncTest "Content topic shards include each extra listen shard once":
+      # The first content topic resolves to the first shard of `shards`.
+      # The setting repeats the listen shard, and the result has it one time.
+      let listenShard = PubsubTopic("/waku/2/rs/0/7")
+      client.subscriptionManager.extraListenShards = @[listenShard, listenShard]
+      check client.subscriptionManager.contentTopicShards(contentTopics[0]).get() ==
+        @[PubsubTopic(shards[0]), listenShard]
 
   suite "Application Layer Integration":
     suite "App Protocol Compatibility":

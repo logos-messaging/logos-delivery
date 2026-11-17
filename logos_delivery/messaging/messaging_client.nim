@@ -1,16 +1,18 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
-## lifecycle. The public operations (subscribe / unsubscribe / send) live in
-## `messaging/api.nim`.
+## lifecycle. The public operations (subscribe / unsubscribe / send /
+## queryHistory) live in `messaging/api/`.
 import std/[sequtils, times], results, chronos, chronicles
 import
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[publish, health],
+  logos_delivery/waku/api/[publish, health, store],
   logos_delivery/waku/node/health_monitor,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
   logos_delivery/waku/persistency/persistency,
-  logos_delivery/messaging/delivery_service/[recv_service, send_service],
+  logos_delivery/waku/waku_store/common,
+  logos_delivery/messaging/delivery_service/
+    [recv_service, send_service, history_query_service],
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 export messaging_client_api, messaging_conf
@@ -20,6 +22,7 @@ type MessagingClient* = ref object
   waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
   sendService*: SendService
   recvService*: RecvService
+  historyQueryService*: HistoryQueryService
   persistencyJob*: persistency.Job
   started*: bool
     ## `start` sets it last and `stop` clears it first. `checkApiAvailability` reads it.
@@ -79,6 +82,14 @@ proc new*(
   )
   let backfill = ?BackfillState.init(conf)
   let recvService = RecvService.new(waku, backfill)
+  let historyQueryService = HistoryQueryService.new(
+    waku.brokerCtx,
+    proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      return await waku.storeQueryToAny(request),
+    backfill.queryTimeout,
+  )
 
   if anonymityLevel == AnonymityLevel.Required:
     waku.setConnectionStatusAdjuster(requireMixReady)
@@ -99,6 +110,7 @@ proc new*(
       waku: waku,
       sendService: sendService,
       recvService: recvService,
+      historyQueryService: historyQueryService,
       brokerCtx: waku.brokerCtx,
     )
   )

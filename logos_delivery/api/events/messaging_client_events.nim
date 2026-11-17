@@ -39,3 +39,22 @@ EventBroker:
     messageHash*: string
     message*: WakuMessage
     source*: MessageSource
+
+EventBroker:
+  # Emitted once for each message that a history query finds.
+  type HistoryQueryMessageEvent* = object
+    requestId*: RequestId
+    messageHash*: string
+    message*: WakuMessage
+
+EventBroker:
+  # Emitted when a history query completes, after its last `HistoryQueryMessageEvent`.
+  type HistoryQueryCompletedEvent* = object
+    requestId*: RequestId
+    messageCount*: int
+
+EventBroker:
+  # Emitted when a history query fails, as the last event of the query.
+  type HistoryQueryErrorEvent* = object
+    requestId*: RequestId
+    error*: string

@@ -1,6 +1,6 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
-## lifecycle. The public operations (subscribe / unsubscribe / send) live in
-## `messaging/api.nim`.
+## lifecycle. The public operations (subscribe / unsubscribe / send /
+## queryHistory) live in `messaging/api/`.
 import results, chronos
 import chronicles
 import
@@ -10,7 +10,8 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/subscriptions,
   logos_delivery/waku/persistency/persistency,
-  logos_delivery/messaging/delivery_service/[recv_service, send_service]
+  logos_delivery/messaging/delivery_service/
+    [recv_service, send_service, history_query_service]
 
 # Surfaces the messaging API interface (and its Message* events) to consumers.
 export messaging_client
@@ -62,6 +63,7 @@ proc start*(self: MessagingClient): Result[void, string] =
   self.persistencyJob = getMessagingJob(self.brokerCtx)
   self.recvService.startRecvService(self.persistencyJob)
   self.sendService.startSendService()
+  self.historyQueryService.startHistoryQueryService()
 
   self.started = true
   ok()
@@ -78,6 +80,7 @@ proc stop*(self: MessagingClient) {.async.} =
   MessagingSubscribe.clearProvider(self.brokerCtx)
   MessagingUnsubscribe.clearProvider(self.brokerCtx)
   await self.sendService.stopSendService()
+  await self.historyQueryService.stopHistoryQueryService()
   await self.recvService.stopRecvService()
   if not self.persistencyJob.isNil():
     let persistency = GetPersistency.request(self.brokerCtx)

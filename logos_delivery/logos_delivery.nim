@@ -37,8 +37,8 @@ export health_events
 # Messaging layer
 import logos_delivery/messaging/[messaging_client, messaging_client_lifecycle]
 export messaging_client
-import logos_delivery/messaging/api/[subscription, send]
-export subscription, send
+import logos_delivery/messaging/api/[subscription, send, history_query]
+export subscription, send, history_query
 import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
 import logos_delivery/api/conf/messaging_conf

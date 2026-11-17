@@ -295,7 +295,7 @@ proc hasContentTopic(
 proc topicShards(self: SubscriptionManager, shard: PubsubTopic): seq[PubsubTopic] =
   result = @[shard]
   for listenShard in self.extraListenShards:
-    if listenShard != shard:
+    if listenShard notin result:
       result.add(listenShard)
 
 proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
@@ -345,6 +345,13 @@ proc isSubscribed*(
 ): Result[bool, string] =
   let shard = ?self.getShardForContentTopic(topic)
   return ok(self.isContentSubscribed(shard, topic))
+
+proc contentTopicShards*(
+    self: SubscriptionManager, topic: ContentTopic
+): Result[seq[PubsubTopic], string] =
+  ## The shards that `subscribe` uses for `topic`, extra listen shards included.
+  let shard = ?self.getShardForContentTopic(topic)
+  return ok(self.topicShards(shard))
 
 proc subscribeConfiguredShards*(
     self: SubscriptionManager, clusterId: uint16, shards: openArray[uint16]

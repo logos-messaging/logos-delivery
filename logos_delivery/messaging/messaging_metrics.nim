@@ -2,7 +2,8 @@
 ##
 ## Label cardinality is bounded by construction: `recordReceived` takes the
 ## `MessageSource` enum rather than a string, so `source` can only ever be
-## `live` or `history`. Four receive series in total, plus the send counter.
+## `live` or `history`. Four receive series in total, plus the send counter
+## and the two history query counters.
 ##
 ## nim-metrics appends `_total` to each counter name on export.
 
@@ -18,6 +19,10 @@ declarePublicCounter logos_delivery_recv_messages,
   ["source"]
 declarePublicCounter logos_delivery_recv_message_bytes,
   "payload bytes of the messages delivered to the application, by source", ["source"]
+declarePublicCounter logos_delivery_history_query_messages,
+  "messages that history queries delivered to the application"
+declarePublicCounter logos_delivery_history_query_message_bytes,
+  "payload bytes of the messages that history queries delivered to the application"
 
 # A labelled series exists from its first increment. Start every source at zero,
 # so the series are scraped before the first message and can be read at any time.
@@ -33,5 +38,9 @@ proc recordReceived*(source: MessageSource, payloadBytes: int) =
   logos_delivery_recv_message_bytes.inc(
     payloadBytes.int64, labelValues = [enumLabel(source)]
   )
+
+proc recordHistoryQueryMessage*(payloadBytes: int) =
+  logos_delivery_history_query_messages.inc()
+  logos_delivery_history_query_message_bytes.inc(payloadBytes.int64)
 
 {.pop.}

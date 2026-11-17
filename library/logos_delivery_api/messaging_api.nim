@@ -5,6 +5,7 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_core/topics/content_topic,
   logos_delivery/api/types,
+  library/json_history_query,
   ../declare_lib
 
 proc logosdelivery_subscribe(
@@ -77,5 +78,19 @@ proc logosdelivery_send(
   let requestId = (await self.messagingClient.send(envelope)).valueOr:
     let errMsg = $error
     return err("Send failed: " & errMsg)
+
+  return ok($requestId)
+
+proc logosdelivery_query_history(
+    self: LogosDelivery, queryJson: string
+): Future[Result[string, string]] {.ffi.} =
+  requireMessaging(self, "QueryHistory"):
+    return err(errMsg)
+
+  let query = parseHistoryQuery(queryJson).valueOr:
+    return err("QueryHistory failed: " & error)
+
+  let requestId = (await self.messagingClient.queryHistory(query)).valueOr:
+    return err("QueryHistory failed: " & error)
 
   return ok($requestId)
