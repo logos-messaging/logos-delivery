@@ -36,9 +36,6 @@ logScope:
 
 const DefaultStorageCap = 50_000
 
-const OutOfScopeTimeout = 30.minutes
-  ## How long a peer outside the sync scope is skipped before it is tried again.
-
 const DefaultMaxPayloadSize = 64 * 1024 * 1024
   ## The largest reconciliation payload that a node reads. An item set entry
   ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
@@ -76,9 +73,9 @@ type SyncReconciliation* = ref object of LPProtocol
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
 
-  # Peers whose last session ended outside the sync scope. A discovered one
-  # is skipped until it expires; a configured one is warned about once.
-  outOfScopePeers: Table[PeerId, Moment] # with the end of their skip
+  # Whether the configured peer was reported outside the sync scope since its
+  # last successful session, so that it is warned about once.
+  configuredOutOfScope: bool
   # Whether the lack of a store sync peer was already logged.
   noSyncPeerLogged: bool
 
@@ -180,27 +177,13 @@ func isConfiguredPeer(self: SyncReconciliation, peerId: PeerId): bool =
   let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
   slotted.isSome() and slotted.get().peerId == peerId
 
-proc isOutOfScope(self: SyncReconciliation, peerId: PeerId): bool =
-  self.outOfScopePeers.getOrDefault(peerId, Moment.low()) > Moment.now()
-
-proc pruneOutOfScope(self: SyncReconciliation) =
-  let now = Moment.now()
-  for peerId in toSeq(self.outOfScopePeers.keys()):
-    if self.outOfScopePeers.getOrDefault(peerId) <= now:
-      self.outOfScopePeers.del(peerId)
-
 proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesData) =
   logos_delivery_reconciliation_failures.inc(labelValues = ["scope_mismatch"])
 
-  let reported = self.isOutOfScope(peerId)
-  # Pruned on insert too: with a configured peer or no periodic sync, peer
-  # selection never runs, and inbound sessions still add entries.
-  self.pruneOutOfScope()
-  self.outOfScopePeers[peerId] = Moment.now() + OutOfScopeTimeout
-
   # A discovered peer is a remote anomaly, already logged at debug by the caller.
-  if reported or not self.isConfiguredPeer(peerId):
+  if self.configuredOutOfScope or not self.isConfiguredPeer(peerId):
     return
+  self.configuredOutOfScope = true
 
   warn "Store sync peer is outside the sync scope, no message is synced with it",
     peer_id = peerId,
@@ -239,19 +222,15 @@ proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## reported rather than hidden. Otherwise a peer that advertises our scope,
   ## then one whose scope is not known, then one that advertises another.
   ## Metadata advertises the relay shards, which can differ from the sync
-  ## scope, so only a session that answers outside the scope rules a peer out.
+  ## scope, so no peer is ruled out by what it advertises.
   let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
   if slotted.isSome():
     return slotted
-
-  self.pruneOutOfScope()
 
   var
     unknownScope = Opt.none(RemotePeerInfo)
     otherScope = Opt.none(RemotePeerInfo)
   for peer in self.peerManager.selectPeers(WakuReconciliationCodec):
-    if self.isOutOfScope(peer.peerId):
-      continue
     case self.peerScope(peer)
     of PeerScope.Same:
       return Opt.some(peer)
@@ -501,7 +480,8 @@ proc runSession(
 
   logos_delivery_reconciliation_roundtrips.observe(roundTrips)
   logos_delivery_reconciliation_differences.observe(diffs)
-  self.outOfScopePeers.del(conn.peerId)
+  if self.isConfiguredPeer(conn.peerId):
+    self.configuredOutOfScope = false
 
   await conn.close()
 

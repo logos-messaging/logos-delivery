@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, sequtils, random, algorithm, importutils, tables],
+  std/[sets, sequtils, random, algorithm, importutils],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -1749,7 +1749,7 @@ suite "Waku Sync: sync peer shard set":
     await allFutures(client.stop(), same.stop(), other.stop())
     await allFutures(clientSwitch.stop(), sameSwitch.stop(), otherSwitch.stop())
 
-  asyncTest "a peer that advertises another shard set is tried, then skipped once it mismatches":
+  asyncTest "a peer that advertises another shard set is tried in every round":
     client = await newRecon(clientSwitch, @[1'u16, 2])
     clientSwitch.addDiscovered(otherSwitch, @[3'u16])
     let
@@ -1759,11 +1759,12 @@ suite "Waku Sync: sync peer shard set":
     let first = await client.storeSynchronization()
     let second = await client.storeSynchronization()
 
+    # Each mismatching session counts twice: once on each end.
     check:
       first.isErr()
       second.isErr()
-      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
-      reconciliationFailures("no_peer") == noPeerBefore + 1
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 4
+      reconciliationFailures("no_peer") == noPeerBefore
 
   asyncTest "a peer whose relay advertises more shards than it syncs is still synced with":
     client = await newRecon(clientSwitch, @[1'u16, 2])
@@ -1800,22 +1801,6 @@ suite "Waku Sync: sync peer shard set":
     let res = await client.storeSynchronization()
 
     assert res.isOk(), res.error
-
-  asyncTest "a discovered peer that answers outside the scope is skipped in the next round":
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscovered(otherSwitch)
-    let
-      mismatchesBefore = reconciliationFailures("scope_mismatch")
-      noPeerBefore = reconciliationFailures("no_peer")
-
-    let first = await client.storeSynchronization()
-    let second = await client.storeSynchronization()
-
-    check:
-      first.isErr()
-      second.isErr()
-      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
-      reconciliationFailures("no_peer") == noPeerBefore + 1
 
   asyncTest "a session that fails signals both its start and its end to transfer":
     let wants = newAsyncQueue[PeerId]()
@@ -1870,58 +1855,19 @@ suite "Waku Sync: sync peer shard set":
       res.isErr()
       reconciliationFailures("dial_error") == dialErrorsBefore + 1
 
-  asyncTest "a skipped peer is tried again once its skip ends":
-    privateAccess(SyncReconciliation)
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscovered(otherSwitch)
-    let
-      mismatchesBefore = reconciliationFailures("scope_mismatch")
-      noPeerBefore = reconciliationFailures("no_peer")
-
-    discard await client.storeSynchronization()
-    client.outOfScopePeers[otherSwitch.peerInfo.peerId] = Moment.now() - 1.seconds
-    let retry = await client.storeSynchronization()
-
-    # Each mismatching session counts twice: once on each end.
-    check:
-      retry.isErr()
-      reconciliationFailures("scope_mismatch") == mismatchesBefore + 4
-      reconciliationFailures("no_peer") == noPeerBefore
-
-  asyncTest "a successful session clears the skip of its peer":
+  asyncTest "a successful session with the configured peer clears its mismatch report":
     privateAccess(SyncReconciliation)
     let peerManager = PeerManager.new(clientSwitch)
     peerManager.addServicePeer(
       sameSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
     )
     client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
-    let samePeerId = sameSwitch.peerInfo.peerId
-    client.outOfScopePeers[samePeerId] = Moment.now() + 30.minutes
+    client.configuredOutOfScope = true
 
     let res = await client.storeSynchronization()
 
     assert res.isOk(), res.error
-    check samePeerId notin client.outOfScopePeers
-
-  asyncTest "expired skips are pruned on a mismatch when a peer is configured":
-    privateAccess(SyncReconciliation)
-    let peerManager = PeerManager.new(clientSwitch)
-    peerManager.addServicePeer(
-      sameSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
-    )
-    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
-    let stalePeerId = sameSwitch.peerInfo.peerId
-    client.outOfScopePeers[stalePeerId] = Moment.now() - 1.seconds
-
-    # A peer with another scope dials the node.
-    let res = await other.storeSynchronization(
-      Opt.some(clientSwitch.peerInfo.toRemotePeerInfo())
-    )
-
-    check:
-      res.isErr()
-      stalePeerId notin client.outOfScopePeers
-      otherSwitch.peerInfo.peerId in client.outOfScopePeers
+    check not client.configuredOutOfScope
 
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":
