@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, sequtils, random, algorithm],
+  std/[sets, sequtils, random, algorithm, importutils, tables],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -1049,6 +1049,7 @@ suite "Waku Sync: reconciliation":
       cluster = 0,
     )
 
+    let decodeErrorsBefore = reconciliationFailures("decode_error")
     let conn = await clientSwitch.dial(
       serverPeerInfo.peerId, serverPeerInfo.addrs, WakuReconciliationCodec
     )
@@ -1063,6 +1064,7 @@ suite "Waku Sync: reconciliation":
     # the stream is closed, so the client may see the close first.
     checkUntilTimeout:
       localWants.len == 2
+    check reconciliationFailures("decode_error") == decodeErrorsBefore + 1
 
   asyncTest "sync 2 nodes same hashes":
     server = await newTestWakuRecon(
@@ -1853,6 +1855,53 @@ suite "Waku Sync: sync peer shard set":
     check:
       res.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
+
+  asyncTest "a peer that cannot be dialed is counted as a dial error":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    let deadSwitch = newTestSwitch()
+    await deadSwitch.start()
+    let deadInfo = deadSwitch.peerInfo.toRemotePeerInfo()
+    await deadSwitch.stop()
+    let dialErrorsBefore = reconciliationFailures("dial_error")
+
+    let res = await client.storeSynchronization(Opt.some(deadInfo))
+
+    check:
+      res.isErr()
+      reconciliationFailures("dial_error") == dialErrorsBefore + 1
+
+  asyncTest "a skipped peer is tried again once its skip ends":
+    privateAccess(SyncReconciliation)
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch)
+    let
+      mismatchesBefore = reconciliationFailures("scope_mismatch")
+      noPeerBefore = reconciliationFailures("no_peer")
+
+    discard await client.storeSynchronization()
+    client.outOfScopePeers[otherSwitch.peerInfo.peerId] = Moment.now() - 1.seconds
+    let retry = await client.storeSynchronization()
+
+    # Each mismatching session counts twice: once on each end.
+    check:
+      retry.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 4
+      reconciliationFailures("no_peer") == noPeerBefore
+
+  asyncTest "a successful session clears the skip of its peer":
+    privateAccess(SyncReconciliation)
+    let peerManager = PeerManager.new(clientSwitch)
+    peerManager.addServicePeer(
+      sameSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
+    )
+    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
+    let samePeerId = sameSwitch.peerInfo.peerId
+    client.outOfScopePeers[samePeerId] = Moment.now() + 30.minutes
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+    check samePeerId notin client.outOfScopePeers
 
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":
