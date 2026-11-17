@@ -208,7 +208,8 @@ proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesDa
     shards = self.shards.toSeq(),
     peer_cluster = remote.cluster,
     peer_shards = remote.shards,
-    fix = "give both nodes the same --cluster-id, --shard and --content-topic values"
+    fix =
+      "give both nodes the same --cluster-id and --shard values, and with autosharding the same --content-topic values"
 
 type PeerScope {.pure.} = enum
   Unknown
