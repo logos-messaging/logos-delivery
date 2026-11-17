@@ -19,6 +19,13 @@ var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
 proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
   requestedInTest.contains(hash)
 
+var pendingNowInTest* {.threadvar.}: Moment
+  ## The time of the pending deadlines of a reconciliation that uses
+  ## `pendingClockInTest`, which a test moves forward in place of a wait.
+
+proc pendingClockInTest*(): Moment {.gcsafe, raises: [].} =
+  pendingNowInTest
+
 type TransferDirection* {.pure.} = enum
   Sent
   Received
@@ -64,6 +71,7 @@ proc newTestWakuRecon*(
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     cluster: uint16 = DefaultClusterId,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
+    pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -80,6 +88,7 @@ proc newTestWakuRecon*(
     remoteNeedsTx = needsTx,
     clock = clock,
     pendingTimeout = pendingTimeout,
+    pendingClock = pendingClock,
   )
 
   let proto = res.get()

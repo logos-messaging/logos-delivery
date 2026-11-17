@@ -40,9 +40,20 @@ const DefaultMaxPayloadSize = 64 * 1024 * 1024
   ## The largest reconciliation payload that a node reads. An item set entry
   ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
 
+const MaxPendingTimeouts = 6
+  ## A promised element expires at most this many pending timeouts after its
+  ## round, also while its peer still delivers, since no round asks another peer
+  ## for an element while it is pending.
+
 type PromiseOrigin = object
+  ## The round that promised an element. All the elements of a round share one
+  ## `ref PromiseOrigin`.
   peer: PeerId
   session: uint64 # numbers the reconciliation sessions of this node
+  limit: Moment # no delivery extends an element of the round past this time
+
+proc monotonicNow*(): Moment {.gcsafe, raises: [].} =
+  Moment.now()
 
 type SyncReconciliation* = ref object of LPProtocol
   cluster: uint16
@@ -72,7 +83,8 @@ type SyncReconciliation* = ref object of LPProtocol
   # Elements a peer promised in a round. They are in the storage under
   # PendingPubsubTopic until they arrive or their deadline passes.
   pendingTimeout: Duration
-  pendingFrom: Table[WakuMessageHash, PromiseOrigin]
+  pendingClock: proc(): Moment {.gcsafe, raises: [].} # Source of the deadline times
+  pendingFrom: Table[WakuMessageHash, ref PromiseOrigin]
   pendingQueue: HeapQueue[(Moment, SyncID)] # earliest deadline first
   sessionCount: uint64
   # By session: its peer, and when the peer last sent an element that it
@@ -103,10 +115,10 @@ proc insertConfirmed(
     sender: Opt[PeerId],
 ) =
   ## `sender` is the peer that transferred the element, none for other sources.
-  var origin: PromiseOrigin
+  var origin: ref PromiseOrigin
   if self.pendingFrom.pop(id.hash, origin):
     if sender.isSome() and sender.get() == origin.peer:
-      self.lastDelivery[origin.session] = (origin.peer, Moment.now())
+      self.lastDelivery[origin.session] = (origin.peer, self.pendingClock())
     # The pending entry has no real topic, so it is replaced rather than kept.
     self.storage.remove(id).isOkOr:
       error "failed to remove pending message",
@@ -124,7 +136,9 @@ proc latestDelivery(self: SyncReconciliation, origin: PromiseOrigin): Opt[Moment
   ## The last time that `origin.peer` sent an element that it promised in the
   ## session of `origin` or in an earlier one. The peer sends its pushes in
   ## order, so the elements of a later session wait behind those of an earlier
-  ## one, but not the reverse.
+  ## one, but not the reverse. A hash that is pending at the peer goes out when
+  ## it arrives there, so it can come after the pushes of a later session, and
+  ## then its element can expire as before.
   var latest = Opt.none(Moment)
   for session, delivery in self.lastDelivery:
     if session <= origin.session and delivery.peer == origin.peer and
@@ -136,20 +150,21 @@ proc expirePending(self: SyncReconciliation) =
   ## Drops the promised elements that did not arrive by their deadline, so that
   ## the next round asks for them again. An element whose peer delivered an
   ## element of the same or an earlier session within the last timeout gets one
-  ## more timeout: a large backlog can take longer than one.
-  let now = Moment.now()
+  ## more timeout, up to `MaxPendingTimeouts` after its round: a large backlog
+  ## can take longer than one.
+  let now = self.pendingClock()
   while self.pendingQueue.len > 0 and self.pendingQueue[0][0] <= now:
     let (_, id) = self.pendingQueue.pop()
-    var origin: PromiseOrigin
-    self.pendingFrom.withValue(id.hash, found):
-      origin = found[]
-    do:
+    let origin = self.pendingFrom.getOrDefault(id.hash)
+    if origin.isNil():
       continue
 
-    let delivered = self.latestDelivery(origin)
-    if delivered.isSome() and delivered.get() + self.pendingTimeout > now:
-      self.pendingQueue.push((delivered.get() + self.pendingTimeout, id))
-      continue
+    let delivered = self.latestDelivery(origin[])
+    if delivered.isSome():
+      let deadline = min(delivered.get() + self.pendingTimeout, origin.limit)
+      if deadline > now:
+        self.pendingQueue.push((deadline, id))
+        continue
 
     self.pendingFrom.del(id.hash)
     self.deferredTx.del(id.hash)
@@ -293,11 +308,20 @@ proc isPending*(self: SyncReconciliation, hash: WakuMessageHash): bool =
   self.pendingFrom.contains(hash)
 
 proc trackPromised(
-    self: SyncReconciliation, origin: PromiseOrigin, idsToRecv: seq[SyncID]
+    self: SyncReconciliation, peer: PeerId, session: uint64, idsToRecv: seq[SyncID]
 ) =
   ## Promised elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
-  let deadline = Moment.now() + self.pendingTimeout
+  if idsToRecv.len == 0:
+    return
+  let
+    now = self.pendingClock()
+    origin = (ref PromiseOrigin)(
+      peer: peer,
+      session: session,
+      limit: now + self.pendingTimeout * MaxPendingTimeouts,
+    )
+    deadline = now + self.pendingTimeout
   for id in idsToRecv:
     self.storage.insert(id, PendingPubsubTopic, "").isOkOr:
       error "failed to insert pending message",
@@ -346,7 +370,7 @@ proc reconcileRound(
 
   trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
 
-  self.trackPromised(PromiseOrigin(peer: peerId, session: session), idsToRecv)
+  self.trackPromised(peerId, session, idsToRecv)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
@@ -573,6 +597,7 @@ proc new*(
     remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
+    pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
 ): Future[Result[T, string]] {.async.} =
   let timeRetention =
     if wakuArchive.isNil():
@@ -606,6 +631,7 @@ proc new*(
     relayJitter: relayJitter,
     clock: clock,
     pendingTimeout: pendingTimeout,
+    pendingClock: pendingClock,
     idsRx: idsRx,
     localWantsTx: localWantsTx,
     remoteNeedsTx: remoteNeedsTx,
