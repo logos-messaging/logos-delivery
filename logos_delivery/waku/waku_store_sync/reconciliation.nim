@@ -76,8 +76,6 @@ type SyncReconciliation* = ref object of LPProtocol
   # Whether the configured peer was reported outside the sync scope since its
   # last successful session, so that it is warned about once.
   configuredOutOfScope: bool
-  # Whether the lack of a store sync peer was already logged.
-  noSyncPeerLogged: bool
 
   # futures
   periodicSyncFut: Future[void]
@@ -194,71 +192,27 @@ proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesDa
     fix =
       "give both nodes the same --cluster-id and --shard values, and with autosharding the same --content-topic values"
 
-type PeerScope {.pure.} = enum
-  Unknown
-  Same
-  Other
-
-proc peerScope(self: SyncReconciliation, peer: RemotePeerInfo): PeerScope =
+func advertisesScope(self: SyncReconciliation, peer: RemotePeerInfo): bool =
   ## The metadata protocol already rejected peers of another cluster, so only
-  ## the shards it reported are compared. An ENR also carries its cluster.
-  if peer.shards.len > 0:
-    return
-      if peer.shards.toHashSet() == self.shards: PeerScope.Same else: PeerScope.Other
-
-  if peer.enr.isNone():
-    return PeerScope.Unknown
-  let record = peer.enr.get().toTyped().valueOr:
-      return PeerScope.Unknown
-  let sharding = record.relaySharding().valueOr:
-    return PeerScope.Unknown
-
-  if sharding.clusterId == self.cluster and sharding.shardIds.toHashSet() == self.shards:
-    return PeerScope.Same
-  return PeerScope.Other
+  ## the shards it reported are compared.
+  peer.shards.len > 0 and peer.shards.toHashSet() == self.shards
 
 proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
   ## The configured peer when there is one, so that a mismatch with it is
   ## reported rather than hidden. Otherwise a peer that advertises our scope,
-  ## then one whose scope is not known, then one that advertises another.
-  ## Metadata advertises the relay shards, which can differ from the sync
-  ## scope, so no peer is ruled out by what it advertises.
+  ## else any peer: metadata advertises the relay shards, which can differ
+  ## from the sync scope, so no peer is ruled out by what it advertises.
   let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
   if slotted.isSome():
     return slotted
 
-  var
-    unknownScope = Opt.none(RemotePeerInfo)
-    otherScope = Opt.none(RemotePeerInfo)
-  for peer in self.peerManager.selectPeers(WakuReconciliationCodec):
-    case self.peerScope(peer)
-    of PeerScope.Same:
+  let peers = self.peerManager.selectPeers(WakuReconciliationCodec)
+  for peer in peers:
+    if self.advertisesScope(peer):
       return Opt.some(peer)
-    of PeerScope.Unknown:
-      if unknownScope.isNone():
-        unknownScope = Opt.some(peer)
-    of PeerScope.Other:
-      if otherScope.isNone():
-        otherScope = Opt.some(peer)
-
-  if unknownScope.isSome():
-    return unknownScope
-  return otherScope
-
-proc nextSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
-  ## Logs the transitions between having a sync peer and having none.
-  let peer = self.selectSyncPeer()
-  if peer.isNone():
-    logos_delivery_reconciliation_failures.inc(labelValues = ["no_peer"])
-    if not self.noSyncPeerLogged:
-      self.noSyncPeerLogged = true
-      info "No store sync peer to sync with",
-        cluster = self.cluster, shards = self.shards.toSeq()
-  elif self.noSyncPeerLogged:
-    self.noSyncPeerLogged = false
-    info "Store sync peer found", peer_id = peer.get().peerId
-
-  return peer
+  if peers.len > 0:
+    return Opt.some(peers[0])
+  return Opt.none(RemotePeerInfo)
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
@@ -407,12 +361,15 @@ proc reconcileRound(
 
   return (sendPayload, hashToSend, idsToRecv.len)
 
-proc runSession(
+proc processRequest(
     self: SyncReconciliation, conn: Connection
 ): Future[Result[void, string]] {.async.} =
   var
     roundTrips = 0
     diffs = 0
+
+  # Signal to transfer protocol that this reconciliation is starting
+  await self.localWantsTx.addLast(conn.peerId)
 
   self.expirePending()
 
@@ -478,6 +435,9 @@ proc runSession(
 
     unanswered = hashToSend
 
+  # Signal to transfer protocol that this reconciliation is done
+  await self.localWantsTx.addLast(conn.peerId)
+
   logos_delivery_reconciliation_roundtrips.observe(roundTrips)
   logos_delivery_reconciliation_differences.observe(diffs)
   if self.isConfiguredPeer(conn.peerId):
@@ -486,21 +446,6 @@ proc runSession(
   await conn.close()
 
   return ok()
-
-proc processRequest(
-    self: SyncReconciliation, conn: Connection
-): Future[Result[void, string]] {.async.} =
-  # The transfer protocol toggles its session state on each signal, so the end
-  # is signalled whatever the outcome, cancellation included, or the state of
-  # the peer flips.
-  await self.localWantsTx.addLast(conn.peerId)
-  try:
-    return await self.runSession(conn)
-  finally:
-    try:
-      self.localWantsTx.addLastNoWait(conn.peerId)
-    except AsyncQueueFullError:
-      error "could not signal the end of a sync session", peer_id = conn.peerId
 
 proc initiate(
     self: SyncReconciliation,
@@ -546,13 +491,12 @@ proc storeSynchronization*(
     syncRange: Duration = self.syncRange,
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
-    self.nextSyncPeer().valueOr:
-      return err("no store sync peer found for the shards: " & $self.shards.toSeq())
+    self.selectSyncPeer().valueOr:
+      return err("no suitable peer found for sync")
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
 
   let conn: Connection = connOpt.valueOr:
-    logos_delivery_reconciliation_failures.inc(labelValues = ["dial_error"])
     return err("fail to dial remote: " & $peer.peerId)
 
   debug "Sync session initialized",

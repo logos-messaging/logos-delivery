@@ -18,7 +18,6 @@ import
   ../../logos_delivery/waku/[
     node/peer_manager,
     waku_core,
-    waku_enr,
     waku_core/message,
     waku_core/message/digest,
     waku_store_sync/common,
@@ -1060,10 +1059,8 @@ suite "Waku Sync: reconciliation":
       discard await conn.readLp(64 * 1024)
     await conn.close()
 
-    # A session that ends signals the transfer protocol a second time, after
-    # the stream is closed, so the client may see the close first.
-    checkUntilTimeout:
-      localWants.len == 2
+    # A session that fails to decode does not signal its end to transfer.
+    check localWants.len == 1
     check reconciliationFailures("decode_error") == decodeErrorsBefore + 1
 
   asyncTest "sync 2 nodes same hashes":
@@ -1695,17 +1692,14 @@ suite "Waku Sync: reconciliation":
     await conn.close()
 
 proc newRecon(
-    switch: Switch,
-    shards: seq[uint16],
-    peerManager: PeerManager = nil,
-    wants = newAsyncQueue[PeerId](),
+    switch: Switch, shards: seq[uint16], peerManager: PeerManager = nil
 ): Future[SyncReconciliation] =
   newTestWakuRecon(
     switch,
     shards,
     DefaultSyncRange,
     newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](),
-    wants,
+    newAsyncQueue[PeerId](),
     newAsyncQueue[(PeerId, WakuMessageHash)](),
     peerManager = peerManager,
   )
@@ -1714,19 +1708,6 @@ proc addDiscovered(switch: Switch, peer: Switch, shards: seq[uint16]) =
   let info = peer.peerInfo.toRemotePeerInfo()
   switch.peerStore.addPeer(info)
   switch.peerStore.setShardInfo(info.peerId, shards)
-
-proc addDiscovered(switch: Switch, peer: Switch) =
-  ## A peer whose shards are not known: no metadata and no ENR.
-  switch.peerStore.addPeer(peer.peerInfo.toRemotePeerInfo())
-
-proc addDiscoveredWithEnr(
-    switch: Switch, peer: Switch, cluster: uint16, shards: seq[uint16]
-) =
-  var builder = EnrBuilder.init(generateSecp256k1Key())
-  doAssert builder.withWakuRelaySharding(RelayShards.init(cluster, shards).get()).isOk()
-  var info = peer.peerInfo.toRemotePeerInfo()
-  info.enr = Opt.some(builder.build().get())
-  switch.peerStore.addPeer(info)
 
 suite "Waku Sync: sync peer shard set":
   var
@@ -1752,9 +1733,7 @@ suite "Waku Sync: sync peer shard set":
   asyncTest "a peer that advertises another shard set is tried in every round":
     client = await newRecon(clientSwitch, @[1'u16, 2])
     clientSwitch.addDiscovered(otherSwitch, @[3'u16])
-    let
-      mismatchesBefore = reconciliationFailures("scope_mismatch")
-      noPeerBefore = reconciliationFailures("no_peer")
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
 
     let first = await client.storeSynchronization()
     let second = await client.storeSynchronization()
@@ -1764,7 +1743,6 @@ suite "Waku Sync: sync peer shard set":
       first.isErr()
       second.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore + 4
-      reconciliationFailures("no_peer") == noPeerBefore
 
   asyncTest "a peer whose relay advertises more shards than it syncs is still synced with":
     client = await newRecon(clientSwitch, @[1'u16, 2])
@@ -1773,46 +1751,6 @@ suite "Waku Sync: sync peer shard set":
     let res = await client.storeSynchronization()
 
     assert res.isOk(), res.error
-
-  asyncTest "a peer of another cluster in its ENR is tried after one with unknown shards":
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscoveredWithEnr(otherSwitch, 9, @[1'u16, 2])
-    clientSwitch.addDiscovered(sameSwitch)
-    let mismatchesBefore = reconciliationFailures("scope_mismatch")
-
-    let res = await client.storeSynchronization()
-
-    assert res.isOk(), res.error
-    check reconciliationFailures("scope_mismatch") == mismatchesBefore
-
-  asyncTest "a node syncs with a discovered peer whose ENR has its cluster and shards":
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscoveredWithEnr(sameSwitch, DefaultClusterId, @[2'u16, 1])
-
-    let res = await client.storeSynchronization()
-
-    assert res.isOk(), res.error
-
-  asyncTest "a node syncs with a peer whose shards are unknown when none advertises its own":
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
-    clientSwitch.addDiscovered(sameSwitch)
-
-    let res = await client.storeSynchronization()
-
-    assert res.isOk(), res.error
-
-  asyncTest "a session that fails signals both its start and its end to transfer":
-    let wants = newAsyncQueue[PeerId]()
-    client = await newRecon(clientSwitch, @[1'u16, 2], wants = wants)
-
-    let res = await client.storeSynchronization(
-      Opt.some(otherSwitch.peerInfo.toRemotePeerInfo())
-    )
-
-    check:
-      res.isErr()
-      wants.len == 2
 
   asyncTest "a node syncs with the discovered peer that advertises its shard set":
     client = await newRecon(clientSwitch, @[1'u16, 2])
@@ -1840,20 +1778,6 @@ suite "Waku Sync: sync peer shard set":
     check:
       res.isErr()
       reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
-
-  asyncTest "a peer that cannot be dialed is counted as a dial error":
-    client = await newRecon(clientSwitch, @[1'u16, 2])
-    let deadSwitch = newTestSwitch()
-    await deadSwitch.start()
-    let deadInfo = deadSwitch.peerInfo.toRemotePeerInfo()
-    await deadSwitch.stop()
-    let dialErrorsBefore = reconciliationFailures("dial_error")
-
-    let res = await client.storeSynchronization(Opt.some(deadInfo))
-
-    check:
-      res.isErr()
-      reconciliationFailures("dial_error") == dialErrorsBefore + 1
 
   asyncTest "a successful session with the configured peer clears its mismatch report":
     privateAccess(SyncReconciliation)
