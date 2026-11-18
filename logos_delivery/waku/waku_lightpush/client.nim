@@ -30,6 +30,16 @@ func shortPeerId(peer: PeerId): string =
 func shortPeerId(peer: RemotePeerInfo): string =
   shortLog(peer.peerId)
 
+const
+  WriteRequestFailedDesc* = "Failed to write request to peer"
+    ## The start of the result text when the request cannot be written.
+  ReadResponseFailedDesc* = "Failed to read response from peer"
+    ## The start of the result text when the answer of the service cannot be read.
+  ResponseNotDecodedDesc* = decodeRpcFailure
+    ## The result text when the answer of the service cannot be decoded.
+  RequestIdMismatchDesc* = "response failure, requestId mismatch"
+    ## The result text when the answer names another request.
+
 proc sendPushRequest(
     wl: WakuLightPushClient,
     req: LightPushRequest,
@@ -48,7 +58,13 @@ proc sendPushRequest(
     # The request does not wait for the EOF of its peer, after a reply or a cancel.
     asyncSpawn connection.close()
 
-  await connection.writeLP(req.encode())
+  try:
+    await connection.writeLP(req.encode())
+  except LPStreamError:
+    debug "Failed to write request to peer", error = getCurrentExceptionMsg()
+    return lightpushResultInternalError(
+      WriteRequestFailedDesc & ": " & getCurrentExceptionMsg()
+    )
 
   var buffer: seq[byte]
   try:
@@ -56,13 +72,13 @@ proc sendPushRequest(
   except LPStreamError:
     debug "Failed to read response from peer", error = getCurrentExceptionMsg()
     return lightpushResultInternalError(
-      "Failed to read response from peer: " & getCurrentExceptionMsg()
+      ReadResponseFailedDesc & ": " & getCurrentExceptionMsg()
     )
 
   let response = LightpushResponse.decode(buffer).valueOr:
     debug "Failed to decode response"
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
-    return lightpushResultInternalError(decodeRpcFailure)
+    return lightpushResultInternalError(ResponseNotDecodedDesc)
 
   # Rate-limited, oversized and undecodable requests are rejected before the
   # requestId is read, so the service answers with the placeholder id "N/A".
@@ -75,7 +91,7 @@ proc sendPushRequest(
       ):
     debug "Response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
-    return lightpushResultInternalError("response failure, requestId mismatch")
+    return lightpushResultInternalError(RequestIdMismatchDesc)
 
   return toPushResult(response)
 

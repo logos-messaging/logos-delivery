@@ -284,9 +284,34 @@ suite "Delivery plan":
         {Trigger.TooLargeForMix, Trigger.MixWindowElapsed}:
       let handOver = plan.transition(DeliveryState.Mix, trigger).get()
       check:
-        plan.fixedToState(DeliveryState.Mix, trigger) == Opt.some(DeliveryState.Relay)
+        plan.toState(DeliveryState.Mix, trigger) == Opt.some(DeliveryState.Relay)
         handOver.toState == DeliveryState.Relay
         handOver.effects == {TransitionEffect.ReportMixFallback}
+
+  test "Preferred keeps a task on mix after a mix attempt with no answer":
+    ## The exit can have published the message, so no plain send follows.
+    let plan = planOf(AnonymityLevel.Preferred, AllTransports)
+    # A lost answer and a local fault end a mix attempt with no answer.
+    for trigger in [Trigger.MixNoReply, Trigger.StepRaised]:
+      let noAnswer = plan.transition(DeliveryState.Mix, trigger).get()
+      check:
+        noAnswer.toState == DeliveryState.NextRoundRetry
+        noAnswer.effects == {TransitionEffect.MarkMixUnanswered}
+    # A local fault on the plain path marks no task.
+    check plan.transition(DeliveryState.Relay, Trigger.StepRaised).get().effects == {}
+    for trigger in MixUnusableTriggers +
+        {Trigger.TooLargeForMix, Trigger.MixWindowElapsed}:
+      let kept =
+        plan.transition(DeliveryState.Mix, trigger, {Guard.MixUnanswered}).get()
+      check:
+        kept.toState == DeliveryState.NextRoundRetry
+        kept.effects == {}
+    # With the mark, no trigger and no other fact takes a task from mix to a plain transport.
+    for others in factSets():
+      let facts = others + {Guard.MixUnanswered}
+      for trigger in Trigger:
+        check plan.toState(DeliveryState.Mix, trigger, facts).get(DeliveryState.Mix) notin
+          {DeliveryState.Relay, DeliveryState.Lightpush}
     check plan.fixedToState(DeliveryState.Mix, Trigger.ServiceUnavailable) ==
       Opt.some(DeliveryState.NextRoundRetry)
 
@@ -510,10 +535,11 @@ Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry
 Mix -- ProofRejected --> NotPropagated
 Mix -- {Rejected, WindowElapsed} --> NotPropagated
-Mix -- StepRaised --> NextRoundRetry
 Mix -- Published[Reliable] / {ReportPropagatedOverMix} --> MixDelivered
 Mix -- Published / {ReportPropagatedOverMix} --> Propagated
 Mix -- {ZeroPeers, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, ServiceError} --> NextRoundRetry
+Mix -- {StepRaised, MixNoReply} / {MarkMixUnanswered} --> NextRoundRetry
+Mix -- {TooLargeForMix, MixNotMounted, MixUnavailable, MixSelfHop, MixNoExit, MixWindowElapsed}[MixUnanswered] --> NextRoundRetry
 Mix -- {TooLargeForMix, MixNotMounted, MixUnavailable, MixSelfHop, MixNoExit, MixWindowElapsed} / {ReportMixFallback} --> Relay
 StoreResend -- Started --> AwaitingStore
 StoreResend -- StoreReported --> Stored
@@ -551,10 +577,10 @@ Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry
 Mix -- ProofRejected --> NotPropagated
 Mix -- {Rejected, WindowElapsed} --> NotPropagated
-Mix -- StepRaised --> NextRoundRetry
 Mix -- Published[Reliable] / {ReportPropagatedOverMix} --> MixDelivered
 Mix -- Published / {ReportPropagatedOverMix} --> Propagated
 Mix -- {ZeroPeers, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, ServiceError} --> NextRoundRetry
+Mix -- {StepRaised, MixNoReply} / {MarkMixUnanswered} --> NextRoundRetry
 Mix -- {TooLargeForMix, MixNotMounted} --> NotPropagated
 Mix -- {MixUnavailable, MixSelfHop, MixNoExit}[InMixGrace] --> NextRoundRetry
 Mix -- {MixUnavailable, MixSelfHop, MixNoExit} --> NotPropagated

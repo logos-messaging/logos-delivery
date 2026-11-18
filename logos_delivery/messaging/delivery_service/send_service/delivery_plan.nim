@@ -58,6 +58,9 @@ type
     MixUnavailable
     MixSelfHop
     MixNoExit
+    MixNoReply
+      ## A mix attempt got no answer that the node can read.
+      ## The network can have the message.
     MixWindowElapsed
     RetryTick
     WindowElapsed
@@ -72,6 +75,7 @@ type
     Reliable ## P2P reliability is on and the message is not ephemeral.
     CanResend ## The task can get one more resend.
     InMixGrace ## The task is within `MixUnusableGrace` of its admission.
+    MixUnanswered ## A mix attempt of the task got no answer.
     CanRefreshProof
       ## The RLN backend can refresh its proofs, and the task can get one more new proof.
 
@@ -83,6 +87,8 @@ type
       ## `ReportPropagated` for a message that went out over mix.
       ## It marks the task, so the send service never asks Store about it.
     ReportMixFallback ## Logs the hand-over from mix to the plain path.
+    MarkMixUnanswered
+      ## Marks the task, so the send service never sends its message in the clear.
     ReportStoreTimeout ## Logs the end of the Store validation window and counts it.
     RefreshProof
       ## Tells the RLN backend about the rejection.
@@ -150,7 +156,9 @@ const
     WindowElapsed,
   }
   MixTriggers =
-    LightpushTriggers + MixUnusableTriggers + {TooLargeForMix, WindowElapsed}
+    LightpushTriggers + MixUnusableTriggers + {
+      TooLargeForMix, MixNoReply, WindowElapsed
+    }
   NonFailureTriggers = {
     Started, Proved, Published, RetryTick, WindowElapsed, StoreReported, StoreMissed,
     StoreWindowElapsed,
@@ -282,7 +290,7 @@ func buildDeliveryPlan*(
   arrows.add used -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry
   arrows.add used -- ProofRejected --> NotPropagated
   arrows.add used -- {Rejected, WindowElapsed} --> NotPropagated
-  arrows.add used -- StepRaised --> NextRoundRetry
+  arrows.add plain -- StepRaised --> NextRoundRetry
   if Relay in used:
     arrows.add Relay -- {ZeroPeers, NoRelayPeers} -->
       (if Lightpush in used: Lightpush else: NotPropagated)
@@ -293,10 +301,14 @@ func buildDeliveryPlan*(
     arrows.add Mix -- Published[Reliable] / {ReportPropagatedOverMix} --> MixDelivered
     arrows.add Mix -- Published / {ReportPropagatedOverMix} --> Propagated
     arrows.add Mix -- RetryableServiceTriggers --> NextRoundRetry
+    # A local fault also ends a mix attempt with no answer.
+    arrows.add Mix -- {StepRaised, MixNoReply} / {MarkMixUnanswered} --> NextRoundRetry
     if level == AnonymityLevel.Preferred:
-      arrows.add Mix --
-        (MixUnusableTriggers + {TooLargeForMix, MixWindowElapsed}) / {ReportMixFallback} -->
-        chain[1]
+      # The exit can have published a message whose mix attempt got no answer.
+      # A plain send of it then shows the address of this node, so it stays on mix.
+      let handOver = MixUnusableTriggers + {TooLargeForMix, MixWindowElapsed}
+      arrows.add Mix -- handOver[MixUnanswered] --> NextRoundRetry
+      arrows.add Mix -- handOver / {ReportMixFallback} --> chain[1]
     else:
       arrows.add Mix -- {TooLargeForMix, MixNotMounted} --> NotPropagated
       arrows.add Mix -- (MixUnusableTriggers - {MixNotMounted})[InMixGrace] -->

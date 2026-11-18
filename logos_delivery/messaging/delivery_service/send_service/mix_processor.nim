@@ -64,6 +64,13 @@ func mixUnusableText*(trigger: Trigger): string =
   of Trigger.MixNoExit: MixNoExitReason
   else: MixUnavailableReason
 
+func mixReport*(error: ErrorStatus): StepReport =
+  ## The report of a mix publish that failed.
+  ## The exit can have published the message of a publish with no answer.
+  if error.isUnanswered():
+    return StepReport.init(Trigger.MixNoReply, error.desc.get($error.code))
+  return lightpushReport(error)
+
 method checkBeforeSend*(
     self: MixSendProcessor, task: DeliveryTask
 ): Result[void, SendError] {.gcsafe, raises: [].} =
@@ -94,7 +101,7 @@ method attempt*(
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg, mixify = true)
   ).valueOr:
-    let failure = lightpushReport(error)
+    let failure = mixReport(error)
     debug "Mix publish failed",
       msgHash = task.msgHash.to0xHex(), trigger = failure.trigger, error = failure.desc
     return failure

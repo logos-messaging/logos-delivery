@@ -60,6 +60,18 @@ method attempt(
 ): Future[StepReport] {.async.} =
   return StepReport.init(self.trigger, self.desc)
 
+type SilentProcessor = ref object of BaseSendProcessor
+  ## An attempt that gets no answer. With `fault` it raises, and else it does not end.
+  fault: bool
+
+method attempt(
+    self: SilentProcessor, task: DeliveryTask
+): Future[StepReport] {.async.} =
+  if self.fault:
+    raise newException(ValueError, "a local fault in the mix attempt")
+  await newFuture[void]("a mix attempt with no end")
+  return StepReport.init(Trigger.Published)
+
 proc serviceAt(
     waku: Waku,
     level: AnonymityLevel,
@@ -720,6 +732,134 @@ suite "SendService - anonymity level with a mounted mix":
       task.tryCount == 1 # the plain attempt, and none over mix
       plain.hashes == @[accepted] # the hand-over sends the same message
 
+  asyncTest "a Preferred task with an unanswered mix attempt never goes to the plain path":
+    ## The exit can have published the message of an attempt with no answer.
+    ## A plain send of it then shows the address of this node.
+    # The pool is usable and no member serves lightpush, so mix cannot attempt a task.
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60170 + i, lightpush = false)
+    check waku.mixReady()
+
+    let plain = PlainSendProcessor()
+    let service = newService(AnonymityLevel.Preferred, plain)
+
+    let held = buildTask("unanswered-no-exit", chronos.seconds(5))
+    held.mixUnanswered = true
+    check:
+      (await service.runRound(held)) == DeliveryState.NextRoundRetry
+      held.lastFailure == Opt.some(Trigger.MixNoExit)
+      plain.calls == 0
+
+    # The same service hands over a task with no such attempt.
+    let free = buildTask("no-mix-attempt", chronos.seconds(5))
+    check:
+      (await service.runRound(free)) == DeliveryState.Propagated
+      plain.calls == 1
+
+    # With an exit, the end of the mix window does not hand the task over.
+    addMixPeer(60174, lightpush = true)
+    check waku.selectMixLightpushPeer(shard).isSome()
+    let late = buildTask("unanswered-past-mix-window", chronos.seconds(90))
+    late.mixUnanswered = true
+    let attempt = service.step(late, DeliveryState.Mix)
+    check:
+      late.tryCount == 1 # mix attempts it again
+      plain.calls == 1
+    await attempt.cancelAndWait()
+
+    # A task with the mark ends at the end of the delivery window, with no plain send.
+    let ended =
+      buildTask("unanswered-past-window", service.maxDeliveryTime + chronos.seconds(1))
+    ended.mixUnanswered = true
+    check:
+      (await service.step(ended, DeliveryState.NextRoundRetry)) ==
+        DeliveryState.NotPropagated
+      ended.lastReport.get().trigger == Trigger.WindowElapsed
+      plain.calls == 1
+
+  test "only a mix publish with no answer that the node can read reports MixNoReply":
+    let unanswered = [
+      (LightPushErrorCode.SERVICE_NOT_AVAILABLE, MixTimedOutDesc),
+      (LightPushErrorCode.INTERNAL_SERVER_ERROR, WriteRequestFailedDesc & ": closed"),
+      (LightPushErrorCode.INTERNAL_SERVER_ERROR, ReadResponseFailedDesc & ": closed"),
+      (LightPushErrorCode.INTERNAL_SERVER_ERROR, ResponseNotDecodedDesc),
+      (LightPushErrorCode.INTERNAL_SERVER_ERROR, RequestIdMismatchDesc),
+    ]
+    for (code, desc) in unanswered:
+      check mixReport((code, Opt.some(desc))).trigger == Trigger.MixNoReply
+    # The exit answered each of these, so the message is not on the network.
+    let answered = [
+      (LightPushErrorCode.SERVICE_NOT_AVAILABLE, "no relay"),
+      (LightPushErrorCode.INTERNAL_SERVER_ERROR, "a fault of the service"),
+      (LightPushErrorCode.TOO_MANY_REQUESTS, MixTimedOutDesc),
+      (LightPushErrorCode.NO_PEERS_TO_RELAY, "no peers"),
+    ]
+    for (code, desc) in answered:
+      check mixReport((code, Opt.some(desc))).trigger != Trigger.MixNoReply
+
+  asyncTest "a mix attempt with no answer marks the task, and an answer does not":
+    for trigger in [Trigger.MixNoReply, Trigger.ServiceUnavailable]:
+      let mix = ScriptedResultProcessor(trigger: trigger, desc: "scripted")
+      let service = SendService
+        .new(
+          false,
+          waku,
+          RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new"),
+          SendProcessors(mix: mix, lightpush: PlainSendProcessor()),
+          AnonymityLevel.Preferred,
+          retryInterval = chronos.hours(1),
+        )
+        .expect("SendService.new")
+      let task = buildTask("answer-" & $trigger, ZeroDuration)
+      check:
+        (await service.runRound(task)) == DeliveryState.NextRoundRetry
+        task.mixUnanswered == (trigger == Trigger.MixNoReply)
+
+  asyncTest "a stop or a local fault that ends a mix attempt marks the task":
+    ## The exit can have published the message of such an attempt.
+    proc serviceWith(mix: BaseSendProcessor): SendService =
+      SendService
+        .new(
+          false,
+          waku,
+          RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new"),
+          SendProcessors(mix: mix, lightpush: PlainSendProcessor()),
+          AnonymityLevel.Preferred,
+          retryInterval = chronos.hours(1),
+        )
+        .expect("SendService.new")
+
+    let faulted = buildTask("mix-attempt-raised", ZeroDuration)
+    check:
+      (await serviceWith(SilentProcessor(fault: true)).runRound(faulted)) ==
+        DeliveryState.NextRoundRetry
+      faulted.lastReport.get().trigger == Trigger.StepRaised
+      faulted.mixUnanswered
+
+    let stopped = buildTask("mix-attempt-stopped", ZeroDuration)
+    let attempt = serviceWith(SilentProcessor()).step(stopped, DeliveryState.Mix)
+    check:
+      not attempt.finished()
+      not stopped.mixUnanswered
+    await attempt.cancelAndWait()
+    check stopped.mixUnanswered
+
+    # A stop that ends a plain attempt marks no task.
+    let plain = buildTask("plain-attempt-stopped", ZeroDuration)
+    let plainAttempt = SendService
+      .new(
+        false,
+        waku,
+        RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new"),
+        SendProcessors(lightpush: SilentProcessor()),
+        AnonymityLevel.None,
+        retryInterval = chronos.hours(1),
+      )
+      .expect("SendService.new")
+      .step(plain, DeliveryState.Lightpush)
+    await plainAttempt.cancelAndWait()
+    check not plain.mixUnanswered
+
   asyncTest "an RLN proof refresh starts a new Preferred mix window":
     ## The refresh clears `firstAdmittedTime`, so the new proof
     ## draws a new nonce. The window runs from that field, so the refreshed task
@@ -1028,6 +1168,7 @@ type StubMixConn = ref object of Connection
   written: seq[byte] ## the bytes of the last `write`
   cancelledIo: bool ## A pending `readOnce` or `write` ended with a cancel.
   keepsOpen: bool ## The peer sends its reply and no EOF.
+  failsWrite: bool ## Each `write` raises.
 
 method readOnce(
     s: StubMixConn, pbytes: pointer, nbytes: int
@@ -1059,6 +1200,8 @@ method write(
 ): Future[void] {.async: (raises: [CancelledError, LPStreamError]).} =
   # `stallInSend` models the first-hop dial. Mix dials with `switch.dial`, so
   # `DefaultDialTimeout` does not apply.
+  if s.failsWrite:
+    raise (ref LPStreamError)(msg: "the stub does not write")
   s.writes.add(msg.len)
   s.written = msg
   if s.stallInSend:
@@ -1143,6 +1286,8 @@ suite "Mix send path - the reply budget":
       res.isErr()
       res.error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE
       lightpushReport(res.error).trigger == Trigger.ServiceUnavailable
+      # A mix publish that timed out is a mix attempt with no answer.
+      mixReport(res.error).trigger == Trigger.MixNoReply
 
   proc cancelsPublishOverMix(stallInSend: bool) {.async.} =
     ## A cancel of `publishOverMix` cancels the publish, which waits in `write` or in `readOnce`.
@@ -1216,6 +1361,22 @@ suite "Mix send path - the reply budget":
   asyncTest "a cancel after a rejection of the exit keeps the rejection":
     await keepsReply(LightPushErrorCode.PAYLOAD_TOO_LARGE)
 
+  asyncTest "a request that the node cannot write counts as a mix attempt with no answer":
+    let conn = newStubMixConn()
+    conn.failsWrite = true
+    let res = await lightpush_client.publish(
+      waku.node.wakuLightpushClient,
+      Opt.some(PubsubTopic("/waku/2/rs/3/0")),
+      fakeWakuMessage(contentTopic = "/test/1/anonymity/proto"),
+      Connection(conn),
+    )
+    check:
+      res.isErr()
+      res.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
+      res.error.desc.get("").startsWith(WriteRequestFailedDesc)
+      res.error.isUnanswered()
+      mixReport(res.error).trigger == Trigger.MixNoReply
+
   asyncTest "a lightpush reply is the result at once, also when the peer keeps its stream open":
     let conn = newStubMixConn()
     conn.keepsOpen = true
@@ -1271,6 +1432,8 @@ suite "Mix send path - the reply budget":
       res.isErr()
       res.error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE
       lightpushReport(res.error).trigger == Trigger.ServiceUnavailable
+      # A mix publish that timed out is a mix attempt with no answer.
+      mixReport(res.error).trigger == Trigger.MixNoReply
 
 suite "Mix send path - the node's own hop":
   ## `mixReady()` is false while mix cannot encode this node's own hop: every

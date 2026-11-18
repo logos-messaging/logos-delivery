@@ -475,7 +475,8 @@ proc transportStep(
     info "Mix can carry messages again"
   if task.isDeliveryTimedOut(self.maxDeliveryTime):
     return StepReport.init(Trigger.WindowElapsed)
-  if overMix and task.admissionAge() > self.mixWindow:
+  # A task whose mix attempt got no answer keeps mix for the whole delivery window.
+  if overMix and not task.mixUnanswered and task.admissionAge() > self.mixWindow:
     return StepReport.init(Trigger.MixWindowElapsed)
 
   task.tryCount.inc()
@@ -485,7 +486,14 @@ proc transportStep(
     # whose reply is lost is still on the network. From here on, the send service
     # logs no hash for this task at INFO or ERROR.
     task.anonymized = true
-  return await self.runAttempt(task, processor.attempt(task))
+  try:
+    return await self.runAttempt(task, processor.attempt(task))
+  except CancelledError as exc:
+    if overMix:
+      # A stop ends this attempt with no answer.
+      # The exit can have published its message.
+      task.mixUnanswered = true
+    raise exc
 
 proc storeStep(
     self: SendService, task: DeliveryTask, state: DeliveryState
@@ -670,6 +678,8 @@ proc holds(self: SendService, task: DeliveryTask, guard: Guard): bool =
     self.canResend(task)
   of InMixGrace:
     task.admissionAge() <= MixUnusableGrace
+  of MixUnanswered:
+    task.mixUnanswered
   of CanRefreshProof:
     task.proofRefreshes < MaxProofRefreshes and self.waku.rlnRefreshesProofs()
 
@@ -684,6 +694,8 @@ proc runEffect(
     self.reportPropagated(task)
   of ReportMixFallback:
     self.reportMixFallback(task, report.trigger)
+  of MarkMixUnanswered:
+    task.mixUnanswered = true
   of ReportStoreTimeout:
     self.reportStoreTimeout(task)
   of RefreshProof:

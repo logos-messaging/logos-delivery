@@ -20,6 +20,7 @@ import
     node/waku_node/lightpush,
     node/peer_manager,
     rln,
+    waku_lightpush/client,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
@@ -77,6 +78,23 @@ proc messageForSizeCheck*(
 
 func maxMessageSizeBytes*(self: Waku): uint64 =
   return self.conf.maxMessageSizeBytes
+
+func isUnanswered*(error: ErrorStatus): bool =
+  ## True when a publish got no answer that the node can read.
+  ## The time limit ended, the request could not be written, or the reply could not be
+  ## read, decoded or matched.
+  ## The network can have the message after each of these.
+  ## It checks the code and the text, as `isRlnRejection` does.
+  let desc = error.desc.get("")
+  return
+    (error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE and desc == MixTimedOutDesc) or
+    (
+      error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR and (
+        desc.startsWith(WriteRequestFailedDesc) or
+        desc.startsWith(ReadResponseFailedDesc) or desc == ResponseNotDecodedDesc or
+        desc == RequestIdMismatchDesc
+      )
+    )
 
 func isRlnRejection*(error: ErrorStatus): bool =
   ## True when a publish failure means "the RLN proof was not accepted", so the
