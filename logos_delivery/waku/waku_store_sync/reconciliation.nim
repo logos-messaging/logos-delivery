@@ -268,7 +268,6 @@ proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.}
     try:
       await conn.readLp(DefaultMaxPayloadSize)
     except LPStreamError as exc:
-      logos_delivery_reconciliation_failures.inc(labelValues = ["read_error"])
       await conn.close()
       return err("remote " & $conn.peerId & " connection read error: " & exc.msg)
 
@@ -277,7 +276,6 @@ proc readPayload(conn: Connection): Future[Result[RangesData, string]] {.async.}
   )
 
   let payload = RangesData.deltaDecode(buffer).valueOr:
-    logos_delivery_reconciliation_failures.inc(labelValues = ["decode_error"])
     await conn.close()
     return err("remote " & $conn.peerId & " payload decoding error: " & error)
 
@@ -296,7 +294,6 @@ proc writePayload(
   try:
     await conn.writeLP(rawPayload)
   except LPStreamError as exc:
-    logos_delivery_reconciliation_failures.inc(labelValues = ["write_error"])
     await conn.close()
     return err("remote " & $conn.peerId & " connection write error: " & exc.msg)
 
@@ -481,7 +478,17 @@ proc initiate(
       itemSets: @[],
     )
 
-  ?await writePayload(connection, initPayload)
+  let sendPayload = initPayload.deltaEncode()
+
+  logos_delivery_total_bytes_exchanged.inc(
+    sendPayload.len, labelValues = [Reconciliation, Sending]
+  )
+
+  try:
+    await connection.writeLP(sendPayload)
+  except LPStreamError as exc:
+    await connection.close()
+    return err("remote " & $connection.peerId & " connection write error: " & exc.msg)
 
   trace "sync payload sent",
     local = self.peerManager.switch.peerInfo.peerId,

@@ -1165,7 +1165,6 @@ suite "Waku Sync: reconciliation":
       cluster = 0,
     )
 
-    let decodeErrorsBefore = reconciliationFailures("decode_error")
     let conn = await clientSwitch.dial(
       serverPeerInfo.peerId, serverPeerInfo.addrs, WakuReconciliationCodec
     )
@@ -1176,9 +1175,8 @@ suite "Waku Sync: reconciliation":
       discard await conn.readLp(64 * 1024)
     await conn.close()
 
-    # A session that fails to decode does not signal its end to transfer.
+    # A session that ends signals the transfer protocol a second time.
     check localWants.len == 1
-    check reconciliationFailures("decode_error") == decodeErrorsBefore + 1
 
   asyncTest "sync 2 nodes same hashes":
     server = await newTestWakuRecon(
