@@ -44,19 +44,10 @@ proc pingPeer(node: WakuNode, peerId: PeerId): Future[Result[void, string]] {.as
       return err("pingPeer failed dialing peer peerId: " & $peerId)
     defer:
       # Always close the stream
-      # Workaround for Nim 2.2.6 mishandling `try: await` inside defer (Nim issue 25330)
-      # TODO: revert to a plain await on Nim >= 2.2.8
-      let closeFut =
-        try:
-          stream.close()
-        except CatchableError as e:
-          debug "Error closing ping connection", peerId = peerId, error = e.msg
-          nil
-      if not closeFut.isNil():
-        try:
-          await closeFut
-        except CatchableError as e:
-          debug "Error closing ping connection", peerId = peerId, error = e.msg
+      try:
+        await stream.close()
+      except CatchableError as e:
+        debug "Error closing ping connection", peerId = peerId, error = e.msg
 
     # Perform ping
     let pingDuration = await node.libp2pPing.ping(stream)
