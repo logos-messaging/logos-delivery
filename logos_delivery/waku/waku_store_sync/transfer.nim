@@ -21,6 +21,7 @@ import
   ../waku_core/message/digest,
   ../waku_core/message/message,
   ../waku_core/message/default_values,
+  ../waku_core/time,
   ../node/peer_manager/peer_manager,
   ../waku_archive,
   ../waku_archive/common,
@@ -41,6 +42,10 @@ const MaxConcurrentPeers = 4
   ## archive queries, so this caps the load that the pushes put on the database.
 
 const MaxBatchSize = 20 ## Pushes to one peer that are looked up in one archive query.
+
+const MaxBatchSpan = Timestamp(5 * 60 * 1_000_000_000)
+  ## Time between the oldest and the newest message of a batch, in nanoseconds,
+  ## so that its lookup stays within few partitions.
 
 type RequestedCheck* = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].}
   ## True when a reconciliation round asked for the message.
@@ -268,8 +273,17 @@ proc senderLoop(self: SyncTransfer) {.async.} =
 
     var batch: seq[SyncID]
     self.outQueues.withValue(peerId, queue):
-      while batch.len < MaxBatchSize and queue.ids.len > 0:
-        batch.add(queue.ids.popFirst())
+      if queue.ids.len > 0:
+        var
+          minTime = queue.ids.peekFirst().time
+          maxTime = minTime
+        while batch.len < MaxBatchSize and queue.ids.len > 0:
+          let time = queue.ids.peekFirst().time
+          if max(maxTime, time) - min(minTime, time) > MaxBatchSpan:
+            break
+          minTime = min(minTime, time)
+          maxTime = max(maxTime, time)
+          batch.add(queue.ids.popFirst())
 
     # A raise must not end the loop, or the peer keeps an entry that no sender
     # serves, and its later pushes are queued and never sent.
