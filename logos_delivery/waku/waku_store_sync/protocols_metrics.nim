@@ -28,5 +28,4 @@ declarePublicGauge logos_delivery_total_messages_cached,
   "the number of messages cached by the node after prunning"
 
 declarePublicCounter logos_delivery_reconciliation_failures,
-  "the number of store sync sessions that ended without a sync, by reason",
-  ["reason"]
+  "the number of store sync sessions that ended without a sync, by reason", ["reason"]
