@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   windows:
-    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@793b2e4b57e8fb2e4b2c06211fa931904de962a1
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@a060c2da64e2fc4a4c677362a712ea5473648dc8
     # The pinned workflow consumes optional Attic secrets without declaring
     # named workflow_call secrets, so inheritance is its only valid interface.
     secrets: inherit
@@ -33,9 +33,9 @@ jobs:
 
       smoke-file: .github/smoke/logos-delivery.sh
 
-      # Measured 2026-09-16 into an empty store: 26 derivations for these two
-      # targets, all this repo's own Nim/Rust work; 60 is tighter than the 150.
-      cold-derivation-budget: 60
+      # Measured 2026-11-18 with the Logos cache unreachable: 79 derivations for
+      # these two targets, none of them the shared Qt/icu/boost closure.
+      cold-derivation-budget: 100
 
       # A cold Nim + zerokit cross build on a 4-core GitHub runner. The MSYS2
       # job next door is the same order of magnitude.
