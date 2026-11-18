@@ -253,8 +253,15 @@ proc senderLoop(self: SyncTransfer) {.async.} =
       while batch.len < MaxBatchSize and queue.ids.len > 0:
         batch.add(queue.ids.popFirst())
 
+    # A raise must not end the loop, or the peer keeps an entry that no sender
+    # serves, and its later pushes are queued and never sent.
     if batch.len > 0:
-      await self.sendBatch(peerId, batch)
+      try:
+        await self.sendBatch(peerId, batch)
+      except CancelledError as exc:
+        raise exc
+      except CatchableError as exc:
+        error "failed to push messages", remote_peer_id = peerId, error = exc.msg
 
     var hasMore = false
     self.outQueues.withValue(peerId, queue):
