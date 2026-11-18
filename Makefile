@@ -26,6 +26,10 @@ NIMBLE_TOOLDIR := $(HOME)/.local/nimble-$(REQUIRED_NIMBLE_PIN)/bin
 NIMBLE := $(NIMBLE_TOOLDIR)/nimble
 export PATH := $(NIMBLE_TOOLDIR):$(HOME)/.nimble/bin:$(PATH)
 
+# The memory manager every build uses: orc, or refc for hosts that still use it.
+NIM_MM ?= orc
+export NIM_MM
+
 # Passed after every Nimble command, so Nimble uses the locked Nim instead of
 # downloading the latest one first. Empty until the first setup has installed it.
 NIMBLE_TASK_FLAGS = $(if $(NIM),--nim:$(NIM))
@@ -336,7 +340,7 @@ testlogosdelivery: | build-deps build rln-deps librln
 logosdeliverynode: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIM) c --out:build/logosdeliverynode --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
+		$(NIM) c --out:build/logosdeliverynode --mm:$(NIM_MM) --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) logosdeliverynode $(NIMBLE_TASK_FLAGS)
@@ -573,7 +577,7 @@ else
     LIB_RLN_PARAMS :=
 endif
 
-LIB_NIM_PARAMS := --mm:refc -d:chronicles_line_numbers -d:chronicles_log_level=TRACE $(LIB_RLN_PARAMS)
+LIB_NIM_PARAMS := --mm:$(NIM_MM) -d:chronicles_line_numbers -d:chronicles_log_level=TRACE $(LIB_RLN_PARAMS)
 
 liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
 ifneq ($(STATIC),1)
@@ -702,7 +706,7 @@ ANDROID_NIM_PARAMS = --os:android --cpu:$(CPU) --cc:clang \
 	-DCMAKE_AR=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ar -DCMAKE_RANLIB=$(ANDROID_TOOLCHAIN_DIR)/bin/llvm-ranlib" \
 	-d:LeopardExtraCompilerFlags=-fno-openmp -d:LeopardExtraLinkerFlags=-fno-openmp \
 	$(if $(filter true,$(DISABLE_RLN)),,--passL:-L"$(ANDROID_LIB_DIR)" --passL:-lrln) \
-	--mm:refc -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
+	--mm:$(NIM_MM) -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
 
 # librln must exist before the nim link consumes it.
 build-liblogosdelivery-for-android-arch:
@@ -785,7 +789,7 @@ IOS_NIM_PARAMS = --os:ios --cpu:$(if $(filter arm64,$(IOS_ARCH)),arm64,amd64) --
 	-d:"LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE \
 	-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$(IOS_SDK_PATH) -DCMAKE_OSX_ARCHITECTURES=$(IOS_ARCH) \
 	-DCMAKE_OSX_DEPLOYMENT_TARGET=$(IOS_DEPLOYMENT_TARGET)" \
-	--mm:refc --opt:size -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
+	--mm:$(NIM_MM) --opt:size -d:chronicles_log_level=ERROR $(LIB_RLN_PARAMS)
 
 build-liblogosdelivery-for-ios-arch:
 	$(call compile_liblogosdelivery,$(CURDIR)/build/ios/$(IOS_SDK)-$(IOS_ARCH),liblogosdelivery.a,--app:staticlib $(IOS_NIM_PARAMS))

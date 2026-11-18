@@ -305,6 +305,7 @@ suite "Node Factory":
     cliConf.store = Opt.some(true)
     cliConf.storeMessageDbUrl = "sqlite://store.sqlite3"
     cliConf.storeSync = true
+    cliConf.shards = @[0'u16]
     cliConf.storenode = storeAddress & "/p2p/" & $storePeerId
     let conf = cliConf.toWakuConf().valueOr:
       raiseAssert error
