@@ -42,7 +42,7 @@ method computeFingerprint*(
 method processPayload*(
     self: SyncStorage,
     input: RangesData,
-    hashToSend: var seq[Fingerprint],
+    idsToSend: var seq[SyncID],
     idsToRecv: var seq[SyncID],
 ): RangesData {.base, gcsafe, raises: [].} =
   return RangesData(ranges: @[], fingerprints: @[FullFingerprint], itemSets: @[])

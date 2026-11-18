@@ -109,13 +109,13 @@ suite "Waku Sync Storage":
       )
 
     var
-      hashToSend: seq[Fingerprint]
+      idsToSend: seq[SyncID]
       idsToRecv: seq[SyncID]
 
-    discard storage.processPayload(payload, hashToSend, idsToRecv)
+    discard storage.processPayload(payload, idsToSend, idsToRecv)
 
     check:
-      hashToSend.len == 0
+      idsToSend.len == 0
       idsToRecv == @[promised]
 
   test "processPayload returns every id the peer holds in a range we hold nothing in":
@@ -136,13 +136,13 @@ suite "Waku Sync Storage":
       )
 
     var
-      hashToSend: seq[Fingerprint]
+      idsToSend: seq[SyncID]
       idsToRecv: seq[SyncID]
 
-    discard storage.processPayload(payload, hashToSend, idsToRecv)
+    discard storage.processPayload(payload, idsToSend, idsToRecv)
 
     check:
-      hashToSend.len == 0
+      idsToSend.len == 0
       idsToRecv == @[first, second]
 
   test "a fingerprint over a pubsub topic with no local message is empty":

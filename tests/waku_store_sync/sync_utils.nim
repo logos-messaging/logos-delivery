@@ -19,6 +19,18 @@ var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
 proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
   requestedInTest.contains(hash)
 
+func syncId*(msg: WakuMessage, pubsubTopic = DefaultPubsubTopic): SyncID =
+  SyncID(time: msg.timestamp, hash: computeMessageHash(pubsubTopic, msg))
+
+func containsPush*(
+    queue: AsyncQueue[(PeerId, SyncID)], peer: PeerId, hash: WakuMessageHash
+): bool =
+  ## True when `queue` holds a push of `hash` to `peer`.
+  for (queuedPeer, id) in queue:
+    if queuedPeer == peer and id.hash == hash:
+      return true
+  return false
+
 type TransferDirection* {.pure.} = enum
   Sent
   Received
@@ -58,7 +70,7 @@ proc newTestWakuRecon*(
     syncRange: timer.Duration = DefaultSyncRange,
     idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     wantsTx: AsyncQueue[PeerId],
-    needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    needsTx: AsyncQueue[(PeerId, SyncID)],
     relayJitter: timer.Duration = 0.seconds,
     syncInterval: timer.Duration = DefaultSyncInterval,
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
@@ -93,7 +105,7 @@ proc newTestWakuTransfer*(
     switch: Switch,
     idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     wantsRx: AsyncQueue[PeerId],
-    needsRx: AsyncQueue[(PeerId, WakuMessageHash)],
+    needsRx: AsyncQueue[(PeerId, SyncID)],
 ): Future[SyncTransfer] {.async.} =
   let peerManager = PeerManager.new(switch)
 

@@ -695,7 +695,7 @@ proc mountStoreSync*(
 ): Future[Result[void, string]] {.async.} =
   let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](0)
   let wantsChannel = newAsyncQueue[(PeerId)](0)
-  let needsChannel = newAsyncQueue[(PeerId, WakuMessageHash)](0)
+  let needsChannel = newAsyncQueue[(PeerId, SyncID)](0)
 
   let recon = ?await SyncReconciliation.new(
     cluster, shards, node.peerManager, node.wakuArchive, storeSyncRange.seconds,

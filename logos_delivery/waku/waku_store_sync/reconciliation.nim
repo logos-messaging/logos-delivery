@@ -57,7 +57,7 @@ type SyncReconciliation* = ref object of LPProtocol
   localWantsTx: AsyncQueue[(PeerId)]
 
   # Send Hashes to transfer protocol for transmission
-  remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)]
+  remoteNeedsTx: AsyncQueue[(PeerId, SyncID)]
 
   # params
   syncInterval: timer.Duration # Time between each synchronization attempt
@@ -78,14 +78,14 @@ type SyncReconciliation* = ref object of LPProtocol
   periodicPruneFut: Future[void]
   idsReceiverFut: Future[void]
 
-proc queueTransfer(self: SyncReconciliation, peer: PeerId, hash: WakuMessageHash) =
-  ## Queues `hash` to be sent to `peer`. A full queue drops the transfer, and the
+proc queueTransfer(self: SyncReconciliation, peer: PeerId, id: SyncID) =
+  ## Queues `id` to be sent to `peer`. A full queue drops the transfer, and the
   ## next round finds the same difference again.
   try:
-    self.remoteNeedsTx.addLastNoWait((peer, hash))
+    self.remoteNeedsTx.addLastNoWait((peer, id))
   except AsyncQueueFullError as exc:
     error "failed to queue message for transfer",
-      msg_hash = byteutils.toHex(hash), peer_id = peer, error = exc.msg
+      msg_hash = byteutils.toHex(id.hash), peer_id = peer, error = exc.msg
 
 proc insertConfirmed(
     self: SyncReconciliation,
@@ -102,7 +102,7 @@ proc insertConfirmed(
     var peers: HashSet[PeerId]
     if self.deferredTx.pop(id.hash, peers):
       for peer in peers:
-        self.queueTransfer(peer, id.hash)
+        self.queueTransfer(peer, id)
 
   self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
     error "failed to insert new message",
@@ -266,16 +266,16 @@ proc trackPromised(self: SyncReconciliation, idsToRecv: seq[SyncID]) =
     self.pendingQueue.addLast((id, deadline))
 
 proc scheduleTransfers(
-    self: SyncReconciliation, peerId: PeerId, hashToSend: seq[WakuMessageHash]
+    self: SyncReconciliation, peerId: PeerId, idsToSend: seq[SyncID]
 ): int =
-  ## Returns the number of hashes queued now. A deferred hash is not counted.
+  ## Returns the number of elements queued now. A deferred one is not counted.
   var queued = 0
-  for hash in hashToSend:
+  for id in idsToSend:
     # A pending element is not in the archive yet, so it is sent on arrival.
-    if self.pendingSet.contains(hash):
-      self.deferredTx.mgetOrPut(hash, initHashSet[PeerId]()).incl(peerId)
+    if self.pendingSet.contains(id.hash):
+      self.deferredTx.mgetOrPut(id.hash, initHashSet[PeerId]()).incl(peerId)
       continue
-    self.queueTransfer(peerId, hash)
+    self.queueTransfer(peerId, id)
     queued.inc()
   return queued
 
@@ -284,13 +284,13 @@ proc reconcileRound(
     recvPayload: RangesData,
     lowerBound: Timestamp,
     peerId: PeerId,
-): (RangesData, seq[WakuMessageHash], int) =
-  ## Returns the reply, the hashes to send, and the number of promised elements.
+): (RangesData, seq[SyncID], int) =
+  ## Returns the reply, the elements to send, and the number of promised ones.
   ## It must not become async: nothing may await between processPayload and
   ## trackPromised, so that none of the promised elements is here yet.
   var
     idsToRecv: seq[SyncID]
-    hashToSend: seq[WakuMessageHash]
+    idsToSend: seq[SyncID]
 
   let preProcessedPayload = self.preProcessPayload(recvPayload, lowerBound)
 
@@ -300,16 +300,16 @@ proc reconcileRound(
     payload = preProcessedPayload
 
   var sendPayload =
-    self.storage.processPayload(preProcessedPayload, hashToSend, idsToRecv)
+    self.storage.processPayload(preProcessedPayload, idsToSend, idsToRecv)
 
-  trace "sync payload processed", hash_to_send = hashToSend, ids_to_recv = idsToRecv
+  trace "sync payload processed", ids_to_send = idsToSend, ids_to_recv = idsToRecv
 
   self.trackPromised(idsToRecv)
 
   sendPayload.cluster = self.cluster
   sendPayload.shards = self.shards.toSeq()
 
-  return (sendPayload, hashToSend, idsToRecv.len)
+  return (sendPayload, idsToSend, idsToRecv.len)
 
 proc processRequest(
     self: SyncReconciliation, conn: Connection
@@ -329,7 +329,7 @@ proc processRequest(
 
   # The peer marks the hashes of a reply pending when it reads the reply. Its next
   # payload proves that, on any transport, so the pushes of a round wait for it.
-  var unanswered: seq[WakuMessageHash]
+  var unanswered: seq[SyncID]
 
   while true:
     let recvPayload = (await readPayload(conn)).valueOr:
@@ -362,7 +362,7 @@ proc processRequest(
     if recvPayload.isFinished():
       break
 
-    let (sendPayload, hashToSend, promised) =
+    let (sendPayload, idsToSend, promised) =
       self.reconcileRound(recvPayload, lowerBound, conn.peerId)
 
     # A promise counts as a difference even if its placeholder insert fails.
@@ -379,10 +379,10 @@ proc processRequest(
     if sendPayload.isFinished():
       # The peer does not answer a finished reply. It marked these hashes
       # pending in an earlier round.
-      diffs += self.scheduleTransfers(conn.peerId, hashToSend)
+      diffs += self.scheduleTransfers(conn.peerId, idsToSend)
       break
 
-    unanswered = hashToSend
+    unanswered = idsToSend
 
   # Signal to transfer protocol that this reconciliation is done
   await self.localWantsTx.addLast(conn.peerId)
@@ -525,7 +525,7 @@ proc new*(
     relayJitter: timer.Duration = DefaultGossipSubJitter,
     idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     localWantsTx: AsyncQueue[PeerId],
-    remoteNeedsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    remoteNeedsTx: AsyncQueue[(PeerId, SyncID)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
 ): Future[Result[T, string]] {.async.} =

@@ -353,7 +353,7 @@ proc processItemSetRange*(
     pubsubTopicSet: PackedSet[int],
     contentTopicSet: PackedSet[int],
     inputItemSet: ItemSet,
-    hashToSend: var seq[Fingerprint],
+    idsToSend: var seq[SyncID],
     idsToRecv: var seq[SyncID],
     output: var RangesData,
 ) {.raises: [].} =
@@ -397,7 +397,7 @@ proc processItemSetRange*(
 
     if i >= n:
       # in case we have more elements
-      hashToSend.add(ourElement.hash)
+      idsToSend.add(ourElement)
       j.inc()
       continue
 
@@ -407,7 +407,7 @@ proc processItemSetRange*(
       idsToRecv.add(theirElement)
       i.inc()
     elif theirElement > ourElement:
-      hashToSend.add(ourElement.hash)
+      idsToSend.add(ourElement)
       j.inc()
     else:
       i.inc()
@@ -437,23 +437,27 @@ proc processItemSetRange*(
     hashToRecv: var seq[Fingerprint],
     output: var RangesData,
 ) {.raises: [].} =
-  ## Same as above, with only the hashes of the elements to receive.
-  var idsToRecv: seq[SyncID]
+  ## Same as above, with only the hashes of the elements.
+  var
+    idsToSend: seq[SyncID]
+    idsToRecv: seq[SyncID]
   self.processItemSetRange(
-    inputBounds, pubsubTopicSet, contentTopicSet, inputItemSet, hashToSend, idsToRecv,
+    inputBounds, pubsubTopicSet, contentTopicSet, inputItemSet, idsToSend, idsToRecv,
     output,
   )
+  for id in idsToSend:
+    hashToSend.add(id.hash)
   for id in idsToRecv:
     hashToRecv.add(id.hash)
 
 method processPayload*(
     self: SeqStorage,
     input: RangesData,
-    hashToSend: var seq[Fingerprint],
+    idsToSend: var seq[SyncID],
     idsToRecv: var seq[SyncID],
 ): RangesData {.raises: [].} =
   ## Compares the peer's ranges with the local index and returns the ranges to
-  ## send back. Appends to `hashToSend` the hashes of local elements the peer
+  ## send back. Appends to `idsToSend` the local elements the peer
   ## lacks, and to `idsToRecv` the peer's elements missing here, with their
   ## timestamps, so the caller can index them before they arrive.
   var output = RangesData()
@@ -488,7 +492,7 @@ method processPayload*(
       j.inc()
 
       self.processItemSetRange(
-        bounds, pubsubTopicSet, contentTopicSet, itemSet, hashToSend, idsToRecv, output
+        bounds, pubsubTopicSet, contentTopicSet, itemSet, idsToSend, idsToRecv, output
       )
 
       continue
@@ -533,8 +537,12 @@ proc processPayload*(
 ): RangesData {.gcsafe, raises: [].} =
   ## Same as the method, for callers that do not index the elements to receive
   ## before they arrive: reports them by hash only, in `hashToRecv`.
-  var idsToRecv: seq[SyncID]
-  let output = self.processPayload(input, hashToSend, idsToRecv)
+  var
+    idsToSend: seq[SyncID]
+    idsToRecv: seq[SyncID]
+  let output = self.processPayload(input, idsToSend, idsToRecv)
+  for id in idsToSend:
+    hashToSend.add(id.hash)
   for id in idsToRecv:
     hashToRecv.add(id.hash)
 
