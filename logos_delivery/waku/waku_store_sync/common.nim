@@ -16,6 +16,12 @@ const PendingPubsubTopic* = "/waku/2/sync/pending"
 type
   Fingerprint* = array[32, byte]
 
+  PushCheck* {.pure.} = enum
+    ## What the transfer does with a pushed message.
+    Wanted # a round asked for the message, and it did not arrive yet
+    Held # the node already has the message
+    Unwanted # no round asked for the message
+
   SyncID* = object
     time*: Timestamp
     hash*: WakuMessageHash

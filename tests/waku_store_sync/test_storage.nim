@@ -250,6 +250,18 @@ suite "Waku Sync Storage":
       storage.length() == 1
       storage.computeFingerprint(bounds, @[], @[]) == element.hash
 
+  test "contains finds only an element with the same time and hash":
+    var rng = initRand()
+    let
+      element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
+      storage =
+        SeqStorage.new(@[element], @[DefaultPubsubTopic], @[DefaultContentTopic])
+
+    check:
+      storage.contains(element)
+      not storage.contains(SyncID(time: Timestamp(1000), hash: randomHash(rng)))
+      not storage.contains(SyncID(time: Timestamp(2000), hash: element.hash))
+
   test "prune elements":
     var rng = initRand()
     let count = 1000

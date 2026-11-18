@@ -36,14 +36,13 @@ logScope:
 const DefaultReadCap =
   int(DefaultMaxWakuMessageSize) + DefaultSafetyBufferProtocolOverhead
 
-type RequestedCheck* = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].}
-  ## True when a reconciliation round asked for the message.
+type PushChecker* = proc(id: SyncID): PushCheck {.gcsafe, raises: [].}
 
 type SyncTransfer* = ref object of LPProtocol
   wakuArchive: WakuArchive
   peerManager: PeerManager
 
-  isRequested: RequestedCheck
+  checkPush: PushChecker
 
   # Send IDs to reconciliation protocol for storage
   idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
@@ -233,10 +232,18 @@ proc initProtocolHandler(self: SyncTransfer) =
       let pubsub = payload.pubsub
 
       let hash = computeMessageHash(pubsub, msg)
+      let id = SyncID(time: msg.timestamp, hash: hash)
 
-      # A requested message that arrives after its pending entry expired is
-      # dropped, and a later round asks for it again.
-      if not self.isRequested(hash):
+      case self.checkPush(id)
+      of PushCheck.Wanted:
+        discard
+      of PushCheck.Held:
+        # A second copy, after a round asked again for a late push.
+        debug "Transfer message already held",
+          remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
+        logos_delivery_transfer_receive_failures.inc(labelValues = ["duplicate"])
+        continue
+      of PushCheck.Unwanted:
         debug "Transfer message not requested",
           remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
         logos_delivery_transfer_receive_failures.inc(labelValues = ["not_requested"])
@@ -253,8 +260,6 @@ proc initProtocolHandler(self: SyncTransfer) =
         error "syncMessageIngress failed",
           remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
         continue
-
-      let id = SyncID(time: msg.timestamp, hash: hash)
 
       await self.idsTx.addLast((id, pubsub, msg.contentTopic, conn.peerId))
 
@@ -281,14 +286,14 @@ proc new*(
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
     maxMessageSize: int,
     syncRange: Duration = DefaultSyncRange,
-    isRequested: RequestedCheck,
+    checkPush: PushChecker,
 ): T =
-  doAssert not isRequested.isNil(), "SyncTransfer needs a request check"
+  doAssert not checkPush.isNil(), "SyncTransfer needs a push check"
 
   var transfer = SyncTransfer(
     peerManager: peerManager,
     wakuArchive: wakuArchive,
-    isRequested: isRequested,
+    checkPush: checkPush,
     idsTx: idsTx,
     localWantsRx: localWantsRx,
     remoteNeedsRx: remoteNeedsRx,

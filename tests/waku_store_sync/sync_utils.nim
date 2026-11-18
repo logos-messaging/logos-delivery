@@ -16,11 +16,12 @@ randomize()
 var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
   ## The hashes that a test receiver accepts as asked for by a round.
 
-proc isRequestedInTest*(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
-  requestedInTest.contains(hash)
+proc checkPushInTest*(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+  if requestedInTest.contains(id.hash): PushCheck.Wanted else: PushCheck.Unwanted
 
 var pendingNowInTest* {.threadvar.}: Moment
-  ## Read by `pendingClockInTest`. A test moves it forward instead of sleeping.
+  ## The time of the promises of a reconciliation that uses `pendingClockInTest`,
+  ## which a test moves forward in place of a wait.
 
 proc pendingClockInTest*(): Moment {.gcsafe, raises: [].} =
   pendingNowInTest
@@ -112,7 +113,7 @@ proc newTestWakuTransfer*(
     localWantsRx = wantsRx,
     remoteNeedsRx = needsRx,
     maxMessageSize = int(DefaultMaxWakuMessageSize),
-    isRequested = isRequestedInTest,
+    checkPush = checkPushInTest,
   )
 
   await proto.start()

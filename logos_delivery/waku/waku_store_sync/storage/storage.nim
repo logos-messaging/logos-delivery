@@ -49,3 +49,8 @@ method processPayload*(
 
 method length*(self: SyncStorage): int {.base, gcsafe, raises: [].} =
   -1
+
+method contains*(
+    self: SyncStorage, element: SyncID
+): bool {.base, gcsafe, raises: [].} =
+  false
