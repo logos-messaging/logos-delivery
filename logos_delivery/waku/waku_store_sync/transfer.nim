@@ -203,18 +203,21 @@ proc isRefused(self: SyncTransfer, peerId: PeerId, hash: WakuMessageHash): bool 
     return true
   return false
 
-proc sendBatch(self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]) {.async.} =
+proc sendBatch(
+    self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]
+): Future[bool] {.async.} =
+  ## Returns false when the peer cannot be dialled.
   # Filtered before the lookup, so a refused message is not read from the archive.
   var ids: seq[SyncID]
   for id in batch:
     if not self.isRefused(peerId, id.hash):
       ids.add(id)
   if ids.len == 0:
-    return
+    return true
 
   var found = (await self.findBatch(ids)).valueOr:
     error "failed to find messages to push", remote_peer_id = peerId, error = error
-    return
+    return true
 
   for id in ids:
     # Again, as the session may have ended while the batch was being sent.
@@ -230,10 +233,9 @@ proc sendBatch(self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]) {.async.}
       debug "Opening transfer connection to remote peer",
         my_peer_id = self.peerManager.switch.peerInfo.peerId, remote_peer_id = peerId
 
-      # The rest of the batch is dropped too, and a later round finds it again.
       let connection = (await self.openConnection(peerId)).valueOr:
         debug "Failed to establish transfer connection", error = error
-        return
+        return false
 
       self.outSessions[peerId] = connection
 
@@ -256,6 +258,8 @@ proc sendBatch(self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]) {.async.}
       debug "Failed to send message", error = error
       continue
 
+  return true
+
 proc senderLoop(self: SyncTransfer) {.async.} =
   ## Sends the pushes of one ready peer at a time, a batch per turn, so that a
   ## long backlog to one peer does not hold back the others.
@@ -269,9 +273,10 @@ proc senderLoop(self: SyncTransfer) {.async.} =
 
     # A raise must not end the loop, or the peer keeps an entry that no sender
     # serves, and its later pushes are queued and never sent.
+    var reachable = true
     if batch.len > 0:
       try:
-        await self.sendBatch(peerId, batch)
+        reachable = await self.sendBatch(peerId, batch)
       except CancelledError as exc:
         raise exc
       except CatchableError as exc:
@@ -281,7 +286,11 @@ proc senderLoop(self: SyncTransfer) {.async.} =
     self.outQueues.withValue(peerId, queue):
       for id in batch:
         queue.queued.excl(id.hash)
-      hasMore = queue.ids.len > 0
+      hasMore = reachable and queue.ids.len > 0
+
+    # A peer that cannot be dialled loses all its pushes, not only the batch, so
+    # that a later batch does not reach it before an earlier one. A later round
+    # finds them again.
 
     if hasMore:
       await self.readyPeers.addLast(peerId)
