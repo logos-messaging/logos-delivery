@@ -156,9 +156,8 @@ proc queuePush(self: SyncTransfer, peerId: PeerId, id: SyncID) =
     self.outQueues[peerId] = queue
     try:
       self.readyPeers.addLastNoWait(peerId)
-    except AsyncQueueFullError as exc:
-      error "failed to schedule pushes for peer",
-        remote_peer_id = peerId, error = exc.msg
+    except AsyncQueueFullError:
+      raiseAssert "readyPeers is unbounded"
 
 proc needsReceiverLoop(self: SyncTransfer) {.async.} =
   ## Waits for the messages that peers need, and queues them by peer.
