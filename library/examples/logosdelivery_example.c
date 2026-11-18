@@ -44,10 +44,12 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 
     } else if (strcmp(eventType, "message_error") == 0) {
         char messageHash[128];
+        char kind[32];
         char error[256];
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
+        extract_json_field(eventJson, "kind", kind, sizeof(kind));
         extract_json_field(eventJson, "error", error, sizeof(error));
-        printf("[EVENT] Message error - Hash: %s, Error: %s\n", messageHash, error);
+        printf("[EVENT] Message error - Hash: %s, Kind: %s, Error: %s\n", messageHash, kind, error);
         got_message_error = 1;
 
     } else if (strcmp(eventType, "message_propagated") == 0) {

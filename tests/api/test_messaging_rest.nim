@@ -7,6 +7,7 @@ import
   testutils/unittests,
   presto,
   presto/client as presto_client,
+  json_serialization,
   libp2p/crypto/crypto
 import brokers/broker_context
 import logos_delivery
@@ -16,6 +17,7 @@ import
   rest/messaging_api/event_cache,
   rest/messaging_api/handlers {.all.},
   rest/client,
+  rest/serdes,
   logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
@@ -140,7 +142,10 @@ suite "Messaging REST API":
     MessagePropagatedEvent.emit(brokerCtx, MessagePropagatedEvent(messageHash: hashA))
     MessageSentEvent.emit(brokerCtx, MessageSentEvent(messageHash: hashA))
     MessageErrorEvent.emit(
-      brokerCtx, MessageErrorEvent(messageHash: hashB, error: "boom")
+      brokerCtx,
+      MessageErrorEvent(
+        messageHash: hashB, kind: MessageErrorKind.NotStored, error: "boom"
+      ),
     )
     await sleepAsync(settleDelay)
 
@@ -159,6 +164,7 @@ suite "Messaging REST API":
       byHashResp.data.events.len == 2
       byHashResp.data.events.anyIt(it.kind == SendEventKind.Sent)
       byHashResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
+      byHashResp.data.events.allIt(it.errorKind.isNone()) # only an error has one
 
     # Unknown / already-polled hash → 404 (raw string client so the text error
     # body decodes; the typed client would raise on a non-2xx body).
@@ -174,6 +180,7 @@ suite "Messaging REST API":
       allResp.data[0].events.len == 1
       allResp.data[0].events[0].kind == SendEventKind.Error
       allResp.data[0].events[0].error == "boom"
+      allResp.data[0].events[0].errorKind == Opt.some(MessageErrorKind.NotStored)
 
     let emptyResp = await client.messagingGetSendEventsV1()
     check:
@@ -368,6 +375,21 @@ suite "Messaging REST API":
     check:
       limited.status == Http429
       limited.headers.getString("Retry-After") == "2"
+
+  test "a send event with an error kind of a later version is still read":
+    let record = decodeFromJsonString(
+        SendEventRecord,
+        JsonString(
+          """{"kind":"error","error":"boom","errorKind":"LaterKind","timestamp":7}"""
+        ),
+        requireAllFields = false,
+      )
+      .expect("decode")
+    check:
+      record.kind == SendEventKind.Error
+      record.error == "boom"
+      record.errorKind.isNone()
+      record.timestamp == 7
 
   test "an evicted send status counts in logos_delivery_rest_send_dropped":
     let cache = MessagingEventCache.new(maxSendRequests = 2)

@@ -645,7 +645,12 @@ proc reportSentOverMix(self: SendService, task: DeliveryTask) =
   MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
 proc reportNotStored(self: SendService, task: DeliveryTask, report: StepReport) =
-  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
+  MessageErrorEvent.emit(
+    self.brokerCtx,
+    task.msgHash.to0xHex(),
+    MessageErrorKind.NotStored,
+    report.errorText(),
+  )
 
 proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
   # A mix exit may have published the message even though its reply was lost.
@@ -659,7 +664,12 @@ proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
       else:
         "none",
     age = task.age()
-  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
+  MessageErrorEvent.emit(
+    self.brokerCtx,
+    task.msgHash.to0xHex(),
+    MessageErrorKind.NotPropagated,
+    report.errorText(),
+  )
 
 proc finish(self: SendService, task: DeliveryTask) =
   task.endStoreWait()

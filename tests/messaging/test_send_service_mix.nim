@@ -716,6 +716,7 @@ suite "SendService - anonymity level with a mounted mix":
       task.tryCount > 1
       errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
       errors.mapIt(it.error) == @["Unable to send within retry time window"]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
 
   asyncTest "a Preferred task falls back to the plain path once the window elapsed":
     ## The mix window ends the mix phase of a task that mix did not deliver. Only a

@@ -81,6 +81,8 @@ The delivery is asynchronous. Its result arrives as send events with the same `m
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
 * `error`: the send failed (rejected message, no peer within 20 s of the timestamp of the message, no Store confirmation within about 60 s of propagation, ...)
 
+An `error` event has an `errorKind`. `NotPropagated` means that the node knows of no propagation of the message. `NotStored` means that the message propagated and no Store peer confirmed it. A later version can add a kind, and a client must take a kind that it does not know as an error with no kind.
+
 After a `sent` or `error` event, no more events come for that message.
 
 * The `sent` event needs reliability. A send without mix also needs a Store peer.

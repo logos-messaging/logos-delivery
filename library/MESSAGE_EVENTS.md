@@ -46,6 +46,7 @@ Emitted when a send that the send operation accepted fails: rejected, delivery w
 {
   "eventType": "message_error",
   "messageHash": "0x...",
+  "kind": "NotPropagated",
   "error": "error description"
 }
 ```
@@ -53,7 +54,8 @@ Emitted when a send that the send operation accepted fails: rejected, delivery w
 **Fields:**
 - `eventType`: Always "message_error"
 - `messageHash`: Hash that the send operation returned
-- `error`: Description of what went wrong
+- `kind`: `NotPropagated` when the node knows of no propagation of the message. `NotStored` when the message propagated and no store node confirmed it in the validation window. The receivers can have a `NotStored` message. They can also have a `NotPropagated` message, when a mix exit or a lightpush service published it and its answer did not come.
+- `error`: Description of what went wrong, for a person
 
 ### 4. message_received
 Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.

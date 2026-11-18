@@ -63,7 +63,7 @@ proc start*(self: MessagingRestEvents, ctx: BrokerContext): Result[void, string]
     self.propagated = Opt.some(registered)
   if self.errored.isNone():
     let listener = MessageErrorEvent.listenIt(ctx):
-      cache.recordSend(it.messageHash, SendEventKind.Error, it.error)
+      cache.recordSend(it.messageHash, SendEventKind.Error, it.error, Opt.some(it.kind))
     let registered = listener.valueOr:
       return err(listenFailed("MessageErrorEvent", error))
     self.errored = Opt.some(registered)

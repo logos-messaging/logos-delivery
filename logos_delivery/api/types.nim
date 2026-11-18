@@ -40,6 +40,15 @@ type
 
   SendResult* = Result[WakuMessageHash, SendError]
 
+  MessageErrorKind* {.pure.} = enum
+    ## Why a send that `send` accepted failed.
+    NotPropagated
+      ## The node knows of no propagation of the message. A mix exit or a
+      ## lightpush service can still have published it, when its answer did not come.
+    NotStored
+      ## The message propagated, and no Store node reported it inside the Store
+      ## validation window.
+
   ConnectionStatus* {.pure.} = enum
     Disconnected
     PartiallyConnected

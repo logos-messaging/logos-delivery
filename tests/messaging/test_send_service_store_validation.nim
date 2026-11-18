@@ -176,6 +176,7 @@ type SendEventLog = ref object
   ## Records the message hashes of send events and wakes the tests that wait for one.
   brokerCtx: BrokerContext
   ids: array[SendEvent, seq[string]]
+  errorKinds: seq[MessageErrorKind] ## The kind of each error event, in order.
   changed: AsyncEvent
   propagatedListener: MessagePropagatedEventListener
   sentListener: MessageSentEventListener
@@ -192,6 +193,7 @@ proc newSendEventLog(brokerCtx: BrokerContext): SendEventLog =
   let onSent = proc(event: MessageSentEvent) {.async: (raises: []).} =
     log.record(SendEvent.Sent, event.messageHash)
   let onError = proc(event: MessageErrorEvent) {.async: (raises: []).} =
+    log.errorKinds.add(event.kind)
     log.record(SendEvent.Failed, event.messageHash)
   log.propagatedListener =
     MessagePropagatedEvent.listen(brokerCtx, onPropagated).expect("listen propagated")
@@ -450,6 +452,7 @@ suite "SendService - Store validation window":
     check:
       task.state == DeliveryState.NotStored
       task.storeValidationWaited >= window
+      log.errorKinds == @[MessageErrorKind.NotStored]
 
 suite "SendService - Store validation batches":
   var waku {.threadvar.}: Waku

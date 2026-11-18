@@ -52,12 +52,17 @@ proc new*(
   )
 
 proc recordSend*(
-    self: MessagingEventCache, messageHash: string, kind: SendEventKind, error = ""
+    self: MessagingEventCache,
+    messageHash: string,
+    kind: SendEventKind,
+    error = "",
+    errorKind = Opt.none(MessageErrorKind),
 ) =
   ## Append a send event to its message's timeline, creating the entry (and
   ## evicting the oldest message past the overflow cap) as needed.
-  let record =
-    SendEventRecord(kind: kind, error: error, timestamp: getNowInNanosecondTime())
+  let record = SendEventRecord(
+    kind: kind, error: error, errorKind: errorKind, timestamp: getNowInNanosecondTime()
+  )
 
   if not self.sendByHash.hasKey(messageHash):
     self.sendByHash[messageHash] = SendStatus(messageHash: messageHash, events: @[])

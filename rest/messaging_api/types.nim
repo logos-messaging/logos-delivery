@@ -169,6 +169,7 @@ type
   SendEventRecord* = object
     kind*: SendEventKind
     error*: string ## populated only for `Error`
+    errorKind*: Opt[MessageErrorKind] ## set only for `Error`
     timestamp*: int64 ## nanoseconds, stamped when cached
 
   SendStatus* = object ## All send events observed so far for a single message.
@@ -192,6 +193,8 @@ proc writeValue*(
   writer.writeField("kind", $value.kind)
   if value.error.len > 0:
     writer.writeField("error", value.error)
+  if value.errorKind.isSome():
+    writer.writeField("errorKind", $value.errorKind.get())
   writer.writeField("timestamp", value.timestamp)
   writer.endRecord()
 
@@ -239,12 +242,20 @@ proc readValue*(
   else:
     reader.raiseUnexpectedValue("Invalid message source: " & s)
 
+func parseErrorKind(text: string): Opt[MessageErrorKind] =
+  ## None for a kind of a later version, so a client still reads the other events.
+  for kind in MessageErrorKind:
+    if $kind == text:
+      return Opt.some(kind)
+  Opt.none(MessageErrorKind)
+
 proc readValue*(
     reader: var JsonReader[RestJson], value: var SendEventRecord
 ) {.raises: [SerializationError, IOError].} =
   var
     kind = Opt.none(SendEventKind)
     error = ""
+    errorKind = Opt.none(MessageErrorKind)
     timestamp = int64(0)
 
   for fieldName in readObjectFields(reader):
@@ -253,6 +264,8 @@ proc readValue*(
       kind = Opt.some(reader.readValue(SendEventKind))
     of "error":
       error = reader.readValue(string)
+    of "errorKind":
+      errorKind = parseErrorKind(reader.readValue(string))
     of "timestamp":
       timestamp = reader.readValue(int64)
     else:
@@ -261,7 +274,9 @@ proc readValue*(
   if kind.isNone():
     reader.raiseUnexpectedValue("Field `kind` is missing")
 
-  value = SendEventRecord(kind: kind.get(), error: error, timestamp: timestamp)
+  value = SendEventRecord(
+    kind: kind.get(), error: error, errorKind: errorKind, timestamp: timestamp
+  )
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var SendStatus

@@ -15,9 +15,11 @@ EventBroker:
     messageHash*: string
 
 EventBroker:
-  # Event emitted when a message send operation fails
+  # Event emitted when a message send operation fails. The kind tells if the
+  # message propagated. The error is a text for a person.
   type MessageErrorEvent* = object
     messageHash*: string
+    kind*: MessageErrorKind
     error*: string
 
 EventBroker:
