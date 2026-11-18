@@ -141,29 +141,34 @@ proc markRefused(self: SyncTransfer, peerId: PeerId) =
     for hash in hashes:
       discard self.refusedByPeer.mgetOrPut((peerId, hash), true)
 
-proc queuePush(self: SyncTransfer, peerId: PeerId, id: SyncID) =
+proc queuePush(self: SyncTransfer, peerId: PeerId, id: SyncID): Result[void, string] =
   ## A push that is already waiting or being sent to the peer is not queued again.
   self.outQueues.withValue(peerId, queue):
     if queue.queued.containsOrIncl(id.hash):
       trace "Skipping message already queued for the peer",
         remote_peer_id = peerId, msg_hash = id.hash.to0xHex()
-      return
+      return ok()
     queue.ids.addLast(id)
   do:
+    try:
+      self.readyPeers.addLastNoWait(peerId)
+    except AsyncQueueFullError as exc:
+      # No entry is kept, as no sender would serve it. A later round finds the
+      # push again.
+      return err("could not schedule pushes for peer: " & exc.msg)
     var queue = PeerQueue(ids: initDeque[SyncID]())
     queue.ids.addLast(id)
     queue.queued.incl(id.hash)
     self.outQueues[peerId] = queue
-    try:
-      self.readyPeers.addLastNoWait(peerId)
-    except AsyncQueueFullError:
-      raiseAssert "readyPeers is unbounded"
+  return ok()
 
 proc needsReceiverLoop(self: SyncTransfer) {.async.} =
   ## Waits for the messages that peers need, and queues them by peer.
   while true: # infinite loop
     let (peerId, id) = await self.remoteNeedsRx.popFirst()
-    self.queuePush(peerId, id)
+    self.queuePush(peerId, id).isOkOr:
+      error "failed to queue push",
+        remote_peer_id = peerId, msg_hash = id.hash.to0xHex(), error = error
 
 proc findBatch(
     self: SyncTransfer, ids: seq[SyncID]
