@@ -24,12 +24,15 @@ type
   SendErrorKind* {.pure.} = enum
     NotStarted ## The messaging client does not run.
     NoShard ## The node finds no shard for the content topic of the message.
+    RateLimited ## The rate-limit budget of the epoch does not admit the message.
     Duplicate ## The node already sends a message with this hash.
-    QueueFull ## The send queue of the node is full.
+    QueueFull ## The node has `MaxSendsInFlight` sends with no last event.
     Other ## A fault with no kind of its own.
 
   SendError* = object
     kind*: SendErrorKind
+    retryAfter*: Duration
+      ## For `RateLimited`, the time until the budget of the epoch refills.
     desc*: string
 
   SendResult* = Result[WakuMessageHash, SendError]
@@ -58,8 +61,13 @@ proc `$`*(r: RequestId): string {.inline.} =
 proc `==`*(a, b: RequestId): bool {.inline.} =
   string(a) == string(b)
 
-func init*(T: type SendError, kind: SendErrorKind, desc: string): T =
-  SendError(kind: kind, desc: desc)
+func init*(
+    T: type SendError,
+    kind: SendErrorKind,
+    desc: string,
+    retryAfter: Duration = ZeroDuration,
+): T =
+  SendError(kind: kind, retryAfter: retryAfter, desc: desc)
 
 func `$`*(error: SendError): string =
   ## The description, then the kind in parentheses. An `Other` error gives only

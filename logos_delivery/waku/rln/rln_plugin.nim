@@ -48,6 +48,9 @@ type
     proofSize*: Opt[int]
       ## The exact encoded length of a generated proof. Size checks use this
       ## value before generation reserves a message id.
+    epochSizeSec*: Opt[uint64]
+      ## The length of an epoch in seconds.
+      ## Only a backend whose epoch index is `unixTime div epochSizeSec` sets it.
     onNodeStarted*: proc(): Future[void] {.async: (raises: [CancelledError]), gcsafe.}
       ## Called once the node has started. The backend handles its own
       ## failures; only cancellation reaches the caller. Nil for backends with

@@ -190,8 +190,8 @@ suite "Delivery plan":
       Trigger.NoLightpushPeer notin preferred.stepTriggers(DeliveryState.Relay)
       Trigger.NoLightpushPeer in preferred.stepTriggers(DeliveryState.Lightpush)
       Trigger.NoLightpushPeer in preferred.stepTriggers(DeliveryState.StoreResend)
-      preferred.stepTriggers(DeliveryState.Admission) * sizeFailures == {}
-      sizeFailures <= required.stepTriggers(DeliveryState.Admission)
+      preferred.stepTriggers(DeliveryState.Prove) * sizeFailures == {}
+      sizeFailures <= required.stepTriggers(DeliveryState.Prove)
       Trigger.AttemptTimedOut notin preferred.stepTriggers(DeliveryState.Lightpush)
       Trigger.AttemptTimedOut in preferred.stepTriggers(DeliveryState.StoreResend)
 
@@ -277,7 +277,7 @@ suite "Delivery plan":
         Opt.some(DeliveryState.NotPropagated)
       plan.fixedToState(DeliveryState.Mix, Trigger.TooLargeForMix) ==
         Opt.some(DeliveryState.NotPropagated)
-      plan.fixedToState(DeliveryState.Admission, Trigger.TooLargeForMix) ==
+      plan.fixedToState(DeliveryState.Prove, Trigger.TooLargeForMix) ==
         Opt.some(DeliveryState.NotPropagated)
 
   test "Preferred hands the task to the plain path when mix cannot take it":
@@ -304,23 +304,24 @@ suite "Delivery plan":
   test "a retry starts a new round and the end of the window fails the task":
     let plan = planOf(AnonymityLevel.None, PlainTransports)
     check:
-      plan.toState(
-        DeliveryState.NextRoundRetry, Trigger.RetryTick, {Guard.NeedsAdmission}
-      ) == Opt.some(DeliveryState.Admission)
+      plan.toState(DeliveryState.NextRoundRetry, Trigger.RetryTick, {Guard.NeedsProof}) ==
+        Opt.some(DeliveryState.Prove)
       plan.toState(DeliveryState.NextRoundRetry, Trigger.RetryTick) ==
         Opt.some(DeliveryState.Relay)
       plan.fixedToState(DeliveryState.Lightpush, Trigger.ServiceBusy) ==
         Opt.some(DeliveryState.NextRoundRetry)
       plan.fixedToState(DeliveryState.Relay, Trigger.WindowElapsed) ==
         Opt.some(DeliveryState.NotPropagated)
-      plan.fixedToState(DeliveryState.NextRoundRetry, Trigger.ParkedTooLong) ==
+      plan.fixedToState(DeliveryState.NextRoundRetry, Trigger.WindowElapsed) ==
+        Opt.some(DeliveryState.NotPropagated)
+      plan.fixedToState(DeliveryState.Prove, Trigger.OverBudget) ==
         Opt.some(DeliveryState.NotPropagated)
 
   test "a restart starts a new round, or the Store wait again":
     let plan = planOf(AnonymityLevel.None, PlainTransports)
     check:
-      plan.toState(DeliveryState.Lightpush, Trigger.Started, {Guard.NeedsAdmission}) ==
-        Opt.some(DeliveryState.Admission)
+      plan.toState(DeliveryState.Lightpush, Trigger.Started, {Guard.NeedsProof}) ==
+        Opt.some(DeliveryState.Prove)
       plan.toState(DeliveryState.Lightpush, Trigger.Started) ==
         Opt.some(DeliveryState.Relay)
       plan.fixedToState(DeliveryState.AwaitingStore, Trigger.Started) ==
@@ -433,15 +434,14 @@ suite "Delivery plan":
 
   test "the plan of a node with relay and lightpush":
     check $planOf(AnonymityLevel.None, PlainTransports) == """
-Initial -- Started[NeedsAdmission] --> Admission
+Initial -- Started[NeedsProof] --> Prove
 Initial -- Started --> Relay
-Admission -- Started[NeedsAdmission] --> Admission
-Admission -- Started --> Relay
-Admission -- Admitted --> Relay
-Admission -- OverBudget / {ReportQueued} --> NextRoundRetry
-Admission -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Admission -- {EphemeralDropped, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
-Relay -- Started[NeedsAdmission] --> Admission
+Prove -- Started[NeedsProof] --> Prove
+Prove -- Started --> Relay
+Prove -- Proved --> Relay
+Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
+Relay -- Started[NeedsProof] --> Prove
 Relay -- Started --> Relay
 Relay -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
 Relay -- Published / {ReportPropagated} --> Propagated
@@ -450,7 +450,7 @@ Relay -- ProofRejected --> NotPropagated
 Relay -- {Rejected, WindowElapsed} --> NotPropagated
 Relay -- StepRaised --> NextRoundRetry
 Relay -- {ZeroPeers, NoRelayPeers} --> Lightpush
-Lightpush -- Started[NeedsAdmission] --> Admission
+Lightpush -- Started[NeedsProof] --> Prove
 Lightpush -- Started --> Relay
 Lightpush -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
 Lightpush -- Published / {ReportPropagated} --> Propagated
@@ -463,11 +463,11 @@ StoreResend -- Started --> AwaitingStore
 StoreResend -- StoreReported --> Stored
 StoreResend -- StoreWindowElapsed / {ReportStoreTimeout} --> NotStored
 StoreResend -- {Published, ZeroPeers, NoLightpushPeer, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, ServiceError, ProofRejected, Rejected, AttemptTimedOut, StepRaised} --> AwaitingStore
-NextRoundRetry -- Started[NeedsAdmission] --> Admission
+NextRoundRetry -- Started[NeedsProof] --> Prove
 NextRoundRetry -- Started --> Relay
-NextRoundRetry -- RetryTick[NeedsAdmission] --> Admission
+NextRoundRetry -- RetryTick[NeedsProof] --> Prove
 NextRoundRetry -- RetryTick --> Relay
-NextRoundRetry -- {WindowElapsed, ParkedTooLong} --> NotPropagated
+NextRoundRetry -- WindowElapsed --> NotPropagated
 AwaitingStore -- Started --> AwaitingStore
 AwaitingStore -- StoreReported --> Stored
 AwaitingStore -- StoreWindowElapsed / {ReportStoreTimeout} --> NotStored
@@ -482,15 +482,14 @@ NotPropagated entry / {ReportFailed, Finish}"""
 
   test "the plan of a Preferred node":
     check $planOf(AnonymityLevel.Preferred, AllTransports) == """
-Initial -- Started[NeedsAdmission] --> Admission
+Initial -- Started[NeedsProof] --> Prove
 Initial -- Started --> Mix
-Admission -- Started[NeedsAdmission] --> Admission
-Admission -- Started --> Mix
-Admission -- Admitted --> Mix
-Admission -- OverBudget / {ReportQueued} --> NextRoundRetry
-Admission -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Admission -- {EphemeralDropped, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
-Relay -- Started[NeedsAdmission] --> Admission
+Prove -- Started[NeedsProof] --> Prove
+Prove -- Started --> Mix
+Prove -- Proved --> Mix
+Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
+Relay -- Started[NeedsProof] --> Prove
 Relay -- Started --> Mix
 Relay -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
 Relay -- Published / {ReportPropagated} --> Propagated
@@ -499,7 +498,7 @@ Relay -- ProofRejected --> NotPropagated
 Relay -- {Rejected, WindowElapsed} --> NotPropagated
 Relay -- StepRaised --> NextRoundRetry
 Relay -- {ZeroPeers, NoRelayPeers} --> Lightpush
-Lightpush -- Started[NeedsAdmission] --> Admission
+Lightpush -- Started[NeedsProof] --> Prove
 Lightpush -- Started --> Mix
 Lightpush -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
 Lightpush -- Published / {ReportPropagated} --> Propagated
@@ -508,7 +507,7 @@ Lightpush -- ProofRejected --> NotPropagated
 Lightpush -- {Rejected, WindowElapsed} --> NotPropagated
 Lightpush -- StepRaised --> NextRoundRetry
 Lightpush -- {ZeroPeers, NoLightpushPeer, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, ServiceError} --> NextRoundRetry
-Mix -- Started[NeedsAdmission] --> Admission
+Mix -- Started[NeedsProof] --> Prove
 Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry
 Mix -- ProofRejected --> NotPropagated
@@ -522,11 +521,11 @@ StoreResend -- Started --> AwaitingStore
 StoreResend -- StoreReported --> Stored
 StoreResend -- StoreWindowElapsed / {ReportStoreTimeout} --> NotStored
 StoreResend -- {Published, ZeroPeers, NoLightpushPeer, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, ServiceError, ProofRejected, Rejected, AttemptTimedOut, StepRaised} --> AwaitingStore
-NextRoundRetry -- Started[NeedsAdmission] --> Admission
+NextRoundRetry -- Started[NeedsProof] --> Prove
 NextRoundRetry -- Started --> Mix
-NextRoundRetry -- RetryTick[NeedsAdmission] --> Admission
+NextRoundRetry -- RetryTick[NeedsProof] --> Prove
 NextRoundRetry -- RetryTick --> Mix
-NextRoundRetry -- {WindowElapsed, ParkedTooLong} --> NotPropagated
+NextRoundRetry -- WindowElapsed --> NotPropagated
 AwaitingStore -- Started --> AwaitingStore
 AwaitingStore -- StoreReported --> Stored
 AwaitingStore -- StoreWindowElapsed / {ReportStoreTimeout} --> NotStored
@@ -542,15 +541,14 @@ NotPropagated entry / {ReportFailed, Finish}"""
 
   test "the plan of a Required node":
     check $planOf(AnonymityLevel.Required, {DeliveryState.Mix}) == """
-Initial -- Started[NeedsAdmission] --> Admission
+Initial -- Started[NeedsProof] --> Prove
 Initial -- Started --> Mix
-Admission -- Started[NeedsAdmission] --> Admission
-Admission -- Started --> Mix
-Admission -- Admitted --> Mix
-Admission -- OverBudget / {ReportQueued} --> NextRoundRetry
-Admission -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Admission -- {EphemeralDropped, ProofPermanent, ProofBudgetExhausted, ProofSizeUnknown, TooLargeForMix} --> NotPropagated
-Mix -- Started[NeedsAdmission] --> Admission
+Prove -- Started[NeedsProof] --> Prove
+Prove -- Started --> Mix
+Prove -- Proved --> Mix
+Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted, ProofSizeUnknown, TooLargeForMix} --> NotPropagated
+Mix -- Started[NeedsProof] --> Prove
 Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry
 Mix -- ProofRejected --> NotPropagated
@@ -562,11 +560,11 @@ Mix -- {ZeroPeers, ServiceNoRelayPeers, ServiceBusy, ServiceUnavailable, Service
 Mix -- {TooLargeForMix, MixNotMounted} --> NotPropagated
 Mix -- {MixUnavailable, MixSelfHop, MixNoExit}[InMixGrace] --> NextRoundRetry
 Mix -- {MixUnavailable, MixSelfHop, MixNoExit} --> NotPropagated
-NextRoundRetry -- Started[NeedsAdmission] --> Admission
+NextRoundRetry -- Started[NeedsProof] --> Prove
 NextRoundRetry -- Started --> Mix
-NextRoundRetry -- RetryTick[NeedsAdmission] --> Admission
+NextRoundRetry -- RetryTick[NeedsProof] --> Prove
 NextRoundRetry -- RetryTick --> Mix
-NextRoundRetry -- {WindowElapsed, ParkedTooLong} --> NotPropagated
+NextRoundRetry -- WindowElapsed --> NotPropagated
 MixDelivered entry / {ReportSentOverMix, Finish}
 Propagated entry / {Finish}
 NotPropagated entry / {ReportFailed, Finish}"""

@@ -47,6 +47,12 @@ const SendQueueFullRetryAfterSec = "1"
 proc sendRefused(refusal: SendError): RestApiResponse =
   let msg = "Send failed: " & $refusal
   case refusal.kind
+  of SendErrorKind.RateLimited:
+    # `Retry-After` takes whole seconds. Round up, so the retry is not early.
+    let retryAfterSec = (refusal.retryAfter.milliseconds + 999) div 1000
+    return RestApiResponse.error(
+      Http429, msg, $MIMETYPE_TEXT, [("Retry-After", $max(retryAfterSec, 1))]
+    )
   of SendErrorKind.QueueFull:
     return RestApiResponse.error(
       Http429, msg, $MIMETYPE_TEXT, [("Retry-After", SendQueueFullRetryAfterSec)]

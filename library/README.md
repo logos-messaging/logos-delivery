@@ -250,7 +250,7 @@ uint64_t logosdelivery_add_event_listener(
 );
 ```
 
-Event names: `onMessageQueued`, `onMessageSent`, `onMessageError`,
+Event names: `onMessageSent`, `onMessageError`,
 `onMessagePropagated`, `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
 `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
 `onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.

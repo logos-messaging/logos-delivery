@@ -97,7 +97,7 @@ proc testConf(): WakuConf =
 proc buildTask(
     id: string, admittedAgo: Duration, contentTopic = "/test/1/anonymity/proto"
 ): DeliveryTask =
-  ## An admitted task with no RLN, so its round does not start in `Admission`.
+  ## An admitted task with no RLN, so its round does not start in `Prove`.
   ## The id is the payload, so two tasks never have one hash.
   let msg = WakuMessage(
     contentTopic: contentTopic,
@@ -193,13 +193,11 @@ suite "SendService - mix size before admission":
       large.state == DeliveryState.NotPropagated
       large.lastFailure == Opt.some(Trigger.TooLargeForMix)
       large.errorText().startsWith(MixTooLargeReason)
-      large.firstAdmittedTime.isNone()
       large.msg.proof.len == 0
       large.tryCount == 0
       not large.anonymized
       draws[] == 0
-      manager.sentInCurrentEpoch == 0
-      not large.queuedEventEmitted
+      manager.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
 
     let fits = sizedProofTask("proven-fits", mixLimit(), proofBytes)
     check service.enqueue(fits).isOk()
@@ -229,8 +227,7 @@ suite "SendService - mix size before admission":
     check:
       task.errorText().contains("the request has " & $(mixLimit() + 1) & " bytes")
       draws[] == 0
-      manager.sentInCurrentEpoch == 0
-      task.firstAdmittedTime.isNone()
+      manager.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
 
   asyncTest "Preferred spends one proof and one admission for its plain fallback":
     let draws = countingRln(waku, 289)

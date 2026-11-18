@@ -37,12 +37,7 @@ proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
   else:
     DeliveryWindow
 
-const DefaultMaxParkedAge* = chronos.minutes(30)
-  ## Parked tasks never admitted within this age (from the message timestamp)
-  ## are dropped with a `MessageErrorEvent`. Spans a few default RLN epochs.
-
-const DefaultSendQueueCapacity* = 1000
-  ## Hard cap on tasks tracked by the send service; further sends are rejected.
+const NoBudgetForNewProofReason* = "No rate-limit budget for a new RLN proof"
 
 const RetryInterval* = chronos.seconds(1)
   ## The pause between two ticks of `retryLoop`, and between two Store validation
@@ -69,9 +64,9 @@ const MaxProofRefreshes* = 3
   ## Each one is a new charge, and a peer can reject each proof.
 
 const MaxSendsInFlight* = 50
-  ## The number of attempts of a round that run at the same time.
-  ## It bounds the open streams of the rounds independent of `sendQueueCapacity`.
-  ## A resend takes no slot, so each task can have one more stream.
+  ## The most messages that the service keeps, which are the sends with no last event.
+  ## It bounds the memory of these messages and the open streams of this node.
+  ## A task makes one attempt at a time, and a resend can add one stream to it.
 
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
@@ -81,24 +76,17 @@ type SendService* = ref object of RootObj
   running: bool
     ## True while each task has its `deliver`. While false, `enqueue` keeps each
     ## task until `startSendService`.
-  admissionLock: AsyncLock
-    ## One task at a time runs `admitAndProve` (see `admissionStep`).
-  sendSlots: AsyncSemaphore
-    ## One slot for each attempt that runs, so at most `maxSendsInFlight`
-    ## attempts run at the same time.
   retryTick: AsyncEvent
     ## `retryNow` fires it, and each task that waits on it starts its next round.
-    ## Chronos wakes the waiters in the order that they started to wait, so the
-    ## parked tasks reach `admissionLock` in the order that they parked.
   retryLoopHandle: Future[void] ## The `retryLoop`, nil while the service does not run.
   attempts: int
-    ## The number of attempts that ended, in admission or in a send. Only tests
+    ## The number of attempts that ended, in the proof step or in a send. Only tests
     ## read it.
   plan: DeliveryPlan
   processors: SendProcessors
   rateLimitManager: RateLimitManager
-    ## Charges first transmissions against the per-epoch budget; re-publishes
-    ## are free.
+    ## `enqueue` charges each message against the per-epoch budget, and a new
+    ## RLN proof is a new charge. The other publishes of a message are free.
   waku: Waku
   checkStoreForMessages: bool
   storeValidationHandle: Future[void]
@@ -111,8 +99,6 @@ type SendService* = ref object of RootObj
   mixWindow: timer.Duration
     ## How long after its admission mix keeps a task.
     ## Only `Preferred` has a finite one.
-  maxParkedAge*: timer.Duration
-    ## How old a never-admitted (parked) task may get before it is failed.
   maxValidationAge*: timer.Duration
     ## How long a task may wait for a Store confirmation before it fails. The
     ## time while the service is stopped does not count.
@@ -120,7 +106,7 @@ type SendService* = ref object of RootObj
     ## A task is asked about in Store only once its propagation and its last
     ## Store query are older than this, giving a Store node time to archive it.
     ## Also the pause of the Store validation loop while no Store peer is available.
-  sendQueueCapacity*: int
+  maxSendsInFlight: int
   retryInterval: timer.Duration
 
 proc setupSendProcessors*(
@@ -152,8 +138,6 @@ proc new*(
     rateLimitManager: RateLimitManager,
     processors: SendProcessors,
     anonymityLevel: AnonymityLevel = AnonymityLevel.None,
-    maxParkedAge: timer.Duration = DefaultMaxParkedAge,
-    sendQueueCapacity: int = DefaultSendQueueCapacity,
     maxValidationAge: timer.Duration = DeliveryWindow,
     retryInterval: timer.Duration = RetryInterval,
     maxSendsInFlight: int = MaxSendsInFlight,
@@ -177,8 +161,6 @@ proc new*(
   let sendService = SendService(
     brokerCtx: waku.brokerCtx,
     deliveryTasks: initOrderedTable[WakuMessageHash, DeliveryTask](),
-    admissionLock: newAsyncLock(),
-    sendSlots: newAsyncSemaphore(maxSendsInFlight),
     retryTick: newAsyncEvent(),
     plan: plan,
     processors: processors,
@@ -191,10 +173,9 @@ proc new*(
         DeliveryWindow
       else:
         InfiniteDuration,
-    maxParkedAge: maxParkedAge,
     maxValidationAge: maxValidationAge,
     archiveTime: ArchiveTime,
-    sendQueueCapacity: sendQueueCapacity,
+    maxSendsInFlight: maxSendsInFlight,
     retryInterval: retryInterval,
   )
 
@@ -210,7 +191,7 @@ func loggedHash(self: SendService, task: DeliveryTask): string =
     task.loggedHash()
 
 func isFull*(self: SendService): bool =
-  return self.deliveryTasks.len >= self.sendQueueCapacity
+  return self.deliveryTasks.len >= self.maxSendsInFlight
 
 func mixFallback*(self: SendService): Opt[Trigger] =
   self.mixFallback
@@ -372,8 +353,8 @@ func errorText*(report: StepReport): string =
   case report.trigger
   of WindowElapsed:
     "Unable to send within retry time window"
-  of ParkedTooLong:
-    "No rate-limit budget came within the maximum wait of a queued message"
+  of OverBudget:
+    NoBudgetForNewProofReason
   of StoreWindowElapsed:
     "Propagated but not confirmed by a store node within the store validation window"
   of TooLargeForMix:
@@ -382,8 +363,6 @@ func errorText*(report: StepReport): string =
     "Failed to determine RLN proof size: " & report.desc
   of ProofPermanent, ProofBudgetExhausted:
     "Failed to attach RLN proof: " & report.desc
-  of EphemeralDropped:
-    "Ephemeral message dropped: rate limit " & report.desc
   of MixUnusableTriggers:
     mixUnusableText(report.trigger)
   of NoRelayPeers, ZeroPeers:
@@ -399,39 +378,32 @@ func errorText*(task: DeliveryTask): string =
     return ""
   return report.errorText()
 
-func needsAdmission(self: SendService, task: DeliveryTask): bool =
-  ## True when the task needs an epoch budget charge or an RLN proof. A task that
-  ## needs neither does not wait for another task in `admitAndProve`.
+func needsProof(self: SendService, task: DeliveryTask): bool =
+  ## True when the task needs an RLN proof, or a charge for a new one.
   return task.firstAdmittedTime.isNone() or self.waku.needsRlnProof(task.msg)
 
-proc admitAndProve(
-    self: SendService, task: DeliveryTask
-): Future[StepReport] {.async.} =
-  ## Charges the epoch budget, then attaches the RLN proof, so a message over the
-  ## budget reserves no RLN message id. It charges a task once for each proof.
-  ## The task records its charge and proof right away, so a stop cannot charge it twice.
+proc takeCharge(self: SendService, task: DeliveryTask): bool =
+  ## Charges `task` against the epoch budget. False when the budget is spent.
+  task.charge = self.rateLimitManager.admit().valueOr:
+    return false
+  task.chargeUnused = true
+  task.firstAdmittedTime = Opt.some(Moment.now())
+  return true
+
+proc prove(self: SendService, task: DeliveryTask): Future[StepReport] {.async.} =
+  ## Attaches the RLN proof. `enqueue` took the charge of the first proof.
+  ## A proof refresh clears the charge, and the new proof takes a new one here.
   if self.plan.level == AnonymityLevel.Required:
     self.processors.processorOf(self.plan.chain[0]).checkBeforeAdmission(task).isOkOr:
       return error
 
-  if task.firstAdmittedTime.isNone():
-    # Ephemeral traffic is shed rather than queued so it cannot eat into the
-    # budget left for durable messages.
-    if task.isEphemeral():
-      let quotaState = await self.rateLimitManager.quotaState()
-      if quotaState != QuotaState.Normal:
-        debug "Dropping ephemeral message as we are approaching rate-limit quota",
-          msgHash = task.msgHash.to0xHex(), quotaState = quotaState
-        return StepReport.init(Trigger.EphemeralDropped, $quotaState)
-
-    (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-      debug "Over rate-limit budget, task waits for the epoch to roll",
-        msgHash = task.msgHash.to0xHex()
-      return StepReport.init(Trigger.OverBudget)
-    task.firstAdmittedTime = Opt.some(Moment.now())
+  if task.firstAdmittedTime.isNone() and not self.takeCharge(task):
+    debug "No rate-limit budget for a new RLN proof", msgHash = task.msgHash.to0xHex()
+    return StepReport.init(Trigger.OverBudget)
 
   # The message timestamp sets its epoch, so a backend past that epoch or out of
   # budget fails the task. Other errors wait for a retry.
+  let drawsMessageId = self.waku.needsRlnProof(task.msg)
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
     let trigger =
       case error.kind
@@ -442,25 +414,22 @@ proc admitAndProve(
     debug "Failed to attach RLN proof",
       msgHash = task.msgHash.to0xHex(), trigger = trigger, error = $error
     return StepReport.init(trigger, $error)
+  if drawsMessageId:
+    task.chargeUnused = false
 
-  return StepReport.init(Trigger.Admitted)
+  return StepReport.init(Trigger.Proved)
 
-proc admissionStep(
+proc proveStep(
     self: SendService, task: DeliveryTask
 ): Future[StepReport] {.async: (raises: [CancelledError]).} =
-  ## Runs `admitAndProve` with `admissionLock` held. The budget check reads the
-  ## RLN quota, which counts only the message ids that earlier proofs reserved,
-  ## so each task reserves its id before the next task checks the budget.
-  await self.admissionLock.acquire()
   try:
-    return await self.admitAndProve(task)
+    return await self.prove(task)
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
-    error "Exception in admission", msgHash = self.loggedHash(task), error = exc.msg
+    error "Exception in the proof step",
+      msgHash = self.loggedHash(task), error = exc.msg
     return StepReport.init(Trigger.StepRaised, exc.msg)
-  finally:
-    self.admissionLock.release2()
 
 proc cancelPending(futures: seq[FutureBase]) {.async: (raises: []).} =
   var pending: seq[Future[void]]
@@ -498,28 +467,24 @@ proc transportStep(
   ## One attempt over the transport of `state`, after checks with no network call.
   let processor = self.processors.processorOf(state)
   let overMix = state == DeliveryState.Mix
-  # The wait for a slot can be long, so each check comes after it.
-  await self.sendSlots.acquire()
-  try:
-    processor.checkBeforeAttempt(task).isOkOr:
-      return error
-    if overMix and self.mixFallback.isSome():
-      self.mixFallback = Opt.none(Trigger)
-      info "Mix can carry messages again"
-    if task.isDeliveryTimedOut(self.maxDeliveryTime):
-      return StepReport.init(Trigger.WindowElapsed)
-    if overMix and task.admissionAge() > self.mixWindow:
-      return StepReport.init(Trigger.MixWindowElapsed)
+  processor.checkBeforeAttempt(task).isOkOr:
+    return error
+  if overMix and self.mixFallback.isSome():
+    self.mixFallback = Opt.none(Trigger)
+    info "Mix can carry messages again"
+  if task.isDeliveryTimedOut(self.maxDeliveryTime):
+    return StepReport.init(Trigger.WindowElapsed)
+  if overMix and task.admissionAge() > self.mixWindow:
+    return StepReport.init(Trigger.MixWindowElapsed)
 
-    task.tryCount.inc()
-    if overMix:
-      # Mark before the attempt: the exit publishes before it replies, so a message
-      # whose reply is lost is still on the network. From here on, the send service
-      # logs no hash for this task at INFO or ERROR.
-      task.anonymized = true
-    return await self.runAttempt(task, processor.attempt(task))
-  finally:
-    self.sendSlots.release2()
+  task.tryCount.inc()
+  task.chargeUnused = false
+  if overMix:
+    # Mark before the attempt: the exit publishes before it replies, so a message
+    # whose reply is lost is still on the network. From here on, the send service
+    # logs no hash for this task at INFO or ERROR.
+    task.anonymized = true
+  return await self.runAttempt(task, processor.attempt(task))
 
 proc storeStep(
     self: SendService, task: DeliveryTask, state: DeliveryState
@@ -587,8 +552,6 @@ proc retryWaitStep(
 ): Future[StepReport] {.async: (raises: [CancelledError]).} =
   if task.isDeliveryTimedOut(self.maxDeliveryTime):
     return StepReport.init(Trigger.WindowElapsed)
-  if task.isParkedExpired(self.maxParkedAge):
-    return StepReport.init(Trigger.ParkedTooLong)
   await self.retryTick.wait()
   return StepReport.init(Trigger.RetryTick)
 
@@ -637,13 +600,6 @@ proc reportPropagated(self: SendService, task: DeliveryTask) =
   task.propagatedEventEmitted = true
   MessagePropagatedEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
-proc reportQueued(self: SendService, task: DeliveryTask) =
-  if task.queuedEventEmitted:
-    return
-  info "Message queued for rate-limit budget", msgHash = self.loggedHash(task)
-  task.queuedEventEmitted = true
-  MessageQueuedEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
-
 proc reportMixFallback(self: SendService, task: DeliveryTask, trigger: Trigger) =
   debug "Handing the task from mix to the plain send path",
     msgHash = task.msgHash.to0xHex(),
@@ -691,22 +647,22 @@ proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
         $task.lastFailure.get()
       else:
         "none",
-    age =
-      if report.trigger == Trigger.ParkedTooLong:
-        task.messageAge()
-      else:
-        task.admissionAge()
+    age = task.admissionAge()
   MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
 
 proc finish(self: SendService, task: DeliveryTask) =
   task.endStoreWait()
-  if self.isQueued(task):
-    self.deliveryTasks.del(task.msgHash)
+  if not self.isQueued(task):
+    return
+  if task.chargeUnused:
+    self.rateLimitManager.release(task.charge)
+    task.chargeUnused = false
+  self.deliveryTasks.del(task.msgHash)
 
 proc holds(self: SendService, task: DeliveryTask, guard: Guard): bool =
   case guard
-  of NeedsAdmission:
-    self.needsAdmission(task)
+  of NeedsProof:
+    self.needsProof(task)
   of Reliable:
     self.storeConfirmationExpected(task)
   of CanResend:
@@ -725,8 +681,6 @@ proc runEffect(
   of ReportPropagatedOverMix:
     task.propagatedAnonymously = true
     self.reportPropagated(task)
-  of ReportQueued:
-    self.reportQueued(task)
   of ReportMixFallback:
     self.reportMixFallback(task, report.trigger)
   of ReportStoreTimeout:
@@ -755,8 +709,8 @@ proc runStep(
     self: SendService, task: DeliveryTask, state: DeliveryState
 ): Future[StepReport] {.async: (raises: [CancelledError]).} =
   case state
-  of Admission:
-    return await self.admissionStep(task)
+  of Prove:
+    return await self.proveStep(task)
   of Relay, Lightpush, Mix:
     return await self.transportStep(task, state)
   of StoreWaitStates:
@@ -849,10 +803,33 @@ proc startDeliverSoon(self: SendService, task: DeliveryTask) =
         task.deliverHandle = self.deliver(task)
   )
 
+proc rateLimitedError(self: SendService, desc: string): SendError =
+  let retryAfter = self.rateLimitManager.retryAfter()
+  return SendError.init(
+    SendErrorKind.RateLimited,
+    desc & ", retry after " & $retryAfter.seconds & " s",
+    retryAfter,
+  )
+
+proc chargeAtSend(self: SendService, task: DeliveryTask): Result[void, SendError] =
+  ## Takes the charge of a new message from the epoch budget, or refuses the message.
+  # Ephemeral traffic is refused near the limit, so it cannot eat into the
+  # budget left for durable messages.
+  if task.isEphemeral():
+    let quotaState = self.rateLimitManager.quotaState()
+    if quotaState != QuotaState.Normal:
+      return err(
+        self.rateLimitedError("Ephemeral message refused: rate limit " & $quotaState)
+      )
+  if not self.takeCharge(task):
+    return err(self.rateLimitedError("The rate-limit budget of the epoch is spent"))
+  return ok()
+
 proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
-  ## Puts `task` in the send queue. It makes no attempt and emits no event, so
-  ## the caller gets the result first. The hash of a message identifies its
-  ## send, so a message that the send queue already has is refused.
+  ## Puts `task` in the send queue and charges it against the epoch budget.
+  ## It makes no attempt and emits no event, so the caller gets the result first.
+  ## The hash of a message identifies its send, so a message that the send queue
+  ## already has is refused. A message over the budget is refused with `RateLimited`.
   assert(not task.isNil(), "task for enqueue must not be nil")
   let queued = self.deliveryTasks.getOrDefault(task.msgHash)
   if not queued.isNil():
@@ -862,8 +839,15 @@ proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
       SendError.init(SendErrorKind.Duplicate, "The node already sends this message")
     )
   if self.isFull():
-    error "Send queue full, request cannot be enqueued", msgHash = self.loggedHash(task)
+    # A burst over the limit is back-pressure for the app, and no fault of the node.
+    debug "Send refused, the node has its maximum of sends with no last event",
+      msgHash = self.loggedHash(task), maxSendsInFlight = self.maxSendsInFlight
     return err(SendError.init(SendErrorKind.QueueFull, "Send queue full, retry later"))
+  # The charge comes last, so a refused message takes none.
+  self.chargeAtSend(task).isOkOr:
+    debug "Send refused by the rate limit",
+      msgHash = self.loggedHash(task), error = error.desc
+    return err(error)
 
   info "Task added to the send queue", msgHash = self.loggedHash(task)
   self.deliveryTasks[task.msgHash] = task

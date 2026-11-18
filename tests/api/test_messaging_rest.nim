@@ -16,6 +16,7 @@ import
   rest/messaging_api/event_cache,
   rest/messaging_api/handlers {.all.},
   rest/client,
+  logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
 import tests/testlib/[wakucore, wakunodeconf, rest_requests, rest_service]
@@ -184,10 +185,56 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "a send answers 429 with Retry-After when the send queue is full":
+  asyncTest "a send answers 429 with Retry-After when the node has MaxSendsInFlight sends":
+    var node: LogosDelivery
+    var rest: RestService
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(restNodeConf())).valueOr:
+        raiseAssert error
+      rest = (await node.startWithRest()).valueOr:
+        raiseAssert "Failed to start node: " & error
+    let client = restClientFor(rest)
+
+    # The node has no peer, so each send stays with no last event.
+    let contentTopic = "/test/1/messaging-rest-queue-full/proto"
+    for i in 0 ..< MaxSendsInFlight:
+      let resp = await client.messagingPostMessagesV1(
+        MessagingJsonEnvelope(
+          payload: base64.encode("send-" & $i),
+          contentTopic: contentTopic,
+          ephemeral: Opt.none(bool),
+          meta: Opt.none(Base64String),
+        )
+      )
+      check resp.status == 200
+
+    # A raw request, because the typed stub does not return the response headers.
+    let fullResp = await issueRequest(
+      rest.server.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body =
+        "{\"payload\":\"" & $base64.encode("one-more") & "\",\"contentTopic\":\"" &
+        contentTopic & "\"}",
+    )
+    check:
+      fullResp.status == 429
+      fullResp.headers.getString("Retry-After") == "1"
+      fullResp.data.endsWith(" (QueueFull)")
+
+    await rest.stop(node)
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "a send over the rate-limit budget answers 429 with the time to the refill":
     let conf = LogosDeliveryConf.init(
       KernelConf(restNodeConf().kernel),
-      MessagingClientConf(sendQueueCapacity: Opt.some(1'u)),
+      MessagingClientConf(
+        rateLimitEnabled: Opt.some(true),
+        rateLimitEpochPeriodSec: Opt.some(600'u64),
+        rateLimitMessagesPerEpoch: Opt.some(1'u64),
+      ),
       Opt.none(ReliableChannelManagerConf),
     ).valueOr:
       raiseAssert error
@@ -200,8 +247,7 @@ suite "Messaging REST API":
         raiseAssert "Failed to start node: " & error
     let client = restClientFor(rest)
 
-    # The node has no peer, so the first send stays in the send queue.
-    let contentTopic = "/test/1/messaging-rest-queue-full/proto"
+    let contentTopic = "/test/1/messaging-rest-rate-limit/proto"
     let firstResp = await client.messagingPostMessagesV1(
       MessagingJsonEnvelope(
         payload: base64.encode("first"),
@@ -213,7 +259,7 @@ suite "Messaging REST API":
     check firstResp.status == 200
 
     # A raw request, because the typed stub does not return the response headers.
-    let fullResp = await issueRequest(
+    let limitedResp = await issueRequest(
       rest.server.getAddress("/messaging/v1/messages"),
       meth = MethodPost,
       headers = @[("Content-Type", "application/json")],
@@ -222,8 +268,10 @@ suite "Messaging REST API":
         contentTopic & "\"}",
     )
     check:
-      fullResp.status == 429
-      fullResp.headers.getString("Retry-After") == "1"
+      limitedResp.status == 429
+      limitedResp.data.endsWith(" (RateLimited)")
+    let retryAfter = limitedResp.headers.getString("Retry-After").parseInt()
+    check retryAfter in 1 .. 600
 
     await rest.stop(node)
 
@@ -285,6 +333,13 @@ suite "Messaging REST API":
       sendRefused(SendError.init(SendErrorKind.QueueFull, "full")).status == Http429
       sendRefused(SendError.init(SendErrorKind.Duplicate, "queued")).status == Http409
       sendRefused(SendError.init(SendErrorKind.Other, "fault")).status == Http500
+    # A rate-limited send tells the client when to send again, in whole seconds.
+    let limited = sendRefused(
+      SendError.init(SendErrorKind.RateLimited, "spent", chronos.milliseconds(1500))
+    )
+    check:
+      limited.status == Http429
+      limited.headers.getString("Retry-After") == "2"
 
   test "an evicted send status counts in logos_delivery_rest_send_dropped":
     let cache = MessagingEventCache.new(maxSendRequests = 2)

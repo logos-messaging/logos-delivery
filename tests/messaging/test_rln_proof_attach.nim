@@ -87,7 +87,9 @@ proc mountRefreshingRln(waku: Waku): RefreshingProofBackend =
     Opt.some(RlnPlugin(name: "stub", generateProof: generate, onProofRejected: refresh))
   return backend
 
-proc fixedEpoch(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
+proc fixedEpoch(
+    timestamp: uint64
+): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
   ## One epoch for the whole test, so the charges cannot roll over.
   return Opt.some(EpochQuota(epochIndex: 7, rateLimit: 100, remaining: 100))
 
@@ -202,7 +204,7 @@ suite "SendService RLN proof attach - failing backend":
         waku,
         manager,
         SendProcessors(lightpush: processor),
-        sendQueueCapacity = 1,
+        maxSendsInFlight = 1,
         retryInterval = chronos.minutes(10),
       )
       .expect("SendService.new")
@@ -404,6 +406,55 @@ suite "SendService RLN proof attach - RLN mounted":
       manager.sentInCurrentEpoch == uint64(MaxProofRefreshes + 1) # and no charge after
       errors == @["rln proof rejected"]
 
+  asyncTest "a new proof takes a new charge, and with no budget left the send fails":
+    ## The new proof draws a new RLN message id, so it needs a charge of its own.
+    let backend = waku.mountRefreshingRln()
+    let processor = RejectingProcessor()
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(
+          enabled: true,
+          epochPeriodSec: DefaultEpochPeriodSec,
+          messagesPerEpoch: 2,
+          approachedThresholdPercent: 100,
+        ),
+        fixedEpoch,
+      )
+      .expect("RateLimitManager.new")
+    privateAccess(RateLimitManager)
+    var errors: seq[string]
+    let listener = MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(e: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(e.error),
+      )
+      .expect("listen")
+    defer:
+      await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
+    let service = SendService
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.milliseconds(10),
+      )
+      .expect("SendService.new")
+    let task = buildTask()
+
+    check service.enqueue(task).isOk()
+    check manager.sentInCurrentEpoch == 1'u64 # `enqueue` took the first charge
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeout:
+      task.state == DeliveryState.NotPropagated
+    check:
+      backend.proofs == 2 # the proof of the send, and one new proof
+      manager.sentInCurrentEpoch == 2'u64
+      errors == @[NoBudgetForNewProofReason]
+
   asyncTest "the EVM size preview equals the generated proof length":
     let msg = testMessage()
     let preview = waku.messageForSizeCheck(msg).expect("messageForSizeCheck")
@@ -448,9 +499,8 @@ suite "SendService RLN proof attach - RLN mounted":
     check:
       task.errorText().startsWith(MixTooLargeReason)
       task.msg.proof.len == 0
-      task.firstAdmittedTime.isNone()
       onchainRln.nonceManager.nextId == 0
-      quota.sentInCurrentEpoch == 0
+      quota.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
 
   asyncTest "attaches a proof":
     let attached = (await waku.attachRlnProof(testMessage())).expect("attachRlnProof")

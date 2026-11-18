@@ -13,7 +13,9 @@ import logos_delivery/api/conf/modes
 type
   DeliveryState* {.pure.} = enum
     Initial ## In the send queue, before `deliver` starts.
-    Admission ## Charges the epoch budget once, then attaches the RLN proof.
+    Prove
+      ## Attaches the RLN proof. `enqueue` took the charge of the first proof.
+      ## A new proof after a rejection takes a new charge here.
     Relay
     Lightpush
     Mix
@@ -33,9 +35,8 @@ type
       ## The zero value of a report.
       ## No transition has it, so a step that reports nothing fails the send.
     Started ## `deliver` starts or restarts the task.
-    Admitted
-    OverBudget
-    EphemeralDropped
+    Proved
+    OverBudget ## The epoch budget has no charge left for a new proof.
     ProofNotReady
     ProofTransient
     ProofPermanent
@@ -61,7 +62,6 @@ type
     MixWindowElapsed
     RetryTick
     WindowElapsed
-    ParkedTooLong
     StoreReported
     StoreMissed
     StoreWindowElapsed
@@ -69,7 +69,7 @@ type
   Guard* {.pure.} = enum
     ## A fact about the task.
     ## A transition with a guard fires only while the fact is true.
-    NeedsAdmission ## The task needs an epoch budget charge or an RLN proof.
+    NeedsProof ## The task needs an RLN proof, or a charge for a new one.
     Reliable ## P2P reliability is on and the message is not ephemeral.
     CanResend ## The task can get one more resend.
     InMixGrace ## The task is within `MixUnusableGrace` of its admission.
@@ -83,7 +83,6 @@ type
     ReportPropagatedOverMix
       ## `ReportPropagated` for a message that went out over mix.
       ## It marks the task, so the send service never asks Store about it.
-    ReportQueued ## Emits `MessageQueuedEvent` once.
     ReportMixFallback ## Logs the hand-over from mix to the plain path.
     ReportStoreTimeout ## Logs the end of the Store validation window and counts it.
     RefreshProof
@@ -129,7 +128,7 @@ static:
   doAssert StateEffect.high == StateEffect.Finish
 
 const
-  RoundStates* = {Admission, Relay, Lightpush, Mix}
+  RoundStates* = {Prove, Relay, Lightpush, Mix}
     ## The states of one round, which ends at a wait or a final state.
   StoreWaitStates* = {AwaitingStore, StoreResend}
     ## The states that wait for a Store answer.
@@ -144,14 +143,11 @@ const
     ## The triggers of a lightpush attempt, also the attempt of a resend.
   StoreResendTriggers = LightpushTriggers + {NoLightpushPeer, AttemptTimedOut}
     ## The check of the lightpush peer before a resend gives `NoLightpushPeer`.
-  AdmissionFailures = {EphemeralDropped, ProofPermanent, ProofBudgetExhausted}
-    ## The admission triggers that fail the send.
+  ProveFailures = {OverBudget, ProofPermanent, ProofBudgetExhausted}
+    ## The triggers of the proof step that fail the send.
   SizeCheckFailures = {ProofSizeUnknown, TooLargeForMix}
     ## A `Required` node checks the size of the message for mix before the admission.
-  AdmissionTriggers =
-    AdmissionFailures + {
-      Admitted, OverBudget, ProofNotReady, ProofTransient, StepRaised
-    }
+  ProveTriggers = ProveFailures + {Proved, ProofNotReady, ProofTransient, StepRaised}
   RelayTriggers = {
     Published, ZeroPeers, NoRelayPeers, ProofRejected, Rejected, StepRaised,
     WindowElapsed,
@@ -159,8 +155,8 @@ const
   MixTriggers =
     LightpushTriggers + MixUnusableTriggers + {TooLargeForMix, WindowElapsed}
   NonFailureTriggers = {
-    Started, Admitted, Published, RetryTick, WindowElapsed, ParkedTooLong,
-    StoreReported, StoreMissed, StoreWindowElapsed,
+    Started, Proved, Published, RetryTick, WindowElapsed, StoreReported, StoreMissed,
+    StoreWindowElapsed,
   } ## The triggers that do not tell why an attempt failed.
 
 func init*(T: type StepReport, trigger: Trigger, desc = ""): T =
@@ -188,7 +184,7 @@ func stateEffects*(state: DeliveryState): set[StateEffect] =
     {ReportNotStored, Finish}
   of NotPropagated:
     {ReportFailed, Finish}
-  of Initial, Admission, Relay, Lightpush, Mix, NextRoundRetry:
+  of Initial, Prove, Relay, Lightpush, Mix, NextRoundRetry:
     {}
 
 type
@@ -275,18 +271,17 @@ func buildDeliveryPlan*(
   let plain = used - {Mix}
   # Only a plain publish waits for Store. `resend` tells if the node has a resender.
   let hasResend = resend and plain != {}
-  let starts = {Initial, Admission, NextRoundRetry} + used
+  let starts = {Initial, Prove, NextRoundRetry} + used
   var arrows: seq[Transition]
 
-  arrows.add starts -- Started[NeedsAdmission] --> Admission
+  arrows.add starts -- Started[NeedsProof] --> Prove
   arrows.add starts -- Started --> chain[0]
-  arrows.add Admission -- Admitted --> chain[0]
-  arrows.add Admission -- OverBudget / {ReportQueued} --> NextRoundRetry
-  arrows.add Admission -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
+  arrows.add Prove -- Proved --> chain[0]
+  arrows.add Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
   if level == AnonymityLevel.Required:
-    arrows.add Admission -- (AdmissionFailures + SizeCheckFailures) --> NotPropagated
+    arrows.add Prove -- (ProveFailures + SizeCheckFailures) --> NotPropagated
   else:
-    arrows.add Admission -- AdmissionFailures --> NotPropagated
+    arrows.add Prove -- ProveFailures --> NotPropagated
 
   arrows.add plain -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
   arrows.add plain -- Published / {ReportPropagated} --> Propagated
@@ -314,9 +309,9 @@ func buildDeliveryPlan*(
         NextRoundRetry
       arrows.add Mix -- (MixUnusableTriggers - {MixNotMounted}) --> NotPropagated
 
-  arrows.add NextRoundRetry -- RetryTick[NeedsAdmission] --> Admission
+  arrows.add NextRoundRetry -- RetryTick[NeedsProof] --> Prove
   arrows.add NextRoundRetry -- RetryTick --> chain[0]
-  arrows.add NextRoundRetry -- {WindowElapsed, ParkedTooLong} --> NotPropagated
+  arrows.add NextRoundRetry -- WindowElapsed --> NotPropagated
   if plain != {}:
     let waits =
       if hasResend:
@@ -339,11 +334,11 @@ func buildDeliveryPlan*(
 func stepTriggers*(plan: DeliveryPlan, state: DeliveryState): set[Trigger] =
   ## The triggers that the step of `state` can report in `plan`.
   case state
-  of Admission:
+  of Prove:
     if plan.level == AnonymityLevel.Required:
-      AdmissionTriggers + SizeCheckFailures
+      ProveTriggers + SizeCheckFailures
     else:
-      AdmissionTriggers
+      ProveTriggers
   of Relay:
     RelayTriggers
   of Lightpush:
@@ -356,7 +351,7 @@ func stepTriggers*(plan: DeliveryPlan, state: DeliveryState): set[Trigger] =
   of StoreResend:
     StoreResendTriggers + {StoreReported, StoreWindowElapsed}
   of NextRoundRetry:
-    {RetryTick, WindowElapsed, ParkedTooLong}
+    {RetryTick, WindowElapsed}
   of AwaitingStore:
     {StoreReported, StoreMissed, StoreWindowElapsed}
   of Initial, FinalStates:

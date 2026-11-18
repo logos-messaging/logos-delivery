@@ -69,13 +69,13 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 
 `200` means that the node accepted the message, and `messageHash` is the hash of the message on the network. The node sets the timestamp of the message when it accepts it, so the hash does not change. The node refuses a message that it cannot accept, and then no event comes:
 
-* HTTP `429` with a `Retry-After` header: the send queue of the node is full.
+* HTTP `429`: the rate-limit budget of the epoch is spent. `Retry-After` gives the seconds until the budget refills. With an RLN backend that does not state its epoch length, it is 1. An ephemeral message also gets `429` when the budget is near its end. With RLN, the RLN budget also limits the sends.
+* HTTP `429` with `Retry-After: 1`: the node already has 50 sends that did not get their last event.
 * HTTP `409`: the node already sends a message with this hash. Two sends of the same message get one hash only when the clock of the node gives them the same timestamp.
 * HTTP `500`: another fault, for example a node that is not started.
 
 The delivery is asynchronous. Its result arrives as send events with the same `messageHash`:
 
-* `queued`: the send waits for rate-limit budget (only when rate limiting is on)
 * `propagated`: the message reached at least one peer
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
 * `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)

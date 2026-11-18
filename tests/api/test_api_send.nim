@@ -1,11 +1,12 @@
 {.used.}
 
-import results, std/[importutils, os, sets, strutils, tempfiles]
+import results, std/[importutils, os, sequtils, sets, strutils, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import
   ../testlib/[
-    futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service
+    futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service,
+    messaging_send,
   ]
 import ../waku_archive/archive_utils
 import
@@ -24,6 +25,7 @@ import
   rest/client,
   rest/kernel_api/relay/client as relay_rest_client
 import logos_delivery/waku/api/subscriptions
+import logos_delivery/waku/rln/[rln_api, rln_plugin]
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
 import logos_delivery/api/events/messaging_client_events
@@ -394,7 +396,7 @@ suite "Waku API - Send":
       let envelope = MessageEnvelope.init(
         ContentTopic("/waku/2/default-content/proto"), "burst payload " & $i
       )
-      let messageHash = (await node.messagingClient.send(envelope)).valueOr:
+      let messageHash = (await node.messagingClient.sendWhenRoom(envelope)).valueOr:
         raiseAssert "send failed: " & $error
       messageHashes.incl(messageHash.to0xHex())
     check messageHashes.len == burst
@@ -1002,10 +1004,9 @@ suite "Waku API - Send":
 
     eventManager.validate({SendEventOutcome.Propagated}, messageHash)
 
-## Checks that the caller gets the message hash before any event of the send. The
-## node has a budget of 0, so each send emits an event with no network call. A
-## durable message gets `MessageQueuedEvent` and an ephemeral one gets
-## `MessageErrorEvent`.
+## Checks that the caller gets the message hash before any event of the send.
+## The RLN backend of the node fails each proof at once.
+## So each accepted send emits `MessageErrorEvent` with no network call.
 
 const OrderTopic = ContentTopic("/test/1/send-order/proto")
 
@@ -1033,29 +1034,24 @@ proc keepHash(log: OrderLog, res: Result[SendResult, string]) =
   else:
     log.hashes.add("")
 
-proc noBudgetNode(capacity: uint): Future[LogosDelivery] {.async.} =
-  ## A started node whose rate limit admits no message.
+proc failingProofNode(): Future[LogosDelivery] {.async.} =
+  ## A started node whose sends are accepted and then fail at once.
+  ## Its RLN backend fails each proof.
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
-    node = (
-      await LogosDelivery.new(
-        KernelConf(defaultTestNodeConf().kernel),
-        MessagingClientConf(
-          rateLimitEnabled: Opt.some(true),
-          rateLimitMessagesPerEpoch: Opt.some(0'u64),
-          sendQueueCapacity: Opt.some(capacity),
-        ),
-        ReliableChannelManagerConf(),
-      )
-    ).expect("LogosDelivery.new")
+    node = (await LogosDelivery.new(defaultTestNodeConf())).expect("LogosDelivery.new")
     (await node.start()).expect("start")
+  proc failProof(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+    return err(RlnError.permanent("scripted proof failure"))
+
+  node.waku.node.rlnPlugin = Opt.some(RlnPlugin(name: "fake", generateProof: failProof))
   return node
 
 suite "Messaging API - the message hash comes before the events":
   asyncTest "send and the MessagingSend provider return a finished future":
     ## Both futures are finished when the call returns, and the task is in the
     ## send queue.
-    let node = await noBudgetNode(capacity = 4)
+    let node = await failingProofNode()
     defer:
       (await node.stop()).expect("stop")
     let client = node.messagingClient
@@ -1072,29 +1068,14 @@ suite "Messaging API - the message hash comes before the events":
         direct.read().isOk()
         viaBroker.read().isOk() and viaBroker.read().value.isOk()
 
-    # The node has room for 4 tasks, the 2 sends above and 2 more.
-    for i in 0 ..< 2:
-      check (await client.send(MessageEnvelope.init(OrderTopic, "fill-" & $i))).isOk()
-    let over = await client.send(MessageEnvelope.init(OrderTopic, "over"))
-    check:
-      client.sendService.isFull()
-      over.isErr() and over.error.kind == SendErrorKind.QueueFull
-
   asyncTest "no event comes before its message hash, durable and ephemeral":
-    let node = await noBudgetNode(capacity = 100)
+    let node = await failingProofNode()
     defer:
       (await node.stop()).expect("stop")
     let client = node.messagingClient
     let brokerCtx = node.waku.brokerCtx
 
     let log = OrderLog()
-    let queuedListener = MessageQueuedEvent
-      .listen(
-        brokerCtx,
-        proc(event: MessageQueuedEvent) {.async: (raises: []).} =
-          log.record(event.messageHash),
-      )
-      .expect("listen queued")
     let errorListener = MessageErrorEvent
       .listen(
         brokerCtx,
@@ -1103,11 +1084,10 @@ suite "Messaging API - the message hash comes before the events":
       )
       .expect("listen error")
     defer:
-      await MessageQueuedEvent.dropListener(brokerCtx, queuedListener)
       await MessageErrorEvent.dropListener(brokerCtx, errorListener)
 
     # Each batch sends two messages through the client and two through the
-    # broker. A durable task parks and an ephemeral task fails.
+    # broker. Each task fails at its proof.
     for batch in 0 ..< 3:
       proc envelope(kind: string, ephemeral = false): MessageEnvelope =
         MessageEnvelope.init(OrderTopic, kind & "-" & $batch, ephemeral = ephemeral)
@@ -1127,6 +1107,122 @@ suite "Messaging API - the message hash comes before the events":
       log.hashes.len == 12
       "" notin log.hashes # each send got a hash
       log.early.len == 0
+
+suite "Messaging API - refused sends":
+  asyncTest "a burst of two times MaxSendsInFlight sends gets QueueFull for the second half":
+    ## `send` does not suspend, so no send of the burst ends before the last one.
+    const Topic = ContentTopic("/test/1/queue-full/proto")
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          KernelConf(defaultTestNodeConf().kernel),
+          MessagingClientConf(
+            rateLimitEnabled: Opt.some(true),
+            rateLimitEpochPeriodSec: Opt.some(600'u64),
+            rateLimitMessagesPerEpoch: Opt.some(uint64(MaxSendsInFlight * 4)),
+          ),
+          ReliableChannelManagerConf(),
+        )
+      ).expect("LogosDelivery.new")
+      (await node.start()).expect("start")
+    defer:
+      (await node.stop()).expect("stop")
+    let client = node.messagingClient
+
+    var accepted = 0
+    var refusals: seq[SendErrorKind]
+    for i in 0 ..< MaxSendsInFlight * 2:
+      let res = await client.send(MessageEnvelope.init(Topic, "burst-" & $i))
+      if res.isOk():
+        inc accepted
+      else:
+        refusals.add(res.error.kind)
+    check:
+      accepted == MaxSendsInFlight
+      refusals == newSeqWith(MaxSendsInFlight, SendErrorKind.QueueFull)
+      # A refused send takes no charge.
+      node.messagingClient.rateLimitManager.sentInCurrentEpoch ==
+        uint64(MaxSendsInFlight)
+
+  asyncTest "a send over the rate-limit budget is refused with the time to the refill":
+    const
+      AcceptedTopic = ContentTopic("/test/1/rate-limit-accepted/proto")
+      RefusedTopic = ContentTopic("/test/1/rate-limit-refused/proto")
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          KernelConf(defaultTestNodeConf().kernel),
+          MessagingClientConf(
+            rateLimitEnabled: Opt.some(true),
+            rateLimitEpochPeriodSec: Opt.some(600'u64),
+            rateLimitMessagesPerEpoch: Opt.some(1'u64),
+          ),
+          ReliableChannelManagerConf(),
+        )
+      ).expect("LogosDelivery.new")
+      (await node.start()).expect("start")
+    defer:
+      (await node.stop()).expect("stop")
+    let client = node.messagingClient
+
+    check (await client.send(MessageEnvelope.init(AcceptedTopic, "accepted"))).isOk()
+
+    let refused = await client.send(MessageEnvelope.init(RefusedTopic, "refused"))
+    check refused.isErr()
+    if refused.isErr():
+      check:
+        refused.error.kind == SendErrorKind.RateLimited
+        refused.error.retryAfter > ZeroDuration
+        refused.error.retryAfter <= 600.seconds
+        # The library gives the wait only in this text.
+        refused.refusal().endsWith(
+          ", retry after " & $refused.error.retryAfter.seconds & " s (RateLimited)"
+        )
+
+  asyncTest "with RLN, a refused send gives the time to the end of the RLN epoch":
+    ## The RLN backend states its epoch length.
+    ## So the node can tell the app when the budget refills.
+    const EpochSizeSec = 100_000'u64
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node =
+        (await LogosDelivery.new(defaultTestNodeConf())).expect("LogosDelivery.new")
+      (await node.start()).expect("start")
+    defer:
+      (await node.stop()).expect("stop")
+
+    proc quota(timestamp: uint64): Future[Result[EpochQuota, RlnError]] {.async.} =
+      return ok(
+        EpochQuota(epochIndex: timestamp div EpochSizeSec, rateLimit: 1, remaining: 1)
+      )
+
+    proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+      return ok(@[1'u8, 2, 3])
+
+    node.waku.node.rlnPlugin = Opt.some(
+      RlnPlugin(
+        name: "fake",
+        generateProof: generate,
+        getEpochQuota: quota,
+        epochSizeSec: Opt.some(EpochSizeSec),
+      )
+    )
+    let client = node.messagingClient
+    const Topic = ContentTopic("/test/1/rln-retry-after/proto")
+
+    check (await client.send(MessageEnvelope.init(Topic, "accepted"))).isOk()
+
+    let refused = await client.send(MessageEnvelope.init(Topic, "refused"))
+    let now = uint64(getNowInNanosecondTime() div 1_000_000_000)
+    check refused.isErr()
+    if refused.isErr():
+      let left = int64(EpochSizeSec - now mod EpochSizeSec)
+      check:
+        refused.error.kind == SendErrorKind.RateLimited
+        refused.error.retryAfter >= chronos.seconds(left - 2)
+        refused.error.retryAfter <= chronos.seconds(left + 2)
 
 suite "Messaging API - a node that is not started":
   asyncTest "send, subscribe and unsubscribe fail, and the subscribe leaves no subscription":

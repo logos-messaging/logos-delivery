@@ -162,7 +162,6 @@ proc readValue*(
 
 type
   SendEventKind* {.pure.} = enum
-    Queued = "queued"
     Sent = "sent"
     Propagated = "propagated"
     Error = "error"
@@ -219,8 +218,6 @@ proc readValue*(
 ) {.raises: [SerializationError, IOError].} =
   let s = reader.readValue(string)
   case s
-  of "queued":
-    value = SendEventKind.Queued
   of "sent":
     value = SendEventKind.Sent
   of "propagated":

@@ -15,7 +15,6 @@ import
 type MessagingRestEvents* = ref object
   cache*: MessagingEventCache
   sent: Opt[MessageSentEventListener]
-  queued: Opt[MessageQueuedEventListener]
   propagated: Opt[MessagePropagatedEventListener]
   errored: Opt[MessageErrorEventListener]
   received: Opt[MessageReceivedEventListener]
@@ -30,9 +29,6 @@ proc stop*(self: MessagingRestEvents, ctx: BrokerContext) {.async: (raises: []).
   if self.sent.isSome():
     await MessageSentEvent.dropListener(ctx, self.sent.get())
     self.sent = Opt.none(MessageSentEventListener)
-  if self.queued.isSome():
-    await MessageQueuedEvent.dropListener(ctx, self.queued.get())
-    self.queued = Opt.none(MessageQueuedEventListener)
   if self.propagated.isSome():
     await MessagePropagatedEvent.dropListener(ctx, self.propagated.get())
     self.propagated = Opt.none(MessagePropagatedEventListener)
@@ -59,12 +55,6 @@ proc start*(self: MessagingRestEvents, ctx: BrokerContext): Result[void, string]
     let registered = listener.valueOr:
       return err(listenFailed("MessageSentEvent", error))
     self.sent = Opt.some(registered)
-  if self.queued.isNone():
-    let listener = MessageQueuedEvent.listenIt(ctx):
-      cache.recordSend(it.messageHash, SendEventKind.Queued)
-    let registered = listener.valueOr:
-      return err(listenFailed("MessageQueuedEvent", error))
-    self.queued = Opt.some(registered)
   if self.propagated.isNone():
     let listener = MessagePropagatedEvent.listenIt(ctx):
       cache.recordSend(it.messageHash, SendEventKind.Propagated)

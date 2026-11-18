@@ -1,4 +1,4 @@
-import results, std/times, chronos
+import results, chronos
 import brokers/broker_context
 import
   logos_delivery/waku/waku_core,
@@ -36,14 +36,14 @@ type DeliveryTask* = ref object
     ## Anchors the archive wait before the first Store query (see
     ## `nextStoreValidationBatch`).
   firstAdmittedTime*: Opt[Moment]
-    ## Set when the task first passes rate-limit admission; `none` while parked
-    ## waiting for epoch budget. Guards re-admission on retry and anchors the
-    ## delivery window (`isDeliveryTimedOut`), so a task parked for budget is not
-    ## aged out before it can be sent.
+    ## Set when the task takes its charge of the epoch budget. `enqueue` takes
+    ## the first one. A proof refresh clears it, and the next round takes a new
+    ## charge. It anchors the delivery window (`isDeliveryTimedOut`).
+  charge*: Opt[uint64] ## The result of `RateLimitManager.admit` for this task.
+  chargeUnused*: bool
+    ## True while the charge paid for no RLN message id and for no attempt.
+    ## Such a charge goes back to the budget when the task ends.
   propagatedEventEmitted*: bool ## Set when the task emits `MessagePropagatedEvent`.
-  queuedEventEmitted*: bool
-    ## Set once the task has reported itself queued for rate-limit budget, so
-    ## the event fires on the first park only and not on every retry.
   anonymized*: bool
     ## Set at the first anonymous send attempt and never cleared; from then on,
     ## the INFO and ERROR records of this task withhold the hash.
@@ -138,13 +138,6 @@ proc loggedHash*(task: DeliveryTask): string =
   else:
     task.msgHash.to0xHex()
 
-proc messageAge*(self: DeliveryTask): timer.Duration =
-  let actual = getNanosecondTime(getTime().toUnixFloat())
-  if self.msg.timestamp >= 0 and self.msg.timestamp < actual:
-    return nanoseconds(actual - self.msg.timestamp)
-  else:
-    return ZeroDuration
-
 proc propagationAge*(self: DeliveryTask): timer.Duration =
   ## Time elapsed since the message was first successfully propagated.
   ## Stable across re-publishes; ZeroDuration until first propagation.
@@ -154,8 +147,7 @@ proc propagationAge*(self: DeliveryTask): timer.Duration =
     return ZeroDuration
 
 proc admissionAge*(self: DeliveryTask): timer.Duration =
-  ## Time since the task first passed admission; ZeroDuration while never
-  ## admitted (still parked waiting for epoch budget).
+  ## Time since the task took its charge; ZeroDuration while it has none.
   if self.firstAdmittedTime.isSome():
     return timer.Moment.now() - self.firstAdmittedTime.get()
   else:
@@ -163,18 +155,10 @@ proc admissionAge*(self: DeliveryTask): timer.Duration =
 
 proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
   ## True when an admitted task has been trying to deliver longer than `maxTime`
-  ## without ever propagating. A task never admitted (parked for budget) is
-  ## exempt: the clock runs from admission time, so waiting for budget does not count
-  ## against it.
+  ## without ever propagating. The clock runs from the admission time.
   return
     self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
     self.admissionAge() > maxTime
-
-proc isParkedExpired*(self: DeliveryTask, maxAge: timer.Duration): bool =
-  ## True when a task never admitted (parked for budget) has outlived `maxAge`,
-  ## measured from the message timestamp, so parking cannot grow the backlog
-  ## and deliver arbitrarily late.
-  return self.firstAdmittedTime.isNone() and self.messageAge() > maxAge
 
 proc isEphemeral*(self: DeliveryTask): bool =
   return self.msg.ephemeral
