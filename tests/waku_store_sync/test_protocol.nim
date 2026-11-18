@@ -100,6 +100,68 @@ proc deliver(
     )
   )
 
+proc ingestAll(recon: SyncReconciliation, msgs: openArray[WakuMessage]) =
+  for msg in msgs:
+    recon.messageIngress(DefaultPubsubTopic, msg)
+
+type PendingTest = object
+  msgs: seq[WakuMessage]
+  hashes: seq[WakuMessageHash]
+  server: SyncReconciliation
+  serverB: SyncReconciliation
+  serverBPeerInfo: RemotePeerInfo
+  switchB: Switch
+  client: SyncReconciliation
+  clientIds: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+
+proc newPendingTest(
+    serverSwitch, clientSwitch: Switch,
+    idsChannel: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    localWants: AsyncQueue[PeerId],
+    remoteNeeds: AsyncQueue[(PeerId, WakuMessageHash)],
+    msgCount: int,
+    pendingTimeout: Duration,
+): Future[PendingTest] {.async.} =
+  ## Two servers and an empty client whose pending deadlines follow
+  ## `pendingNowInTest`, with `msgCount` messages that no node holds yet.
+  let
+    msgs = toSeq(1 .. msgCount).mapIt(
+        fakeWakuMessage(
+          payload = "pending " & $it, ts = now(), contentTopic = DefaultContentTopic
+        )
+      )
+    clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+    (switchB, serverB, serverBPeerInfo) =
+      await newSecondServer(idsChannel, localWants, remoteNeeds)
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = pendingTimeout,
+      pendingClock = pendingClockInTest,
+    )
+  return PendingTest(
+    msgs: msgs,
+    hashes: hashes,
+    server: server,
+    serverB: serverB,
+    serverBPeerInfo: serverBPeerInfo,
+    switchB: switchB,
+    client: client,
+    clientIds: clientIds,
+  )
+
+proc stopSecondServer(t: PendingTest) {.async.} =
+  await t.serverB.stop()
+  await t.switchB.stop()
+
 proc encodedLen(msg: WakuMessage): int =
   WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode().len
 
@@ -319,30 +381,18 @@ suite "Waku Sync: reconciliation":
 
   asyncTest "a promised message that arrives is kept after the pending timeout":
     # Given two servers holding one message and an empty client with a short timeout
-    let
-      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
-      hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 1,
+      500.milliseconds,
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 500.milliseconds,
-      pendingClock = pendingClockInTest,
-    )
-    server.messageIngress(hash, DefaultPubsubTopic, msg)
-    serverB.messageIngress(hash, DefaultPubsubTopic, msg)
+      await t.stopSecondServer()
+    let (msg, hash, clientIds, serverBPeerInfo) =
+      (t.msgs[0], t.hashes[0], t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(t.msgs)
+    t.serverB.ingestAll(t.msgs)
 
     # When the message arrives by transfer before the timeout
     var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
@@ -363,35 +413,17 @@ suite "Waku Sync: reconciliation":
 
   asyncTest "a promised message stays pending while its peer delivers, and expires once it stops":
     # Given two servers holding three messages and an empty client with a 2 s timeout
-    let
-      msgs = toSeq(1 .. 3).mapIt(
-          fakeWakuMessage(
-            payload = "late " & $it, ts = now(), contentTopic = DefaultContentTopic
-          )
-        )
-      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 3, 2.seconds
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 2.seconds,
-      pendingClock = pendingClockInTest,
-    )
-    for i in 0 ..< msgs.len:
-      server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
-      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      await t.stopSecondServer()
+    let (msgs, hashes, clientIds, serverBPeerInfo) =
+      (t.msgs, t.hashes, t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(msgs)
+    t.serverB.ingestAll(msgs)
 
     # When the first server promises all three and delivers two of them, the
     # second one 1.8 s after the promise
@@ -432,35 +464,17 @@ suite "Waku Sync: reconciliation":
   asyncTest "a delivery for a later session does not keep an earlier promise pending":
     # Given a server holding one message, a second server holding two, and an
     # empty client with a 2 s timeout
-    let
-      msgs = toSeq(1 .. 2).mapIt(
-          fakeWakuMessage(
-            payload = "session " & $it, ts = now(), contentTopic = DefaultContentTopic
-          )
-        )
-      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 2, 2.seconds
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 2.seconds,
-      pendingClock = pendingClockInTest,
-    )
-    server.messageIngress(hashes[0], DefaultPubsubTopic, msgs[0])
-    for i in 0 ..< msgs.len:
-      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      await t.stopSecondServer()
+    let (msgs, hashes, clientIds, serverBPeerInfo) =
+      (t.msgs, t.hashes, t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(msgs[0 .. 0])
+    t.serverB.ingestAll(msgs)
 
     # When the first server promises the first message, and in a later session
     # promises the second one and delivers it after the first promise's timeout
@@ -489,35 +503,17 @@ suite "Waku Sync: reconciliation":
   asyncTest "a delivery for an earlier session keeps a later promise pending":
     # Given a server holding one message, a second server holding two, and an
     # empty client with a 2 s timeout
-    let
-      msgs = toSeq(1 .. 2).mapIt(
-          fakeWakuMessage(
-            payload = "backlog " & $it, ts = now(), contentTopic = DefaultContentTopic
-          )
-        )
-      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 2, 2.seconds
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 2.seconds,
-      pendingClock = pendingClockInTest,
-    )
-    server.messageIngress(hashes[0], DefaultPubsubTopic, msgs[0])
-    for i in 0 ..< msgs.len:
-      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      await t.stopSecondServer()
+    let (msgs, hashes, clientIds, serverBPeerInfo) =
+      (t.msgs, t.hashes, t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(msgs[0 .. 0])
+    t.serverB.ingestAll(msgs)
 
     # When the first server promises the first message, in a later session
     # promises the second one, and delivers the first one 1.5 s after that
@@ -549,35 +545,17 @@ suite "Waku Sync: reconciliation":
 
   asyncTest "an arrival by relay or from another peer does not keep a promise pending":
     # Given two servers holding three messages and an empty client with a 1 s timeout
-    let
-      msgs = toSeq(1 .. 3).mapIt(
-          fakeWakuMessage(
-            payload = "elsewhere " & $it, ts = now(), contentTopic = DefaultContentTopic
-          )
-        )
-      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 3, 1.seconds
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 1.seconds,
-      pendingClock = pendingClockInTest,
-    )
-    for i in 0 ..< msgs.len:
-      server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
-      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      await t.stopSecondServer()
+    let (msgs, hashes, clientIds, serverBPeerInfo) =
+      (t.msgs, t.hashes, t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(msgs)
+    t.serverB.ingestAll(msgs)
 
     # When the first server promises all three, and before the timeout one of
     # them arrives by relay and one from the second server
@@ -602,35 +580,17 @@ suite "Waku Sync: reconciliation":
 
   asyncTest "a promise expires six timeouts after its round, also while its peer delivers":
     # Given two servers holding two messages and an empty client with a 1 s timeout
-    let
-      msgs = toSeq(1 .. 2).mapIt(
-          fakeWakuMessage(
-            payload = "limit " & $it, ts = now(), contentTopic = DefaultContentTopic
-          )
-        )
-      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
-      (switchB, serverB, serverBPeerInfo) =
-        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    let t = await newPendingTest(
+      serverSwitch, clientSwitch, idsChannel, localWants, remoteNeeds, 2, 1.seconds
+    )
     defer:
-      await serverB.stop()
-      await switchB.stop()
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch,
-      @[],
-      DefaultSyncRange,
-      clientIds,
-      localWants,
-      remoteNeeds,
-      pendingTimeout = 1.seconds,
-      pendingClock = pendingClockInTest,
-    )
-    for i in 0 ..< msgs.len:
-      server.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
-      serverB.messageIngress(hashes[i], DefaultPubsubTopic, msgs[i])
+      await t.stopSecondServer()
+    let (msgs, hashes, clientIds, serverBPeerInfo) =
+      (t.msgs, t.hashes, t.clientIds, t.serverBPeerInfo)
+    server = t.server
+    client = t.client
+    server.ingestAll(msgs)
+    t.serverB.ingestAll(msgs)
 
     # When the first server promises both, and delivers the first one 5.4 s later
     var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
