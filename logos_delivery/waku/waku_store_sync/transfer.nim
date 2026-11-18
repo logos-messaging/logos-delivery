@@ -184,27 +184,41 @@ proc findBatch(
       WakuMessageAndTopic(pubsub: response.topics[i], message: response.messages[i])
   return ok(found)
 
-proc sendBatch(self: SyncTransfer, peerId: PeerId, ids: seq[SyncID]) {.async.} =
+proc isRefused(self: SyncTransfer, peerId: PeerId, hash: WakuMessageHash): bool =
+  # The ended session is checked first, so a hash refused in it is skipped even
+  # when it is the first one queued again for that peer.
+  var ended = false
+  self.outSessions.withValue(peerId, conn):
+    ## isClosedRemotely is a sanity check, should not be possible
+    ended = conn[].closed() or conn[].isClosedRemotely
+  if ended:
+    ## quite possibly remote end has closed the connection, believing transfer to be done
+    self.markRefused(peerId)
+    self.outSessions.del(peerId)
+
+  self.refusedByPeer.expire()
+  if (peerId, hash) in self.refusedByPeer:
+    debug "Skipping message the peer refused",
+      remote_peer_id = peerId, msg_hash = hash.to0xHex()
+    return true
+  return false
+
+proc sendBatch(self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]) {.async.} =
+  # Filtered before the lookup, so a refused message is not read from the archive.
+  var ids: seq[SyncID]
+  for id in batch:
+    if not self.isRefused(peerId, id.hash):
+      ids.add(id)
+  if ids.len == 0:
+    return
+
   var found = (await self.findBatch(ids)).valueOr:
     error "failed to find messages to push", remote_peer_id = peerId, error = error
     return
 
   for id in ids:
-    # Before the skip check, so a hash refused in the ended session is skipped
-    # even when it is the first one queued again for that peer.
-    if self.outSessions.hasKey(peerId) and (
-      self.outSessions[peerId].closed() or
-      ## sanity check, should not be possible
-      self.outSessions[peerId].isClosedRemotely
-    ):
-      ## quite possibly remote end has closed the connection, believing transfer to be done
-      self.markRefused(peerId)
-      self.outSessions.del(peerId)
-
-    self.refusedByPeer.expire()
-    if (peerId, id.hash) in self.refusedByPeer:
-      debug "Skipping message the peer refused",
-        remote_peer_id = peerId, msg_hash = id.hash.to0xHex()
+    # Again, as the session may have ended while the batch was being sent.
+    if self.isRefused(peerId, id.hash):
       continue
 
     var msg: WakuMessageAndTopic
