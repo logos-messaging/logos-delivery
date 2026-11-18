@@ -7,8 +7,7 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
-  libp2p/protocols/service_discovery/types,
-  libp2p_mix/mix_protocol,
+  libp2p/protocols/[identify, ping],
   brokers/broker_context
 
 import
@@ -16,7 +15,6 @@ import
     waku_core,
     waku_relay,
     waku_metadata,
-    waku_core/topics/sharding,
     waku_relay/protocol,
     waku_enr/sharding,
     waku_enr/capabilities,
@@ -32,19 +30,6 @@ import
   ./waku_peer_store
 
 export waku_peer_store, peer_storage, peers
-
-const KnownAgents = [
-  "nwaku", "logos-delivery", "go-waku", "js-waku", "nim-libp2p", "go-libp2p",
-  "rust-libp2p", "js-libp2p",
-]
-
-func agentLabel(agent: string): string =
-  ## Remote peers choose their agent string freely: keep the label set bounded.
-  let lowered = agent.toLowerAscii()
-  for known in KnownAgents:
-    if known in lowered:
-      return known
-  return "other"
 
 declareCounter logos_delivery_peers_dials, "Number of peer dials", ["outcome"]
 # TODO: Populate from PeerStore.Source when ready
@@ -66,10 +51,6 @@ declarePublicGauge logos_delivery_peer_store_size,
 declarePublicGauge logos_delivery_service_peers,
   "Number of service peers per protocol", labels = ["protocol"]
 declarePublicGauge logos_delivery_total_unique_peers, "total number of unique peers"
-declarePublicGauge logos_delivery_pure_libp2p_peers,
-  "connected pure-libp2p peers: offer a protocol we consume, are not waku members"
-declarePublicCounter logos_delivery_pure_libp2p_admissions,
-  "admission decisions for peers that do not speak waku metadata", ["outcome"]
 
 logScope:
   topics = "waku node peer_manager"
@@ -117,6 +98,8 @@ type PeerManager* = ref object
   maxFailedAttempts*: int
   storage*: PeerStorage
   serviceSlots*: Table[string, RemotePeerInfo]
+  exclusivePeers*: Table[string, seq[RemotePeerInfo]]
+    ## Per protocol, the only peers selected for it besides its service slot.
   relayServiceRatio*: string
   maxRelayPeers*: int
   maxServicePeers*: int
@@ -125,16 +108,14 @@ type PeerManager* = ref object
   ipTable*: Table[string, seq[PeerId]]
   colocationLimit*: int
   started: bool
+  staticRedialLoopHandle: Future[void]
   shardedPeerManagement: bool # temp feature flag
   onConnectionChange*: ConnectionChangeHandler
   online: bool ## state managed by online_monitor module
   getShards: GetShards
+  metricTopics*: TopicLabels
   maxConnections: int
   activeStoreRequests*: Table[PeerId, int]
-  maxPureLibp2pPeers*: int
-    ## Inbound budget for pure-libp2p peers; 0 admits none (the default).
-  pureLibp2pPeers*: HashSet[PeerId]
-    ## Connected peers admitted as pure libp2p rather than as waku members.
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -266,16 +247,23 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
+proc candidatePeers*(pm: PeerManager, proto: string): seq[RemotePeerInfo] =
+  ## Copies of the exclusive peers of `proto` when set, otherwise the peer
+  ## store's peers that support it. Unordered and not filtered by shard.
+  pm.exclusivePeers.withValue(proto, exclusive):
+    return exclusive[].mapIt(it.deepCopy())
+  return pm.switch.peerStore.getPeersByProtocol(proto)
+
 proc selectPeers*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
   ## shuffled randomly. Callers can further filter or pick from this list.
-  var peers = pm.switch.peerStore.getPeersByProtocol(proto)
+  var peers = pm.candidatePeers(proto)
   trace "Selecting peers from peerstore",
     protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
 
-  if shard.isSome():
+  if shard.isSome() and proto notin pm.exclusivePeers:
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
       return @[]
@@ -285,17 +273,31 @@ proc selectPeers*(
   shuffle(peers)
   return peers
 
+proc slotPeer(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
+  ## The peer in the service slot of `proto`, if any. Relay has no service slot.
+  if proto != WakuRelayCodec:
+    pm.serviceSlots.withValue(proto, serviceSlot):
+      return Opt.some(serviceSlot[])
+  return Opt.none(RemotePeerInfo)
+
+proc hasPeers*(pm: PeerManager, proto: string): bool =
+  ## True when `selectPeer(proto)` finds a peer.
+  if pm.slotPeer(proto).isSome():
+    return true
+  pm.exclusivePeers.withValue(proto, exclusive):
+    return exclusive[].len > 0
+  return pm.switch.peerStore.hasPeers(proto)
+
 proc selectPeer*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): Opt[RemotePeerInfo] =
   ## Selects a single peer for a given protocol, checking service slots first
   ## (for non-relay protocols).
-  # WakuRelay has no slots; other protocols use their slotted peer if any
-  if proto != WakuRelayCodec:
-    pm.serviceSlots.withValue(proto, serviceSlot):
-      trace "Got peer from service slots",
-        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs, protocol = proto
-      return Opt.some(serviceSlot[])
+  let slotted = pm.slotPeer(proto)
+  if slotted.isSome():
+    trace "Got peer from service slots",
+      peerId = slotted.get().peerId, multi = slotted.get().addrs, protocol = proto
+    return slotted
 
   # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
   let peers = pm.selectPeers(proto, shard)
@@ -305,6 +307,21 @@ proc selectPeer*(
     return Opt.some(peers[0])
   trace "No peer found for protocol", protocol = proto
   return Opt.none(RemotePeerInfo)
+
+proc setExclusivePeers*(pm: PeerManager, proto: string, peers: seq[RemotePeerInfo]) =
+  ## Restricts peer selection for `proto` to `peers` and its service slot.
+  ## Discovered peers are no longer selected for it, and the exclusive peers
+  ## are selected regardless of the requested shard.
+  pm.exclusivePeers[proto] = peers
+
+func isSelectable*(pm: PeerManager, peerId: PeerId, proto: string): bool =
+  ## False for a peer outside the exclusive peers and service slot of `proto`.
+  pm.exclusivePeers.withValue(proto, exclusive):
+    pm.serviceSlots.withValue(proto, slot):
+      if slot[].peerId == peerId:
+        return true
+    return exclusive[].anyIt(it.peerId == peerId)
+  return true
 
 # Adds a peer to the service slots, which is a list of peers that are slotted for a given protocol
 proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
@@ -321,7 +338,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs, service = proto
-  logos_delivery_service_peers.set(1, labelValues = [$proto])
+  logos_delivery_service_peers.set(1, labelValues = [codecLabel(proto)])
 
   # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
@@ -383,7 +400,7 @@ proc connectPeer*(
         await deadline.cancelAndWait()
 
       logos_delivery_peers_dials.inc(labelValues = ["successful"])
-      logos_delivery_node_conns_initiated.inc(labelValues = [source])
+      logos_delivery_node_conns_initiated.inc(labelValues = [dialSourceLabel(source)])
 
       peerStore[NumberFailedConnBook][peerId] = 0
       peerStore[ConnectionBook][peerId] = Connected
@@ -608,6 +625,14 @@ func uniquePeersCount(inOut: (seq[PeerId], seq[PeerId])): int =
   let (inPeers, outPeers) = inOut
   return (inPeers & outPeers).toHashSet().len
 
+proc getSelectablePeersCount*(pm: PeerManager, protocol: string): int =
+  ## Like `getCapablePeersCount`, counting only the peers `selectPeer` may pick.
+  let (inPeers, outPeers) = pm.capablePeers(protocol)
+  return (
+    inPeers.filterIt(pm.isSelectable(it, protocol)),
+    outPeers.filterIt(pm.isSelectable(it, protocol)),
+  ).uniquePeersCount()
+
 proc getConnectedPeersCount*(pm: PeerManager, protocol: string): int =
   ## Returns the total number of unique connected peers (inbound + outbound)
   ## with active streams for a specific protocol.
@@ -823,83 +848,47 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
   asyncSpawn(pm.switch.disconnect(peerId))
   pm.switch.peerStore.delete(peerId)
 
-const PureLibp2pProtocols* = [ExtendedServiceDiscoveryCodec, MixProtocolID]
-  ## Protocols a peer can serve us without being a waku node: kademlia service
-  ## discovery, and mix once a pure-libp2p mix provider exists. A peer offering
-  ## any of these -- and nothing waku -- is a *pure-libp2p peer*.
+const BaseLibp2pProtocols = [IdentifyCodec, IdentifyPushCodec, PingCodec]
+  ## Spoken by every libp2p peer, so sharing them says nothing about usefulness.
 
-type PeerClass = enum
-  ## What a freshly identified peer is, decided from the protocols it
-  ## advertised -- never from whether a dial to it succeeded.
-  Member ## Speaks waku metadata: a waku node, held to waku membership rules.
-  PureLibp2p ## No waku metadata, but offers a protocol we consume.
-  Reject ## Neither.
+proc sharesAppProtocol(pm: PeerManager, peerId: PeerId): bool =
+  ## Whether the peer advertises a protocol this node also mounts, beyond the
+  ## base libp2p ones.
+  for proto in pm.switch.peerStore[ProtoBook][peerId]:
+    if proto in BaseLibp2pProtocols:
+      continue
+    for holder in pm.switch.ms.handlers:
+      if proto in holder.protos or (not holder.match.isNil() and holder.match(proto)):
+        return true
+  return false
 
-proc classifyPeer(pm: PeerManager, peerId: PeerId): PeerClass =
-  let protos = pm.switch.peerStore[ProtoBook][peerId]
-  if WakuMetadataCodec in protos:
-    return Member
-  if pm.maxPureLibp2pPeers > 0 and PureLibp2pProtocols.anyIt(it in protos):
-    return PureLibp2p
-  return Reject
-
-proc hasInboundConnection(pm: PeerManager, peerId: PeerId): bool =
-  ## Read from the connection itself, not from DirectionBook: libp2p asyncSpawns
-  ## `Joined`, so `Identified` can arrive before the Joined handler has written
-  ## the book.
+proc hasOutboundConnection(pm: PeerManager, peerId: PeerId): bool =
+  ## A peer we dialled was chosen for a protocol we may only consume as a client
+  ## (e.g. circuit relay hop), which none of our handlers would match.
   for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
-    if muxer.connection.transportDir == Direction.In:
+    if muxer.connection.transportDir == Direction.Out:
       return true
-  false
-
-proc inboundPureLibp2pCount(pm: PeerManager): int =
-  return pm.pureLibp2pPeers.toSeq().countIt(pm.hasInboundConnection(it))
-
-proc admitPureLibp2pPeer(pm: PeerManager, peerId: PeerId): bool =
-  ## The budget counts inbound connections only. An outbound one is a peer
-  ## *our* kademlia chose to dial -- a lookup opens alpha of them at once -- and
-  ## an attacker cannot make us open those; capping them would starve our own
-  ## lookups.
-  if peerId in pm.pureLibp2pPeers:
-    return true # Identified fires per connection; already admitted
-  if pm.hasInboundConnection(peerId) and
-      pm.inboundPureLibp2pCount() >= pm.maxPureLibp2pPeers:
-    return false
-  pm.pureLibp2pPeers.incl(peerId)
-  logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
-  true
+  return false
 
 proc onPeerIdentified(pm: PeerManager, peerId: PeerId) {.async.} =
-  ## Runs once identify has told us what the peer speaks. A node with no
-  ## metadata protocol of its own has no membership to enforce and accepts
-  ## everyone, as before.
+  ## Peers that advertise waku metadata are checked for cluster membership.
+  ## Any other peer is kept while it speaks a protocol we also run (e.g.
+  ## kademlia service discovery, mix) or we dialled it. An inbound peer that
+  ## shares nothing would only hold a connection slot, and nothing else ever
+  ## prunes it.
   if pm.wakuMetadata.isNil():
     return
-
-  case pm.classifyPeer(peerId)
-  of Member:
+  if WakuMetadataCodec in pm.switch.peerStore[ProtoBook][peerId]:
     await pm.refreshPeerMetadata(peerId)
-  of PureLibp2p:
-    if pm.admitPureLibp2pPeer(peerId):
-      logos_delivery_pure_libp2p_admissions.inc(labelValues = ["admitted"])
-      info "admitted pure-libp2p peer",
-        peerId = peerId, protocols = pm.switch.peerStore[ProtoBook][peerId]
-    else:
-      logos_delivery_pure_libp2p_admissions.inc(labelValues = ["over_budget"])
-      debug "Disconnecting from peer",
-        peerId = peerId,
-        reason = "pure-libp2p inbound budget exhausted",
-        budget = pm.maxPureLibp2pPeers
-      asyncSpawn(pm.switch.disconnect(peerId))
-      pm.switch.peerStore.delete(peerId)
-  of Reject:
-    logos_delivery_pure_libp2p_admissions.inc(labelValues = ["rejected"])
-    debug "Disconnecting from peer",
-      peerId = peerId,
-      reason = "no waku metadata and no protocol we consume",
-      protocols = pm.switch.peerStore[ProtoBook][peerId]
-    asyncSpawn(pm.switch.disconnect(peerId))
-    pm.switch.peerStore.delete(peerId)
+    return
+  if pm.sharesAppProtocol(peerId) or pm.hasOutboundConnection(peerId):
+    return
+  debug "Disconnecting from peer",
+    peerId = peerId,
+    reason = "no protocol in common",
+    protocols = pm.switch.peerStore[ProtoBook][peerId]
+  asyncSpawn(pm.switch.disconnect(peerId))
+  pm.switch.peerStore.delete(peerId)
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
@@ -944,9 +933,6 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Left:
     direction = UnknownDirection
     connectedness = CanConnect
-
-    if not pm.pureLibp2pPeers.missingOrExcl(peerId):
-      logos_delivery_pure_libp2p_peers.set(pm.pureLibp2pPeers.len.int64)
 
     # note we cant access the peerId ip here as the connection was already closed
     for ip, peerIds in pm.ipTable.pairs:
@@ -1008,16 +994,20 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       let (protoConnsIn, protoConnsOut) = pm.connectedPeers(proto)
       let (protoStreamsIn, protoStreamsOut) = pm.getNumStreams(proto)
       logos_delivery_connected_peers.set(
-        protoConnsIn.len.float64, labelValues = [$Direction.In, proto]
+        protoConnsIn.len.float64,
+        labelValues = [enumLabel(Direction.In), codecLabel(proto)],
       )
       logos_delivery_connected_peers.set(
-        protoConnsOut.len.float64, labelValues = [$Direction.Out, proto]
+        protoConnsOut.len.float64,
+        labelValues = [enumLabel(Direction.Out), codecLabel(proto)],
       )
       logos_delivery_streams_peers.set(
-        protoStreamsIn.float64, labelValues = [$Direction.In, proto]
+        protoStreamsIn.float64,
+        labelValues = [enumLabel(Direction.In), codecLabel(proto)],
       )
       logos_delivery_streams_peers.set(
-        protoStreamsOut.float64, labelValues = [$Direction.Out, proto]
+        protoStreamsOut.float64,
+        labelValues = [enumLabel(Direction.Out), codecLabel(proto)],
       )
 
     var agentCounts = initTable[string, int]()
@@ -1029,8 +1019,7 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
         agentCounts[agent] = agentCounts.getOrDefault(agent, 0) + 1
     for agent, count in agentCounts:
       logos_delivery_connected_peers_per_agent.set(
-        count.float64,
-        labelValues = [agent], # bounded-label: agentLabel() yields KnownAgents or other
+        count.float64, labelValues = [agentLabel(agent)]
       )
 
     for shard in pm.getShards().items:
@@ -1042,7 +1031,8 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       let connectedInShard = shardPeers.filterIt(connectedPeerIds.contains(it.peerId))
 
       logos_delivery_connected_peers_per_shard.set(
-        connectedInShard.len.float64, labelValues = [$shard]
+        connectedInShard.len.float64,
+        labelValues = [pm.metricTopics.shardIdLabel(shard)],
       )
 
 proc getOnlineStateObserver*(pm: PeerManager): OnOnlineStateChange =
@@ -1279,8 +1269,29 @@ proc start*(pm: PeerManager) =
   asyncSpawn pm.prunePeerStoreLoop()
   asyncSpawn pm.logAndMetrics()
 
+proc redialStaticPeersLoop(pm: PeerManager, peers: seq[string]) {.async.} =
+  while true:
+    await sleepAsync(
+      min(ConnectivityLoopInterval, chronos.seconds(max(pm.initialBackoffInSec, 1)))
+    )
+    let toDial = peers.filterIt(
+      block:
+        let info = parsePeerInfo(it)
+        info.isOk() and not pm.switch.isConnected(info.value.peerId)
+    )
+    if toDial.len > 0:
+      await pm.connectToNodes(toDial, source = "static")
+
+proc startStaticPeersRedial*(pm: PeerManager, peers: seq[string]) =
+  ## For every node with static peers, beside the relay connectivity loop when
+  ## that one runs: dial again the static peers that were down. It retries every interval and
+  ## ignores maxFailedAttempts: a static node has no discovery to replace it.
+  pm.staticRedialLoopHandle = pm.redialStaticPeersLoop(peers)
+
 proc stop*(pm: PeerManager) =
   pm.started = false
+  if not pm.staticRedialLoopHandle.isNil():
+    pm.staticRedialLoopHandle.cancelSoon()
 
 proc new*(
     T: type PeerManager,
@@ -1296,7 +1307,6 @@ proc new*(
     colocationLimit = DefaultColocationLimit,
     shardedPeerManagement = false,
     maxConnections: int = MaxConnections,
-    maxPureLibp2pPeers: int = 0,
 ): PeerManager {.gcsafe.} =
   let capacity = switch.peerStore.capacity
   if maxConnections > capacity:
@@ -1351,7 +1361,6 @@ proc new*(
     shardedPeerManagement: shardedPeerManagement,
     online: true,
     maxConnections: maxConnections,
-    maxPureLibp2pPeers: maxPureLibp2pPeers,
   )
 
   proc peerHook(

@@ -1,14 +1,6 @@
 import std/times, sugar
 
-import
-  libp2p/[
-    protocols/rendezvous,
-    signed_envelope,
-    multicodec,
-    multiaddress,
-    peerid,
-    utils/shortlog,
-  ]
+import libp2p/[protocols/rendezvous, signed_envelope, multicodec, multiaddress, peerid]
 import ../common/protobuf
 
 type WakuPeerRecord* {.proto3.} = object

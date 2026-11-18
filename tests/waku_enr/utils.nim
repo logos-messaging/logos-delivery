@@ -1,5 +1,9 @@
 import
-  sequtils, results, chronos, libp2p/crypto/crypto as libp2p_keys, eth/keys as eth_keys
+  sequtils,
+  results,
+  chronos,
+  libp2p/crypto/crypto as libp2p_keys,
+  eth/common/keys as eth_keys
 
 import
   logos_delivery/waku/[waku_enr, discovery/waku_discv5, waku_enr/sharding],

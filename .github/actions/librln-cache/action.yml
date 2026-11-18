@@ -1,0 +1,23 @@
+name: 'Cache librln'
+description: >
+  Caches the rln static library the Makefile puts in the workspace root
+  (librln_<version>.a, rln.lib on Windows), so it is not downloaded or
+  compiled from zerokit on every run. The Makefile skips its recipe when the
+  file exists.
+
+runs:
+  using: composite
+  steps:
+    - name: Read librln version
+      id: version
+      shell: bash
+      run: |
+        echo "value=$(sed -n 's/^LIBRLN_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache librln
+      uses: actions/cache@v3
+      with:
+        path: |
+          librln_*.a
+          rln.lib
+        key: ${{ runner.os }}-${{ runner.arch }}-librln-${{ steps.version.outputs.value }}-${{ hashFiles('scripts/build_rln.sh') }}

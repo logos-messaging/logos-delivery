@@ -196,13 +196,8 @@ proc markSegmentInflight(
       channelReqId = $channelReqId, error = e.msg
 
 proc send*(
-    self: ReliableChannel,
-    payload: seq[byte],
-    ephemeral: bool = false,
-    priority: MessagePriority = MessagePriority.Medium,
+    self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
 ): Future[Result[RequestId, string]] {.async: (raises: []).} =
-  ## `priority` is currently ignored.
-  ##
   ## Single application-level send:
   ##
   ##   segmentation -> sds -> encryption -> dispatch
@@ -261,7 +256,6 @@ proc send*(
       contentTopic: self.contentTopic,
       payload: wireBytes,
       ephemeral: ephemeral,
-      priority: priority,
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 

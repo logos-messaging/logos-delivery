@@ -32,6 +32,6 @@ template waitActive*(condition: bool) =
   for i in 0 ..< 200:
     if condition:
       break
-    await sleepAsync(10)
+    await sleepAsync(10.millis)
 
   assert condition

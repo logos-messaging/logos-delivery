@@ -4,7 +4,7 @@ import
   std/[sequtils, net],
   stew/endians2,
   results,
-  eth/keys,
+  eth/common/keys,
   libp2p/[multiaddress, multicodec],
   libp2p/crypto/crypto
 import ../common/enr

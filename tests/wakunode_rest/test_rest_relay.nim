@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[json, sequtils, strformat, strutils, tempfiles, osproc, uri],
+  std/[json, sequtils, strformat, strutils, uri],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -98,15 +98,11 @@ proc mountStubRln(node: WakuNode, validProof: seq[byte]): StubRlnCalls =
   return calls
 
 suite "Waku v2 Rest API - Relay":
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    waitFor runSharedAnvil()
     manager = waitFor setupRlnEvm(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
 
   asyncTest "Subscribe a node to an array of pubsub topics - POST /relay/v1/subscriptions":
     # Given
@@ -434,6 +430,7 @@ suite "Waku v2 Rest API - Relay":
     check:
       (await node.mountRelay()).isOk()
       node.mountArchive(driver).isOk()
+    node.wakuArchive.metricTopics = TopicLabels.init(DefaultClusterId, [DefaultShardId])
     await node.start()
     defer:
       await node.stop()
@@ -1998,6 +1995,8 @@ suite "Waku v2 Rest API - Relay":
       await allFutures(publisherServer.stop(), receiverServer.stop())
       await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
 
+    publisher.setLabelDefaultShard()
+    receiver.setLabelDefaultShard()
     let
       publisherClient = newRestHttpClient(publisherServer.localAddress())
       receiverClient = newRestHttpClient(receiverServer.localAddress())
@@ -2013,13 +2012,12 @@ suite "Waku v2 Rest API - Relay":
       publisher.hasGossipsubPeer(DefaultPubsubTopic, receiver.peerInfo.peerId)
     let sentBefore = relayNetworkBytes(netOut)
 
-    # Given the message posted once and read on both nodes
+    # Given the message posted once, read on the relay peer, and not on the publisher
     let firstResponse =
       await publisherClient.relayPostMessagesV1(DefaultPubsubTopic, message)
-    let firstOnPublisher =
-      await publisherClient.waitForRelayMessages(DefaultPubsubTopic, 1)
     let firstOnReceiver =
       await receiverClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    let firstOnPublisher = await publisherClient.relayGetMessagesV1(DefaultPubsubTopic)
     let sentAfterFirst = relayNetworkBytes(netOut)
 
     # When the same message is posted again
@@ -2031,7 +2029,8 @@ suite "Waku v2 Rest API - Relay":
     let againOnReceiver = await receiverClient.relayGetMessagesV1(DefaultPubsubTopic)
     check:
       firstResponse.status == 200
-      firstOnPublisher.mapIt(it.payload) == @[message.payload]
+      firstOnPublisher.status == 200
+      firstOnPublisher.data.len == 0
       firstOnReceiver.mapIt(it.payload) == @[message.payload]
       sentAfterFirst > sentBefore
       againResponse.status == 200
@@ -2041,7 +2040,7 @@ suite "Waku v2 Rest API - Relay":
       againOnReceiver.status == 200
       againOnReceiver.data.len == 0
 
-  asyncTest "A message posted twice is counted once as received and as incoming traffic - POST /relay/v1/messages/{topic}":
+  asyncTest "A message posted twice is never counted as received nor as incoming traffic - POST /relay/v1/messages/{topic}":
     # Given a relay node subscribed over REST to the pubsub topic
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
@@ -2060,6 +2059,7 @@ suite "Waku v2 Rest API - Relay":
     let client = newRestHttpClient(restServer.localAddress())
     let subscribeResponse = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
 
+    node.setLabelDefaultShard()
     let
       message = toRelayWakuMessage(fakeWakuMessage(payload = "posted-twice"))
       netIn = [DefaultPubsubTopic, "net", "in"]
@@ -2073,15 +2073,15 @@ suite "Waku v2 Rest API - Relay":
       bytesAfterFirst = relayNetworkBytes(netIn)
     let secondResponse = await client.relayPostMessagesV1(DefaultPubsubTopic, message)
 
-    # Then the second post is not counted as a received message nor as incoming traffic
+    # Then the node's own posts are not counted as received messages nor as incoming traffic
     check:
       subscribeResponse.status == 200
       firstResponse.status == 200
       secondResponse.status == 200
-      receivedAfterFirst == receivedBefore + 1
-      nodeMessagesCount(["relay"]) == receivedBefore + 1
-      bytesAfterFirst > bytesBefore
-      relayNetworkBytes(netIn) == bytesAfterFirst
+      receivedAfterFirst == receivedBefore
+      nodeMessagesCount(["relay"]) == receivedBefore
+      bytesAfterFirst == bytesBefore
+      relayNetworkBytes(netIn) == bytesBefore
 
   asyncTest "A message posted again with a relay peer in the mesh is answered 200 on the static route and 400 DuplicateMessage on the auto route - POST /relay/v1/messages/{topic}, POST /relay/v1/auto/messages":
     # Given two relay nodes with autosharding over 8 shards, each behind its own REST server

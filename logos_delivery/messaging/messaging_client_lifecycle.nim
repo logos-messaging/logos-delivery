@@ -32,27 +32,36 @@ proc start*(self: MessagingClient): Result[void, string] =
     return ok()
   if self.stopping:
     return err("MessagingClient is stopping")
-  self.persistencyJob = getMessagingJob(self.brokerCtx)
-  self.recvService.startRecvService(self.persistencyJob)
-  self.sendService.startSendService()
 
+  # Providers before services, so a failed setProvider leaves nothing running.
+  # A failure clears only the providers this call set: the provider already in
+  # place belongs to another owner.
   ?MessagingSend.setProvider(
     self.brokerCtx,
     proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
       return await self.send(envelope),
   )
 
-  ?MessagingSubscribe.setProvider(
+  MessagingSubscribe.setProvider(
     self.brokerCtx,
     proc(contentTopic: ContentTopic): Result[void, string] =
       self.waku.subscribe(contentTopic),
-  )
+  ).isOkOr:
+    MessagingSend.clearProvider(self.brokerCtx)
+    return err(error)
 
-  ?MessagingUnsubscribe.setProvider(
+  MessagingUnsubscribe.setProvider(
     self.brokerCtx,
     proc(contentTopic: ContentTopic): Result[void, string] =
       self.waku.unsubscribe(contentTopic),
-  )
+  ).isOkOr:
+    MessagingSend.clearProvider(self.brokerCtx)
+    MessagingSubscribe.clearProvider(self.brokerCtx)
+    return err(error)
+
+  self.persistencyJob = getMessagingJob(self.brokerCtx)
+  self.recvService.startRecvService(self.persistencyJob)
+  self.sendService.startSendService()
 
   self.started = true
   ok()

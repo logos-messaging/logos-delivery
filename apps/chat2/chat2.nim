@@ -11,9 +11,9 @@ import
   confutils,
   chronicles,
   chronos,
-  eth/keys,
+  eth/common/keys,
   bearssl,
-  stew/[byteutils],
+  stew/byteutils,
   results,
   metrics,
   metrics/chronos_httpserver
@@ -27,13 +27,13 @@ import
     peerinfo,
       # manage the information of a peer, such as peer ID and public / private key
     peerid, # Implement how peers interact
-    nameresolving/dnsresolver,
+    nameresolving/nameresolver,
   ] # define DNS resolution
 import
   logos_delivery/waku/[
     common/protobuf,
+    common/system_resolver,
     waku_core,
-    waku_lightpush_legacy/common,
     waku_lightpush_legacy/rpc,
     waku_enr,
     discovery/waku_dnsdisc,
@@ -41,6 +41,7 @@ import
     node/waku_metrics,
     node/peer_manager,
     factory/builder,
+    net/net_config,
     net/nat_config,
     waku_relay,
     waku_store/common,
@@ -198,12 +199,28 @@ proc publish(c: Chat, line: string) {.async.} =
 
     try:
       if not c.node.wakuLegacyLightPush.isNil():
-        # Attempt lightpush
-        (await c.node.legacyLightpushPublish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
+        # Attempt lightpush: through a remote service peer when the client is
+        # mounted, else through this node's own lightpush service.
+        let peer =
+          if c.node.wakuLegacyLightpushClient.isNil():
+            RemotePeerInfo.init($c.node.switch.peerInfo.peerId)
+          else:
+            c.node.peerManager.selectPeer(WakuLegacyLightPushCodec).valueOr:
+              error "failed to publish lightpush message",
+                error = "no suitable remote peers"
+              return
+        (
+          await c.node.legacyLightpushPublish(
+            Opt.some(DefaultPubsubTopic), message, peer
+          )
+        ).isOkOr:
           error "failed to publish lightpush message", error = error
       else:
         (await c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish message", error = error
+          return
+        # A node does not receive its own relay messages: echo it locally.
+        c.printReceivedMessage(message)
     except CatchableError:
       error "caught error publishing message: ", error = getCurrentExceptionMsg()
 
@@ -330,17 +347,19 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     let resolvedNat = await resolveNatStrategy(natStrategy)
     builder.withNatConfig(natConfig(resolvedNat))
 
-    builder
-      .withNetworkConfigurationDetails(
-        conf.listenAddress,
-        Port(uint16(conf.tcpPort) + conf.portsShift),
-        extIp,
-        extTcpPort,
-        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-        wsEnabled = conf.websocketSupport,
-        wssEnabled = conf.websocketSecureSupport,
-      )
-      .tryGet()
+    builder.withNetworkConfiguration(
+      NetConfig
+        .init(
+          conf.listenAddress,
+          Port(uint16(conf.tcpPort) + conf.portsShift),
+          extIp,
+          extTcpPort,
+          wsBindPort = Opt.some(Port(uint16(conf.websocketPort) + conf.portsShift)),
+          wsEnabled = conf.websocketSupport,
+          wssEnabled = conf.websocketSecureSupport,
+        )
+        .tryGet()
+    )
     builder.build().tryGet()
 
   await node.start()
@@ -398,11 +417,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   var discoveredNodes: seq[RemotePeerInfo]
 
   if dnsDiscoveryUrl.isSome:
-    var nameServers: seq[TransportAddress]
-    for ip in conf.dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(conf.dnsAddrsNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain

@@ -1,10 +1,9 @@
-import libp2p/crypto/rng
 {.used.}
 
 {.push raises: [].}
 
 import
-  std/[net, os, osproc, streams, strutils, strformat],
+  std/[exitprocs, net, os, osproc, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -16,7 +15,7 @@ import
   web3/eth_api_types,
   json_rpc/rpcclient,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   results,
   brokers/request_broker
 
@@ -31,8 +30,7 @@ import
     node/waku_node,
     node/waku_node/relay,
     persistency/persistency,
-  ],
-  ../testlib/common
+  ]
 
 const CHAIN_ID* = 1234'u256
 
@@ -109,7 +107,7 @@ proc ethToWei(eth: UInt256): UInt256 =
   eth * 1000000000000000000.u256
 
 proc getMinedTransactionReceipt(
-    web3: Web3, txHash: TxHash, retryStrategy: RetryStrategy
+    web3: Web3, txHash: Hash32, retryStrategy: RetryStrategy
 ): Future[Result[ReceiptObject, string]] {.async.} =
   return await retryWrapper(
     retryStrategy,
@@ -265,7 +263,7 @@ proc approveTokenAllowanceAndVerify*(
     spender: Address,
     amountWei: UInt256,
     expectedAllowanceBefore: Opt[UInt256] = Opt.none(UInt256),
-): Future[Result[TxHash, string]] {.async.} =
+): Future[Result[Hash32, string]] {.async.} =
   var allowanceBefore: UInt256
   if expectedAllowanceBefore.isSome():
     allowanceBefore =
@@ -407,7 +405,7 @@ proc sendEthTransfer*(
     accountTo: Address,
     amountWei: UInt256,
     accountToBalanceBeforeExpectedWei: Opt[UInt256] = Opt.none(UInt256),
-): Future[TxHash] {.async.} =
+): Future[Hash32] {.async.} =
   let doBalanceAssert = accountToBalanceBeforeExpectedWei.isSome()
 
   if doBalanceAssert:
@@ -514,6 +512,17 @@ proc compressGzipFile*(sourcePath: string, targetPath: string): Result[void, str
 
   ok()
 
+proc isPortInUse(port: int): bool =
+  try:
+    let sock = newSocket()
+    try:
+      sock.connect("127.0.0.1", Port(port), timeout = 500)
+      return true
+    finally:
+      close(sock)
+  except CatchableError:
+    return false
+
 proc runAnvil*(
     port: int = 8540,
     chainId: string = "1234",
@@ -523,6 +532,9 @@ proc runAnvil*(
 ): Process =
   # Gas/fee values mirror Linea Sepolia testnet.
   # See https://book.getfoundry.sh/reference/anvil/ for option details.
+
+  # Make sure the port is free.
+  doAssert not isPortInUse(port), "port " & $port & " is already in use"
   try:
     let anvilPath = getAnvilPath()
     debug "Anvil path", anvilPath
@@ -602,17 +614,9 @@ proc runAnvil*(
       if not runAnvil.running:
         error "Anvil daemon exited before becoming ready", pid = anvilPID
         return
-      try:
-        let sock = newSocket()
-        try:
-          sock.connect("127.0.0.1", Port(port), timeout = 500)
-          ready = true
-        finally:
-          close(sock)
-        if ready:
-          break
-      except CatchableError:
-        discard
+      if isPortInUse(port):
+        ready = true
+        break
       sleep(pollIntervalMs)
       elapsed += pollIntervalMs
 
@@ -684,6 +688,26 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
     debug "Anvil daemon stopped", anvilPID = anvilPID
   except Exception as e:
     error "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
+
+var sharedAnvil {.threadvar.}: Process
+var sharedAnvilBaseline {.threadvar.}: string
+
+addExitProc(
+  proc() =
+    if not sharedAnvil.isNil:
+      stopAnvil(sharedAnvil)
+)
+
+proc runSharedAnvil*() {.async.} =
+  ## Gives the caller the chain loaded from DEFAULT_ANVIL_STATE_PATH, on one
+  ## Anvil per binary that every call after the first rolls back.
+  if sharedAnvil.isNil:
+    sharedAnvil = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    doAssert not sharedAnvil.isNil, "Anvil did not start"
+  else:
+    let reverted = await revertEvmSnapshot(sharedAnvilBaseline)
+    doAssert reverted, "Anvil did not roll back to the loaded state"
+  sharedAnvilBaseline = await takeEvmSnapshot()
 
 proc setupRlnEvm*(
     ethClientUrl: string = EthClient,

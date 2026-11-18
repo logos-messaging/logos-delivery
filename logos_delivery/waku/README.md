@@ -175,7 +175,7 @@ The following command line options are available:
 ```
 --dns-discovery              Enable DNS Discovery
 --dns-discovery-url          URL for DNS node list in format 'enrtree://<key>@<fqdn>'
---dns-addrs-name-server  DNS name server IPs to query. Argument may be repeated.
+--dns-addrs-name-server  DNS name server IPs to query. Argument may be repeated. Defaults to the host's resolver.
 ```
 
 - `--dns-discovery` is used to enable DNS discovery on the node.

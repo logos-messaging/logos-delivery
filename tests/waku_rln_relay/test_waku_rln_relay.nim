@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[os, sequtils, tempfiles, strutils, osproc, algorithm],
+  std/[os, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -17,20 +17,16 @@ import
     [waku_core, rln, rln/rln_evm/bindings, rln/protocol_metrics, waku_keystore],
   ./rln/waku_rln_relay_utils,
   ./utils_onchain,
-  ../testlib/[wakucore, futures, wakunode, testutils]
+  ../testlib/wakucore
 
 from std/times import epochTime
 
 suite "Waku rln relay":
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    waitFor runSharedAnvil()
     manager = waitFor setupRlnEvm(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
 
   test "ffi_extended_key_gen raw FFI":
     # When we call the raw key-generation FFI

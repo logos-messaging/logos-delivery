@@ -11,7 +11,7 @@ import
   confutils,
   chronicles,
   chronos,
-  eth/keys,
+  eth/common/keys,
   bearssl,
   results,
   stew/[byteutils],
@@ -29,12 +29,13 @@ import
     peerid, # Implement how peers interact
     protocols/kademlia/types,
     protocols/service_discovery/types as sd_types,
-    nameresolving/dnsresolver,
+    nameresolving/nameresolver,
   ] # define DNS resolution
 import libp2p_mix/[curve25519, mix_protocol]
 import
   logos_delivery/waku/[
     common/protobuf,
+    common/system_resolver,
     waku_core,
     waku_core/peers,
     waku_lightpush/common,
@@ -47,6 +48,7 @@ import
     node/peer_manager,
     factory/waku_conf,
     factory/builder,
+    net/net_config,
     net/nat_config,
     waku_store/common,
     waku_filter_v2/client,
@@ -218,7 +220,7 @@ proc readAndPrint(c: Chat) {.async.} =
     #
     #      echo cast[string](await p.conn.readLp(1024))
     #echo "readAndPrint subscribe NYI"
-    await sleepAsync(100)
+    await sleepAsync(100.millis)
 
 # TODO Implement
 proc writeAndPrint(c: Chat) {.async.} =
@@ -421,17 +423,19 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     let resolvedNat = await resolveNatStrategy(natStrategy)
     builder.withNatConfig(natConfig(resolvedNat))
 
-    builder
-      .withNetworkConfigurationDetails(
-        conf.listenAddress,
-        Port(uint16(conf.tcpPort) + conf.portsShift),
-        extIp,
-        extTcpPort,
-        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-        wsEnabled = conf.websocketSupport,
-        wssEnabled = conf.websocketSecureSupport,
-      )
-      .tryGet()
+    builder.withNetworkConfiguration(
+      NetConfig
+        .init(
+          conf.listenAddress,
+          Port(uint16(conf.tcpPort) + conf.portsShift),
+          extIp,
+          extTcpPort,
+          wsBindPort = Opt.some(Port(uint16(conf.websocketPort) + conf.portsShift)),
+          wsEnabled = conf.websocketSupport,
+          wssEnabled = conf.websocketSecureSupport,
+        )
+        .tryGet()
+    )
     builder.build().tryGet()
 
   node.mountAutoSharding(conf.clusterId, conf.numShardsInNetwork).isOkOr:
@@ -523,11 +527,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   var discoveredNodes: seq[RemotePeerInfo]
 
   if dnsDiscoveryUrl.isSome:
-    var nameServers: seq[TransportAddress]
-    for ip in conf.dnsDiscoveryNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(conf.dnsDiscoveryNameServers)
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain
@@ -627,7 +627,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   while node.getMixNodePoolSize() < MinMixNodePoolSize:
     info "waiting for mix nodes to be discovered",
       currentpoolSize = node.getMixNodePoolSize()
-    await sleepAsync(1000)
+    await sleepAsync(1000.millis)
   notice "ready to publish with mix node pool size ",
     currentpoolSize = node.getMixNodePoolSize()
   echo "ready to publish messages now"

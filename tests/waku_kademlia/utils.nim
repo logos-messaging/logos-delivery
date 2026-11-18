@@ -1,7 +1,7 @@
 {.used.}
 
 import std/sets
-import chronos, chronicles, results
+import chronos, results
 import libp2p/[peerid, multiaddress, switch]
 import libp2p/protocols/service_discovery/types
 import libp2p/extended_peer_record

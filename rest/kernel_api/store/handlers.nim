@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, std/[strformat, strutils, sugar], results
+import std/options, std/[strformat, strutils], results
 
 import chronicles, uri, json_serialization, presto/route
 import

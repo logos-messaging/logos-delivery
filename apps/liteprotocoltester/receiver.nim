@@ -84,7 +84,7 @@ proc maintainSubscription(
 
     noFailedSubscribes += 1
     logos_delivery_lpt_service_peer_failure_count.inc(
-      labelValues = ["receiver", actualFilterPeer.getAgent()]
+      labelValues = ["receiver", agentLabel(actualFilterPeer.getAgent())]
     )
     error "Subscribe request failed.",
       err = subscribeErr, peer = actualFilterPeer, failCount = noFailedSubscribes

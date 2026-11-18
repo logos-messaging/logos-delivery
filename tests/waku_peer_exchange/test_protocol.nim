@@ -6,7 +6,7 @@ import
   testutils/unittests,
   chronos,
   libp2p/[switch, peerId, crypto/crypto],
-  eth/[keys, p2p/discoveryv5/enr],
+  eth/[common/keys, p2p/discoveryv5/enr],
   brokers/broker_context
 
 import
@@ -75,14 +75,13 @@ suite "Waku Peer Exchange":
           disc1.protocol.nodesDiscovered >= 1
           disc2.protocol.nodesDiscovered >= 1
 
-        # node2 can be connected, so will be returned by peer exchange
-        require (
-          await node1.peerManager.connectPeer(node2.switch.peerInfo.toRemotePeerInfo())
-        )
-
-        # Mount peer exchange
+        # Mount peer exchange; node1 fills its cache with its own discv5 walks
         await node1.mountPeerExchange()
+        node1.wakuPeerExchange.startCacheRefresh(disc1.randomWalk())
         await node3.mountPeerExchange()
+
+        checkUntilTimeout:
+          node1.wakuPeerExchange.cacheLen() >= 1
 
         let dialResponse =
           await node3.dialForPeerExchange(node1.switch.peerInfo.toRemotePeerInfo())
@@ -93,6 +92,7 @@ suite "Waku Peer Exchange":
           response.get().peerInfos.len == 1
           response.get().peerInfos[0].enr == disc2.protocol.localNode.record.raw
 
+        await node1.wakuPeerExchange.stopCacheRefresh()
         await allFutures(
           [node1.stop(), node2.stop(), node3.stop(), disc1.stop(), disc2.stop()]
         )
@@ -115,15 +115,11 @@ suite "Waku Peer Exchange":
       require:
         connOpt.isSome
 
-      # Simulate node1 discovering node3 via Discv5
-      var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = Opt.some(node3.enr)
-      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node1 finding node3
+      node1.wakuPeerExchange.addToCache(@[node3.enr])
 
-      # Simulate node1 discovering node4 via Discv5
-      var info4 = node4.peerInfo.toRemotePeerInfo()
-      info4.enr = Opt.some(node4.enr)
-      node1.peerManager.addPeer(info4, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node1 finding node4
+      node1.wakuPeerExchange.addToCache(@[node4.enr])
 
       # Request 2 peer from px. Test all request variants
       let response1 = await node2.wakuPeerExchangeClient.request(2)
@@ -155,7 +151,7 @@ suite "Waku Peer Exchange":
       check:
         response4.get(PeerExchangeResponse()).peerInfos.len == 2
 
-    asyncTest "Request returns a discovered peer marked CanConnect, not one marked CannotConnect":
+    asyncTest "Request does not return peers known only to the peer store":
       let
         node1 = newTestWakuNode(generateSecp256k1Key())
         node2 = newTestWakuNode(generateSecp256k1Key())
@@ -167,27 +163,40 @@ suite "Waku Peer Exchange":
         await allFutures([node1.stop(), node2.stop(), node3.stop(), node4.stop()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchangeClient()])
 
-      # Given node1 discovered node3 and node4 via Discv5
+      # Given node1 learnt node3 from its own discv5 search, into its peer store
       var info3 = node3.peerInfo.toRemotePeerInfo()
       info3.enr = Opt.some(node3.enr)
       node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
-      var info4 = node4.peerInfo.toRemotePeerInfo()
-      info4.enr = Opt.some(node4.enr)
-      node1.peerManager.addPeer(info4, PeerOrigin.Discv5)
-
-      # And node3 disconnected gracefully, while connecting to node4 failed
-      node1.peerManager.switch.peerStore[ConnectionBook][info3.peerId] = CanConnect
-      node1.peerManager.switch.peerStore[ConnectionBook][info4.peerId] = CannotConnect
+      # And a PX cache walk found node4
+      node1.wakuPeerExchange.addToCache(@[node4.enr])
 
       # When node2 requests two peers from node1
       let response =
         await node2.wakuPeerExchangeClient.request(2, node1.peerInfo.toRemotePeerInfo())
       let returnedEnrs = response.get(PeerExchangeResponse()).peerInfos.mapIt(it.enr)
 
-      # Then only node3 is returned
+      # Then only the cached node4 is returned
       check:
         response.isOk()
-        returnedEnrs == @[node3.enr.raw]
+        returnedEnrs == @[node4.enr.raw]
+
+    asyncTest "Cache keeps at most MaxPeersCacheSize entries, dropping the oldest":
+      let wpx = WakuPeerExchange.new(PeerManager.new(newTestSwitch()))
+      var records: seq[enr.Record]
+      for _ in 0 .. MaxPeersCacheSize:
+        var builder = EnrBuilder.init(generateSecp256k1Key())
+        builder.withIpAddressAndPorts(
+          Opt.some(parseIpAddress("127.0.0.1")), Opt.some(Port(60000)), Opt.none(Port)
+        )
+        records.add(builder.build().expect("valid ENR"))
+      for record in records:
+        wpx.addToCache(@[record])
+
+      let served = wpx.getEnrsFromCache(uint64.high)
+      check:
+        wpx.cacheLen() == MaxPeersCacheSize
+        not served.anyIt(it == records[0])
+        served.anyIt(it == records[^1])
 
     asyncTest "Request fails gracefully":
       let
@@ -284,10 +293,8 @@ suite "Waku Peer Exchange":
       )
       assert dialResponse.isSome
 
-      # Simulate node1 discovering node3 via Discv5
-      var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = Opt.some(node3.enr)
-      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node1 finding node3
+      node1.wakuPeerExchange.addToCache(@[node3.enr])
 
       # When requesting 0 peers
       let response = await node2.wakuPeerExchangeClient.request(0)
@@ -352,10 +359,8 @@ suite "Waku Peer Exchange":
       await allFutures([node1.start(), node2.start(), node3.start()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchange()])
 
-      # Simulate node1 discovering node3 via Discv5
-      var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = Opt.some(node3.enr)
-      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node1 finding node3
+      node1.wakuPeerExchange.addToCache(@[node3.enr])
 
       # Create connection
       let connOpt = await node2.peerManager.dialPeer(
@@ -396,10 +401,8 @@ suite "Waku Peer Exchange":
         ]
       )
 
-      # Simulate node1 discovering nodeA via Discv5
-      var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = Opt.some(node3.enr)
-      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+      # Simulate a discv5 random walk of node1 finding node3
+      node1.wakuPeerExchange.addToCache(@[node3.enr])
 
       # Create connection
       let connOpt = await node2.peerManager.dialPeer(

@@ -1,12 +1,7 @@
 {.used.}
 
 import
-  results,
-  std/[strscans, strutils],
-  testutils/unittests,
-  chronos,
-  chronicles,
-  libp2p/crypto/crypto
+  results, std/[strscans, strutils], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[

@@ -5,7 +5,7 @@ import
   results,
   chronos,
   chronicles,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   eth/net/utils,
   libp2p/crypto/crypto,

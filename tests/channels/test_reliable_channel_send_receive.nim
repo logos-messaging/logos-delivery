@@ -5,11 +5,10 @@ from std/times import epochTime
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
 
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
+import ../testlib/[wakucore, wakunodeconf]
 
 import logos_delivery
-import logos_delivery/waku/[waku_node, waku_core]
-import logos_delivery/waku/factory/waku_conf
+import logos_delivery/waku/waku_core
 import logos_delivery/api/events/messaging_client_events as waku_message_events
 import logos_delivery/api/messaging_client_api
 import tools/confutils/cli_args

@@ -19,6 +19,7 @@ import logos_delivery/waku/api/health
 import logos_delivery/api/conf/modes
 import logos_delivery/api/conf/logos_delivery_conf
 from logos_delivery/waku/waku_store/common import WakuStoreCodec
+from logos_delivery/waku/waku_store/protocol_metrics import logos_delivery_store_queries
 from logos_delivery/waku/waku_filter_v2/subscriptions import removePeer
 
 import
@@ -28,6 +29,7 @@ import
     waku_core,
     node/peer_manager,
     api/events/health_events,
+    api/events/peer_events,
     waku_relay/protocol,
     waku_archive,
     waku_archive/common as archive_common,
@@ -865,6 +867,40 @@ suite "Messaging API, Receive Service (backfill)":
     checkUntilTimeoutCustom(IdleTimeout, 100.milliseconds):
       (await root.storedRecords()).getOrDefault((TestShard, topic)).timestamp >
         subscribedAt - net.variance
+
+  asyncTest "a wake in the wait for the archive sends no Store query":
+    ## A node that starts gets many peer events while the last part of its
+    ## first gap waits for the archive. Each event wakes the worker. The
+    ## worker sends one query for the part that the archive has at the
+    ## recovery, and one query for the last part.
+    let topic = ContentTopic("/waku/2/recv-wake-queries/proto")
+    let net = await setupNetwork(topic)
+    defer:
+      await net.teardown()
+    let events = net.events
+    let backfill = net.subscriber.messagingClient.recvService.backfill
+    discard await net.archiveAt(topic, now(), "in the first gap")
+    # The recovery comes later than the subscribe, so the archive has the
+    # first part of the gap at the recovery.
+    await sleepAsync(backfill.timestampVariance + backfill.archiveTime)
+    let queriesBefore = logos_delivery_store_queries.value()
+    await net.joinMesh()
+    await net.waitLive()
+    # The archive has the full gap after this time.
+    let archiveWait =
+      backfill.delayExtra + backfill.timestampVariance * 2 + backfill.archiveTime
+    let deadline = Moment.now() + archiveWait
+    while Moment.now() < deadline:
+      WakuPeerEvent.emit(
+        net.subscriber.waku.brokerCtx, net.storeNodePeerInfo.peerId,
+        WakuPeerEventKind.EventIdentified,
+      )
+      await sleepAsync(100.milliseconds)
+    check await events.waitForEvents(TestTimeout)
+    check await net.caughtUp()
+    check events.payloads() == @["in the first gap"]
+    check events.receivedSources == @[MessageSource.History]
+    check logos_delivery_store_queries.value() - queriesBefore <= 2
 
   asyncTest "Edge: a lost filter subscription is an outage, and its gap is filled":
     ## The filter service drops the subscription while the connection stays.

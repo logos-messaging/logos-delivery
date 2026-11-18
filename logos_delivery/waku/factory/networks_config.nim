@@ -41,11 +41,11 @@ type NetworkPresetConf* = object
     ## addresses are `dns4` names, which stay valid when a fleet node moves hosts;
     ## the node resolves them in the background after the mount.
   p2pReliability*: bool
-  maxPureLibp2pPeers*: int
   extraListenShards*: seq[uint16]
     ## Shards every subscribed content topic is also received on. Deprecated:
     ## removed once Status's shard migration ends,
     ## https://github.com/status-im/status-go/issues/7498.
+  storeNodes*: seq[string] ## Multiaddrs of the network's store nodes.
 
 proc autoSharding*(T: type ShardingConf, shards: seq[uint16]): T =
   ShardingConf(kind: AutoSharding, shards: shards)
@@ -92,6 +92,11 @@ proc TheWakuNetworkConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/node-01.do-ams3.waku.test.status.im/tcp/30303/p2p/16Uiu2HAkykgaECHswi3YKJ5dMLbq2kPVCo89fcyTd38UcQD6ej5W",
       "/dns4/node-01.gc-us-central1-a.waku.test.status.im/tcp/30303/p2p/16Uiu2HAmDCp8XJ9z1ev18zuv8NHekAsjNyezAvmMfFEJkiharitG",
     ],
+    storeNodes: @[
+      "/dns4/node-01.ac-cn-hongkong-c.waku.test.status.im/tcp/30303/p2p/16Uiu2HAkzHaTP5JsUwfR9NR8Rj9HC24puS6ocaU8wze4QrXr9iXp",
+      "/dns4/node-01.do-ams3.waku.test.status.im/tcp/30303/p2p/16Uiu2HAkykgaECHswi3YKJ5dMLbq2kPVCo89fcyTd38UcQD6ej5W",
+      "/dns4/node-01.gc-us-central1-a.waku.test.status.im/tcp/30303/p2p/16Uiu2HAmDCp8XJ9z1ev18zuv8NHekAsjNyezAvmMfFEJkiharitG",
+    ],
   )
 
 # cluster-id=3 (Logos Dev Network)
@@ -126,11 +131,18 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAkvoH9inWGTmVxL4TDKYFqNZEfoLP3zmeuNSVkiknkTbPF",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmGBJ6wbRC2QGJreX3bA25g5yhMFajNVVKM9483CgcPkSu",
     ],
-    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
     entryNodes: @[
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE",
+    ],
+    storeNodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",
       "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
@@ -164,11 +176,18 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/node-01.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmL3oU95jh1BZHozn3uNhx8HEneirgr8M1jEAapzXGDqRF:0573cca393d50bca75a34e4fe5d3f9e703c7ef0f8b94af199ff05e9b21c76201",
       "/dns4/node-02.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAm28CoBZjpyxsanC8tQpbvZ7bZJnVYuB1EgFzb571qpWsV:9b6f8e546762eaaa863778701f1a6f6dca37e7f03e64c9e35307b05018444a17",
     ],
-    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
     entryNodes: @[
+      "/dns4/node-01.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmQ9X2xDfPG3uL77V9piYDhjq14JhKCtcmNYsTMKNqrKCj",
+      "/dns4/node-02.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmB8NYprrfQrgWVzsJtYWkfjsXbmJEGNMG6othXsQ53BwG",
+      "/dns4/node-01.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmF8WtwGPmeGHgYAX2277jHgy5cW9F7zsB8EqUjBZQAZQ3",
+      "/dns4/node-02.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmUuXhUW9bdJpzN1kfDziFiUZo4bszTk66cvr7uuyCHXR7",
+      "/dns4/node-01.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmL3oU95jh1BZHozn3uNhx8HEneirgr8M1jEAapzXGDqRF",
+      "/dns4/node-02.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAm28CoBZjpyxsanC8tQpbvZ7bZJnVYuB1EgFzb571qpWsV",
+    ],
+    storeNodes: @[
       "/dns4/node-01.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmQ9X2xDfPG3uL77V9piYDhjq14JhKCtcmNYsTMKNqrKCj",
       "/dns4/node-02.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmB8NYprrfQrgWVzsJtYWkfjsXbmJEGNMG6othXsQ53BwG",
       "/dns4/node-01.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmF8WtwGPmeGHgYAX2277jHgy5cW9F7zsB8EqUjBZQAZQ3",
@@ -182,7 +201,9 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
 # The `status.prod` and `status.staging` networks Status runs on. RLN is
 # disabled. Auto-sharding uses the single shard 32, which Status publishes on;
 # during its shard migration nodes also receive on shard 64.
-proc statusNetworkConf(entryNodes: seq[string]): NetworkPresetConf =
+proc statusNetworkConf(
+    entryNodes: seq[string], storeNodes: seq[string]
+): NetworkPresetConf =
   const ZeroChainId = 0'u256
   return NetworkPresetConf(
     maxMessageSize: "1024KiB",
@@ -202,6 +223,7 @@ proc statusNetworkConf(entryNodes: seq[string]): NetworkPresetConf =
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
     entryNodes: entryNodes,
+    storeNodes: storeNodes,
   )
 
 # Bootstrap is done through the status.prod DNS discovery enrtree plus the
@@ -214,7 +236,15 @@ proc StatusProdConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/boot-01.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmAR24Mbb6VuzoyUiGx42UenDkshENVDj4qnmmbabLvo31",
       "/dns4/boot-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm8mUZ18tBWPXDQsaF7PbCKYA35z7WB2xNZH2EVq1qS8LJ",
       "/dns4/boot-01.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmGwcE8v7gmJNEWFtZtojYpPMTHy2jBLL6xRk33qgDxFWX",
-    ]
+    ],
+    @[
+      "/dns4/store-01.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmAUdrQ3uwzuE4Gy4D56hX6uLKEeerJAnhKEHZ3DxF1EfT",
+      "/dns4/store-02.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm9aDJPkhGxc2SFcEACTFdZ91Q5TJjp76qZEhq9iF59x7R",
+      "/dns4/store-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmMELCo218hncCtTvC2Dwbej3rbyHQcR8erXNnKGei7WPZ",
+      "/dns4/store-02.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmJnVR7ZzFaYvciPVafUXuYGLHPzSUigqAmeNw9nJUVGeM",
+      "/dns4/store-01.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm2M7xs7cLPc3jamawkEqbr7cUJX11uvY7LxQ6WFUdUKUT",
+      "/dns4/store-02.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm9CQhsuwPR54q27kNj9iaQVfyRzTGKrhFmr94oD8ujU6P",
+    ],
   )
 
 # Bootstrap is done through the status.staging DNS discovery enrtree plus the
@@ -225,7 +255,11 @@ proc StatusStagingConf*(T: type NetworkPresetConf): NetworkPresetConf =
     @[
       "enrtree://AI4W5N5IFEUIHF5LESUAOSMV6TKWF2MB6GU2YK7PU4TYUGUNOCEPW@boot.staging.status.nodes.status.im",
       "/dns4/boot-01.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmQE7FXQc6iZHdBzYfw3qCSDa9dLc1wsBJKoP4aZvztq2d",
-    ]
+    ],
+    @[
+      "/dns4/store-01.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAm3xVDaz6SRJ6kErwC21zBJEZjavVXg7VSkoWzaV1aMA3F",
+      "/dns4/store-02.do-ams3.status.staging.status.im/tcp/30303/p2p/16Uiu2HAmCDSnT8oNpMR9HH6uipD71KstYuDCAQGpek9XDAVmqdEr",
+    ],
   )
 
 const MaxAllowedSubscribedShard* = 60

@@ -6,13 +6,11 @@ import
   web3,
   web3/eth_api_types,
   web3/primitives,
-  eth/keys as keys,
+  eth/common/keys as keys,
   chronicles,
   nimcrypto/keccak as keccak,
   stint,
-  json,
-  std/[strutils, tables, algorithm, strformat],
-  stew/byteutils,
+  std/[tables, algorithm],
   sequtils
 
 import
@@ -38,13 +36,13 @@ type
     ethContractAddress*: string
     ethRpc*: Opt[Web3]
     wakuRlnContract*: Opt[WakuRlnContractWithSender]
-    registrationTxHash*: Opt[TxHash]
+    registrationTxHash*: Opt[Hash32]
     receiptRetryStrategy*: RetryStrategy = RetryStrategy.new()
     chainId*: UInt256
     keystorePath*: Opt[string]
     keystorePassword*: Opt[string]
     registrationHandler*: Opt[RegistrationHandler]
-    latestProcessedBlock*: BlockNumber
+    latestProcessedBlock*: Quantity
     merkleProofCache*: seq[byte]
     merkleProofCacheGeneration: uint64
     proofPathRefreshInFlightFut*: Future[seq[byte]]
@@ -399,7 +397,7 @@ method register*(
     await retryWrapper(
       RetryStrategy.new(),
       "Failed to register the member",
-      proc(): Future[TxHash] {.async.} =
+      proc(): Future[Hash32] {.async.} =
         return await wakuRlnContract
           .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
           .send(gasPrice = gasPrice),

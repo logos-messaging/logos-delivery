@@ -2,10 +2,7 @@
 
 import chronos, results, testutils/unittests
 import libp2p/[switch, peerinfo, crypto/crypto, extended_peer_record, signed_envelope]
-import
-  logos_delivery/waku/discovery/signed_service_record,
-  ../testlib/common,
-  ../testlib/wakucore
+import logos_delivery/waku/discovery/signed_service_record, ../testlib/wakucore
 
 suite "Signed service record":
   asyncTest "encodes this node's identity, the one service, and verifies":

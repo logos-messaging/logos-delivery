@@ -6,7 +6,7 @@ Migrated from [`logos-delivery-interop-tests`](https://github.com/logos-messagin
 ## Layout
 
 - `src/` — test framework (node wrappers, steps, helpers)
-- `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s02…s31`)
+- `tests/c_abi/` — scenario tests that drive `liblogosdelivery` through its C ABI (`test_s01…s31`)
 - `tests/rest/` — REST tests against docker nodes (`DEFAULT_NWAKU` image); `tests/rest/messaging/` covers the `/messaging/v1` endpoints
 - `vendor/logos-delivery-python-bindings/` — git submodule of [`logos-delivery-python-bindings`](https://github.com/logos-messaging/logos-delivery-python-bindings), pinned to a commit. Its `logosdelivery/wrapper.py` is the CFFI binding (`NodeWrapper`); it `dlopen`s `../lib/liblogosdelivery.so`. `.gitmodules` sets `update = none` for it, so a plain `git submodule update` skips it and `prepare_lib.sh` checks it out.
 
@@ -46,6 +46,5 @@ git add tests-e2e/vendor/logos-delivery-python-bindings
 `liblogosdelivery` artifact produced by the `build` job and runs the non-docker and docker subsets as a matrix
 (`c-abi`, `c-abi-docker`) on every PR — so a protocol change and its e2e test land in the same PR.
 
-The `slow` test is deselected there. `.github/workflows/tests-e2e-c-abi-nightly.yml` (nightly, also on manual dispatch)
-builds the library from the checkout and runs the whole non-docker subset, `slow` included.
-Run it by hand when touching SDS-R.
+The `slow` test is deselected there. The nightly full run (`ci-daily.yml`, also on manual dispatch) passes `slow: true`,
+so its non-docker subset includes it.

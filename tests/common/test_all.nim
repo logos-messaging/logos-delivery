@@ -11,4 +11,7 @@ import
   ./test_ratelimit_setting,
   ./test_timed_map,
   ./test_dburl,
-  ./test_collector
+  ./test_collector,
+  ./test_getaddrinfo_async,
+  ./test_system_resolver,
+  ./test_logging

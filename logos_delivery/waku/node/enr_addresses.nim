@@ -8,7 +8,7 @@
 
 import std/[net, sequtils]
 import results, chronicles
-import eth/keys, eth/p2p/discoveryv5/enr
+import eth/common/keys, eth/p2p/discoveryv5/enr
 import libp2p/[multiaddress, wire], libp2p/crypto/crypto
 import ../net/net_config, ../waku_enr
 

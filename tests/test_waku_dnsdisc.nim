@@ -1,4 +1,3 @@
-import libp2p/crypto/rng
 {.used.}
 
 import
@@ -6,16 +5,14 @@ import
   results,
   stew/base32,
   testutils/unittests,
-  chronicles,
   chronos,
   libp2p/crypto/crypto,
-  eth/keys,
+  eth/common/keys,
   dnsdisc/builder
 import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_node,
   logos_delivery/waku/discovery/waku_dnsdisc,
-  ./testlib/common,
   ./testlib/wakucore,
   ./testlib/wakunode,
   ./waku_enr/utils

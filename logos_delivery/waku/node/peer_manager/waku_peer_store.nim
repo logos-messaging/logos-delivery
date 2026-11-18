@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tables, sequtils, sets, strutils],
+  std/[tables, sequtils, sets],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
@@ -57,9 +57,12 @@ func isDiscoveryOrigin(origin: PeerOrigin): bool =
   return origin in [Discv5, Kademlia]
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
+  # LastSeenOutboundBook holds the address we dialled, so it comes first; the
+  # address of an inbound connection is the peer's source port, which nothing
+  # listens on, and stays out of the dial list.
   let addresses =
-    if peerStore[LastSeenBook][peerId].isSome():
-      @[peerStore[LastSeenBook][peerId].get()] & peerStore[AddressBook][peerId]
+    if peerStore[LastSeenOutboundBook][peerId].isSome():
+      @[peerStore[LastSeenOutboundBook][peerId].get()] & peerStore[AddressBook][peerId]
     else:
       peerStore[AddressBook][peerId]
 
@@ -176,11 +179,12 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
 proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
   peerStore[ShardBook][peerId] = shards
 
-proc peers*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  peerStore.peers().filterIt(it.protocols.contains(proto))
-
 proc peers*(peerStore: PeerStore, protocolMatcher: Matcher): seq[RemotePeerInfo] =
-  peerStore.peers().filterIt(it.protocols.anyIt(protocolMatcher(it)))
+  var matching: seq[RemotePeerInfo]
+  for peerId, protocols in peerStore[ProtoBook].book.pairs():
+    if protocols.anyIt(protocolMatcher(it)):
+      matching.add(peerStore.getPeer(peerId))
+  return matching
 
 proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
@@ -200,18 +204,30 @@ proc isConnected*(peerStore: PeerStore, peerId: PeerID): bool =
   # Returns `true` if the peer is connected
   peerStore.connectedness(peerId) == Connected
 
+proc hasConnectedPeers*(peerStore: PeerStore): bool =
+  # Returns `true` if any peer is connected
+  for connectedness in peerStore[ConnectionBook].book.values():
+    if connectedness == Connected:
+      return true
+  return false
+
 proc hasPeer*(peerStore: PeerStore, peerId: PeerID, proto: string): bool =
   # Returns `true` if peer is included in manager for the specified protocol
-  # TODO: What if peer does not exist in the peerStore?
-  peerStore.getPeer(peerId).protocols.contains(proto)
-
-proc hasPeers*(peerStore: PeerStore, proto: string): bool =
-  # Returns `true` if the peerstore has any peer for the specified protocol
-  toSeq(peerStore[ProtoBook].book.values()).anyIt(it.anyIt(it == proto))
+  return peerStore[ProtoBook][peerId].contains(proto)
 
 proc hasPeers*(peerStore: PeerStore, protocolMatcher: Matcher): bool =
   # Returns `true` if the peerstore has any peer matching the protocolMatcher
-  toSeq(peerStore[ProtoBook].book.values()).anyIt(it.anyIt(protocolMatcher(it)))
+  for protocols in peerStore[ProtoBook].book.values():
+    if protocols.anyIt(protocolMatcher(it)):
+      return true
+  return false
+
+proc hasPeers*(peerStore: PeerStore, proto: string): bool =
+  # Returns `true` if the peerstore has any peer for exactly the specified protocol
+  for protocols in peerStore[ProtoBook].book.values():
+    if protocols.contains(proto):
+      return true
+  return false
 
 proc getCapacity*(peerStore: PeerStore): int =
   peerStore.capacity
@@ -220,8 +236,9 @@ proc setCapacity*(peerStore: PeerStore, capacity: int) =
   peerStore.capacity = capacity
 
 proc getWakuProtos*(peerStore: PeerStore): seq[string] =
+  ## Only our codecs: peers advertise any protocol string they like.
   toSeq(peerStore[ProtoBook].book.values()).flatten().deduplicate().filterIt(
-    it.startsWith("/vac/waku")
+    it in WakuCodecs
   )
 
 proc getPeersByDirection*(
@@ -236,7 +253,12 @@ proc getConnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(it.connectedness == Connected)
 
 proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.protocols.contains(proto))
+  # Returns the peers that support exactly the specified protocol
+  var matching: seq[RemotePeerInfo]
+  for peerId, protocols in peerStore[ProtoBook].book.pairs():
+    if protocols.contains(proto):
+      matching.add(peerStore.getPeer(peerId))
+  return matching
 
 proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(it.connectedness != CannotConnect)

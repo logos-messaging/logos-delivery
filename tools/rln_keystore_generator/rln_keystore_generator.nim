@@ -3,7 +3,7 @@ when (NimMajor, NimMinor) < (1, 4):
 else:
   {.push raises: [].}
 
-import chronicles, results, std/[tempfiles, sequtils]
+import chronicles, results
 
 import
   logos_delivery/waku/[

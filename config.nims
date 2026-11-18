@@ -35,7 +35,7 @@ const portableBuild = not defined(marchNative) or defined(disableMarchNative)
 # and nimcache is not keyed by defines: a tree first built with other flags keeps
 # the old archive. Use -d:LeopardRebuild or wipe nimcache when switching.
 if defined(android):
-  # Leopard-RS and the NDK toolchain are set by the libLogosDeliveryAndroid task.
+  # Leopard-RS and the NDK toolchain come from the caller (the Makefile's Android targets).
   discard
 elif portableBuild:
   # Leopard-RS' CMakeLists adds -march=native whenever the compiler accepts it.
@@ -142,6 +142,10 @@ when defined(macosx):
   on
 --opt:
   speed
+# ORC rejects `deepCopy` unless deepcopy is on. `PeerManager.candidatePeers`
+# calls `deepCopy`, and nat_traversal defines a `=deepCopy` hook. refc has it on already.
+--deepcopy:
+  on
 
 # All feature defines go here
 --define:
@@ -152,7 +156,8 @@ when defined(macosx):
 # enable metric collection
 --define:
   metrics
-# for heap-usage-by-instance-type metrics and object base-type strings
+# for object base-type strings, and for the heap-usage-by-instance-type
+# metrics, which only refc reports
 --define:
   nimTypeNames
 

@@ -11,7 +11,7 @@ import
   logos_delivery/waku/waku_lightpush_legacy,
   logos_delivery/waku/waku_lightpush_legacy/[client, common],
   logos_delivery/waku/common/rate_limit/setting,
-  ../testlib/[common, wakucore]
+  ../testlib/wakucore
 
 proc newTestWakuLegacyLightpushNode*(
     switch: Switch,

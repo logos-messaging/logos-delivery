@@ -1,6 +1,6 @@
 import stew/[arrayops, endians2], stint, results
 
-import chronicles, eth/keys
+import chronicles, eth/common/keys
 
 import
   logos_delivery/waku/[

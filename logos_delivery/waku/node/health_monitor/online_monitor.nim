@@ -1,7 +1,7 @@
 import std/sequtils
 import chronos, chronicles, libp2p/nameresolving/dnsresolver, libp2p/peerstore
 
-import ../peer_manager/waku_peer_store, logos_delivery/waku/waku_core/peers
+import ../peer_manager/waku_peer_store, ../../common/system_resolver
 
 logScope:
   topics = "waku online monitor"
@@ -21,7 +21,14 @@ proc checkInternetConnectivity(
     nameServerIps: seq[IpAddress], timeout = 2.seconds
 ): Future[bool] {.async.} =
   const DNSCheckDomain = "one.one.one.one"
-  let nameServers = nameServerIps.mapIt(initTAddress(it, Port(53)))
+  ## The probe asks whether the network is reachable, so it must put a packet
+  ## on the wire: the host resolver could answer from a cache or /etc/hosts.
+  ## This is the one lookup that bypasses the host's resolver on purpose.
+  let nameServers =
+    if nameServerIps.len > 0:
+      nameServerIps.mapIt(initTAddress(it, Port(53)))
+    else:
+      DefaultFallbackServers
   let dnsResolver = DnsResolver.new(nameServers)
 
   # Resolve domain IP
@@ -36,14 +43,10 @@ proc updateOnlineState(self: OnlineMonitor) {.async.} =
     trace "No online state observers registered, cannot notify about online state change"
     return
 
-  let numConnectedPeers =
-    if self.peerStore.isNil():
-      0
-    else:
-      self.peerStore.peers().countIt(it.connectedness == Connected)
+  let peerConnected = not self.peerStore.isNil() and self.peerStore.hasConnectedPeers()
 
   let online =
-    if numConnectedPeers > 0:
+    if peerConnected:
       true
     else:
       await checkInternetConnectivity(self.dnsNameServers)

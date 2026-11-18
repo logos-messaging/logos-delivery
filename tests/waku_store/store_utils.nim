@@ -1,6 +1,6 @@
 {.used.}
 
-import chronos, chronicles
+import chronos
 
 import
   logos_delivery/waku/[node/peer_manager, waku_store, waku_store/client],

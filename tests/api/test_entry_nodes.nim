@@ -9,119 +9,119 @@ import tools/confutils/entry_nodes
 
 suite "Entry Nodes Classification":
   test "Process ENRTree - standard format":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 1
       bootstrapEnrs.len == 0
       staticNodes.len == 0
 
   test "Process ENRTree - case insensitive":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "ENRTREE://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 1
       bootstrapEnrs.len == 0
       staticNodes.len == 0
 
   test "Process ENR - standard format":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 1
       staticNodes.len == 0
 
   test "Process ENR - case insensitive":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "ENR:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 1
       staticNodes.len == 0
 
   test "Process Multiaddress - IPv4":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
       staticNodes.len == 1
 
   test "Process Multiaddress - IPv6":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @["/ip6/::1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
       staticNodes.len == 1
 
   test "Process Multiaddress - DNS":
-    let result = processEntryNodes(
+    let res = processEntryNodes(
       @[
         "/dns4/example.com/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
       ]
     )
     check:
-      result.isOk()
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+      res.isOk()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
       staticNodes.len == 1
 
   test "Process empty string":
-    let result = processEntryNodes(@[""])
+    let res = processEntryNodes(@[""])
     check:
-      result.isErr()
-      result.error == "Entry node error: Empty entry node address"
+      res.isErr()
+      res.error == "Entry node error: Empty entry node address"
 
   test "Process invalid format - HTTP URL":
-    let result = processEntryNodes(@["http://example.com"])
+    let res = processEntryNodes(@["http://example.com"])
     check:
-      result.isErr()
-      result.error ==
+      res.isErr()
+      res.error ==
         "Entry node error: Unrecognized entry node format. Must start with 'enrtree:', 'enr:', or '/'"
 
   test "Process invalid format - some string":
-    let result = processEntryNodes(@["some-string-here"])
+    let res = processEntryNodes(@["some-string-here"])
     check:
-      result.isErr()
-      result.error ==
+      res.isErr()
+      res.error ==
         "Entry node error: Unrecognized entry node format. Must start with 'enrtree:', 'enr:', or '/'"
 
 suite "Entry Nodes Processing":
@@ -132,11 +132,11 @@ suite "Entry Nodes Processing":
       "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 1 # enrtree
       bootstrapEnrs.len == 1 # enr
@@ -151,11 +151,11 @@ suite "Entry Nodes Processing":
       "enrtree://ANOTHER_TREE@example.com",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 2
       bootstrapEnrs.len == 0
@@ -168,11 +168,11 @@ suite "Entry Nodes Processing":
       "/ip4/192.168.1.1/tcp/60001/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYd",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
@@ -185,11 +185,11 @@ suite "Entry Nodes Processing":
       "enr:-QEkuECnZ3IbVAgkOzv-QLnKC4dRKAPRY80m1-R7G8jZ7yfT3ipEfBrhKN7ARcQgQ-vg-h40AQzyvAkPYlHPaFKk6u9MBgmlkgnY0iXNlY3AyNTZrMaEDk49D8JjMSns4p1XVNBvJquOUzT4PENSJknkROspfAFGg3RjcIJ2X4N1ZHCCd2g",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 2
@@ -200,11 +200,11 @@ suite "Entry Nodes Processing":
   test "Process empty list":
     let entryNodes: seq[string] = @[]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
@@ -213,10 +213,10 @@ suite "Entry Nodes Processing":
   test "Process with invalid entry":
     let entryNodes = @["enrtree://VALID@example.com", "invalid://notvalid"]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isErr()
-      result.error ==
+      res.isErr()
+      res.error ==
         "Entry node error: Unrecognized entry node format. Must start with 'enrtree:', 'enr:', or '/'"
 
   test "Process different multiaddr formats":
@@ -227,11 +227,11 @@ suite "Entry Nodes Processing":
       "/dns/node.example.org/tcp/443/wss/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYf",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       enrTreeUrls.len == 0
       bootstrapEnrs.len == 0
@@ -246,11 +246,11 @@ suite "Entry Nodes Processing":
       "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
     ]
 
-    let result = processEntryNodes(entryNodes)
+    let res = processEntryNodes(entryNodes)
     check:
-      result.isOk()
+      res.isOk()
 
-    let (enrTreeUrls, bootstrapEnrs, staticNodes) = result.get()
+    let (enrTreeUrls, bootstrapEnrs, staticNodes) = res.get()
     check:
       # Duplicates are not filtered out (by design - let downstream handle it)
       enrTreeUrls.len == 2

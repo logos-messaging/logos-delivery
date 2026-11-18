@@ -14,5 +14,7 @@ class TestMetrics(StepsRelay, StepsMetrics):
             self.wait_for_metric(node, "libp2p_pubsub_subscriptions_total", 1)
             self.wait_for_metric(node, 'libp2p_gossipsub_peers_per_topic_mesh{topic="other"}', 1)
             self.wait_for_metric(node, "logos_delivery_peer_store_size", 1)
+            if node is self.node1:
+                continue  # the sender does not receive its own message
             self.wait_for_metric(node, "logos_delivery_histogram_message_size_count", 1)
             self.wait_for_metric(node, 'logos_delivery_node_messages_total{type="relay"}', 1)

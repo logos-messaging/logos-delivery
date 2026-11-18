@@ -28,6 +28,29 @@ method sendImpl*(
 ): Future[void] {.async, base.} =
   assert false, "Not implemented"
 
+method canResend*(self: BaseSendProcessor, task: DeliveryTask): bool {.base, gcsafe.} =
+  ## True when this processor can send the task again after a Store miss.
+  return false
+
+method resendImpl*(
+    self: BaseSendProcessor, task: DeliveryTask
+): Future[void] {.async: (raises: [CancelledError]), base.} =
+  ## Sends the task again. A processor that returns true from `canResend` must
+  ## override it, and it must log each error and raise only `CancelledError`, as
+  ## no caller reads a result.
+  assert false, "Not implemented"
+
+proc resend*(
+    self: BaseSendProcessor, task: DeliveryTask
+) {.async: (raises: [CancelledError]).} =
+  ## Sends the task again through the first processor of the chain that can.
+  var currentProcessor: BaseSendProcessor = self
+  while not currentProcessor.isNil():
+    if currentProcessor.canResend(task):
+      await currentProcessor.resendImpl(task)
+      return
+    currentProcessor = currentProcessor.fallbackProcessor
+
 proc parkForRlnProofRefresh*(task: DeliveryTask, waku: Waku, errorDesc: string) =
   ## The service refused the task's proof as RLN-invalid: its proof went stale
   ## against a moved merkle root. Schedules a background merkle-path refresh and

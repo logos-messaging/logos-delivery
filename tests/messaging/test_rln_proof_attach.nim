@@ -1,11 +1,10 @@
 {.used.}
 
-import std/[options, osproc, sequtils, times, strutils]
+import std/[sequtils, times, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 import
   logos_delivery/waku/[waku, waku_core, rln],
   logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/node/waku_node/relay,
   logos_delivery/waku/node/waku_node/lightpush,
   logos_delivery/waku/api/publish,
   logos_delivery/waku/factory/waku_conf,
@@ -220,11 +219,10 @@ suite "SendService RLN proof attach - RLN mounted":
   var
     waku {.threadvar.}: Waku
     onchainRln {.threadvar.}: RlnEvm
-    anvilProc {.threadvar.}: Process
     manager {.threadvar.}: RlnEvmGroupManager
 
   asyncSetup:
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    await runSharedAnvil()
     manager = await setupRlnEvm(deployContracts = false)
 
     waku = (await Waku.new(testConf())).expect("Waku.new")
@@ -252,7 +250,6 @@ suite "SendService RLN proof attach - RLN mounted":
       await onchainRln.stop()
     except Exception:
       assert false, "failed to stop RLN: " & getCurrentExceptionMsg()
-    stopAnvil(anvilProc)
 
   asyncTest "the EVM size preview equals the generated proof length":
     let msg = testMessage()

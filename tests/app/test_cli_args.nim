@@ -17,8 +17,7 @@ import
   ../../logos_delivery/waku/factory/networks_config,
   ../../logos_delivery/waku/factory/waku_conf,
   ../../logos_delivery/waku/common/logging,
-  ../../logos_delivery/waku/common/utils/parse_size_units,
-  ../../logos_delivery/waku/waku_core/message/default_values
+  ../../logos_delivery/waku/common/utils/parse_size_units
 
 suite "Waku external config - default values":
   test "Default sharding value":
@@ -53,35 +52,6 @@ suite "Waku external config - default values":
     ## Then
     let conf = res.get()
     check conf.subscribeShards == defaultSubscribeShards
-
-  test "Default max pure-libp2p peers without a preset":
-    ## Given
-    let preConfig = defaultKernelConf().get()
-
-    ## When
-    let res = preConfig.toWakuConf()
-    assert res.isOk(), $res.error
-
-    ## Then
-    check res.get().maxPureLibp2pPeers == 20
-
-  test "Max pure-libp2p peers follows the preset":
-    ## Given
-    var devConfig = defaultKernelConf().get()
-    devConfig.preset = "logos.dev"
-    var twnConfig = defaultKernelConf().get()
-    twnConfig.preset = "twn"
-
-    ## When
-    let devRes = devConfig.toWakuConf()
-    assert devRes.isOk(), $devRes.error
-    let twnRes = twnConfig.toWakuConf()
-    assert twnRes.isOk(), $twnRes.error
-
-    ## Then
-    check:
-      devRes.get().maxPureLibp2pPeers == 50
-      twnRes.get().maxPureLibp2pPeers == 0
 
   test "Max message size follows the preset when not given":
     ## Given
@@ -380,6 +350,39 @@ suite "Waku external config - store sync":
       wakuConf.storeServiceConf.isNone()
       ignoredFlagWarnings(conf, defaults, wakuConf) ==
         @["--store-sync is ignored: --store is not enabled"]
+
+  test "Store sync without any shard fails the conf build":
+    ## Given --cluster-id=99 --store --store-sync, which leaves static
+    ## sharding with no shard
+    var conf = defaultKernelConf().get()
+    conf.clusterId = Opt.some(99'u16)
+    conf.store = Opt.some(true)
+    conf.storeSync = true
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check:
+      res.isErr()
+      res.error.contains("store-sync requires at least one shard")
+
+  test "Store sync with a shard builds the store sync conf":
+    ## Given
+    var conf = defaultKernelConf().get()
+    conf.clusterId = Opt.some(99'u16)
+    conf.store = Opt.some(true)
+    conf.storeSync = true
+    conf.shards = @[0'u16]
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    check:
+      wakuConf.subscribeShards == @[0'u16]
+      wakuConf.storeServiceConf.get().storeSyncConf.isSome()
 
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":

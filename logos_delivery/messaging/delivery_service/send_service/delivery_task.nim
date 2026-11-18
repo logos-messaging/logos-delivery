@@ -19,8 +19,6 @@ type DeliveryTask* = ref object
   requestId*: RequestId
   pubsubTopic*: PubsubTopic
   msg*: WakuMessage
-  priority*: MessagePriority
-    ## Accepted from the envelope and kept; not yet used for scheduling.
   msgHash*: WakuMessageHash
   tryCount*: int
   state*: DeliveryState
@@ -56,6 +54,11 @@ type DeliveryTask* = ref object
   storeAnswer*: Future[void]
     ## Completes when a Store node reports the message. Nil while the send service
     ## does not wait for a Store confirmation of this task.
+  resendCount*: int
+    ## How many times the send service sent the message again after a Store miss.
+  storeMissed*: bool
+    ## A Store node answered without the message. Each later Store query for
+    ## this task can ask each Store node.
   errorDesc*: string
 
 proc new*(
@@ -75,15 +78,15 @@ proc new*(
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()
   let msgHash = computeMessageHash(pubsubTopic, msg)
 
-  return ok(
-    T(
-      requestId: requestId,
-      pubsubTopic: pubsubTopic,
-      msg: msg,
-      msgHash: msgHash,
-      priority: envelop.priority,
-    )
-  )
+  return
+    ok(T(requestId: requestId, pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
+
+proc loggedHash*(task: DeliveryTask): string =
+  ## The hash for INFO and ERROR records, withheld once the task is anonymized.
+  if task.anonymized:
+    "withheld"
+  else:
+    task.msgHash.to0xHex()
 
 proc messageAge*(self: DeliveryTask): timer.Duration =
   let actual = getNanosecondTime(getTime().toUnixFloat())

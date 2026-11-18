@@ -83,15 +83,13 @@ After a `sent` or `error` event, no more events come for that message.
 * Later versions can add new event types. A client must skip an event type that it does not know.
 * `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 
-The receivers can have the message after an `error` event. The node does not resend a message after its `propagated` event.
+The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it.
 
 * Each received message comes as a JSON object with:
   * the message hash
   * the full `WakuMessage`
   * a `source`: `live` for a message that arrived when it was published, or `history` for a message that a Store peer returned at startup or after the node came back online
 * The node keeps messages only for the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not enough.
-* With `--anonymity-level=None` (the default), a send subscribes the node to its content topic, so the sender also receives its own messages.
-* With `--anonymity-level=Preferred` or `Required`, a send makes no subscription. A client that wants to receive its own messages must subscribe to their content topics.
 
 A content topic that the client subscribes for the first time gets no earlier messages. From then on, the node fills the gaps of the topic from Store. When live delivery goes down and comes back, the node fetches the messages of the topic from a few minutes before it noticed the outage up to the recovery, and delivers them with the `source` `history`. The fetch can include a message that the node already delivered live; the node drops such a message when it still has it in its duplicate filter, and the `source` tells the client the rest.
 

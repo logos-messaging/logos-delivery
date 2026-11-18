@@ -89,6 +89,9 @@ jobs:
       with:
         make-args: CC=gcc
 
+    - name: Cache librln
+      uses: ./.github/actions/librln-cache
+
     # Nim quotes the compiler command, so "ccache gcc" cannot stand in for gcc.
     # Copies of ccache named gcc.exe and g++.exe masquerade as the compilers
     # instead, and --gcc.path points Nim at them. Their directory stays off

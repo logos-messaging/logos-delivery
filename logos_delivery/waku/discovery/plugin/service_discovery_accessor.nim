@@ -108,12 +108,12 @@ proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
 # keeps it as instance state. Provided by the backend instance; requested by
 # the FFI entry point, so the library layer needs no handle on the instance.
 RequestBroker:
-  proc setServiceDiscoveryPlugin(
+  proc SetServiceDiscoveryPlugin(
     plugin: ServiceDiscoveryPlugin
   ): Future[Result[void, string]] {.async.}
 
 RequestBroker:
-  proc clearServiceDiscoveryPlugin(): Future[Result[void, string]] {.async.}
+  proc ClearServiceDiscoveryPlugin(): Future[Result[void, string]] {.async.}
 
 # --- calls (mt lane: providers live on the discovery worker thread) ---
 #
@@ -122,29 +122,29 @@ RequestBroker:
 # loop only ever awaits.
 
 RequestBroker(mt):
-  proc pluginStart(): Future[Result[void, string]] {.async.}
+  proc PluginStart(): Future[Result[void, string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginStop(): Future[Result[void, string]] {.async.}
+  proc PluginStop(): Future[Result[void, string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginLookup(
+  proc PluginLookup(
     key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginRandomLookup(): Future[Result[seq[DiscoveredPeer], string]] {.async.}
+  proc PluginRandomLookup(): Future[Result[seq[DiscoveredPeer], string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginStartAdvertising(
+  proc PluginStartAdvertising(
     key: string, data: seq[byte], record: seq[byte]
   ): Future[Result[void, string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginStopAdvertising(key: string): Future[Result[void, string]] {.async.}
+  proc PluginStopAdvertising(key: string): Future[Result[void, string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginRegisterInterest(key: string): Future[Result[void, string]] {.async.}
+  proc PluginRegisterInterest(key: string): Future[Result[void, string]] {.async.}
 
 RequestBroker(mt):
-  proc pluginUnregisterInterest(key: string): Future[Result[void, string]] {.async.}
+  proc PluginUnregisterInterest(key: string): Future[Result[void, string]] {.async.}

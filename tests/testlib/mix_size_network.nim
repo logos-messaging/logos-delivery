@@ -6,7 +6,6 @@ import libp2p/[crypto/crypto, peerinfo, switch]
 import libp2p_mix/curve25519
 import
   logos_delivery/waku/[waku_core, waku_node, waku_mix],
-  logos_delivery/waku/net/bound_ports,
   ./[wakucore, wakunode, testasync]
 
 type MixSizeNetwork* = object

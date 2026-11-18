@@ -75,18 +75,24 @@ proc registerRelayHandler(
   proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     MessageSeenEvent.emit(node.brokerCtx, topic, msg)
 
+  proc serveHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    ## What the node does with a message it holds, whether it received or published it.
+    await filterHandler(topic, msg)
+    if await archiveHandler(topic, msg):
+      await syncHandler(topic, msg)
+
   let uniqueTopicHandler = proc(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async, gcsafe.} =
     await traceHandler(topic, msg)
-    await filterHandler(topic, msg)
-    if await archiveHandler(topic, msg):
-      await syncHandler(topic, msg)
+    await serveHandler(topic, msg)
     await internalHandler(topic, msg)
 
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
       await node.legacyAppHandlers[topic](topic, msg)
 
+  if node.wakuRelay.ownMessageHandler.isNil():
+    node.wakuRelay.ownMessageHandler = serveHandler
   node.wakuRelay.subscribe(shard, uniqueTopicHandler)
   return true
 
@@ -168,6 +174,15 @@ proc edgeFilterPeerCount*(self: SubscriptionManager, shard: PubsubTopic): int =
     return state.peers.len
   return 0
 
+proc reportedShardHealth(self: SubscriptionManager, shard: PubsubTopic): TopicHealth =
+  ## The stored health of `shard`, which the health loops compare a new
+  ## health with. `UNHEALTHY` when the node stores none.
+  if not self.node.wakuRelay.isNil():
+    return self.node.wakuRelay.topicsHealth.getOrDefault(shard, TopicHealth.UNHEALTHY)
+  self.edgeFilterSubStates.withValue(shard, state):
+    return state.currentHealth
+  return TopicHealth.UNHEALTHY
+
 proc getShardForContentTopic(
     self: SubscriptionManager, topic: ContentTopic
 ): Result[PubsubTopic, string] =
@@ -239,6 +254,15 @@ proc subscribe*(
     discard self.node.doRelaySubscribe(shard, handler)
   if added:
     ContentTopicSubscribedEvent.emit(self.node.brokerCtx, shard, contentTopic)
+    # A listener learns the health of the shard at each subscribe, and the
+    # health loops report each change after it.
+    EventShardTopicHealthChange.emit(
+      self.node.brokerCtx, shard, self.reportedShardHealth(shard)
+    )
+    # The stored health can be stale, so the relay calculates it again and
+    # reports a change. On an edge, the wake of `edgeFilterSubLoop` does it.
+    if not self.node.wakuRelay.isNil():
+      self.node.wakuRelay.recalculateTopicHealth(shard)
   return ok()
 
 proc unsubscribe*(
@@ -401,7 +425,8 @@ proc sendChunkedFilterRpc(
     kind: SendChunkedFilterRpcKind,
 ): Future[bool] {.async.} =
   ## Send a chunked filter subscribe or unsubscribe RPC. Returns true on
-  ## success. On failure the peer is removed and false is returned.
+  ## success. On failure the peer is removed and false is returned. A cancel
+  ## passes through.
   try:
     var i = 0
     while i < topics.len:
@@ -419,6 +444,10 @@ proc sendChunkedFilterRpc(
         self.removePeer(shard, peer.peerId)
         return false
       i += filter_protocol.MaxContentTopicsPerRequest
+  except CancelledError as exc:
+    # The edge cancels a subscribe at a stop or when it drops the shard, so
+    # the peer did not fail.
+    raise exc
   except CatchableError as exc:
     debug "sendChunkedFilterRpc: failed",
       op = kind, shard = shard, peer = peer.peerId, err = exc.msg
@@ -448,8 +477,8 @@ proc countStaticFilterPeerFailure(
   ## filter peer, and wake `edgeFilterSubLoop` to try it again or to select
   ## another peer.
 
-  # A cancel of the subscribe, at a stop or when the edge drops the shard, is
-  # not a failure of the peer.
+  # A failure after the stop, or for a shard that the edge dropped, needs no
+  # count.
   if self.edgeFilterSubLoopFut.isNil() or
       self.shards.getOrDefault(shard).contentTopics.len == 0:
     return
@@ -778,6 +807,10 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
         for fut in state.pending:
           if not fut.finished:
             await fut.cancelAndWait()
+      # A subscribe during the wait can give the shard a content topic again.
+      # Then the shard keeps its state, and the next pass reconciles it.
+      if self.shards.getOrDefault(shard).contentTopics.len > 0:
+        continue
       self.edgeFilterSubStates.del(shard)
 
     for task in subscribeTasks:
@@ -828,6 +861,16 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
     for fut in state.pending:
       if not fut.finished:
         await fut.cancelAndWait()
+
+  # A stopped edge has no filter peer, so each shard reports UNHEALTHY, as
+  # `WakuRelay.stop` does for the relay. A restart tries the configured filter
+  # peer again.
+  for shard, state in self.edgeFilterSubStates.mpairs:
+    state.peers.setLen(0)
+    state.pending.setLen(0)
+    state.pendingPeers.clear()
+    state.staticFilterPeerTries = 0
+    self.updateShardHealth(shard, state)
 
   await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
 

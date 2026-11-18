@@ -1,7 +1,7 @@
 ## Waku layer API — store (historical query) operations.
 {.push raises: [].}
 
-import results, chronos, chronicles
+import results, chronos
 
 import logos_delivery/waku/waku
 import
@@ -14,17 +14,21 @@ proc isStoreMounted*(self: Waku): bool =
 
 proc hasStorePeer*(self: Waku): bool =
   ## True if at least one store service peer is available to query.
-  return self.node.peerManager.selectPeer(WakuStoreCodec).isSome()
+  return self.node.peerManager.hasPeers(WakuStoreCodec)
 
 proc storeQueryToAny*(
-    self: Waku, request: StoreQueryRequest
+    self: Waku, request: StoreQueryRequest, shards: seq[PubsubTopic] = @[]
 ): Future[Result[StoreQueryResponse, string]] {.async.} =
   ## Runs a store query against any available store peer (retries across peers).
+  ## `shards` are the shards of the query. The pubsub topic of the request is
+  ## the default.
   try:
     if self.node.wakuStoreClient.isNil():
       return err("wakuStoreClient is not mounted")
 
-    let queryResponse = (await self.node.wakuStoreClient.queryToAny(request)).valueOr:
+    let queryResponse = (
+      await self.node.wakuStoreClient.queryToAny(request, shards = shards)
+    ).valueOr:
       return err($error)
 
     return ok(queryResponse)

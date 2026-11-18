@@ -6,7 +6,7 @@ import
   chronicles,
   chronos,
   libp2p/crypto/[crypto, secp],
-  eth/keys
+  eth/common/keys
 
 type Chat2MatterbridgeConf* = object
   logLevel* {.

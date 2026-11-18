@@ -3,6 +3,7 @@
 {.push raises: [].}
 
 import results, chronos/timer, libp2p/stream/connection
+import ../../waku_core/metric_labels
 
 import std/times except TimeInterval, Duration
 
@@ -56,14 +57,14 @@ template checkUsageLimit*(
 ) =
   if t.checkUsage(proto):
     let requestStartTime = Moment.now()
-    logos_delivery_service_requests.inc(labelValues = [proto, "served"])
+    logos_delivery_service_requests.inc(labelValues = [codecLabel(proto), "served"])
 
     bodyWithinLimit
 
     let requestDuration = Moment.now() - requestStartTime
     logos_delivery_service_request_handling_duration_seconds.observe(
-      requestDuration.milliseconds.float / 1000, labelValues = [proto]
+      requestDuration.milliseconds.float / 1000, labelValues = [codecLabel(proto)]
     )
   else:
-    logos_delivery_service_requests.inc(labelValues = [proto, "rejected"])
+    logos_delivery_service_requests.inc(labelValues = [codecLabel(proto), "rejected"])
     bodyRejected

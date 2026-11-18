@@ -26,8 +26,7 @@ import
   ../common/rate_limit/setting,
   ../waku_enr/capabilities,
   ./networks_config,
-  ../waku_mix,
-  ./conf_builder/kademlia_discovery_conf_builder
+  ../waku_mix
 
 export RlnConf, RlnCreds, RlnCommonConf, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.
@@ -169,6 +168,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: could probably make it a `PeerRemoteInfo`
   staticNodes*: seq[string]
+  presetStoreNodes*: seq[string]
+    ## The multiaddrs of the store nodes of the network preset.
+  configuredStoreNodesOnly*: bool
+    ## Query only `presetStoreNodes` and `remoteStoreNode`, never discovered store peers.
   remoteStoreNode*: Opt[string]
   remoteLightPushNode*: Opt[string]
   remoteFilterNode*: Opt[string]
@@ -178,6 +181,7 @@ type WakuConf* {.requiresInit.} = ref object
 
   logLevel*: logging.LogLevel
   logFormat*: logging.LogFormat
+  logOutput*: string ## empty keeps the process-wide log destination
 
   peerPersistence*: bool
   # TODO: should clearly be a uint
@@ -189,10 +193,6 @@ type WakuConf* {.requiresInit.} = ref object
 
   colocationLimit*: int
 
-  maxPureLibp2pPeers*: int
-    ## Inbound budget for peers that are not waku nodes but offer a protocol
-    ## this node consumes. 0 admits none.
-
   rateLimit*: ProtocolRateLimitSettings
 
   # TODO: those could be in a relay conf object
@@ -202,6 +202,16 @@ type WakuConf* {.requiresInit.} = ref object
   relayServiceRatio*: string
 
   localStoragePath*: string
+
+func configuredStoreNodes*(conf: WakuConf): seq[string] =
+  ## The preset store nodes, and then the `--storenode` node.
+  ## The `--storenode` node can also be a preset store node. Then the list
+  ## has it one time only.
+  let storenode = conf.remoteStoreNode.valueOr:
+    return conf.presetStoreNodes
+  if storenode in conf.presetStoreNodes:
+    return conf.presetStoreNodes
+  return conf.presetStoreNodes & storenode
 
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
@@ -316,10 +326,23 @@ proc validateExtraListenShards(wakuConf: WakuConf): Result[void, string] =
     )
   return ok()
 
+proc validateStoreSyncShards(wakuConf: WakuConf): Result[void, string] =
+  ## Store sync peers match only on equal shard sets, so a node without
+  ## shards would start but never sync with any peer that lists shards.
+  let syncEnabled =
+    wakuConf.storeServiceConf.isSome() and
+    wakuConf.storeServiceConf.get().storeSyncConf.isSome()
+  if syncEnabled and wakuConf.subscribeShards.len == 0:
+    return err(
+      "store-sync requires at least one shard: pass --shard, --preset or --num-shards-in-network"
+    )
+  return ok()
+
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateExtraListenShards()
+  ?wakuConf.validateStoreSyncShards()
   ?wakuConf.validateNoEmptyStrings()
   ?wakuConf.validateExtMultiAddrsOnly()
   return ok()

@@ -6,11 +6,9 @@ import
   libp2p/peerid,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
-  libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
-  libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
   mix_rln_spam_protection/module_api
 
@@ -39,13 +37,13 @@ import
   ../waku_store/common as store_common,
   ../waku_filter_v2,
   ../waku_peer_exchange,
-  ../discovery/waku_kademlia,
   ../discovery/service_discovery,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
-  ../common/rate_limit/setting
+  ../common/rate_limit/setting,
+  ../common/system_resolver
 
 ## Peer persistence
 
@@ -88,8 +86,7 @@ proc initNode(
     else:
       (Opt.none(string), Opt.none(string))
 
-  let nameResolver =
-    DnsResolver.new(conf.dnsAddrsNameServers.mapIt(initTAddress(it, Port(53))))
+  let nameResolver = newNameResolver(conf.dnsAddrsNameServers)
 
   # Build waku node instance
   var builder = WakuNodeBuilder.init()
@@ -120,7 +117,6 @@ proc initNode(
         natStrategy = $conf.endpointConf.natStrategy
   else:
     builder.withNatConfig(natConf)
-  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let
@@ -154,6 +150,13 @@ proc initNode(
   ok(node)
 
 ## Mount protocols
+
+func metricTopicLabels(conf: WakuConf): TopicLabels =
+  ## Every shard the node is configured with; any other topic is labelled "other".
+  var shards = conf.subscribeShards & conf.extraListenShards
+  if conf.shardingConf.kind == AutoSharding:
+    shards.add(conf.shardingConf.shards)
+  return TopicLabels.init(conf.clusterId, shards)
 
 proc setupProtocols(
     node: WakuNode, conf: WakuConf
@@ -246,6 +249,14 @@ proc setupProtocols(
     let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
       return err("failed to set node waku store peer: " & error)
     node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
+
+  if conf.configuredStoreNodesOnly:
+    var storePeers: seq[RemotePeerInfo]
+    for storeNode in conf.presetStoreNodes:
+      let storePeer = parsePeerInfo(storeNode).valueOr:
+        return err("failed to parse store node " & storeNode & ": " & error)
+      storePeers.add(storePeer)
+    node.peerManager.setExclusivePeers(WakuStoreCodec, storePeers)
 
   if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
     node.setupStoreResume()
@@ -407,6 +418,15 @@ proc setupProtocols(
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
 
+  let metricTopics = metricTopicLabels(conf)
+  node.peerManager.metricTopics = metricTopics
+  if not node.wakuRelay.isNil():
+    node.wakuRelay.metricTopics = metricTopics
+  if not node.wakuArchive.isNil():
+    node.wakuArchive.metricTopics = metricTopics
+  if not node.wakuStoreClient.isNil():
+    node.wakuStoreClient.metricTopics = metricTopics
+
   return ok()
 
 ## Start node
@@ -440,6 +460,13 @@ proc startNode*(
     except CatchableError:
       return err("failed to connect to static nodes: " & getCurrentExceptionMsg())
 
+  # With `configuredStoreNodesOnly`, the store client health counts only the
+  # configured store nodes that are connected. Do not wait for the dials, so
+  # an unreachable store node does not make the start slow. `stop` cancels them.
+  if conf.configuredStoreNodesOnly:
+    node.storeNodesConnectFut =
+      node.connectToNodes(conf.configuredStoreNodes(), "store")
+
   if dynamicBootstrapNodes.len > 0:
     info "Connecting to dynamic bootstrap peers"
     try:
@@ -466,6 +493,9 @@ proc startNode*(
   # Maintain relay connections
   if conf.relay:
     node.peerManager.start()
+
+  if conf.staticNodes.len > 0:
+    node.peerManager.startStaticPeersRedial(conf.staticNodes)
 
   return ok()
 

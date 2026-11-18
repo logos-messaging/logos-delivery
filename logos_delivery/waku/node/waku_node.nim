@@ -6,7 +6,7 @@ import
   chronicles,
   metrics,
   results,
-  eth/keys,
+  eth/common/keys,
   nimcrypto,
   bearssl/rand,
   stew/byteutils,
@@ -96,8 +96,10 @@ const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
 const MixNodeResolveTimeout = chronos.seconds(10)
   ## The time the background lookup may spend on all mix node names at once.
-  ## `DnsResolver` gives each query 5 s per name server, and a node has two by
-  ## default, so one name can take 10 s.
+  ## `DnsResolver` gives each query 5 s per name server and a node given two
+  ## servers tries both, so one name can take 10 s. The host resolver, the
+  ## default, is bounded by libc's own retry schedule, which is of the same
+  ## order (glibc: 5 s times 2 attempts per server).
 
 type
   MixNodeName = tuple[entry: MixNodePubInfo, address: MultiAddress]
@@ -178,6 +180,8 @@ type
       ## stopped on node teardown.
     ports*: BoundPorts
     relayReconnectFut*: Future[void]
+    storeNodesConnectFut*: Future[void]
+      ## The background dial of the configured store nodes, or `nil`.
 
   SubscriptionManager* = ref object of RootObj
     node*: WakuNode
@@ -453,7 +457,18 @@ proc mountMetadata*(
   if not node.wakuMetadata.isNil():
     return err("Waku metadata already mounted, skipping")
 
-  let metadata = WakuMetadata.new(clusterId, node.getShardsGetter(shards))
+  let relayShards = node.getShardsGetter(shards)
+  let advertisedShards: GetShards = proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
+    ## The metadata spec says edge nodes do not advertise shards: it would
+    ## leak their interests. Service nodes do, so edges can pick them by shard.
+    let servesShards =
+      not node.wakuRelay.isNil() or not node.wakuStore.isNil() or
+      not node.wakuFilter.isNil() or not node.wakuLightPush.isNil() or
+      not node.wakuLegacyLightPush.isNil()
+    if not servesShards:
+      return @[]
+    return relayShards()
+  let metadata = WakuMetadata.new(clusterId, advertisedShards)
 
   node.wakuMetadata = metadata
   node.peerManager.wakuMetadata = metadata
@@ -469,6 +484,9 @@ proc mountMetadata*(
 proc mountAutoSharding*(
     node: WakuNode, clusterId: uint16, shards: seq[uint16]
 ): Result[void, string] =
+  if shards.len == 0:
+    return err("could not mount auto sharding: no shards")
+
   info "Mounting auto sharding", clusterId = clusterId, shards = shards
   node.wakuAutoSharding = Opt.some(Sharding.init(clusterId, shards))
 
@@ -675,7 +693,7 @@ proc mountStoreSync*(
     storeSyncRelayJitter: uint32,
     maxMessageSize: int,
 ): Future[Result[void, string]] {.async.} =
-  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](0)
+  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](0)
   let wantsChannel = newAsyncQueue[(PeerId)](0)
   let needsChannel = newAsyncQueue[(PeerId, WakuMessageHash)](0)
 
@@ -702,6 +720,8 @@ proc mountStoreSync*(
     needsChannel,
     maxMessageSize,
     recon.getEffectiveSyncRange(),
+    proc(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+      recon.checkPush(id),
   )
 
   node.wakuStoreTransfer = transfer
@@ -878,7 +898,15 @@ proc start*(node: WakuNode) {.async.} =
 
   ## Binds the transports, resolves peerInfo.addrs, then starts the protocols.
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
-  await node.switch.start()
+  try:
+    await node.switch.start()
+  except CatchableError as exc:
+    ## `started` stays false, so no `stop` follows: stop the loops started above.
+    if not node.wakuStoreResume.isNil():
+      await node.wakuStoreResume.stopWait()
+    if not node.wakuRendezvousClient.isNil():
+      await node.wakuRendezvousClient.stopWait()
+    raise exc
 
   ## Copy again: the observer skips an unchanged restart.
   node.copyCommittedAddresses()
@@ -917,6 +945,10 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel the background relay reconnection (may still be in its backoff wait).
   if not node.relayReconnectFut.isNil():
     await node.relayReconnectFut.cancelAndWait()
+
+  # Cancel the background dial of the configured store nodes.
+  if not node.storeNodesConnectFut.isNil():
+    await node.storeNodesConnectFut.cancelAndWait()
 
   # Cancel a mix node name lookup that is still pending.
   if not node.mixNodeResolution.isNil():

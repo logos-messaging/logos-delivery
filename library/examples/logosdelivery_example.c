@@ -1,4 +1,4 @@
-#include "../liblogosdelivery.h"
+#include "liblogosdelivery.h"
 #include "json_utils.h"
 #include <stdio.h>
 #include <string.h>

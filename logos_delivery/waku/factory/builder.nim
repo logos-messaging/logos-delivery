@@ -36,7 +36,6 @@ type
     maxRelayPeers: int
     maxServicePeers: int
     colocationLimit: int
-    maxPureLibp2pPeers: int
     shardAware: bool
 
     # Libp2p switch
@@ -85,7 +84,6 @@ proc withNetworkConfigurationDetails*(
     wssEnabled: bool = false,
     wakuFlags = Opt.none(CapabilitiesBitfield),
     dns4DomainName = Opt.none(string),
-    dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): WakuNodeBuilderResult {.
     deprecated: "use 'builder.withNetworkConfiguration()' instead"
 .} =
@@ -100,7 +98,6 @@ proc withNetworkConfigurationDetails*(
     wssEnabled = wssEnabled,
     wakuFlags = wakuFlags,
     dns4DomainName = dns4DomainName,
-    dnsNameServers = dnsNameServers,
   )
   builder.withNetworkConfiguration(netConfig)
   ok()
@@ -131,9 +128,6 @@ proc withPeerManagerConfig*(
 
 proc withColocationLimit*(builder: var WakuNodeBuilder, colocationLimit: int) =
   builder.colocationLimit = colocationLimit
-
-proc withMaxPureLibp2pPeers*(builder: var WakuNodeBuilder, maxPureLibp2pPeers: int) =
-  builder.maxPureLibp2pPeers = maxPureLibp2pPeers
 
 proc withRateLimit*(builder: var WakuNodeBuilder, limits: ProtocolRateLimitSettings) =
   builder.rateLimitSettings = Opt.some(limits)
@@ -180,8 +174,6 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     return err("network configuration is required")
 
   let netConfig = builder.netConfig.get()
-  if netConfig.dnsNameServers.len == 0:
-    return err("DNS name servers are required for WakuNode")
 
   if builder.record.isNone():
     return err("node record is required")
@@ -221,7 +213,6 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxRelayPeers = Opt.some(builder.maxRelayPeers),
     maxServicePeers = Opt.some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
-    maxPureLibp2pPeers = builder.maxPureLibp2pPeers,
     shardedPeerManagement = builder.shardAware,
     maxConnections = builder.switchMaxConnections.get(MaxConnections),
   )

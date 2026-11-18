@@ -182,21 +182,12 @@ type
     topicHealthCheckAll: bool
       # true if all topics need to have their health status refreshed in the update event
     msgMetricsPerShard*: Table[string, ShardMetrics]
-    triggerOwnHandlers*: bool
-      ## Whether a message this node publishes is also handed to the handlers
-      ## it registered with `subscribe`, as if it had come from the network.
-      ## `publish` does it, at most once per message id, after the gossipsub
-      ## publish and even when there is no relay peer. A message over the max
-      ## size is never handled. A message retried while there is no relay peer
-      ## is not handled twice, and one published again gets `DuplicateMessage`.
-      ## Gossipsub's own `triggerSelf` stays off, because it would hand the
-      ## message to the handlers on every publish, duplicates included.
-      ## Turn it off on a node that must not see its own messages, as the
-      ## chat2 bridge does to avoid echoing them back.
-    selfHandled: TimedCache[MessageId]
-      ## Ids of the messages `publish` already handed to the node's own
-      ## handlers. Entries expire with gossipsub's seen TTL, the same window in
-      ## which `publish` refuses a duplicate.
+    metricTopics*: TopicLabels ## the topics that may be metric labels
+    ownMessageHandler*: WakuRelayHandler
+      ## Called once per message id by `publish` with a message this node
+      ## publishes, to serve it (store, filter push, sync). The `subscribe`
+      ## handlers are not called: the message did not come from the network.
+    selfHandled: TimedCache[MessageId] ## Ids already handed to `ownMessageHandler`.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -275,25 +266,32 @@ proc logMessageInfo*(
       sentTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
 
-  var shardMetrics = w.msgMetricsPerShard.getOrDefault(topic, ShardMetrics())
+  # Peers pick the topic (a lightpush request, a crafted RPC).
+  let label = w.metricTopics.topicLabel(topic)
+  var shardMetrics = w.msgMetricsPerShard.getOrDefault(label, ShardMetrics())
   shardMetrics.count += 1
   shardMetrics.sizeSum += payloadSize
   if payloadSize > shardMetrics.maxSize:
     shardMetrics.maxSize = payloadSize
   shardMetrics.avgSize = shardMetrics.sizeSum / shardMetrics.count
-  w.msgMetricsPerShard[topic] = shardMetrics
+  w.msgMetricsPerShard[label] = shardMetrics
 
   logos_delivery_relay_max_msg_bytes_per_shard.set(
-    shardMetrics.maxSize, labelValues = [topic]
+    shardMetrics.maxSize, labelValues = [label]
   )
 
   logos_delivery_relay_avg_msg_bytes_per_shard.set(
-    shardMetrics.avgSize, labelValues = [topic]
+    shardMetrics.avgSize, labelValues = [label]
   )
 
   logos_delivery_relay_total_msg_bytes_per_shard.set(
-    shardMetrics.sizeSum, labelValues = [topic]
+    shardMetrics.sizeSum, labelValues = [label]
   )
+
+proc recalculateTopicHealth*(w: WakuRelay, topic: PubsubTopic) =
+  ## Makes `topicsHealthLoop` calculate the health of `topic` again.
+  w.topicHealthDirty.incl(topic)
+  w.topicHealthUpdateEvent.fire()
 
 proc initRelayObservers(w: WakuRelay) =
   proc decodeRpcMessageInfo(
@@ -330,34 +328,30 @@ proc initRelayObservers(w: WakuRelay) =
       msgSize: int,
       onRecv: bool,
   ) =
+    # Peers pick the topic (a lightpush request, a crafted RPC).
+    let label = w.metricTopics.topicLabel(pubsub_topic)
     if onRecv:
       logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
+        msgSize.int64, labelValues = [label, "gross", "in"]
       )
     else:
       # sent traffic can only be "net"
       # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
       logos_delivery_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
+        msgSize.int64, labelValues = [label, "net", "out"]
       )
 
   proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
     if msgs.control.isSome():
       let ctrl = msgs.control.get()
-      var topicsChanged = false
 
       for graft in ctrl.graft:
         if graft.topicID.len > 0:
-          w.topicHealthDirty.incl(graft.topicID)
-          topicsChanged = true
+          w.recalculateTopicHealth(graft.topicID)
 
       for prune in ctrl.prune:
         if prune.topicID.len > 0:
-          w.topicHealthDirty.incl(prune.topicID)
-          topicsChanged = true
-
-      if topicsChanged:
-        w.topicHealthUpdateEvent.fire()
+          w.recalculateTopicHealth(prune.topicID)
 
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
@@ -421,7 +415,6 @@ proc new*(
     w.brokerCtx = globalBrokerContext()
 
     procCall GossipSub(w).initPubSub()
-    w.triggerOwnHandlers = true
     w.selfHandled = TimedCache[MessageId].init(
       GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
     )
@@ -512,6 +505,13 @@ proc isSubscribed*(w: WakuRelay, topic: PubsubTopic): bool =
 
 proc subscribedTopics*(w: WakuRelay): seq[PubsubTopic] =
   return toSeq(GossipSub(w).topics.keys())
+
+proc getMinMeshSize*(w: WakuRelay): int =
+  ## Returns the mesh size of the subscribed shard with the fewest mesh peers.
+  let meshSizes = w.subscribedTopics().mapIt(w.getNumPeersInMesh(it).get(0))
+  if meshSizes.len == 0:
+    return 0
+  return min(meshSizes)
 
 proc topicsHealthLoop(w: WakuRelay) {.async.} =
   while true:
@@ -675,7 +675,6 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
       pubsubTopic: string, data: seq[byte]
   ): Future[void] {.gcsafe, raises: [].} =
     let decMsg = WakuMessage.decode(data).valueOr:
-      # fine if triggerOwnHandlers enabled, since validators are bypassed
       debug "Failed to decode WakuMessage, validator passed a wrong message",
         pubsubTopic = pubsubTopic, error = error
       let fut = newFuture[void]()
@@ -684,7 +683,8 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
     # this subscription handler is called once for every validated message
     # that will be relayed, hence this is the place we can count net incoming traffic
     logos_delivery_relay_network_bytes.inc(
-      data.len.int64 + pubsubTopic.len.int64, labelValues = [pubsubTopic, "net", "in"]
+      data.len.int64 + pubsubTopic.len.int64,
+      labelValues = [w.metricTopics.topicLabel(pubsubTopic), "net", "in"],
     )
 
     return handler(pubsubTopic, decMsg)
@@ -704,8 +704,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   procCall GossipSub(w).subscribe(pubsubTopic, topicHandler)
 
   w.topicHandlers[pubsubTopic] = topicHandler
-  w.topicHealthDirty.incl(pubsubTopic)
-  w.topicHealthUpdateEvent.fire()
+  w.recalculateTopicHealth(pubsubTopic)
 
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
@@ -787,12 +786,12 @@ proc publish*(
 
   let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)
 
-  # A lone node still hands its own message to its handlers (store, REST cache),
-  # so this does not wait for a peer. The id is consumed only for a topic that
-  # has a handler, and a retry after `NoPeersToPublish` is not handled twice.
-  if w.triggerOwnHandlers and fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and
-      not w.selfHandled.put(msgId):
-    await procCall PubSub(w).handleData(pubsubTopic, data)
+  # A lone node still serves its own message (store, filter push), so this does
+  # not wait for a peer. The id is consumed only for a topic that has a handler,
+  # and a retry after `NoPeersToPublish` is not handled twice.
+  if not w.ownMessageHandler.isNil() and fitsMaxSize and
+      w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(msgId):
+    await w.ownMessageHandler(pubsubTopic, message)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)

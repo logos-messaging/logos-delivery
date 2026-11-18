@@ -335,10 +335,14 @@ proc isListeningToMessagingEvents*(self: RestService): bool =
   return not self.messagingEvents.isNil() and self.messagingEvents.isListening()
 
 proc stop*(self: RestService, node: LogosDelivery) {.async: (raises: []).} =
-  if self.server.isNil():
+  # Clear the fields before the first `await`. A `mount` during the stop then
+  # finds no server and starts no listener.
+  let server = self.server
+  if server.isNil():
     return
-  if not self.messagingEvents.isNil():
-    await self.messagingEvents.stop(node.messagingClient.brokerCtx)
-    self.messagingEvents = nil
-  await self.server.closeWait()
   self.server = nil
+  let events = self.messagingEvents
+  self.messagingEvents = nil
+  if not events.isNil():
+    await events.stop(node.messagingClient.brokerCtx)
+  await server.closeWait()

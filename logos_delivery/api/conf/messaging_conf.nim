@@ -52,8 +52,7 @@ type MessagingClientConf* = object
   kadServiceLookupIntervalSec* {.name: "kad-service-lookup-interval".}: Opt[uint32]
     ## Applies to whichever kademlia host is running.
   maxPureLibp2pPeers* {.name: "max-pure-libp2p-peers".}: Opt[int]
-    ## Inbound budget for peers that are not waku nodes but offer a protocol we
-    ## consume (a plugin-hosted kademlia or mix). 0 admits none.
+    ## Deprecated and ignored.
     ## Bootstrap / connectivity nodes (enrtree or multiaddr).
   ethRpcEndpoints* {.name: "rln-relay-eth-client-address".}: Opt[seq[EthRpcUrl]]
     ## Ethereum RPC endpoints (required for RLN validation); multiple for fail-over.
@@ -73,6 +72,9 @@ type MessagingClientConf* = object
     ## Sender anonymity level. A level above `None` mounts and uses mix.
   store*: Opt[bool] ## Enable the store protocol.
   storenode* {.name: "storenode".}: Opt[string]
+  configuredStoreNodesOnly* {.name: "configured-store-nodes-only".}: Opt[bool]
+    ## Query only the preset's store nodes and `storenode`, never discovered
+    ## store peers (default false).
   storeMessageDbUrl* {.name: "store-message-db-url".}: Opt[string]
     ## Database connection URL for the store service's persistent storage.
   storeMessageRetentionPolicy* {.name: "store-message-retention-policy".}: Opt[string]
@@ -85,6 +87,9 @@ type MessagingClientConf* = object
     ## Process log level (TRACE..FATAL); applied by the kernel on node creation.
   logFormat* {.name: "log-format".}: Opt[logging.LogFormat]
     ## Process log format (TEXT or JSON); applied by the kernel on node creation.
+  logOutput* {.name: "log-output".}: Opt[string]
+    ## Process log destination: "stdout", "stderr" or a file path (appended);
+    ## applied by the kernel on node creation. Unset keeps the current one.
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
@@ -127,6 +132,8 @@ proc toWakuNodeConf*(
     conf.storeMaxNumDbConnections = self.storeMaxNumDbConnections.get()
   if self.storenode.isSome():
     conf.storenode = self.storenode.get()
+  if self.configuredStoreNodesOnly.isSome():
+    conf.configuredStoreNodesOnly = self.configuredStoreNodesOnly.get()
   if self.localStoragePath.isSome():
     conf.localStoragePath = self.localStoragePath.get()
 
@@ -178,6 +185,8 @@ proc toWakuNodeConf*(
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():
     conf.logFormat = self.logFormat.get()
+  if self.logOutput.isSome():
+    conf.logOutput = self.logOutput.get()
   if self.nodeKey.isSome():
     conf.nodekey = self.nodeKey
 

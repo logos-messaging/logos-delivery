@@ -1,4 +1,4 @@
-import system, results, std/json, std/strutils
+import system, results, std/json
 import stew/byteutils
 import
   ../../logos_delivery/waku/common/base64,

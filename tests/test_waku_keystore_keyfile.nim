@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[json, os], stew/byteutils, testutils/unittests, chronos, eth/keys
+import std/[json, os], stew/byteutils, testutils/unittests, chronos, eth/common/keys
 import logos_delivery/waku/waku_keystore, ./testlib/common
 
 suite "KeyFile test suite":

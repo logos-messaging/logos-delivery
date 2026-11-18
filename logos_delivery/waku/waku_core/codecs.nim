@@ -10,3 +10,9 @@ const
   WakuMetadataCodec* = "/vac/waku/metadata/1.0.0"
   WakuPeerExchangeCodec* = "/vac/waku/peer-exchange/2.0.0-alpha1"
   WakuRendezVousCodec* = "/vac/waku/rendezvous/1.0.0"
+
+  WakuCodecs* = [
+    WakuRelayCodec, WakuStoreCodec, WakuFilterSubscribeCodec, WakuFilterPushCodec,
+    WakuLightPushCodec, WakuLegacyLightPushCodec, WakuReconciliationCodec,
+    WakuTransferCodec, WakuMetadataCodec, WakuPeerExchangeCodec, WakuRendezVousCodec,
+  ]

@@ -12,7 +12,7 @@ import
   libp2p_mix,
   libp2p_mix/curve25519,
   libp2p/multiaddress,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   metrics,
   metrics/chronos_httpserver
@@ -27,6 +27,7 @@ import
     waku_enr,
     discovery/waku_discv5,
     factory/builder,
+    net/net_config,
     waku_lightpush/client,
   ],
   ./lightpush_publisher_mix_config,
@@ -77,7 +78,7 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
   builder.withRecord(record)
-  builder.withNetworkConfigurationDetails(ip, Port(conf.port)).tryGet()
+  builder.withNetworkConfiguration(NetConfig.init(ip, Port(conf.port)).tryGet())
 
   let node = builder.build().tryGet()
 

@@ -1,4 +1,3 @@
-import std/tempfiles
 import results
 
 import
@@ -9,8 +8,6 @@ import
     rln_evm/conversion_utils,
     rln_evm/constants,
     rln_evm/protocol_types,
-    protocol_metrics,
-    rln_evm/nonce_manager,
   ]
 
 proc createRLNInstanceWrapper*(): Result[ptr RlnRaw, string] =

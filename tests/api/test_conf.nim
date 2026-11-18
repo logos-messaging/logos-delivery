@@ -384,13 +384,14 @@ suite "parseLogosDeliveryConf - JSON parsing":
 
   test "logLevel and nodeKey parse via switch names and map to the kernel":
     let lc = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"log-level": "DEBUG", "log-format": "JSON", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}}"""
+      """{"messagingOverrides": {"log-level": "DEBUG", "log-format": "JSON", "log-output": "stderr", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}}"""
     ).valueOr:
       raiseAssert error
     let kc = WakuNodeConf(lc.kernelConf)
     check:
       kc.logLevel == logging.LogLevel.DEBUG
       kc.logFormat == logging.LogFormat.JSON
+      kc.logOutput == logging.StderrLogOutput
       kc.nodekey.isSome()
 
   test "a null value leaves the field unset":
@@ -522,6 +523,13 @@ suite "MessagingClientConf - store override":
       kc.relay == Opt.some(false)
         # MessagingClientConf has no relay field (per spec); only the mode
         # sets relay on the library API path
+
+  test "configured-store-nodes-only reaches the kernel":
+    let kc = MessagingClientConf(configuredStoreNodesOnly: Opt.some(true)).toWakuNodeConf(
+      LogosDeliveryMode.Edge
+    ).valueOr:
+      raiseAssert error
+    check kc.configuredStoreNodesOnly
 
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
@@ -667,20 +675,6 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     # not flip to flat; the leftover bare field (relay) then has no structured home and
     # is rejected. Guards against the discriminator silently splitting a mixed object.
     check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
-
-suite "MessagingClientConf - pure-libp2p peers budget":
-  test "unset stays unset through mode expansion":
-    # applyMode must not touch it: the kernel default (0) and any network
-    # preset (50) are decided further down the chain.
-    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-        raiseAssert error
-    check kc.maxPureLibp2pPeers.isNone()
-
-  test "set value reaches the kernel conf":
-    let mc = MessagingClientConf(maxPureLibp2pPeers: Opt.some(7))
-    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-    check kc.maxPureLibp2pPeers == Opt.some(7)
 
 suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
   proc cliConf(

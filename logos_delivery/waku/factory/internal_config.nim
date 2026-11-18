@@ -4,11 +4,12 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/multiaddress,
-  libp2p/nameresolving/dnsresolver,
-  std/[sequtils, net],
+  libp2p/nameresolving/nameresolver,
+  std/net,
   results
 
-import logos_delivery/waku/[net/net_config, waku_enr, waku_core], ./waku_conf
+import
+  logos_delivery/waku/[net/net_config, waku_enr, common/system_resolver], ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress], seqNum: uint64
@@ -65,15 +66,10 @@ proc enrConfiguration*(
 proc dnsResolve*(
     domain: string, dnsAddrsNameServers: seq[IpAddress]
 ): Future[Result[string, string]] {.async.} =
-  # Use conf's DNS servers
-  var nameServers: seq[TransportAddress]
-  for ip in dnsAddrsNameServers:
-    nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
+  let dnsResolver = newNameResolver(dnsAddrsNameServers)
 
-  let dnsResolver = DnsResolver.new(nameServers)
-
-  # Resolve domain IP
-  let resolved = await dnsResolver.resolveIp(domain, 0.Port, Domain.AF_UNSPEC)
+  # The flag is `--dns4-domain-name`: the answer goes into the ENR's IPv4 field.
+  let resolved = await dnsResolver.resolveIp(domain, 0.Port, Domain.AF_INET)
 
   if resolved.len > 0:
     return ok(resolved[0].host) # Use only first answer
@@ -167,7 +163,6 @@ proc networkConfiguration*(
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = Opt.some(wakuFlags),
-    dnsNameServers = dnsAddrsNameServers,
   )
 
   return netConfigRes

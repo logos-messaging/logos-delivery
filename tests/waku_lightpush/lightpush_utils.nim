@@ -1,6 +1,6 @@
 {.used.}
 
-import results, chronos, chronicles, libp2p/crypto/crypto
+import results, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/node/peer_manager,
@@ -9,7 +9,7 @@ import
   logos_delivery/waku/waku_lightpush,
   logos_delivery/waku/waku_lightpush/[client, common],
   logos_delivery/waku/common/rate_limit/setting,
-  ../testlib/[common, wakucore]
+  ../testlib/wakucore
 
 proc newTestWakuLightpushNode*(
     switch: Switch,

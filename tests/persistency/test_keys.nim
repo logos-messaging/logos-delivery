@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[algorithm, sequtils]
+import std/algorithm
 import testutils/unittests
 import logos_delivery/waku/persistency/[types, keys]
 

@@ -4,12 +4,7 @@ import results, libp2p/crypto/crypto
 {.push raises: [].}
 
 import
-  chronicles,
-  chronos,
-  libp2p/protocols/protocol,
-  bearssl/rand,
-  stew/byteutils,
-  brokers/broker_context
+  chronicles, chronos, libp2p/protocols/protocol, stew/byteutils, brokers/broker_context
 
 import
   logos_delivery/waku/[node/peer_manager, waku_core, api/events/filter_subscribe_events],

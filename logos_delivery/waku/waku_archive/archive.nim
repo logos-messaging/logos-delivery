@@ -1,12 +1,6 @@
 {.push raises: [].}
 
-import
-  std/[times, sequtils, algorithm],
-  stew/[byteutils],
-  chronicles,
-  chronos,
-  results,
-  metrics
+import std/[times, sequtils, algorithm], chronicles, chronos, results, metrics
 import
   ../common/paging,
   ./driver,
@@ -47,6 +41,8 @@ type WakuArchive* = ref object
   validator: MessageValidator
 
   retentionPolicies: seq[RetentionPolicy]
+
+  metricTopics*: TopicLabels ## the topics that may be metric labels
 
   retentionPolicyHandle: Future[void]
   metricsHandle: Future[void]
@@ -158,10 +154,9 @@ proc handleMessage*(
   let insertDuration = getTime().toUnixFloat() - insertStartTime
   logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
 
-  let shard = RelayShard.parseStaticSharding(pubsubTopic).valueOr:
-    DefaultRelayShard
-
-  logos_delivery_archive_messages_per_shard.inc(labelValues = [$shard.shardId])
+  logos_delivery_archive_messages_per_shard.inc(
+    labelValues = [self.metricTopics.shardLabel(pubsubTopic)]
+  )
   logos_delivery_archive_inserts.inc(labelValues = [relayIngress])
 
   trace "message archived",

@@ -74,7 +74,7 @@ coverage_html_report/
 # simple qt example
 .qmake.stash
 main-qt
-waku_handler.moc.cpp
+logos_delivery_handler.moc.cpp
 
 # Nix build result
 result
@@ -92,9 +92,6 @@ nimbledeps
 __pycache__/
 *.pyc
 .venv*/
-
-# Emitted by genBindings() during the liblogosdelivery build.
-library/generated/
 
 # Local, per-developer helpers (design notes, scripts); never committed.
 .local/

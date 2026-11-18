@@ -4,10 +4,7 @@ import std/os, testutils/unittests, results, confutils
 
 import tools/confutils/cli_args
 
-import
-  ../../apps/rlnkeystore/rlnkeystore,
-  ../../logos_delivery/waku/common/logging,
-  ../../logos_delivery/waku/factory/conf_builder/rln_relay_conf_builder
+import ../../apps/rlnkeystore/rlnkeystore, ../../logos_delivery/waku/common/logging
 
 suite "rlnkeystore config - former generateRlnKeystore options":
   test "accepts the node options the subcommand accepted":

@@ -22,8 +22,8 @@
 #   NIM_PARAMS=-d:x   from the environment, the caller's own contribution,
 #                     kept across recursion; on the make command line it
 #                     replaces the whole set, project flags and NIMFLAGS too
-#   V=0               adds --verbosity:0 --hints:off, sets HANDLE_OUTPUT
-#   V=1               adds --verbosity:1, clears HANDLE_OUTPUT
+#   V=0               adds --verbosity:0 --hints:off
+#   V=1               adds --verbosity:1
 #   LOG_LEVEL=INFO    adds -d:chronicles_log_level="INFO"
 #   LOG_LEVEL empty   nothing
 #   DEBUG=0           adds -d:release -d:lto_incremental -d:strip
@@ -243,10 +243,6 @@ expect_flag "V=1 sets --verbosity:1"           "--verbosity:1" V=1
 expect_flag "V=0 sets --verbosity:0"           "--verbosity:0" V=0
 expect_flag "V=0 quiets hints"                 "--hints:off"   V=0
 reject_flag "V=1 keeps hints"                  "--hints:off"   V=1
-
-# V also sets HANDLE_OUTPUT. Nat.mk uses it to silence the sub-makes.
-expect_eq "V=0 sets HANDLE_OUTPUT for Nat.mk" ">/dev/null" "$(value_of HANDLE_OUTPUT V=0)"
-expect_eq "V=1 clears HANDLE_OUTPUT"          ""            "$(value_of HANDLE_OUTPUT V=1)"
 
 # --------------------------------------------------------------------------
 # LOG_LEVEL is a Jenkins parameter. The image builds pass it to make.

@@ -90,7 +90,7 @@ type
 # marshalling. One instance per owner — nothing is process-global.
 
 RequestBroker(sync):
-  proc getPersistency(): Result[Persistency, string]
+  proc GetPersistency(): Result[Persistency, string]
 
 # ── Lifecycle ───────────────────────────────────────────────────────────
 

@@ -94,7 +94,7 @@ make logosdeliverynode
 make logosdeliverynode NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
-Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
+Note: The build uses `--mm:orc` memory management (`NIM_MM` in the Makefile; `make NIM_MM=refc` selects refc). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
@@ -146,6 +146,20 @@ make nph/waku/waku_core.nim
 make install-nph
 ```
 The nph formatter handles all formatting details automatically, especially with the pre-commit hook installed. Focus on semantic correctness.
+
+### Compiler Warnings
+Mandatory: code must compile without warnings. CI fails on any compiler warning raised in this repo's code (warnings raised inside dependencies are ignored).
+Before pushing, run both checks locally:
+```bash
+make lint             # nph formatting, metric labels
+make check-warnings   # builds the node and the library, fails on any warning
+```
+A test file you touched is checked by passing its build log:
+```bash
+make test tests/test_waku_enr.nim 2>&1 | tee build/test.log
+scripts/check_compile_warnings.sh build/test.log
+```
+Fix the cause of a warning. Only when it cannot be fixed in this repo (e.g. a dependency's API offers no non-deprecated path), silence it where it is raised with a scoped `{.push warning[<Name>]: off.}` ... `{.pop.}` and a comment saying why.
 
 ### Logging
 Choosing a log level: follow [docs/contributors/logging-policy.md](docs/contributors/logging-policy.md).
@@ -477,9 +491,9 @@ nim c -r \
 - Default sinks are optimized for production
 
 ### Memory Management
-- Uses `refc` (reference counting with cycle collection)
-- Automatically enforced by the build system (hardcoded in `logos_delivery.nimble`)
-- Do not override unless absolutely necessary, as it breaks compatibility
+- Uses `orc` (reference counting with a cycle collector)
+- `refc` stays supported for hosts that still use it: `make NIM_MM=refc`, tested in CI
+- Set by the build system (`NIM_MM` in the Makefile, read by `logos_delivery.nimble`)
 
 ### RLN Dependencies
 - RLN code requires a Rust toolchain, which explains Rust imports in some modules

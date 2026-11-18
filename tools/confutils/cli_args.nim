@@ -11,7 +11,7 @@ import
   confutils/defs,
   confutils/std/net,
   confutils/toml/defs as confTomlDefs,
-  confutils/toml/std/net as confTomlNet,
+  toml_serialization/std/net as confTomlNet,
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,
@@ -98,6 +98,13 @@ type WakuNodeConf* = object
     defaultValue: logging.LogFormat.TEXT,
     name: "log-format"
   .}: logging.LogFormat
+
+  logOutput* {.
+    desc:
+      "Where logs are written: stdout, stderr or a file path (appended). Defaults to stdout",
+    defaultValue: "",
+    name: "log-output"
+  .}: string
 
   rlnRelayCredPath* {.
     desc: "The path for persisting rln-relay credential (requires --rln-relay)",
@@ -265,10 +272,9 @@ type WakuNodeConf* = object
     name: "ip-colocation-limit"
   .}: int
 
-  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   maxPureLibp2pPeers* {.
-    desc:
-      "Max inbound peers that are not waku nodes but offer a protocol this node consumes (kademlia service discovery, mix). 0 admits none. Default is 20 without a network preset; logos.dev and logos.test presets set 50, other presets 0.",
+    obsolete: "unused, peers without waku metadata are kept; removed in v0.42.0",
+    desc: "Deprecated and ignored.",
     defaultValue: Opt.none(int),
     name: "max-pure-libp2p-peers"
   .}: Opt[int]
@@ -286,11 +292,8 @@ type WakuNodeConf* = object
   ## DNS addrs config
   dnsAddrsNameServers* {.
     desc:
-      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
-    defaultValue: @[
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 1, 1, 1]),
-      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 0, 0, 1]),
-    ],
+      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated. Defaults to the host's resolver.",
+    defaultValue: @[],
     name: "dns-addrs-name-server"
   .}: seq[IpAddress]
 
@@ -417,6 +420,13 @@ hence would have reachability issues.""",
   storenode* {.
     desc: "Peer multiaddress to query for storage", defaultValue: "", name: "storenode"
   .}: string
+
+  configuredStoreNodesOnly* {.
+    desc:
+      "Query only the preset's store nodes and --storenode, never discovered store peers.",
+    defaultValue: false,
+    name: "configured-store-nodes-only"
+  .}: bool
 
   storeMessageRetentionPolicy* {.
     desc:
@@ -1293,6 +1303,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.withLogLevel(n.logLevel)
   b.withLogFormat(n.logFormat)
+  b.withLogOutput(n.logOutput)
 
   if n.rlnRelay.isSome():
     b.rlnRelayConf.withEnabled(n.rlnRelay.get())
@@ -1347,10 +1358,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.relayServiceRatio != "":
     b.withRelayServiceRatio(n.relayServiceRatio)
   b.withColocationLimit(n.colocationLimit)
-  if n.maxPureLibp2pPeers.isSome():
-    b.withMaxPureLibp2pPeers(n.maxPureLibp2pPeers.get())
-  elif networkPresetConf.isNone():
-    b.withMaxPureLibp2pPeers(20)
 
   if n.peerStoreCapacity.isSome:
     b.withPeerStoreCapacity(n.peerStoreCapacity.get())
@@ -1418,6 +1425,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   # TODO: can we just use `Opt` on the CLI?
   if n.storenode != "":
     b.withRemoteStoreNode(n.storenode)
+  b.withConfiguredStoreNodesOnly(n.configuredStoreNodesOnly)
   if n.filternode != "":
     b.withRemoteFilterNode(n.filternode)
   if n.lightpushnode != "":

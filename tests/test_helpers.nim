@@ -1,5 +1,5 @@
 import libp2p/crypto/rng
-import chronos, bearssl/rand, eth/[keys, p2p]
+import chronos, bearssl/rand, eth/[common/keys, p2p]
 
 import libp2p/crypto/crypto
 

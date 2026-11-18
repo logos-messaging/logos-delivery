@@ -1,10 +1,10 @@
 {.used.}
 
-import results, std/[strutils, sequtils, net, sets, tables]
+import results, std/[sequtils, net, sets, tables]
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, peerstore, multiaddress, crypto/crypto]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync, short_intervals]
+import ../testlib/[wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
 
@@ -24,12 +24,8 @@ import
     waku_lightpush/common,
     api/events/peer_events,
   ]
-import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
-import logos_delivery/api/conf/logos_delivery_conf
-import logos_delivery/waku/api/events/filter_subscribe_events
-import logos_delivery/waku/waku_filter_v2/subscriptions
 
 const TestTimeout = chronos.seconds(10)
 const NegativeTestTimeout = chronos.seconds(2)
@@ -1213,149 +1209,78 @@ suite "Messaging API, SubscriptionManager":
       edgePeerId in
         lateNode.wakuFilter.subscriptions.findSubscribedPeers(shard, testTopic)
 
-type SendSubscriptionNet = ref object
-  servers: seq[WakuNode] ## relay and filter service nodes on `shard`
-  edge: LogosDelivery
-  shard: PubsubTopic
-  requests: seq[seq[ContentTopic]] ## the topics of each filter subscribe of `edge`
-  requestListener: OnFilterSubscribeEventListener
+  asyncTest "Subscription API, edge node subscribes through a static node that starts later":
+    let shard = PubsubTopic("/waku/2/rs/3/0")
+    let port = block:
+      let probe = createStreamServer(initTAddress("127.0.0.1", Port(0)))
+      let p = probe.localAddress().port
+      await probe.closeWait()
+      p
+    let lateNode = await newFilterServiceNode(shard, bindPort = port, start = false)
+    defer:
+      await lateNode.stop()
 
-proc setupSendSubscriptionNet(
-    level: AnonymityLevel
-): Future[SendSubscriptionNet] {.async.} =
-  ## Two service nodes, and an Edge node at `level` that connects to them.
-  let net =
-    SendSubscriptionNet(shard: PubsubTopic("/waku/2/rs/" & $TestClusterId & "/0"))
-
-  proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-    discard
-
-  for i in 0 ..< 2:
-    var server: WakuNode
+    var conf = defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+    conf.kernel.staticnodes =
+      @["/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $lateNode.peerInfo.peerId]
+    var subscriber: LogosDelivery
     lockNewGlobalBrokerContext:
-      server = newTestWakuNode(generateSecp256k1Key())
-      server.mountMetadata(TestClusterId, @[0'u16]).expect("mount metadata")
-      (await server.mountRelay()).expect("mount relay")
-      await server.mountFilter()
-      await server.mountLibp2pPing()
-      await server.start()
-    server.subscribe((kind: PubsubSub, topic: net.shard), dummyHandler).expect(
-      "subscribe the shard"
-    )
-    net.servers.add(server)
-
-  let conf = LogosDeliveryConf(
-    kernelConf:
-      KernelConf(defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)),
-    messagingConf: Opt.some(MessagingClientConf(anonymityLevel: Opt.some(level))),
-  )
-  lockNewGlobalBrokerContext:
-    net.edge = (await LogosDelivery.new(conf)).expect("create the edge node")
-    net.edge.shortenIntervals()
-    (await net.edge.start()).expect("start the edge node")
-
-  net.requestListener = OnFilterSubscribeEvent
-    .listen(
-      net.edge.waku.brokerCtx,
-      proc(event: OnFilterSubscribeEvent) {.async: (raises: []).} =
-        net.requests.add(event.contentTopics),
-    )
-    .expect("listen to filter subscribes")
-
-  await net.edge.waku.node.connectToNodes(
-    net.servers.mapIt(it.peerInfo.toRemotePeerInfo())
-  )
-  return net
-
-proc teardown(net: SendSubscriptionNet) {.async.} =
-  await OnFilterSubscribeEvent.dropListener(
-    net.edge.waku.brokerCtx, net.requestListener
-  )
-  (await net.edge.stop()).expect("stop the edge node")
-  for server in net.servers:
-    await server.stop()
-
-proc holds(net: SendSubscriptionNet, server: WakuNode, topic: ContentTopic): bool =
-  ## True when `server` has a filter subscription of the edge node to `topic`.
-  let edgePeerId = net.edge.waku.node.peerInfo.peerId
-  return
-    (net.shard, topic) in
-    server.wakuFilter.subscriptions.getPeerSubscriptions(edgePeerId)
-
-proc holders(net: SendSubscriptionNet): seq[WakuNode] =
-  ## The service nodes that the edge node tracks for the shard.
-  var tracked: seq[WakuNode]
-  net.edge.waku.node.subscriptionManager.edgeFilterSubStates.withValue(net.shard, state):
-    for server in net.servers:
-      if state.peers.anyIt(it.peerId == server.peerInfo.peerId):
-        tracked.add(server)
-  return tracked
-
-proc subscribed(net: SendSubscriptionNet, topic: ContentTopic): bool =
-  return net.edge.waku.isSubscribed(topic).valueOr(false)
-
-proc holdsAll(
-    net: SendSubscriptionNet, server: WakuNode, topics: seq[ContentTopic]
-): bool =
-  return topics.allIt(net.holds(server, it))
-
-proc requestCount(net: SendSubscriptionNet, topic: ContentTopic): int =
-  return net.requests.countIt(topic in it)
-
-proc waitForHolders(net: SendSubscriptionNet, topics: seq[ContentTopic]) {.async.} =
-  ## Waits until two service nodes hold each topic, and the events of their
-  ## requests came.
-  checkUntilTimeout:
-    net.holders().len == 2
-    net.holders().allIt(net.holdsAll(it, topics))
-    topics.allIt(net.requestCount(it) >= 2)
-  require net.holders().len == 2
-
-suite "Subscription API - the subscription of a send":
-  const App = ContentTopic("/waku/2/send-subscription-app/proto")
-  const Sent = ContentTopic("/waku/2/send-subscription-sent/proto")
-
-  asyncTest "an Edge node at the Required level makes no subscription for a send":
-    let net = await setupSendSubscriptionNet(AnonymityLevel.Required)
+      subscriber = (await LogosDelivery.new(conf)).expect("Failed to create subscriber")
+      subscriber.waku.node.peerManager.initialBackoffInSec = 1
+      subscriber.shortenIntervals()
+      (await subscriber.start()).expect("Failed to start subscriber")
     defer:
-      await net.teardown()
-    let ctx = net.edge.waku.brokerCtx
-    var failed: seq[RequestId]
-    let listener = MessageErrorEvent
-      .listen(
-        ctx,
-        proc(event: MessageErrorEvent) {.async: (raises: []).} =
-          failed.add(event.requestId),
-      )
-      .expect("listen to send errors")
-    defer:
-      await MessageErrorEvent.dropListener(ctx, listener)
+      (await subscriber.stop()).expect("Failed to stop subscriber")
 
-    let requestId = (
-      await net.edge.messagingClient.send(MessageEnvelope.init(Sent, "anonymous"))
-    ).expect("send")
-    check not net.subscribed(Sent)
-    # Mix is not mounted, so the queued send fails. The API send made no
-    # subscription.
+    let testTopic = ContentTopic("/waku/2/filternode/proto")
+    (await subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Failed to subscribe"
+    )
+    check subscriber.waku.node.getRelayShard(testTopic) == shard
+
+    # The first dial fails, because the static node is not up yet.
     checkUntilTimeout:
-      requestId in failed
-    check not net.subscribed(Sent)
+      subscriber.waku.node.peerManager.switch.peerStore.connectedness(
+        lateNode.peerInfo.peerId
+      ) == CannotConnect
+    await lateNode.start()
+    lateNode.serveShard(shard)
 
-    # A subscribe to a new filter peer carries the full interest set.
-    (await net.edge.messagingClient.subscribe(App)).expect("subscribe")
-    await net.waitForHolders(@[App])
-    check:
-      net.servers.allIt(not net.holds(it, Sent))
-      net.requests.allIt(Sent notin it)
+    let edgePeerId = subscriber.waku.node.peerInfo.peerId
+    checkUntilTimeout:
+      edgePeerId in
+        lateNode.wakuFilter.subscriptions.findSubscribedPeers(shard, testTopic)
 
-  asyncTest "an Edge node at the None level subscribes for a send":
-    let net = await setupSendSubscriptionNet(AnonymityLevel.None)
+  asyncTest "Subscription API, relay node dials a static node that starts later":
+    let shard = PubsubTopic("/waku/2/rs/3/0")
+    let port = block:
+      let probe = createStreamServer(initTAddress("127.0.0.1", Port(0)))
+      let p = probe.localAddress().port
+      await probe.closeWait()
+      p
+    let lateNode = await newFilterServiceNode(shard, bindPort = port, start = false)
     defer:
-      await net.teardown()
+      await lateNode.stop()
 
-    # No lightpush peer, so the send does not go out.
-    discard (await net.edge.messagingClient.send(MessageEnvelope.init(Sent, "plain"))).expect(
-      "send"
-    )
-    check net.subscribed(Sent)
-    await net.waitForHolders(@[Sent])
+    var conf = defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Core)
+    conf.kernel.staticnodes =
+      @["/ip4/127.0.0.1/tcp/" & $port & "/p2p/" & $lateNode.peerInfo.peerId]
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).expect("Failed to create node")
+      node.waku.node.peerManager.initialBackoffInSec = 1
+      # The relay connectivity loop gives up on the peer after this many failures.
+      node.waku.node.peerManager.maxFailedAttempts = 1
+      node.shortenIntervals()
+      (await node.start()).expect("Failed to start node")
+    defer:
+      (await node.stop()).expect("Failed to stop node")
+
+    checkUntilTimeout:
+      node.waku.node.peerManager.switch.peerStore.connectedness(
+        lateNode.peerInfo.peerId
+      ) == CannotConnect
+    await lateNode.start()
+
+    checkUntilTimeout:
+      node.waku.node.peerManager.switch.isConnected(lateNode.peerInfo.peerId)

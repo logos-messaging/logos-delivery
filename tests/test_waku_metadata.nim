@@ -1,17 +1,14 @@
 {.used.}
 
 import
-  std/[algorithm, sequtils, tables],
+  std/[algorithm, sequtils],
   testutils/unittests,
   stew/byteutils,
   chronos,
-  chronicles,
   libp2p/switch,
   libp2p/peerId,
   libp2p/crypto/crypto,
-  libp2p/multistream,
-  libp2p/muxers/muxer,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr
 import
   logos_delivery/waku/[
@@ -91,7 +88,9 @@ procSuite "Waku Metadata Protocol":
     # Mount metadata on node2 so it can make requests
     discard node2.mountMetadata(clusterId, @[])
 
-    # Start nodes (relay is NOT mounted yet on node1)
+    # Relay is mounted on node1 but not subscribed to any shard yet
+    (await node1.mountRelay()).isOkOr:
+      raiseAssert error
     await allFutures([node1.start(), node2.start()])
 
     ## When: Node2 requests metadata from Node1 before relay is active
@@ -112,6 +111,34 @@ procSuite "Waku Metadata Protocol":
       response.get().shards == @[uint32(0), uint32(1)]
 
     await allFutures([node1.stop(), node2.stop()])
+
+  asyncTest "Metadata of a node without relay advertises no shards":
+    ## Given: an edge node with configured shards and no relay
+    let clusterId = 10.uint16
+    let node1 = newTestWakuNode(
+      generateSecp256k1Key(), clusterId = clusterId, subscribeShards = @[uint16(0)]
+    )
+    let node2 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+    discard node1.mountMetadata(clusterId, @[uint16(0)])
+    discard node2.mountMetadata(clusterId, @[])
+    await allFutures([node1.start(), node2.start()])
+    defer:
+      await allFutures([node1.stop(), node2.stop()])
+
+    ## When: node2 requests node1's metadata
+    let connOpt = await node2.peerManager.dialPeer(
+      node1.switch.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
+    )
+    require:
+      connOpt.isSome
+    let response = await node2.wakuMetadata.request(connOpt.get())
+
+    ## Then: the cluster is reported but the shard list is empty
+    require:
+      response.isOk()
+    check:
+      response.get().clusterId.get() == clusterId
+      response.get().shards.len == 0
 
   asyncTest "A shard of another cluster is refused and metadata keeps reporting the relay's shards":
     let clusterId = 10.uint16

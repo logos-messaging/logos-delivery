@@ -9,7 +9,7 @@ import
   std/[os, strutils, json, sequtils],
   nimcrypto/[bcmode, hmac, rijndael, pbkdf2, sha2, sysrand, utils, keccak, scrypt],
   results,
-  eth/keys,
+  eth/common/keys,
   eth/keyfile/uuid
 
 export results

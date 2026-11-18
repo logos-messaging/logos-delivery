@@ -24,23 +24,23 @@ import
 export request_broker
 
 RequestBroker(sync):
-  proc getNodeSwitch(): Result[Switch, string]
+  proc GetNodeSwitch(): Result[Switch, string]
 
 RequestBroker(sync):
-  proc getNodePeerManager(): Result[PeerManager, string]
+  proc GetNodePeerManager(): Result[PeerManager, string]
 
 RequestBroker(sync):
   # The switch's own PeerInfo: peer id, announced addresses, private key.
   # (The external discovery backend signs this node's records with it.)
-  proc getNodePeerInfo(): Result[PeerInfo, string]
+  proc GetNodePeerInfo(): Result[PeerInfo, string]
 
 RequestBroker(sync):
   # The node's current ENR (final after setupNode; refreshed on updateEnr).
-  proc getNodeEnr(): Result[enr.Record, string]
+  proc GetNodeEnr(): Result[enr.Record, string]
 
 RequestBroker(sync):
   # The node's libp2p private key (discv5 signs its ENR with it).
-  proc getNodeKey(): Result[crypto.PrivateKey, string]
+  proc GetNodeKey(): Result[crypto.PrivateKey, string]
 
 type DiscoveryRequirements* = object
   ## What a host must set up before starting the node: whether service
@@ -50,9 +50,9 @@ type DiscoveryRequirements* = object
   bootstrapNodes*: seq[string]
 
 RequestBroker(sync):
-  proc getDiscoveryRequirements(): Result[DiscoveryRequirements, string]
+  proc GetDiscoveryRequirements(): Result[DiscoveryRequirements, string]
 
 RequestBroker(sync):
   # DNS-discovery (or otherwise dynamically obtained) bootstrap peers;
   # empty until retrieval succeeded.
-  proc getDynamicBootstrapNodes(): Result[seq[RemotePeerInfo], string]
+  proc GetDynamicBootstrapNodes(): Result[seq[RemotePeerInfo], string]

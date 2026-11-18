@@ -19,9 +19,9 @@
 ## refc ref-count traffic across threads. The arg is freed by
 ## ``stopStorageThread`` after ``joinThread`` returns.
 
-import std/os
+import std/[os, locks]
 import std/atomics # std/concurrency/atomics is the same module in Nim 2.2
-import chronos, chronicles, results
+import chronos, chronos/threadsync, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
 import
   brokers/internal/mt_broker_common # teardownBrokerThread, closeThreadDispatcherSelector
@@ -42,7 +42,10 @@ type
     ctx: BrokerContext
     dbPath: cstring ## allocShared0'd; freed in closeJob
     dbPathLen: int ## bytes including the trailing NUL
-    shutdownFlag: Atomic[int]
+    stopSignal: ThreadSignalPtr
+      ## Fired by `stopStorageThread`. The worker closes it after its wait, so
+      ## its fd leaves the selector of the worker. Nil once closed.
+    stopLock: Lock ## Keeps `fireSync` and `close` of `stopSignal` apart.
     readyFlag: Atomic[int] ## values from ReadyState
     errBuf: array[256, char] ## last error message, NUL-terminated
 
@@ -53,6 +56,7 @@ type
 proc allocArg(ctx: BrokerContext, dbPath: string): ptr StorageThreadArg =
   let arg = cast[ptr StorageThreadArg](allocShared0(sizeof(StorageThreadArg)))
   arg.ctx = ctx
+  initLock(arg.stopLock)
   arg.dbPathLen = dbPath.len + 1
   arg.dbPath = cast[cstring](allocShared0(arg.dbPathLen))
   if dbPath.len > 0:
@@ -64,6 +68,7 @@ proc freeArg(a: ptr StorageThreadArg) =
     return
   if a.dbPath != nil:
     deallocShared(a.dbPath)
+  deinitLock(a.stopLock)
   deallocShared(a)
 
 proc recordErr(a: ptr StorageThreadArg, msg: string) =
@@ -246,17 +251,19 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
 
   arg.readyFlag.store(int(ReadyState.Ready), moRelease)
 
-  proc awaitShutdown() {.async.} =
-    while arg.shutdownFlag.load(moAcquire) != 1:
-      try:
-        await sleepAsync(milliseconds(10))
-      except CatchableError:
-        discard
-
   try:
-    waitFor awaitShutdown()
+    waitFor arg.stopSignal.wait()
   except CatchableError as e:
     error "storage thread loop crashed", err = e.msg
+
+  # `wait` registered the fd of the signal in the selector of this thread, and
+  # `closeThreadDispatcher` needs that selector empty. Only `close` on this
+  # thread unregisters the fd. The lock keeps a late `fireSync` of the owner
+  # away from the closed signal.
+  withLock arg.stopLock:
+    arg.stopSignal.close().isOkOr:
+      error "Failed to close the stop signal of the storage thread", err = error
+    arg.stopSignal = nil
 
   waitFor clearProviders(arg.ctx)
   backend.close()
@@ -278,13 +285,16 @@ proc startStorageThread*(
   ## signals ready (returns the runtime) or signals error (joins, frees,
   ## returns peBackend with the worker's error message).
   let arg = allocArg(ctx, dbPath)
-  arg.shutdownFlag.store(0, moRelease)
+  arg.stopSignal = ThreadSignalPtr.new().valueOr:
+    freeArg(arg)
+    return err(persistencyErr(peBackend, "ThreadSignalPtr.new: " & error))
   arg.readyFlag.store(int(ReadyState.Pending), moRelease)
 
   var rt = JobRuntime(arg: arg)
   try:
     createThread(rt.thread, storageThreadMain, arg)
   except ResourceExhaustedError as e:
+    discard arg.stopSignal.close()
     freeArg(arg)
     return err(persistencyErr(peBackend, "createThread: " & e.msg))
 
@@ -297,6 +307,7 @@ proc startStorageThread*(
     if s == int(ReadyState.Error):
       let msg = errMsg(arg)
       joinThread(rt.thread)
+      discard arg.stopSignal.close()
       freeArg(arg)
       return err(persistencyErr(peBackend, msg))
     sleep(1)
@@ -306,7 +317,10 @@ proc stopStorageThread*(rt: JobRuntime) =
   ## the sense that it tolerates a nil arg (already stopped).
   if rt == nil or rt.arg == nil:
     return
-  rt.arg.shutdownFlag.store(1, moRelease)
+  withLock rt.arg.stopLock:
+    if not rt.arg.stopSignal.isNil():
+      rt.arg.stopSignal.fireSync().isOkOr:
+        error "Failed to signal the storage thread to stop", err = error
   joinThread(rt.thread)
   freeArg(rt.arg)
   rt.arg = nil

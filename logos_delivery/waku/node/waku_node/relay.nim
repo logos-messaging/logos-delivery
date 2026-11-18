@@ -7,7 +7,7 @@ import
   metrics,
   results,
   stew/byteutils,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/protocols/ping,
@@ -24,9 +24,6 @@ import
     waku_relay,
     waku_core,
     waku_core/topics/sharding,
-    waku_filter_v2,
-    waku_archive,
-    waku_store_sync,
     rln/markers,
     rln/protocol_metrics,
     rln/rln_plugin,
@@ -58,8 +55,6 @@ proc getTopicOfSubscriptionEvent(
         err("Static sharding is used, relay subscriptions must specify a pubsub topic")
   of PubsubSub, PubsubUnsub:
     return ok((subscription.topic, Opt.none(ContentTopic)))
-  else:
-    return err("Unsupported subscription type in relay getTopicOfSubscriptionEvent")
 
 proc validateShardOfNode*(
     node: WakuNode, pubsubTopic: PubsubTopic
@@ -254,7 +249,9 @@ proc registerRlnValidator(
     case res.verdict
     of ProofVerdict.Valid:
       trace "Message validity is verified, relaying", proof = proof
-      logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
+      logos_delivery_rln_valid_messages_total.inc(
+        labelValues = [node.wakuRelay.metricTopics.topicLabel(topic)]
+      )
       return pubsub.ValidationResult.Accept
     of ProofVerdict.Invalid:
       trace "Message validity could not be verified, discarding", proof = proof

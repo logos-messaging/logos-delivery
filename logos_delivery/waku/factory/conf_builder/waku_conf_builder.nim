@@ -59,13 +59,12 @@ const
   DefaultRlnDisableValidation: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
   DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
+  DefaultLogOutput: string = "" # keep the process-wide destination
   DefaultNatStrategy: string = "none"
   DefaultP2pTcpPort: Port = Port(60000)
   DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
   DefaultPortsShift: uint16 = 0
   DefaultExtMultiAddrsOnly: bool = false
-  DefaultDnsAddrsNameServers: seq[IpAddress] =
-    @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
   DefaultPeerPersistence: bool = false
   DefaultAgentString*: string = "logos-delivery-" & git_version
   DefaultRelayShardedPeerManagement: bool = false
@@ -142,6 +141,8 @@ type WakuConfBuilder* = object
   networkPresetConf: Opt[NetworkPresetConf]
 
   staticNodes: seq[string]
+  presetStoreNodes: seq[string]
+  configuredStoreNodesOnly: Opt[bool]
 
   remoteStoreNode: Opt[string]
   remoteLightPushNode: Opt[string]
@@ -152,6 +153,7 @@ type WakuConfBuilder* = object
 
   logLevel: Opt[logging.LogLevel]
   logFormat: Opt[logging.LogFormat]
+  logOutput: Opt[string]
 
   natStrategy: Opt[string]
   natDiscoveryTimeoutMs: Opt[uint32]
@@ -169,7 +171,6 @@ type WakuConfBuilder* = object
   peerStoreCapacity: Opt[int]
   maxConnections: Opt[int]
   colocationLimit: Opt[int]
-  maxPureLibp2pPeers: Opt[int]
 
   agentString: Opt[string]
 
@@ -251,6 +252,12 @@ proc withRlnDisableValidation*(b: var WakuConfBuilder, rlnDisableValidation: boo
 proc withMix*(builder: var WakuConfBuilder, mix: bool) =
   builder.mix = Opt.some(mix)
 
+proc withPresetStoreNodes*(b: var WakuConfBuilder, presetStoreNodes: seq[string]) =
+  b.presetStoreNodes = presetStoreNodes
+
+proc withConfiguredStoreNodesOnly*(b: var WakuConfBuilder, only: bool) =
+  b.configuredStoreNodesOnly = Opt.some(only)
+
 proc withRemoteStoreNode*(b: var WakuConfBuilder, remoteStoreNode: string) =
   b.remoteStoreNode = Opt.some(remoteStoreNode)
 
@@ -285,6 +292,9 @@ proc withLogLevel*(b: var WakuConfBuilder, logLevel: logging.LogLevel) =
 proc withLogFormat*(b: var WakuConfBuilder, logFormat: logging.LogFormat) =
   b.logFormat = Opt.some(logFormat)
 
+proc withLogOutput*(b: var WakuConfBuilder, logOutput: string) =
+  b.logOutput = Opt.some(logOutput)
+
 proc withP2pTcpPort*(b: var WakuConfBuilder, p2pTcpPort: Port) =
   b.p2pTcpPort = Opt.some(p2pTcpPort)
 
@@ -314,9 +324,6 @@ proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
 
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
   b.colocationLimit = Opt.some(colocationLimit)
-
-proc withMaxPureLibp2pPeers*(b: var WakuConfBuilder, maxPureLibp2pPeers: int) =
-  b.maxPureLibp2pPeers = Opt.some(maxPureLibp2pPeers)
 
 proc withRelayServiceRatio*(b: var WakuConfBuilder, relayServiceRatio: string) =
   b.relayServiceRatio = Opt.some(relayServiceRatio)
@@ -510,6 +517,9 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   if builder.extraListenShards.isNone() and networkPresetConf.extraListenShards.len > 0:
     builder.extraListenShards = Opt.some(networkPresetConf.extraListenShards)
 
+  if builder.presetStoreNodes.len == 0:
+    builder.presetStoreNodes = networkPresetConf.storeNodes
+
   checkSetPresetValueToField(
     builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
     "Discv5 Discovery was provided alongside a network conf",
@@ -547,11 +557,6 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       continue
     presetMixNodes.add(mixNode)
   builder.mixConf.withMixNodes(presetMixNodes)
-
-  checkSetPresetValueToField(
-    builder.maxPureLibp2pPeers, networkPresetConf.maxPureLibp2pPeers,
-    "Max pure-libp2p peers was provided alongside a network conf",
-  )
 
   # Process entry nodes from network config - classify and distribute
   if networkPresetConf.entryNodes.len > 0:
@@ -800,6 +805,8 @@ proc build*(
       debug "Log Format not specified, defaulting to TEXT"
       DefaultLogFormat
 
+  let logOutput = builder.logOutput.get(DefaultLogOutput)
+
   # The CLI defaults to "any". This embedded default stays "none",
   # so library nodes probe gateways only when configured to.
   let natStrategyString =
@@ -861,12 +868,8 @@ proc build*(
       debug "Whether to only announce external multiaddresses is not specified, defaulting to false"
       DefaultExtMultiAddrsOnly
 
-  let dnsAddrsNameServers =
-    if builder.dnsAddrsNameServers.len != 0:
-      builder.dnsAddrsNameServers
-    else:
-      debug "DNS name servers IPs not provided, defaulting to Cloudflare's."
-      DefaultDnsAddrsNameServers
+  ## Empty means the host's resolver.
+  let dnsAddrsNameServers = builder.dnsAddrsNameServers
 
   let peerPersistence =
     if builder.peerPersistence.isSome():
@@ -890,10 +893,6 @@ proc build*(
   let agentString = builder.agentString.get(DefaultAgentString)
 
   let colocationLimit = builder.colocationLimit.get(DefaultColocationLimit)
-
-  let maxPureLibp2pPeers = builder.maxPureLibp2pPeers.get(0)
-  if maxPureLibp2pPeers < 0:
-    return err("max-pure-libp2p-peers must be 0 or more, got " & $maxPureLibp2pPeers)
 
   # TODO: is there a strategy for experimental features? delete vs promote
   let relayShardedPeerManagement =
@@ -960,6 +959,8 @@ proc build*(
     rendezvous: rendezvous,
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
+    presetStoreNodes: builder.presetStoreNodes,
+    configuredStoreNodesOnly: builder.configuredStoreNodesOnly.get(false),
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,
     remoteFilterNode: builder.remoteFilterNode,
@@ -968,6 +969,7 @@ proc build*(
     maxMessageSizeBytes: maxMessageSizeBytes,
     logLevel: logLevel,
     logFormat: logFormat,
+    logOutput: logOutput,
     # TODO: Separate builders
     endpointConf: EndpointConf(
       natStrategy: natStrategy,
@@ -986,7 +988,6 @@ proc build*(
     maxConnections: maxConnections,
     agentString: agentString,
     colocationLimit: colocationLimit,
-    maxPureLibp2pPeers: maxPureLibp2pPeers,
     maxRelayPeers: builder.maxRelayPeers,
     relayServiceRatio: builder.relayServiceRatio.get(DefaultRelayServiceRatio),
     rateLimit: rateLimit,

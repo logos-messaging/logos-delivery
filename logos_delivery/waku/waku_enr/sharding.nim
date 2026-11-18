@@ -5,7 +5,7 @@ import
   stew/endians2,
   results,
   chronicles,
-  eth/keys,
+  eth/common/keys,
   libp2p/[multiaddress, multicodec],
   libp2p/crypto/crypto
 import ../common/enr, ../waku_core/topics/pubsub_topic

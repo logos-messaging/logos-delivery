@@ -1,8 +1,5 @@
 import
-  std/[algorithm, sequtils, math, tables, packedsets, sugar],
-  results,
-  chronos,
-  stew/arrayops
+  std/[algorithm, sequtils, tables, packedsets, sugar], results, chronos, stew/arrayops
 
 import
   ../../waku_core/time,
@@ -33,6 +30,10 @@ type SeqStorage* = ref object of SyncStorage
 
 method length*(self: SeqStorage): int {.raises: [].} =
   return self.elements.len
+
+method contains*(self: SeqStorage, element: SyncID): bool {.raises: [].} =
+  let idx = self.elements.lowerBound(element, common.cmp)
+  return idx < self.elements.len and self.elements[idx] == element
 
 proc pubsubTopicsLen*(self: SeqStorage): int {.raises: [].} =
   return self.pubsubTopics.len
@@ -132,6 +133,22 @@ method batchInsert*(
 
   return ok()
 
+method remove*(self: SeqStorage, element: SyncID): Result[void, string] {.raises: [].} =
+  ## Removes `element` from the store-sync index. An absent element is a no-op.
+
+  let idx = self.elements.lowerBound(element, common.cmp)
+  if idx >= self.elements.len or self.elements[idx] != element:
+    # Removing an absent element is a no-op.
+    return ok()
+
+  # Topics that lose their last element stay allocated and are not marked
+  # unused until the next `prune`.
+  self.elements.delete(idx)
+  self.pubsubTopicIndexes.delete(idx)
+  self.contentTopicIndexes.delete(idx)
+
+  return ok()
+
 method prune*(self: SeqStorage, timestamp: Timestamp): int {.raises: [].} =
   ## Remove all elements before the timestamp.
   ## Returns # of elements pruned.
@@ -218,6 +235,7 @@ proc findIdxBounds(self: SeqStorage, slice: Slice[SyncID]): Opt[Slice[int]] =
 proc pubsubScope(self: SeqStorage, pubsubTopics: seq[PubsubTopic]): PackedSet[int] =
   ## The local indexes of `pubsubTopics`. An empty set means every topic, so a
   ## request whose topics are all unknown here gets an index no element has.
+  ## Pending elements have no shard yet, so they are in every scope.
   var scope = initPackedSet[int]()
   for inputTopic in pubsubTopics:
     for i, localTopic in self.pubsubTopics:
@@ -227,6 +245,13 @@ proc pubsubScope(self: SeqStorage, pubsubTopics: seq[PubsubTopic]): PackedSet[in
   if pubsubTopics.len > 0 and scope.len == 0:
     # -1 is never an element's topic index, so nothing matches
     scope.incl(-1)
+
+  # Pending (promised, not yet arrived) elements have no shard; include them in every
+  # scope so overlapping rounds don't ask for them again.
+  if pubsubTopics.len > 0:
+    for i, localTopic in self.pubsubTopics:
+      if localTopic == PendingPubsubTopic:
+        scope.incl(i)
 
   return scope
 
@@ -284,9 +309,11 @@ proc processFingerprintRange*(
     output.ranges.add((inputBounds, RangeType.Skip))
     return
 
+  # An empty range is not marked reconciled: the peer then replies with its
+  # items, which tells this node what to accept over transfer.
   if idxSlice.isNone():
     output.ranges.add((inputBounds, RangeType.ItemSet))
-    let state = ItemSet(elements: @[], reconciled: true)
+    let state = ItemSet(elements: @[], reconciled: false)
     output.itemSets.add(state)
     return
 
@@ -305,7 +332,7 @@ proc processFingerprintRange*(
 
     if sliceOpt.isNone():
       output.ranges.add((partitionBounds, RangeType.ItemSet))
-      let state = ItemSet(elements: @[], reconciled: true)
+      let state = ItemSet(elements: @[], reconciled: false)
       output.itemSets.add(state)
       continue
 
@@ -331,7 +358,7 @@ proc processItemSetRange*(
     contentTopicSet: PackedSet[int],
     inputItemSet: ItemSet,
     hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
+    idsToRecv: var seq[SyncID],
     output: var RangesData,
 ) {.raises: [].} =
   ## Compares item sets and outputs differences
@@ -339,6 +366,9 @@ proc processItemSetRange*(
   let idxSlice = self.findIdxBounds(inputBounds)
 
   if idxSlice.isNone():
+    for element in inputItemSet.elements:
+      idsToRecv.add(element)
+
     if not inputItemSet.reconciled:
       output.ranges.add((inputBounds, RangeType.ItemSet))
       let state = ItemSet(elements: @[], reconciled: true)
@@ -378,7 +408,7 @@ proc processItemSetRange*(
     let theirElement = inputItemSet.elements[i]
 
     if theirElement < ourElement:
-      hashToRecv.add(theirElement.hash)
+      idsToRecv.add(theirElement)
       i.inc()
     elif theirElement > ourElement:
       hashToSend.add(ourElement.hash)
@@ -391,7 +421,7 @@ proc processItemSetRange*(
     # in case they have more elements
     let theirElement = inputItemSet.elements[i]
     i.inc()
-    hashToRecv.add(theirElement.hash)
+    idsToRecv.add(theirElement)
 
   if not inputItemSet.reconciled:
     output.ranges.add((inputBounds, RangeType.ItemSet))
@@ -401,12 +431,35 @@ proc processItemSetRange*(
   else:
     output.ranges.add((inputBounds, RangeType.Skip))
 
+proc processItemSetRange*(
+    self: SeqStorage,
+    inputBounds: Slice[SyncID],
+    pubsubTopicSet: PackedSet[int],
+    contentTopicSet: PackedSet[int],
+    inputItemSet: ItemSet,
+    hashToSend: var seq[Fingerprint],
+    hashToRecv: var seq[Fingerprint],
+    output: var RangesData,
+) {.raises: [].} =
+  ## Same as above, with only the hashes of the elements to receive.
+  var idsToRecv: seq[SyncID]
+  self.processItemSetRange(
+    inputBounds, pubsubTopicSet, contentTopicSet, inputItemSet, hashToSend, idsToRecv,
+    output,
+  )
+  for id in idsToRecv:
+    hashToRecv.add(id.hash)
+
 method processPayload*(
     self: SeqStorage,
     input: RangesData,
     hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
+    idsToRecv: var seq[SyncID],
 ): RangesData {.raises: [].} =
+  ## Compares the peer's ranges with the local index and returns the ranges to
+  ## send back. Appends to `hashToSend` the hashes of local elements the peer
+  ## lacks, and to `idsToRecv` the peer's elements missing here, with their
+  ## timestamps, so the caller can index them before they arrive.
   var output = RangesData()
 
   var
@@ -439,7 +492,7 @@ method processPayload*(
       j.inc()
 
       self.processItemSetRange(
-        bounds, pubsubTopicSet, contentTopicSet, itemSet, hashToSend, hashToRecv, output
+        bounds, pubsubTopicSet, contentTopicSet, itemSet, hashToSend, idsToRecv, output
       )
 
       continue
@@ -473,6 +526,21 @@ method processPayload*(
 
   if allSkip:
     output = RangesData()
+
+  return output
+
+proc processPayload*(
+    self: SyncStorage,
+    input: RangesData,
+    hashToSend: var seq[Fingerprint],
+    hashToRecv: var seq[Fingerprint],
+): RangesData {.gcsafe, raises: [].} =
+  ## Same as the method, for callers that do not index the elements to receive
+  ## before they arrive: reports them by hash only, in `hashToRecv`.
+  var idsToRecv: seq[SyncID]
+  let output = self.processPayload(input, hashToSend, idsToRecv)
+  for id in idsToRecv:
+    hashToRecv.add(id.hash)
 
   return output
 

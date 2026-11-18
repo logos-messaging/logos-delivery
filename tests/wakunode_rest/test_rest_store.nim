@@ -6,7 +6,7 @@ import
   chronicles,
   chronos/timer,
   testutils/unittests,
-  eth/keys,
+  eth/common/keys,
   presto,
   presto/client as presto_client,
   libp2p/crypto/crypto

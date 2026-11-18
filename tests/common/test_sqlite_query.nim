@@ -1,7 +1,7 @@
 {.used.}
 
 import std/os, results, sqlite3_abi, testutils/unittests
-import logos_delivery/waku/common/databases/[common, db_sqlite]
+import logos_delivery/waku/common/databases/db_sqlite
 
 proc openStatements(db: SqliteDatabase): int =
   var s = sqlite3_next_stmt(db.env, nil)

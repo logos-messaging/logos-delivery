@@ -100,7 +100,8 @@ class StepsRelay(StepsCommon):
         if not sender:
             sender = self.node1
         if not peer_list:
-            peer_list = self.main_nodes + self.optional_nodes
+            # A node does not receive its own relay messages.
+            peer_list = [p for p in self.main_nodes + self.optional_nodes if p is not sender]
 
         sender.send_relay_message(message, pubsub_topic)
         delay(message_propagation_delay)

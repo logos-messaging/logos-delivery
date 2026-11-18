@@ -8,16 +8,17 @@ import
   chronos,
   chronos/timer as ctime,
   confutils,
-  eth/keys,
+  eth/common/keys,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
-  libp2p/nameresolving/dnsresolver,
+  libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
   metrics,
   metrics/chronos_httpserver,
   presto/[route, server, client]
 import
   logos_delivery/waku/[
+    common/system_resolver,
     waku_core,
     node/peer_manager,
     waku_node,
@@ -28,6 +29,7 @@ import
     rln,
     rln/rln_plugin,
     factory/builder,
+    net/net_config,
     factory/networks_config,
   ],
   ./networkmonitor_metrics,
@@ -52,27 +54,32 @@ proc setDiscoveredPeersCapabilities(routingTableNodes: seq[waku_enr.Record]) =
     info "capabilities as per ENR waku flag",
       capability = capability, amount = nOfNodesWithCapability
     logos_delivery_networkmonitor_peer_type_as_per_enr.set(
-      int64(nOfNodesWithCapability), labelValues = [$capability]
+      int64(nOfNodesWithCapability), labelValues = [enumLabel(capability)]
     )
 
-proc setDiscoveredPeersCluster(routingTableNodes: seq[Node]) =
-  var clusters: CountTable[uint16]
+proc setDiscoveredPeersCluster(routingTableNodes: seq[Node], clusterId: uint16) =
+  var ours, others: int64
 
   for node in routingTableNodes:
     let typedRec = node.record.toTyped().valueOr:
-      clusters.inc(0)
+      others.inc()
       continue
 
     let relayShard = typedRec.relaySharding().valueOr:
-      clusters.inc(0)
+      others.inc()
       continue
 
-    clusters.inc(relayShard.clusterId)
+    if relayShard.clusterId == clusterId:
+      ours.inc()
+    else:
+      others.inc()
 
-  for (key, value) in clusters.pairs:
-    logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
-      int64(value), labelValues = [$key]
-    )
+  logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
+    ours, labelValues = [clusterLabel(clusterId, clusterId)]
+  )
+  logos_delivery_networkmonitor_peer_cluster_as_per_enr.set(
+    others, labelValues = [OtherLabel]
+  )
 
 proc analyzePeer(
     customPeerInfo: CustomPeerInfoRef,
@@ -186,9 +193,7 @@ proc setConnectedPeersMetrics(
     for maddr in peerInfo.addrs:
       if $maddr notin customPeerInfo.maddrs:
         customPeerInfo.maddrs.add $maddr
-    let typedRecord = discNode.toTypedRecord().valueOr:
-      warn "could not convert record to typed record", record = discNode
-      continue
+    let typedRecord = TypedRecord.fromRecord(discNode)
     let ipAddr = typedRecord.ip.valueOr:
       warn "ip field is not set", record = typedRecord
       continue
@@ -242,14 +247,16 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for peerInfo in allPeersRef.values:
     if peerInfo.connError == "":
       for protocol in peerInfo.supportedProtocols:
-        allProtocols[protocol] = allProtocols.mgetOrPut(protocol, 0) + 1
+        let label = codecLabel(protocol)
+        allProtocols[label] = allProtocols.mgetOrPut(label, 0) + 1
 
       # store available user-agents in the network
-      allAgentStrings[peerInfo.userAgent] =
-        allAgentStrings.mgetOrPut(peerInfo.userAgent, 0) + 1
+      let agent = agentLabel(peerInfo.userAgent)
+      allAgentStrings[agent] = allAgentStrings.mgetOrPut(agent, 0) + 1
 
-      if peerInfo.country != "":
-        countries[peerInfo.country] = countries.mgetOrPut(peerInfo.country, 0) + 1
+      if peerInfo.countryCode != "":
+        let country = countryLabel(peerInfo.countryCode)
+        countries[country] = countries.mgetOrPut(country, 0) + 1
 
       connectedPeers += 1
     else:
@@ -264,7 +271,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for protocol in allProtocols.keys():
     let countOfProtocols = allProtocols.mgetOrPut(protocol, 0)
     logos_delivery_networkmonitor_peer_type_as_per_protocol.set(
-      int64(countOfProtocols), labelValues = [protocol]
+      int64(countOfProtocols), labelValues = [codecLabel(protocol)]
     )
     info "supported protocols in the network",
       protocol = protocol, count = countOfProtocols
@@ -273,7 +280,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for userAgent in allAgentStrings.keys():
     let countOfUserAgent = allAgentStrings.mgetOrPut(userAgent, 0)
     logos_delivery_networkmonitor_peer_user_agents.set(
-      int64(countOfUserAgent), labelValues = [userAgent]
+      int64(countOfUserAgent), labelValues = [agentLabel(userAgent)]
     )
     info "user agents participating in the network",
       userAgent = userAgent, count = countOfUserAgent
@@ -281,7 +288,7 @@ proc updateMetrics(allPeersRef: CustomPeersTableRef) {.gcsafe.} =
   for country in countries.keys():
     let peerCount = countries.mgetOrPut(country, 0)
     logos_delivery_networkmonitor_peer_country_count.set(
-      int64(peerCount), labelValues = [country]
+      int64(peerCount), labelValues = [countryLabel(country)]
     )
     info "number of peers per country", country = country, count = peerCount
 
@@ -305,6 +312,7 @@ proc populateInfoFromIp(
       warn "could not get location", ip = allPeersRef[peer].ip
       continue
     allPeersRef[peer].country = location.country
+    allPeersRef[peer].countryCode = location.countryCode
     allPeersRef[peer].city = location.city
 
 # TODO: Split in discovery, connections, and ip2location
@@ -330,7 +338,7 @@ proc crawlNetwork(
     setDiscoveredPeersCapabilities(discoveredNodes)
 
     # populate cluster metrics as advertised by the ENR
-    setDiscoveredPeersCluster(flatNodes)
+    setDiscoveredPeersCluster(flatNodes, conf.clusterId)
 
     # tries to connect to all newly discovered nodes
     # and populates metrics related to peers we could connect
@@ -360,19 +368,15 @@ proc crawlNetwork(
     await sleepAsync(crawlInterval.millis - elapsed.millis)
 
 proc retrieveDynamicBootstrapNodes(
-    dnsDiscoveryUrl: string, dnsAddrsNameServers: seq[IpAddress]
+    dnsDiscoveryUrl: string
 ): Future[Result[seq[RemotePeerInfo], string]] {.async.} =
-  ## Retrieve dynamic bootstrap nodes (DNS discovery)
+  ## Retrieve dynamic bootstrap nodes (DNS discovery) through the host's resolver
 
   if dnsDiscoveryUrl != "":
     # DNS discovery
     info "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
 
-    var nameServers: seq[TransportAddress]
-    for ip in dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53))) # Assume all servers use port 53
-
-    let dnsResolver = DnsResolver.new(nameServers)
+    let dnsResolver = newNameResolver(@[])
 
     proc resolver(domain: string): Future[string] {.async, gcsafe.} =
       trace "resolving", domain = domain
@@ -391,9 +395,8 @@ proc getBootstrapFromDiscDns(
     conf: NetworkMonitorConf
 ): Future[Result[seq[enr.Record], string]] {.async.} =
   try:
-    let dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
     let dynamicBootstrapNodes = (
-      await retrieveDynamicBootstrapNodes(conf.dnsDiscoveryUrl, dnsNameServers)
+      await retrieveDynamicBootstrapNodes(conf.dnsDiscoveryUrl)
     ).valueOr:
       return err("Failed retrieving dynamic bootstrap nodes: " & $error)
 
@@ -404,10 +407,8 @@ proc getBootstrapFromDiscDns(
       if n.enr.isSome():
         let
           enr = n.enr.get()
-          tenrRes = enr.toTypedRecord()
-        if tenrRes.isOk() and (
-          tenrRes.get().udp.isSome() or tenrRes.get().udp6.isSome()
-        ):
+          tenr = TypedRecord.fromRecord(enr)
+        if tenr.udp.isSome() or tenr.udp6.isSome():
           discv5BootstrapEnrs.add(enr)
     return ok(discv5BootstrapEnrs)
   except CatchableError:
@@ -467,8 +468,9 @@ proc initAndStartApp(
     relayServiceRatio = "13.33:86.67",
     shardAware = true,
   )
-  nodeBuilder.withNetworkConfigurationDetails(bindIp, nodeTcpPort).isOkOr:
+  let netConfig = NetConfig.init(bindIp, nodeTcpPort).valueOr:
     return err("node building error" & $error)
+  nodeBuilder.withNetworkConfiguration(netConfig)
 
   let node = nodeBuilder.build().valueOr:
     return err("node building error" & $error)
@@ -583,8 +585,11 @@ when isMainModule:
   var msgPerContentTopic = ContentTopicMessageTableRef()
 
   # start metrics server
+  var metricsServer: MetricsHttpServerRef
   if conf.metricsServer:
-    startMetricsServer(conf.metricsServerAddress, Port(conf.metricsServerPort)).isOkOr:
+    metricsServer = startMetricsServer(
+      conf.metricsServerAddress, Port(conf.metricsServerPort)
+    ).valueOr:
       error "could not start metrics server", error = error
       quit(QuitFailure)
 

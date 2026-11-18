@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[tempfiles, net, osproc, strutils],
+  std/[net, strutils],
   testutils/unittests,
   chronos,
   std/strformat,
@@ -18,9 +18,8 @@ import
     waku_lightpush_legacy/protocol_metrics,
     rln,
     rln/rln_plugin,
-    rln/rln_evm/constants,
   ],
-  ../testlib/[wakucore, wakunode, testasync, futures, testutils],
+  ../testlib/[wakucore, wakunode, testasync],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 
@@ -102,7 +101,6 @@ suite "RLN Proofs as a Lightpush Service":
     server {.threadvar.}: WakuNode
     serverRln {.threadvar.}: RlnEvm
     client {.threadvar.}: WakuNode
-    anvilProc {.threadvar.}: Process
     manager {.threadvar.}: RlnEvmGroupManager
     wakuRlnConfig {.threadvar.}: WakuRlnConfig
 
@@ -119,7 +117,7 @@ suite "RLN Proofs as a Lightpush Service":
     server = newTestWakuNode(serverKey)
     client = newTestWakuNode(clientKey)
 
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    await runSharedAnvil()
     manager = await setupRlnEvm(deployContracts = false)
 
     # mount rln-relay
@@ -162,7 +160,6 @@ suite "RLN Proofs as a Lightpush Service":
 
   asyncTeardown:
     await server.stop()
-    stopAnvil(anvilProc)
 
   suite "Lightpush attaching RLN proofs":
     asyncTest "Message is published when RLN enabled":
@@ -308,8 +305,9 @@ suite "Waku Legacy Lightpush message delivery":
     await sleepAsync(100.millis)
 
     ## When
-    let res =
-      await lightNode.legacyLightpushPublish(Opt.some(CustomPubsubTopic), message)
+    let res = await lightNode.legacyLightpushPublish(
+      Opt.some(CustomPubsubTopic), message, bridgeNode.peerInfo.toRemotePeerInfo()
+    )
     assert res.isOk(), $res.error
 
     ## Then

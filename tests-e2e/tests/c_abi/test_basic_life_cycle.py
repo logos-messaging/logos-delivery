@@ -145,6 +145,24 @@ class TestLogosDeliveryLifecycle:
             with self._create_start_node({**node_config, "staticnodes": [get_node_multiaddr(node)]}, peer_collector.event_callback):
                 assert wait_for_mesh(peer_collector), "peer never meshed with the restarted node"
 
+    def test_second_start_node_is_a_noop(self, node_config):
+        # A start_node on a running node returns ok and leaves REST on its port.
+        node_config.update({"numShardsInNetwork": 1})
+        with self._create_start_node({**node_config, "rest": True}) as node:
+            rest_port = get_node_bound_ports(node)["rest"]
+            assert rest_port != 0, "REST did not bind a port"
+
+            start_result = node.start_node()
+            assert start_result.is_ok(), f"Second start_node failed: {start_result.err()}"
+            assert get_node_bound_ports(node)["rest"] == rest_port, "REST bound another port after the second start_node"
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                assert s.connect_ex(("127.0.0.1", rest_port)) == 0, "REST port refused a connection after the second start_node"
+
+            stop_result = node.stop_node()
+            assert stop_result.is_ok(), f"Failed to stop node: {stop_result.err()}"
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                assert s.connect_ex(("127.0.0.1", rest_port)) != 0, "REST port accepted a connection after stop_node"
+
     def test_restart_node_with_metrics_server(self, node_config):
         node_config.update({"numShardsInNetwork": 1})
         with self._create_start_node({**node_config, "metricsServer": True, "metricsServerPort": 0}) as node:
@@ -168,8 +186,8 @@ class TestLogosDeliveryLifecycle:
             with self._create_start_node({**node_config, "staticnodes": [get_node_multiaddr(node)]}, peer_collector.event_callback):
                 assert wait_for_mesh(peer_collector), "peer never meshed with the node"
 
-    def test_peer_never_meshes_with_node_at_dns4_localhost(self, node_config):
-        # TODO: logos-delivery#1490
+    def test_peer_meshes_with_node_at_dns4_localhost(self, node_config):
+        # The name goes through the host's resolver when no DNS server is configured.
         node_config.update({"numShardsInNetwork": 1})
         with self._create_start_node(node_config) as node:
             peer_id_result = node.get_node_info("MyPeerId")
@@ -177,7 +195,7 @@ class TestLogosDeliveryLifecycle:
             dns4_multiaddr = f"/dns4/localhost/tcp/{get_node_tcp_port(node)}/p2p/{peer_id_result.ok_value.strip()}"
             peer_collector = EventCollector()
             with self._create_start_node({**node_config, "staticnodes": [dns4_multiaddr]}, peer_collector.event_callback):
-                assert not wait_for_mesh(peer_collector), "peer meshed with the node at a /dns4/localhost address"
+                assert wait_for_mesh(peer_collector), "peer never meshed with the node at a /dns4/localhost address"
 
     def test_peer_meshes_with_restarted_node(self, node_config):
         # A restarted node accepts the peers that connect after the restart.

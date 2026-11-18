@@ -1,7 +1,7 @@
 ## Waku layer API — lightpush (light client publish) operations.
 {.push raises: [].}
 
-import results, chronos, chronicles
+import results, chronos
 
 import logos_delivery/waku/waku
 import

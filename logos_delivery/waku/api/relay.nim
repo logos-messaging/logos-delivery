@@ -2,7 +2,7 @@
 {.push raises: [].}
 
 import std/sequtils
-import results, chronos, chronicles, secp256k1, stew/byteutils
+import results, chronos, secp256k1
 
 import logos_delivery/waku/waku
 import
@@ -10,7 +10,6 @@ import
     waku_core,
     node/waku_node,
     node/waku_node/relay,
-    node/subscription_manager,
     waku_relay/protocol,
     factory/waku_conf,
     factory/validator_signed,

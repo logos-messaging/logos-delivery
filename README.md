@@ -3,7 +3,6 @@
 [![ci](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
 [![Daily CI](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/ci-daily.yml?query=event%3Aschedule)
 [![Nightly pre-release](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/pre-release.yml?query=event%3Aschedule)
-[![Nightly REST e2e](https://github.com/logos-messaging/logos-delivery/actions/workflows/tests-e2e-rest.yml/badge.svg?event=schedule)](https://github.com/logos-messaging/logos-delivery/actions/workflows/tests-e2e-rest.yml?query=event%3Aschedule)
 
 ## Introduction
 
@@ -23,7 +22,7 @@ For more details see the [source code](logos_delivery/waku/README.md)
 These instructions are generic. For more detailed instructions, see the source code above.
 
 Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
-- Nim 2.2.6: installed by Nimble from the `nim` entry in `nimble.lock`
+- Nim 2.2.12: installed by Nimble from the `nim` entry in `nimble.lock`. The package accepts newer Nim releases, and CI also tests the release that `.github/actions/nim-config` sets for the `nim-latest` configs.
 - Nimble: `make nimble` installs the pin from `logos_delivery.nimble`. Check it with `nimble --version`.
 
 `make` runs the pinned Nimble itself. To use it in a shell:

@@ -1,4 +1,4 @@
-import std/random, chronos, chronicles, metrics
+import std/[random, sets], chronos, metrics
 
 import
   logos_delivery/waku/[
@@ -12,6 +12,19 @@ import
   ../testlib/wakucore
 
 randomize()
+
+var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
+  ## The hashes that a test receiver accepts as asked for by a round.
+
+proc checkPushInTest*(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+  if requestedInTest.contains(id.hash): PushCheck.Wanted else: PushCheck.Unwanted
+
+var pendingNowInTest* {.threadvar.}: Moment
+  ## The time of the promises of a reconciliation that uses `pendingClockInTest`,
+  ## which a test moves forward in place of a wait.
+
+proc pendingClockInTest*(): Moment {.gcsafe, raises: [].} =
+  pendingNowInTest
 
 type TransferDirection* {.pure.} = enum
   Sent
@@ -29,6 +42,15 @@ proc transferCount*(direction: TransferDirection): float64 =
   except ValueError:
     return 0.0
 
+proc failureCount*(reason: string): float64 =
+  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
+  try:
+    return logos_delivery_transfer_receive_failures.valueByName(
+      "logos_delivery_transfer_receive_failures_total", [reason]
+    )
+  except ValueError:
+    return 0.0
+
 proc randomHash*(rng: var Rand): WakuMessageHash =
   var hash = EmptyWakuMessageHash
 
@@ -41,13 +63,15 @@ proc newTestWakuRecon*(
     switch: Switch,
     shards: seq[uint16] = @[],
     syncRange: timer.Duration = DefaultSyncRange,
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
     relayJitter: timer.Duration = 0.seconds,
     syncInterval: timer.Duration = DefaultSyncInterval,
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     cluster: uint16 = DefaultClusterId,
+    pendingTimeout: timer.Duration = DefaultSyncInterval,
+    pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -63,6 +87,8 @@ proc newTestWakuRecon*(
     localWantsTx = wantsTx,
     remoteNeedsTx = needsTx,
     clock = clock,
+    pendingTimeout = pendingTimeout,
+    pendingClock = pendingClock,
   )
 
   let proto = res.get()
@@ -74,7 +100,7 @@ proc newTestWakuRecon*(
 
 proc newTestWakuTransfer*(
     switch: Switch,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     wantsRx: AsyncQueue[PeerId],
     needsRx: AsyncQueue[(PeerId, WakuMessageHash)],
 ): Future[SyncTransfer] {.async.} =
@@ -87,6 +113,7 @@ proc newTestWakuTransfer*(
     localWantsRx = wantsRx,
     remoteNeedsRx = needsRx,
     maxMessageSize = int(DefaultMaxWakuMessageSize),
+    checkPush = checkPushInTest,
   )
 
   await proto.start()

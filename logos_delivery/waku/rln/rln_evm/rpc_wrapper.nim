@@ -3,7 +3,7 @@ import
   web3,
   web3/eth_api_types,
   web3/primitives,
-  eth/keys as keys,
+  eth/common/keys as keys,
   chronicles,
   nimcrypto/keccak as keccak,
   stint,

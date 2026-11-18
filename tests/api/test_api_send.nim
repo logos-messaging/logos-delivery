@@ -1,12 +1,11 @@
 {.used.}
 
-import results, std/[importutils, os, sequtils, strutils, sets, tempfiles]
+import results, std/[importutils, os, sets, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import
   ../testlib/[
-    common, futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals,
-    rest_requests, rest_service,
+    futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service
   ]
 import ../waku_archive/archive_utils
 import
@@ -14,19 +13,16 @@ import
   logos_delivery/waku/[
     waku_node,
     waku_core,
-    waku_relay/protocol,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/protocol_metrics,
     waku_archive,
     waku_archive/archive_metrics,
-    common/base64,
     node/peer_manager,
   ],
   rest/server,
   rest/client,
   rest/kernel_api/relay/client as relay_rest_client
-import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/api/subscriptions
 import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
@@ -696,7 +692,7 @@ suite "Waku API - Send":
         @["decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")"]
       rejected == 1.0
 
-  asyncTest "A send retried while the node has no relay peer is handed to the relay handlers once and received once":
+  asyncTest "A send retried while the node has no relay peer is never handed to the relay handlers nor received":
     # Given a core node with REST that is connected to no peer
     var node: LogosDelivery
     var rest: RestService
@@ -736,28 +732,25 @@ suite "Waku API - Send":
     ).valueOr:
       raiseAssert error
 
-    # Then the relay cache returns the message once
-    let first = await client.waitForRelayAutoMessages(contentTopic, 1)
-
-    # Then the send ends with an error event, and the message was handled and received once
+    # Then the send ends with an error event
     check await eventManager.errorFuture.withTimeout(30.seconds)
     eventManager.validate({SendEventOutcome.Error}, requestId)
-    let again = await client.relayGetAutoMessagesV1(contentTopic)
+
+    # And the node's own message reached neither its relay cache nor its receive path
+    let cached = await client.relayGetAutoMessagesV1(contentTopic)
     check:
       subscribeResponse.status == 200
-      first.mapIt(it.payload) == @[base64.encode(payload)]
-      again.status == 200
-      again.data.len == 0
-      nodeMessagesCount(["relay"]) == handledBefore + 1
-      receivedHashes.len == 1
+      cached.status == 200
+      cached.data.len == 0
+      nodeMessagesCount(["relay"]) == handledBefore
+      receivedHashes.len == 0
 
     await rest.stop(node)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "Own message is received as live with no relay peer":
-    # TODO: logos-delivery#4563
+  asyncTest "Own message is not received with no relay peer":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
@@ -796,8 +789,7 @@ suite "Waku API - Send":
     eventManager.validate({SendEventOutcome.Error}, requestId)
     check:
       eventManager.errorDescs == @["Unable to send within retry time window"]
-      received.mapIt(it.source) == @[MessageSource.Live]
-      received.mapIt(it.message.payload) == @[payload.toBytes()]
+      received.len == 0
 
   asyncTest "Store validation times out with an error event":
     ## The message propagates, but the only reachable store node is outside the
@@ -958,8 +950,7 @@ suite "Waku API - Send":
       {SendEventOutcome.Propagated, SendEventOutcome.Sent}, laterRequestId
     )
 
-  asyncTest "Edge sender never sends through a static node down at start":
-    # TODO: logos-delivery#4510
+  asyncTest "Edge sender sends through a static node that was down at its start":
     let lightpushNodeAddr =
       $lightpushNodePeerInfo.addrs[0] & "/p2p/" & $lightpushNodePeerId
     await lightpushNode.stop()
@@ -970,56 +961,37 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
+      node.waku.node.peerManager.initialBackoffInSec = 1
       node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
     defer:
       (await node.stop()).expect("Failed to stop node")
 
+    check not node.waku.node.switch.isConnected(lightpushNodePeerId)
+
     await lightpushNode.start()
     await lightpushNode.connectToNodes(@[relayNode2PeerInfo])
 
-    # The retry time window outlasts the backoff.
-    node.waku.node.peerManager.initialBackoffInSec = 1
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    checkUntilTimeout:
+      node.waku.node.switch.isConnected(lightpushNodePeerId)
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
       await eventManager.teardown()
 
-    let envelope = MessageEnvelope.init(
-      ContentTopic("/waku/2/default-content/proto"), "test payload"
-    )
-
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
-
-    check await eventManager.errorFuture.withTimeout(30.seconds)
-
-    eventManager.validate({SendEventOutcome.Error}, requestId)
-    check:
-      eventManager.errorDescs == @["Unable to send within retry time window"]
-      node.waku.node.peerManager.switch.peerStore.connectedness(lightpushNodePeerId) ==
-        CannotConnect
-
-    await node.waku.node.connectToNodes(@[lightpushNodeAddr])
-
-    let laterEventManager = newSendEventListenerManager(node.waku.brokerCtx)
-    defer:
-      await laterEventManager.teardown()
-
-    let laterRequestId = (
+    let requestId = (
       await node.messagingClient.send(
         MessageEnvelope.init(
-          ContentTopic("/waku/2/default-content/proto"), "later test payload"
+          ContentTopic("/waku/2/default-content/proto"), "test payload"
         )
       )
     ).valueOr:
       raiseAssert error
 
-    check await laterEventManager.propagatedFuture.withTimeout(10.seconds)
+    check await eventManager.propagatedFuture.withTimeout(10.seconds)
 
-    laterEventManager.validate({SendEventOutcome.Propagated}, laterRequestId)
+    eventManager.validate({SendEventOutcome.Propagated}, requestId)
 
 ## Checks that the caller gets the request id before any event of the send. The
 ## node has a budget of 0, so each send emits an event with no network call. A
@@ -1089,14 +1061,6 @@ suite "Messaging API - the request id comes before the events":
       (await client.send(MessageEnvelope.init(OrderTopic, "over"))).errorOr("accepted") ==
         "Send queue full, retry later"
 
-    # A refused send leaves no subscription behind.
-    const RefusedTopic = ContentTopic("/test/1/send-order-refused/proto")
-    check:
-      (await client.send(MessageEnvelope.init(RefusedTopic, "refused"))).errorOr(
-        "accepted"
-      ) == "Send queue full, retry later"
-      not node.waku.isSubscribed(RefusedTopic).valueOr(true)
-
   asyncTest "no event comes before its request id, durable and ephemeral":
     let node = await noBudgetNode(capacity = 100)
     defer:
@@ -1146,7 +1110,7 @@ suite "Messaging API - the request id comes before the events":
       log.early.len == 0
 
 suite "Messaging API - a node that is not started":
-  asyncTest "send, subscribe and unsubscribe fail, and leave no subscription":
+  asyncTest "send, subscribe and unsubscribe fail, and the subscribe leaves no subscription":
     const
       SendTopic = ContentTopic("/test/1/not-started-send/proto")
       SubscribeTopic = ContentTopic("/test/1/not-started-subscribe/proto")
@@ -1171,12 +1135,10 @@ suite "Messaging API - a node that is not started":
             "node is not started"
 
       (await node.start()).expect("start")
-      check:
-        not node.waku.isSubscribed(SendTopic).valueOr(true)
-        not node.waku.isSubscribed(SubscribeTopic).valueOr(true)
+      check not node.waku.isSubscribed(SubscribeTopic).valueOr(true)
       (await node.stop()).expect("stop")
 
-  asyncTest "a send during a stop fails and subscribes nothing":
+  asyncTest "a send during a stop fails":
     const StopTopic = ContentTopic("/test/1/during-stop/proto")
     lockNewGlobalBrokerContext:
       let node =
@@ -1191,7 +1153,6 @@ suite "Messaging API - a node that is not started":
           "accepted"
         ) == "node is not started"
       await stopping
-      check not node.waku.isSubscribed(StopTopic).valueOr(true)
       (await node.stop()).expect("stop")
 
   asyncTest "MessagingClient.start refuses to run while its stop runs":

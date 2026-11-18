@@ -8,19 +8,19 @@ import
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/crypto/crypto as libp2p_keys,
-  eth/keys as eth_keys
+  eth/common/keys as eth_keys
 import
   logos_delivery/waku/[
     waku_node,
     waku_relay,
     net/net_config,
     waku_core/topics,
+    waku_core/metric_labels,
     node/waku_switch,
     node/peer_manager,
     node/node_telemetry,
     waku_enr,
     discovery/waku_discv5,
-    factory/internal_config,
     factory/waku_conf,
     factory/conf_builder/conf_builder,
     factory/builder,
@@ -39,9 +39,6 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.discv5Conf.withUdpPort(Port(0))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
   builder.restServerConf.withPort(Port(0))
-  builder.withDnsAddrsNameServers(
-    @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
-  )
   # The "none" strategy keeps tests off real UPnP/NAT-PMP gateway discovery.
   builder.withNatStrategy("none")
   builder.withLocalStoragePath(InMemoryStoragePath)
@@ -214,6 +211,11 @@ proc nodeErrorCount*(errorType: string): float64 =
     )
   except ValueError:
     return 0.0
+
+proc setLabelDefaultShard*(self: WakuNode) =
+  ## The factory sets the metric topics; nodes built in tests have none.
+  if not self.wakuRelay.isNil():
+    self.wakuRelay.metricTopics = TopicLabels.init(DefaultClusterId, [DefaultShardId])
 
 proc relayNetworkBytes*(labelValues: openArray[string]): float64 =
   ## The relay does not export this counter, so it is found in the registry by name.

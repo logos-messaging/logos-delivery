@@ -7,7 +7,7 @@ import
   libp2p/peerid,
   libp2p/peerstore,
   libp2p/multiaddress,
-  eth/keys as ethkeys,
+  eth/common/keys as ethkeys,
   eth/p2p/discoveryv5/enr,
   testutils/unittests
 import
@@ -160,6 +160,40 @@ suite "Extended nim-libp2p Peer Store":
       peer6.numberFailedConn == default(int)
       peer6.lastFailedConn == default(Moment)
 
+  test "getPeer() lists the dialled address first and never the inbound source":
+    let
+      listenAddr = MultiAddress.init("/ip4/127.0.0.1/tcp/60001").tryGet()
+      dialledAddr = MultiAddress.init("/ip4/127.0.0.1/tcp/60002").tryGet()
+      sourceAddr = MultiAddress.init("/ip4/127.0.0.1/tcp/50123").tryGet()
+    var outboundOnly, inboundOnly, inboundNoListen, both: PeerId
+    require outboundOnly.init(basePeerId & "7")
+    require inboundOnly.init(basePeerId & "8")
+    require inboundNoListen.init(basePeerId & "9")
+    require both.init(basePeerId & "A")
+
+    # Outbound only: the node dialled the peer.
+    peerStore[AddressBook][outboundOnly] = @[listenAddr]
+    peerStore[LastSeenBook][outboundOnly] = Opt.some(dialledAddr)
+    peerStore[LastSeenOutboundBook][outboundOnly] = Opt.some(dialledAddr)
+
+    # Inbound only: identify gave the listen address.
+    peerStore[AddressBook][inboundOnly] = @[listenAddr]
+    peerStore[LastSeenBook][inboundOnly] = Opt.some(sourceAddr)
+
+    # Inbound only, before identify: no listen address is known.
+    peerStore[LastSeenBook][inboundNoListen] = Opt.some(sourceAddr)
+
+    # Both: an inbound connection came after an outbound one.
+    peerStore[AddressBook][both] = @[listenAddr]
+    peerStore[LastSeenBook][both] = Opt.some(sourceAddr)
+    peerStore[LastSeenOutboundBook][both] = Opt.some(dialledAddr)
+
+    check:
+      peerStore.getPeer(outboundOnly).addrs == @[dialledAddr, listenAddr]
+      peerStore.getPeer(inboundOnly).addrs == @[listenAddr]
+      peerStore.getPeer(inboundNoListen).addrs.len == 0
+      peerStore.getPeer(both).addrs == @[dialledAddr, listenAddr]
+
   test "peers() returns all StoredInfo of the PeerStore":
     # When
     let allPeers = peerStore.peers()
@@ -189,10 +223,10 @@ suite "Extended nim-libp2p Peer Store":
       p3.numberFailedConn == 3
       p3.lastFailedConn == Moment.init(1003, Second)
 
-  test "peers() returns all StoredInfo matching a specific protocol":
+  test "getPeersByProtocol() returns all StoredInfo matching a specific protocol":
     # When
-    let storePeers = peerStore.peers("/vac/waku/store/2.0.0")
-    let lpPeers = peerStore.peers("/vac/waku/lightpush/2.0.0")
+    let storePeers = peerStore.getPeersByProtocol("/vac/waku/store/2.0.0")
+    let lpPeers = peerStore.getPeersByProtocol("/vac/waku/lightpush/2.0.0")
 
     # Then
     check:
@@ -315,6 +349,17 @@ suite "Extended nim-libp2p Peer Store":
       disconnedtedPeers.anyIt(it.peerId == p4)
       disconnedtedPeers.anyIt(it.peerId == p5)
       not disconnedtedPeers.anyIt(it.connectedness == Connected)
+
+  test "hasConnectedPeers() returns true only when a peer is connected":
+    # Given p1, p2 and p3 are connected
+    check peerStore.hasConnectedPeers()
+
+    # When no peer is connected
+    for peer in peerStore.getConnectedPeers():
+      peerStore[ConnectionBook][peer.peerId] = NotConnected
+
+    # Then
+    check not peerStore.hasConnectedPeers()
 
   test "del() successfully deletes waku custom books":
     # Given

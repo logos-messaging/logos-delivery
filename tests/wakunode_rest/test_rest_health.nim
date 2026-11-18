@@ -2,7 +2,6 @@
 
 import
   results,
-  std/[tempfiles, osproc],
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -24,7 +23,6 @@ import
     rln,
     node/health_monitor,
   ],
-  ../testlib/common,
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
@@ -40,15 +38,11 @@ proc testWakuNode(): WakuNode =
 
 suite "Waku v2 REST API - health":
   # TODO: better test for health
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
+    waitFor runSharedAnvil()
     manager = waitFor setupRlnEvm(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
 
   asyncTest "Get node health info - GET /health":
     # Given
