@@ -49,8 +49,7 @@ const MaxBatchSpan = Timestamp(5 * 60 * 1_000_000_000)
   ## Time between the oldest and the newest message of a batch, in nanoseconds,
   ## so that its lookup stays within few partitions.
 
-type RequestedCheck* = proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].}
-  ## True when a reconciliation round asked for the message.
+type PushChecker* = proc(id: SyncID): PushCheck {.gcsafe, raises: [].}
 
 type PeerQueue = object
   ids: Deque[SyncID] # in the order that they were queued
@@ -60,10 +59,10 @@ type SyncTransfer* = ref object of LPProtocol
   wakuArchive: WakuArchive
   peerManager: PeerManager
 
-  isRequested: RequestedCheck
+  checkPush: PushChecker
 
   # Send IDs to reconciliation protocol for storage
-  idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
+  idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
 
   # Receive Hashes from reconciliation protocol for reception
   localWantsRx: AsyncQueue[PeerId]
@@ -380,10 +379,18 @@ proc initProtocolHandler(self: SyncTransfer) =
       let pubsub = payload.pubsub
 
       let hash = computeMessageHash(pubsub, msg)
+      let id = SyncID(time: msg.timestamp, hash: hash)
 
-      # A requested message that arrives after its pending entry expired is
-      # dropped, and a later round asks for it again.
-      if not self.isRequested(hash):
+      case self.checkPush(id)
+      of PushCheck.Wanted:
+        discard
+      of PushCheck.Held:
+        # A second copy, after a round asked again for a late push.
+        debug "Transfer message already held",
+          remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
+        logos_delivery_transfer_receive_failures.inc(labelValues = ["duplicate"])
+        continue
+      of PushCheck.Unwanted:
         debug "Transfer message not requested",
           remote_peer_id = conn.peerId, msg_hash = hash.to0xHex()
         logos_delivery_transfer_receive_failures.inc(labelValues = ["not_requested"])
@@ -401,9 +408,7 @@ proc initProtocolHandler(self: SyncTransfer) =
           remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
         continue
 
-      let id = SyncID(time: msg.timestamp, hash: hash)
-
-      await self.idsTx.addLast((id, pubsub, msg.contentTopic))
+      await self.idsTx.addLast((id, pubsub, msg.contentTopic, conn.peerId))
 
       continue
 
@@ -423,19 +428,19 @@ proc new*(
     T: type SyncTransfer,
     peerManager: PeerManager,
     wakuArchive: WakuArchive,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
     localWantsRx: AsyncQueue[PeerId],
     remoteNeedsRx: AsyncQueue[(PeerId, SyncID)],
     maxMessageSize: int,
     syncRange: Duration = DefaultSyncRange,
-    isRequested: RequestedCheck,
+    checkPush: PushChecker,
 ): T =
-  doAssert not isRequested.isNil(), "SyncTransfer needs a request check"
+  doAssert not checkPush.isNil(), "SyncTransfer needs a push check"
 
   var transfer = SyncTransfer(
     peerManager: peerManager,
     wakuArchive: wakuArchive,
-    isRequested: isRequested,
+    checkPush: checkPush,
     idsTx: idsTx,
     localWantsRx: localWantsRx,
     remoteNeedsRx: remoteNeedsRx,

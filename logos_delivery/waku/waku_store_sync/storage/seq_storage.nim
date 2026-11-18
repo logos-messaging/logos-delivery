@@ -31,6 +31,10 @@ type SeqStorage* = ref object of SyncStorage
 method length*(self: SeqStorage): int {.raises: [].} =
   return self.elements.len
 
+method contains*(self: SeqStorage, element: SyncID): bool {.raises: [].} =
+  let idx = self.elements.lowerBound(element, common.cmp)
+  return idx < self.elements.len and self.elements[idx] == element
+
 proc pubsubTopicsLen*(self: SeqStorage): int {.raises: [].} =
   return self.pubsubTopics.len
 

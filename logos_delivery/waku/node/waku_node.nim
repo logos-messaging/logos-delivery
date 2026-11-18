@@ -693,7 +693,7 @@ proc mountStoreSync*(
     storeSyncRelayJitter: uint32,
     maxMessageSize: int,
 ): Future[Result[void, string]] {.async.} =
-  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](0)
+  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](0)
   let wantsChannel = newAsyncQueue[(PeerId)](0)
   let needsChannel = newAsyncQueue[(PeerId, SyncID)](0)
 
@@ -720,8 +720,8 @@ proc mountStoreSync*(
     needsChannel,
     maxMessageSize,
     recon.getEffectiveSyncRange(),
-    proc(hash: WakuMessageHash): bool {.gcsafe, raises: [].} =
-      recon.isPending(hash),
+    proc(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+      recon.checkPush(id),
   )
 
   node.wakuStoreTransfer = transfer
