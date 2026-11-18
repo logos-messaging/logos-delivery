@@ -266,6 +266,52 @@ proc sendBatch(
 
   return true
 
+func takeBatch(queue: var PeerQueue): seq[SyncID] =
+  ## Takes the oldest pushes queued, up to MaxBatchSize and MaxBatchSpan.
+  var batch: seq[SyncID]
+  if queue.ids.len == 0:
+    return batch
+  var
+    minTime = queue.ids.peekFirst().time
+    maxTime = minTime
+  while batch.len < MaxBatchSize and queue.ids.len > 0:
+    let time = queue.ids.peekFirst().time
+    if max(maxTime, time) - min(minTime, time) > MaxBatchSpan:
+      break
+    minTime = min(minTime, time)
+    maxTime = max(maxTime, time)
+    batch.add(queue.ids.popFirst())
+  return batch
+
+proc trySendBatch(
+    self: SyncTransfer, peerId: PeerId, batch: seq[SyncID]
+): Future[bool] {.async: (raises: [CancelledError]).} =
+  ## Same as sendBatch, but a raise is logged, so that the sender loop goes on.
+  ## Otherwise the peer keeps an entry that no sender serves, and its later
+  ## pushes are queued and never sent.
+  try:
+    return await self.sendBatch(peerId, batch)
+  except CancelledError as exc:
+    raise exc
+  except CatchableError as exc:
+    error "failed to push messages", remote_peer_id = peerId, error = exc.msg
+    return true
+
+proc finishBatch(
+    self: SyncTransfer, peerId: PeerId, batch: seq[SyncID], reachable: bool
+): bool =
+  ## Returns true when the peer has pushes left to send. A peer that cannot be
+  ## dialled loses all its pushes, not only the batch, so that a later batch
+  ## does not reach it before an earlier one. A later round finds them again.
+  var hasMore = false
+  self.outQueues.withValue(peerId, queue):
+    for id in batch:
+      queue.queued.excl(id.hash)
+    hasMore = reachable and queue.ids.len > 0
+  if not hasMore:
+    self.outQueues.del(peerId)
+  return hasMore
+
 proc senderLoop(self: SyncTransfer) {.async.} =
   ## Sends the pushes of one ready peer at a time, a batch per turn, so that a
   ## long backlog to one peer does not hold back the others.
@@ -274,43 +320,16 @@ proc senderLoop(self: SyncTransfer) {.async.} =
 
     var batch: seq[SyncID]
     self.outQueues.withValue(peerId, queue):
-      if queue.ids.len > 0:
-        var
-          minTime = queue.ids.peekFirst().time
-          maxTime = minTime
-        while batch.len < MaxBatchSize and queue.ids.len > 0:
-          let time = queue.ids.peekFirst().time
-          if max(maxTime, time) - min(minTime, time) > MaxBatchSpan:
-            break
-          minTime = min(minTime, time)
-          maxTime = max(maxTime, time)
-          batch.add(queue.ids.popFirst())
+      batch = queue[].takeBatch()
 
-    # A raise must not end the loop, or the peer keeps an entry that no sender
-    # serves, and its later pushes are queued and never sent.
-    var reachable = true
-    if batch.len > 0:
-      try:
-        reachable = await self.sendBatch(peerId, batch)
-      except CancelledError as exc:
-        raise exc
-      except CatchableError as exc:
-        error "failed to push messages", remote_peer_id = peerId, error = exc.msg
+    let reachable =
+      if batch.len > 0:
+        await self.trySendBatch(peerId, batch)
+      else:
+        true
 
-    var hasMore = false
-    self.outQueues.withValue(peerId, queue):
-      for id in batch:
-        queue.queued.excl(id.hash)
-      hasMore = reachable and queue.ids.len > 0
-
-    # A peer that cannot be dialled loses all its pushes, not only the batch, so
-    # that a later batch does not reach it before an earlier one. A later round
-    # finds them again.
-
-    if hasMore:
+    if self.finishBatch(peerId, batch, reachable):
       await self.readyPeers.addLast(peerId)
-    else:
-      self.outQueues.del(peerId)
 
 proc initProtocolHandler(self: SyncTransfer) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
