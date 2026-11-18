@@ -39,7 +39,7 @@ Emitted when a message has been successfully propagated to neighboring nodes on 
 - `messageHash`: Hash that the send operation returned
 
 ### 3. message_error
-Emitted when a send that the send operation accepted fails: rejected, retry window elapsed, no budget for a new RLN proof, or store validation timed out.
+Emitted when a send that the send operation accepted fails: rejected, delivery window elapsed, no budget for a new RLN proof, or store validation timed out. The delivery window is 20 s from the timestamp of the message. After it, a Store node and an RLN relay validator refuse the message, so the node makes no more attempts.
 
 **JSON Structure:**
 ```json

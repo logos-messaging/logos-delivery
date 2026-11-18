@@ -33,7 +33,7 @@ proc newTask(id: string, pubsubTopic = PubsubTopic("/waku/2/rs/3/0")): DeliveryT
   let msg = WakuMessage(
     contentTopic: "/test/1/store-validation/proto",
     payload: id.toBytes(),
-    timestamp: 1_700_000_000_000_000_000,
+    timestamp: getNowInNanosecondTime(),
   )
   return DeliveryTask(
     pubsubTopic: pubsubTopic, msg: msg, msgHash: computeMessageHash(pubsubTopic, msg)
@@ -149,7 +149,7 @@ const FastLoop = chronos.milliseconds(10)
 proc reliableService(
     waku: Waku,
     processor: BaseSendProcessor,
-    maxValidationAge = DeliveryWindow,
+    maxValidationAge = StoreValidationWindow,
     resender: BaseSendProcessor = nil,
 ): SendService =
   ## A service with Store-based reliability on and fast loops.
@@ -1150,6 +1150,22 @@ suite "Store answers and resends":
       (await noResender.step(alone, DeliveryState.AwaitingStore)) ==
         DeliveryState.AwaitingStore
       not alone.storeAnswer.hasMiss()
+
+  asyncTest "a Store miss after the delivery window gets no resend":
+    ## A resend is a publish, and the network refuses a publish after the window.
+    let now = Moment.now()
+    let service = reliableService(waku, ScriptedProc(), resender = StallingResender())
+    let late = awaitingStore("miss-after-window", now, now + chronos.minutes(1))
+    late.msg.timestamp -= (DeliveryWindow + chronos.seconds(1)).nanoseconds
+    late.acceptStoreMiss()
+    let inside = awaitingStore("miss-inside-window", now, now + chronos.minutes(1))
+    inside.acceptStoreMiss()
+    check:
+      (await service.step(late, DeliveryState.AwaitingStore)) ==
+        DeliveryState.AwaitingStore
+      late.resendCount == 0
+      (await service.step(inside, DeliveryState.AwaitingStore)) ==
+        DeliveryState.StoreResend
 
   asyncTest "a resend after a Store report is not sent":
     let resender = StallingResender()

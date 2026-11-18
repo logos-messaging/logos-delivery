@@ -74,7 +74,7 @@ type
     NeedsProof ## The task needs an RLN proof, or a charge for a new one.
     Reliable ## P2P reliability is on and the message is not ephemeral.
     CanResend ## The task can get one more resend.
-    InMixGrace ## The task is within `MixUnusableGrace` of its admission.
+    InMixGrace ## The message is within `MixUnusableGrace` of its timestamp.
     MixUnanswered ## A mix attempt of the task got no answer.
     CanRefreshProof
       ## The RLN backend can refresh its proofs, and the task can get one more new proof.
@@ -148,7 +148,7 @@ const
     ## The triggers of a lightpush attempt, also the attempt of a resend.
   StoreResendTriggers = LightpushTriggers + {NoLightpushPeer, AttemptTimedOut}
     ## The check of the lightpush peer before a resend gives `NoLightpushPeer`.
-  ProveFailures = {OverBudget, ProofPermanent, ProofBudgetExhausted}
+  ProveFailures = {OverBudget, ProofPermanent, ProofBudgetExhausted, WindowElapsed}
     ## The triggers of the proof step that fail the send.
   ProveTriggers = ProveFailures + {Proved, ProofNotReady, ProofTransient, StepRaised}
   RelayTriggers = {

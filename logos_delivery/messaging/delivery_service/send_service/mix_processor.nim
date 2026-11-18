@@ -22,8 +22,8 @@ const MixTooLargeReason* = "message too large for mix"
   ## One mix message carries much less than the plain path.
 
 const MixUnusableGrace* = chronos.seconds(3)
-  ## How long after its admission a `Required` task waits for a mounted mix that
-  ## cannot attempt it. Retries come `RetryInterval` apart.
+  ## How long after the timestamp of its message a `Required` task waits for a
+  ## mounted mix that cannot attempt it. Retries come `RetryInterval` apart.
 
 type MixSendProcessor* = ref object of BaseSendProcessor
   waku: Waku

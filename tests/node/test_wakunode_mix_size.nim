@@ -51,7 +51,7 @@ proc sizedTask(size: int): DeliveryTask =
         pubsubTopic: DefaultPubsubTopic,
         msg: msg,
         msgHash: computeMessageHash(DefaultPubsubTopic, msg),
-        firstAdmittedTime: Opt.some(Moment.now()), # no budget and no proof
+        charged: true, # no budget and no proof
       )
   raiseAssert "no payload gives a request of " & $size & " bytes"
 

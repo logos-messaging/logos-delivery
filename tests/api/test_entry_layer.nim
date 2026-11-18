@@ -104,9 +104,8 @@ suite "LogosDelivery - entry layer selection":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
-    check:
-      node.messagingClient.sendService.maxDeliveryTime ==
-        maxDeliveryTime(AnonymityLevel.Preferred)
+    privateAccess(SendService)
+    check node.messagingClient.sendService.plan.level == AnonymityLevel.Preferred
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 

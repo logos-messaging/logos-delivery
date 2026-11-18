@@ -463,7 +463,7 @@ Prove -- Started[NeedsProof] --> Prove
 Prove -- Started --> Relay
 Prove -- Proved --> Relay
 Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted, WindowElapsed} --> NotPropagated
 Relay -- Started[NeedsProof] --> Prove
 Relay -- Started --> Relay
 Relay -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
@@ -511,7 +511,7 @@ Prove -- Started[NeedsProof] --> Prove
 Prove -- Started --> Mix
 Prove -- Proved --> Mix
 Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted, WindowElapsed} --> NotPropagated
 Relay -- Started[NeedsProof] --> Prove
 Relay -- Started --> Mix
 Relay -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
@@ -571,7 +571,7 @@ Prove -- Started[NeedsProof] --> Prove
 Prove -- Started --> Mix
 Prove -- Proved --> Mix
 Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted, WindowElapsed} --> NotPropagated
 Mix -- Started[NeedsProof] --> Prove
 Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry

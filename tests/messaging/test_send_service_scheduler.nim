@@ -162,7 +162,7 @@ suite "SendService - rate-limit admission":
       processor: FakeSendProcessor,
       reliability = false,
       maxSendsInFlight = MaxSendsInFlight,
-      maxValidationAge = DeliveryWindow,
+      maxValidationAge = StoreValidationWindow,
   ): SendService =
     return SendService
       .new(
@@ -204,7 +204,7 @@ suite "SendService - rate-limit admission":
     check service.enqueue(task).isOk()
     check:
       manager.sentInCurrentEpoch == 1'u64 # `enqueue` took the charge
-      task.firstAdmittedTime.isSome()
+      task.charged
     service.startSendService()
     started.add(service)
     check await service.waitAttempts(1)
@@ -264,7 +264,7 @@ suite "SendService - rate-limit admission":
         refused.error.retryAfter == manager.retryAfter()
         refused.error.retryAfter > ZeroDuration
     check:
-      second.firstAdmittedTime.isNone() # no charge
+      not second.charged # no charge
       second.state == DeliveryState.Initial # never scheduled
       manager.sentInCurrentEpoch == 1'u64
 
@@ -323,7 +323,7 @@ suite "SendService - rate-limit admission":
     let eph = buildTask("ephemeral-approached", "eph", ephemeral = true)
     check:
       service.enqueue(eph).refusedAs(SendErrorKind.RateLimited)
-      eph.firstAdmittedTime.isNone() # no charge, so no RLN proof either
+      not eph.charged # no charge, so no RLN proof either
       manager.sentInCurrentEpoch == 2'u64
 
     await service.retryAndWait(0)
@@ -355,7 +355,7 @@ suite "SendService - rate-limit admission":
     await service.sendNow(eph)
     check:
       eph.state == DeliveryState.Propagated
-      eph.firstAdmittedTime.isSome()
+      eph.charged
       manager.sentInCurrentEpoch == 1'u64
 
   asyncTest "a durable message is still admitted when the quota is approached":
@@ -395,7 +395,7 @@ suite "SendService - rate-limit admission":
     check:
       errors[].len == 0 # the caller gets the error, so no event follows
       rejected.state == DeliveryState.Initial # never scheduled
-      rejected.firstAdmittedTime.isNone() # a refused message takes no charge
+      not rejected.charged # a refused message takes no charge
       manager.sentInCurrentEpoch == 2'u64
       processor.calls == 2
 

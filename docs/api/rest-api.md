@@ -79,7 +79,7 @@ The delivery is asynchronous. Its result arrives as send events with the same `m
 
 * `propagated`: the message reached at least one peer
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
-* `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)
+* `error`: the send failed (rejected message, no peer within 20 s of the timestamp of the message, no Store confirmation within about 60 s of propagation, ...)
 
 After a `sent` or `error` event, no more events come for that message.
 
@@ -90,7 +90,7 @@ After a `sent` or `error` event, no more events come for that message.
 * Later versions can add new event types. A client must skip an event type that it does not know.
 * `GET /messaging/v1/events/send/{messageHash}` answers `404` while the node has no event for that message: the hash is unknown, a client already read its events, or no event came yet. Call it again until the last event comes. The hash can be in upper or lower case, with or without `0x`, and a text that is not a hash of 32 bytes gets `400`.
 
-The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it.
+The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it. It sends again only inside the 20 s after the timestamp of the message.
 
 * Each received message comes as a JSON object with:
   * the message hash

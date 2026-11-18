@@ -306,7 +306,7 @@ suite "SendService RLN proof attach - refresh after a rejection":
       processor.proofs == @[@[1'u8]]
       manager.sentInCurrentEpoch == 1
       task.msg.proof.len == 0 # the refresh cleared the rejected proof
-      task.firstAdmittedTime.isNone() # ... and the admission
+      not task.charged # ... and the admission
 
     service.retryNow()
     checkUntilTimeout:
@@ -315,7 +315,32 @@ suite "SendService RLN proof attach - refresh after a rejection":
       backend.proofs == 2
       processor.proofs == @[@[1'u8], @[2'u8]] # the next attempt carries the new proof
       manager.sentInCurrentEpoch == 2 # the new proof drew a new charge
-      task.firstAdmittedTime.isSome()
+      task.charged
+
+  asyncTest "a task past the delivery window takes no new charge and no new proof":
+    ## A proof refresh cleared the charge, and the window ended before the next round.
+    ## No attempt follows, so the task must not pay for a proof.
+    let backend = waku.mountRefreshingRln()
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(
+          enabled: true, epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: 2
+        ),
+        fixedEpoch,
+      )
+      .expect("RateLimitManager.new")
+    let service = SendService
+      .new(false, waku, manager, SendProcessors(lightpush: RejectingProcessor()))
+      .expect("SendService.new")
+    let task = buildTask()
+    task.msg.timestamp -= (DeliveryWindow + chronos.seconds(1)).nanoseconds
+    check:
+      (await service.step(task, DeliveryState.Prove)) == DeliveryState.NotPropagated
+      task.lastReport.get().trigger == Trigger.WindowElapsed
+      backend.proofs == 0
+      manager.sentInCurrentEpoch == 0'u64
+      task.msg.proof.len == 0
+      not task.charged
 
 suite "SendService RLN proof attach - RLN mounted":
   var

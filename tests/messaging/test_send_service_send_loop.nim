@@ -306,7 +306,7 @@ suite "SendService - deliver":
   proc admitted(processor: ScriptedProcessor, task: DeliveryTask): DeliveryTask =
     ## Marks the task as charged, and its first call as done, so its first call
     ## is a retry.
-    task.firstAdmittedTime = Opt.some(Moment.now())
+    task.charged = true
     processor.seen.add(task.label())
     return task
 
@@ -449,8 +449,7 @@ suite "SendService - deliver":
       )
       .expect("SendService.new")
     let late = buildTask("past-the-window")
-    late.firstAdmittedTime =
-      Opt.some(Moment.now() - DeliveryWindow - chronos.seconds(1))
+    late.msg.timestamp -= (DeliveryWindow + chronos.seconds(1)).nanoseconds
     check:
       (await service.step(late, DeliveryState.Lightpush)) == DeliveryState.NotPropagated
       late.lastReport.get().trigger == Trigger.WindowElapsed

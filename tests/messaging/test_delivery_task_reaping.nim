@@ -2,35 +2,43 @@
 
 import results, chronos, testutils/unittests
 
-import logos_delivery/messaging/delivery_service/send_service/delivery_task
+import
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_archive/archive,
+  logos_delivery/waku/rln/rln_evm/constants,
+  logos_delivery/messaging/delivery_service/send_service/[delivery_task, send_service]
 
-const MaxTime = chronos.minutes(1)
+const
+  Window = chronos.seconds(20)
+  SecondNs = 1_000_000_000'i64
 
-proc taskWith(admitted, propagated: Opt[Moment]): DeliveryTask =
-  ## Builds a DeliveryTask directly (bypassing `new`, which needs a broker).
-  return DeliveryTask(firstAdmittedTime: admitted, firstPropagatedTime: propagated)
+proc taskWith(secondsOld: int64, propagated = Opt.none(Moment)): DeliveryTask =
+  ## A task whose message has a timestamp `secondsOld` seconds before the clock.
+  ## A negative value gives a timestamp ahead of the clock.
+  return DeliveryTask(
+    msg: WakuMessage(timestamp: getNowInNanosecondTime() - secondsOld * SecondNs),
+    firstPropagatedTime: propagated,
+  )
 
-suite "DeliveryTask - delivery-timeout reaping":
-  test "a task parked for budget (never admitted) is exempt, however old":
-    ## Budget-parked tasks must survive to the epoch roll, not be aged out.
-    let task = taskWith(Opt.none(Moment), Opt.none(Moment))
-    check not task.isDeliveryTimedOut(MaxTime)
+suite "DeliveryTask - delivery window":
+  test "the delivery window is the timestamp bound of Store and of the RLN validator":
+    check:
+      DeliveryWindow == chronos.nanoseconds(MaxMessageTimestampVariance)
+      DeliveryWindow.seconds == int64(MaxClockGapSeconds)
+      MixShare + MixShare == DeliveryWindow
 
-  test "an admitted, never-propagated task past the window times out":
-    let task = taskWith(Opt.some(Moment.now() - chronos.minutes(2)), Opt.none(Moment))
-    check task.isDeliveryTimedOut(MaxTime)
+  test "a message that never propagated times out after the window":
+    check taskWith(21).isDeliveryTimedOut(Window)
 
-  test "an admitted task still within the window does not time out":
-    let task = taskWith(Opt.some(Moment.now()), Opt.none(Moment))
-    check not task.isDeliveryTimedOut(MaxTime)
+  test "a message within the window does not time out":
+    check not taskWith(19).isDeliveryTimedOut(Window)
 
-  test "a propagated task is never timed out here (store validation owns it)":
-    let task =
-      taskWith(Opt.some(Moment.now() - chronos.minutes(2)), Opt.some(Moment.now()))
-    check not task.isDeliveryTimedOut(MaxTime)
+  test "a propagated message does not time out, because the Store wait owns it":
+    check not taskWith(120, Opt.some(Moment.now())).isDeliveryTimedOut(Window)
 
-  test "the timeout clock runs from admission, not message creation":
-    ## A just-admitted task has a fresh clock, even after a long budget wait.
-    let task = taskWith(Opt.some(Moment.now()), Opt.none(Moment))
-    check task.admissionAge() < MaxTime
-    check not task.isDeliveryTimedOut(MaxTime)
+  test "a timestamp ahead of the clock also counts":
+    ## A validator refuses a timestamp that is too far from its clock, on each side.
+    check:
+      taskWith(-21).isDeliveryTimedOut(Window)
+      not taskWith(-19).isDeliveryTimedOut(Window)
+      taskWith(-21).age() > Window

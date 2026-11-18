@@ -18,6 +18,8 @@ import logos_delivery/api/events/messaging_client_events
 import logos_delivery/api/conf/modes
 import logos_delivery/messaging/messaging_metrics
 
+from logos_delivery/waku/waku_archive/archive import MaxMessageTimestampVariance
+
 export delivery_plan, send_processor
 
 {.push raises: [].}
@@ -25,17 +27,17 @@ export delivery_plan, send_processor
 logScope:
   topics = "send service"
 
-const DeliveryWindow* = chronos.minutes(1)
-  ## The delivery window: how long an admitted task tries before it fails with no
-  ## propagation (`Preferred` gets two, see `maxDeliveryTime`). Also the mix
-  ## window at `Preferred` and the default Store validation window.
+const DeliveryWindow* = chronos.nanoseconds(MaxMessageTimestampVariance)
+  ## How long a task tries to propagate its message, from the timestamp of the
+  ## message. A Store node refuses a message whose timestamp is further than
+  ## this (20 s) from its clock, and an RLN relay validator has the same bound.
 
-proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
-  ## `Preferred` gets two windows: one for mix, then one for the plain path.
-  if anonymityLevel == AnonymityLevel.Preferred:
-    DeliveryWindow + DeliveryWindow
-  else:
-    DeliveryWindow
+const MixShare* = DeliveryWindow div 2
+  ## The first part of the delivery window, in which a `Preferred` node tries mix.
+
+const StoreValidationWindow* = chronos.minutes(1)
+  ## The default time that a Store node has to report a propagated message.
+  ## The delivery window does not bound it.
 
 const NoBudgetForNewProofReason* = "No rate-limit budget for a new RLN proof"
 
@@ -102,9 +104,9 @@ type SendService* = ref object of RootObj
     ## Why the last task went from mix to the plain path, none once mix can
     ## attempt a task again. INFO logs each change.
   maxDeliveryTime*: timer.Duration
-    ## How long an admitted task may keep trying before it is failed.
+    ## How long a task tries to propagate its message, from the timestamp of the message.
   mixWindow: timer.Duration
-    ## How long after its admission mix keeps a task.
+    ## How long mix keeps a task, from the timestamp of the message.
     ## Only `Preferred` has a finite one.
   maxValidationAge*: timer.Duration
     ## How long a task may wait for a Store confirmation before it fails. The
@@ -145,7 +147,7 @@ proc new*(
     rateLimitManager: RateLimitManager,
     processors: SendProcessors,
     anonymityLevel: AnonymityLevel = AnonymityLevel.None,
-    maxValidationAge: timer.Duration = DeliveryWindow,
+    maxValidationAge: timer.Duration = StoreValidationWindow,
     retryInterval: timer.Duration = RetryInterval,
     maxSendsInFlight: int = MaxSendsInFlight,
 ): Result[T, string] =
@@ -174,12 +176,9 @@ proc new*(
     rateLimitManager: rateLimitManager,
     waku: waku,
     checkStoreForMessages: checkStoreForMessages,
-    maxDeliveryTime: maxDeliveryTime(anonymityLevel),
+    maxDeliveryTime: DeliveryWindow,
     mixWindow:
-      if anonymityLevel == AnonymityLevel.Preferred:
-        DeliveryWindow
-      else:
-        InfiniteDuration,
+      if anonymityLevel == AnonymityLevel.Preferred: MixShare else: InfiniteDuration,
     maxValidationAge: maxValidationAge,
     archiveTime: ArchiveTime,
     maxSendsInFlight: maxSendsInFlight,
@@ -385,20 +384,23 @@ func errorText*(task: DeliveryTask): string =
 
 func needsProof(self: SendService, task: DeliveryTask): bool =
   ## True when the task needs an RLN proof, or a charge for a new one.
-  return task.firstAdmittedTime.isNone() or self.waku.needsRlnProof(task.msg)
+  return not task.charged or self.waku.needsRlnProof(task.msg)
 
 proc takeCharge(self: SendService, task: DeliveryTask): bool =
   ## Charges `task` against the epoch budget. False when the budget is spent.
   task.charge = self.rateLimitManager.admit().valueOr:
     return false
   task.chargeUnused = true
-  task.firstAdmittedTime = Opt.some(Moment.now())
+  task.charged = true
   return true
 
 proc prove(self: SendService, task: DeliveryTask): Future[StepReport] {.async.} =
   ## Attaches the RLN proof. `enqueue` took the charge of the first proof.
   ## A proof refresh clears the charge, and the new proof takes a new one here.
-  if task.firstAdmittedTime.isNone() and not self.takeCharge(task):
+  # No attempt follows the end of the delivery window, so the task pays for no proof.
+  if task.isDeliveryTimedOut(self.maxDeliveryTime):
+    return StepReport.init(Trigger.WindowElapsed)
+  if not task.charged and not self.takeCharge(task):
     debug "No rate-limit budget for a new RLN proof", msgHash = task.msgHash.to0xHex()
     return StepReport.init(Trigger.OverBudget)
 
@@ -476,7 +478,7 @@ proc transportStep(
   if task.isDeliveryTimedOut(self.maxDeliveryTime):
     return StepReport.init(Trigger.WindowElapsed)
   # A task whose mix attempt got no answer keeps mix for the whole delivery window.
-  if overMix and not task.mixUnanswered and task.admissionAge() > self.mixWindow:
+  if overMix and not task.mixUnanswered and task.age() > self.mixWindow:
     return StepReport.init(Trigger.MixWindowElapsed)
 
   task.tryCount.inc()
@@ -569,19 +571,21 @@ proc refreshRlnProof*(task: DeliveryTask, waku: Waku): bool =
   ## against a moved merkle root. Schedules a background merkle-path refresh and
   ## clears the proof so the next retry regenerates one against the refreshed
   ## path; `attachRlnProof` reuses an existing proof, so without the clear the
-  ## rejected bytes would be resent. Resetting admission charges the new nonce
-  ## the regenerated proof draws. Without a backend refresh hook a retry would
-  ## be rejected the same way, so it returns false.
+  ## rejected bytes would be resent. The clear of `charged` makes the new proof
+  ## take a new charge. The delivery window does not start again, because it
+  ## counts from the timestamp of the message. Without a backend refresh hook a
+  ## retry would be rejected the same way, so it returns false.
   if not waku.onRlnProofRejected():
     return false
   task.msg.proof = @[]
-  task.firstAdmittedTime = Opt.none(Moment)
+  task.charged = false
   task.proofRefreshes.inc()
   return true
 
 proc canResend(self: SendService, task: DeliveryTask): bool =
+  ## A resend is a publish, so it starts only inside the delivery window.
   return
-    task.resendCount < MaxStoreMissResends and
+    task.resendCount < MaxStoreMissResends and task.age() <= self.maxDeliveryTime and
     self.processors.resender.checkBeforeAttempt(task).isOk()
 
 proc storeWaited(task: DeliveryTask): timer.Duration =
@@ -611,9 +615,7 @@ proc reportPropagated(self: SendService, task: DeliveryTask) =
 
 proc reportMixFallback(self: SendService, task: DeliveryTask, trigger: Trigger) =
   debug "Handing the task from mix to the plain send path",
-    msgHash = task.msgHash.to0xHex(),
-    trigger = trigger,
-    admissionAge = task.admissionAge()
+    msgHash = task.msgHash.to0xHex(), trigger = trigger, age = task.age()
   if trigger in MixUnusableTriggers and self.mixFallback != Opt.some(trigger):
     self.mixFallback = Opt.some(trigger)
     info "Mix cannot carry messages, sending them over the plain path instead",
@@ -656,7 +658,7 @@ proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
         $task.lastFailure.get()
       else:
         "none",
-    age = task.admissionAge()
+    age = task.age()
   MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
 
 proc finish(self: SendService, task: DeliveryTask) =
@@ -677,7 +679,7 @@ proc holds(self: SendService, task: DeliveryTask, guard: Guard): bool =
   of CanResend:
     self.canResend(task)
   of InMixGrace:
-    task.admissionAge() <= MixUnusableGrace
+    task.age() <= MixUnusableGrace
   of MixUnanswered:
     task.mixUnanswered
   of CanRefreshProof:

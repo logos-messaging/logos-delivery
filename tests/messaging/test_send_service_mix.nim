@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[sequtils, sets, strutils]
+import std/[importutils, sequtils, sets, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 
 import
@@ -106,23 +106,26 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
+const PastMixShare = MixShare + chronos.seconds(5)
+  ## An age after the mix share of a `Preferred` task, and inside its delivery window.
+
+proc setAge(task: DeliveryTask, age: Duration) =
+  ## Moves the timestamp of the message, so the message is `age` old.
+  task.msg.timestamp = getNowInNanosecondTime() - age.nanoseconds
+  task.msgHash = computeMessageHash(task.pubsubTopic, task.msg)
+
 proc buildTask(
-    id: string, admittedAgo: Duration, contentTopic = "/test/1/anonymity/proto"
+    id: string, age: Duration, contentTopic = "/test/1/anonymity/proto"
 ): DeliveryTask =
-  ## An admitted task with no RLN, so its round does not start in `Prove`.
-  ## The id is the payload, so two tasks never have one hash.
-  let msg = WakuMessage(
-    contentTopic: contentTopic,
-    payload: id.toBytes(),
-    timestamp: 1_700_000_000_000_000_000,
+  ## A charged task with no RLN, so its round does not start in `Prove`.
+  ## Its message is `age` old. The id is the payload, so two tasks never have one hash.
+  let task = DeliveryTask(
+    pubsubTopic: PubsubTopic("/waku/2/rs/3/0"),
+    msg: WakuMessage(contentTopic: contentTopic, payload: id.toBytes()),
+    charged: true,
   )
-  let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
-  return DeliveryTask(
-    pubsubTopic: pubsubTopic,
-    msg: msg,
-    msgHash: computeMessageHash(pubsubTopic, msg),
-    firstAdmittedTime: Opt.some(Moment.now() - admittedAgo),
-  )
+  task.setAge(age)
+  return task
 
 proc sizedTask(id: string, size: int): DeliveryTask =
   ## An admitted task whose lightpush request over mix has `size` bytes.
@@ -140,8 +143,7 @@ proc mixLimit(): int =
 
 proc sizedProofTask(id: string, size, proofBytes: int): DeliveryTask =
   let task = buildTask(id, ZeroDuration)
-  task.firstAdmittedTime = Opt.none(Moment)
-  task.msg.timestamp = getNowInNanosecondTime()
+  task.charged = false
   task.msg.proof = newSeq[byte](proofBytes)
   for n in 0 .. size:
     task.msg.payload = newSeq[byte](n)
@@ -203,7 +205,7 @@ suite "SendService - mix size before admission":
       refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
       refused.isErr() and refused.error.desc.startsWith(MixTooLargeReason)
       large.state == DeliveryState.Initial # never scheduled
-      large.firstAdmittedTime.isNone() # a refused message takes no charge
+      not large.charged # a refused message takes no charge
       large.msg.proof.len == 0
       not large.anonymized
       draws[] == 0
@@ -216,7 +218,7 @@ suite "SendService - mix size before admission":
     check:
       draws[] == 1
       manager.sentInCurrentEpoch == 1
-      fits.firstAdmittedTime.isSome()
+      fits.charged
       fits.msg.proof.len == proofBytes
       mixLightpushSize(fits.pubsubTopic, fits.msg).size == mixLimit()
       fits.lastFailure == Opt.some(Trigger.MixUnavailable)
@@ -236,7 +238,7 @@ suite "SendService - mix size before admission":
       refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
       refused.isErr() and
         refused.error.desc.contains("the request has " & $(mixLimit() + 1) & " bytes")
-      task.firstAdmittedTime.isNone()
+      not task.charged
       draws[] == 0
       manager.sentInCurrentEpoch == 0
 
@@ -381,7 +383,7 @@ suite "SendService - anonymity level":
     check (await service.runRound(task)) == DeliveryState.Propagated
     check plain.calls == 1
 
-  asyncTest "Preferred gets a second delivery window, the other levels do not":
+  asyncTest "each anonymity level gets one delivery window":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
 
@@ -391,6 +393,7 @@ suite "SendService - anonymity level":
           "SendService.new"
         )
 
+    privateAccess(SendService)
     let plainService = serviceFor(AnonymityLevel.None)
     let mixOnlyService = serviceFor(AnonymityLevel.Required)
     let bestEffortService = serviceFor(AnonymityLevel.Preferred)
@@ -398,7 +401,11 @@ suite "SendService - anonymity level":
     check:
       plainService.maxDeliveryTime == DeliveryWindow
       mixOnlyService.maxDeliveryTime == DeliveryWindow
-      bestEffortService.maxDeliveryTime == DeliveryWindow + DeliveryWindow
+      bestEffortService.maxDeliveryTime == DeliveryWindow
+      # Mix gets the first part of the window, and only at `Preferred`.
+      bestEffortService.mixWindow == MixShare
+      mixOnlyService.mixWindow == InfiniteDuration
+      plainService.mixWindow == InfiniteDuration
 
   asyncTest "a node that sends over mix withholds the hash of a task from its first record":
     ## The task made no mix attempt yet, so it does not have its mark.
@@ -505,8 +512,8 @@ suite "SendService - anonymity level with a mounted mix":
 
   asyncTest "a Required task waits for a short pool during its grace, then fails":
     ## A short pool is a reason mix cannot attempt the task. A `Required` task
-    ## waits while its admission is within `MixUnusableGrace`, then fails with
-    ## that reason.
+    ## waits while its message is within `MixUnusableGrace` of its timestamp,
+    ## then fails with that reason.
     for i in 0 ..< MinMixPoolSize - 1:
       addMixPeer(60100 + i, lightpush = true)
     check not waku.mixReady()
@@ -516,8 +523,7 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       (await service.runRound(task)) == DeliveryState.NextRoundRetry
       task.lastFailure == Opt.some(Trigger.MixUnavailable) # written while it waits
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.setAge(MixUnusableGrace + chronos.seconds(1))
     check:
       (await service.runRound(task)) == DeliveryState.NotPropagated
       task.errorText() == MixUnavailableReason
@@ -538,8 +544,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     addMixPeer(60210 + MinMixPoolSize - 1, lightpush = true)
     check waku.mixReady()
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.setAge(MixUnusableGrace + chronos.seconds(1))
     let fut = service.runRound(task)
     check task.tryCount == 1 # mix attempts it
     await fut.cancelAndWait()
@@ -555,7 +560,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     # A message at the limit fits, so the short pool holds it within the grace.
     let fits = sizedTask("at-the-limit-short-pool", limit)
-    fits.firstAdmittedTime = Opt.some(Moment.now())
+    fits.setAge(ZeroDuration)
     let fitsRound = service.runRound(fits)
     check:
       await fitsRound.withTimeout(FUTURE_TIMEOUT)
@@ -615,8 +620,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     let task = buildTask("no-exit", ZeroDuration)
     check (await service.runRound(task)) == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.setAge(MixUnusableGrace + chronos.seconds(1))
     check:
       (await service.runRound(task)) == DeliveryState.NotPropagated
       plain.calls == 0
@@ -649,13 +653,13 @@ suite "SendService - anonymity level with a mounted mix":
     let service = newService(AnonymityLevel.Preferred, plain)
     check service.mixFallback.isNone()
 
-    let spent = buildTask("no-exit-spent", chronos.seconds(90))
+    let spent = buildTask("no-exit-spent", PastMixShare)
     check:
       (await service.runRound(spent)) == DeliveryState.Propagated
       plain.calls == 1
       service.mixFallback == Opt.some(Trigger.MixNoExit)
 
-    let again = buildTask("no-exit-spent-again", chronos.seconds(90))
+    let again = buildTask("no-exit-spent-again", PastMixShare)
     check:
       (await service.runRound(again)) == DeliveryState.Propagated
       plain.calls == 2
@@ -702,8 +706,7 @@ suite "SendService - anonymity level with a mounted mix":
       task.tryCount > 1
     check errors.len == 0
     # The delivery window of the task ends.
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - service.maxDeliveryTime - 1.seconds)
+    task.msg.timestamp -= (service.maxDeliveryTime + 1.seconds).nanoseconds
     checkUntilTimeout:
       errors.len == 1
     check:
@@ -723,8 +726,8 @@ suite "SendService - anonymity level with a mounted mix":
     let plain = PlainSendProcessor()
     let service = newService(AnonymityLevel.Preferred, plain)
 
-    # Mix had the task since admission and did not deliver it.
-    let task = buildTask("preferred-late", chronos.seconds(90))
+    # Mix had the task for its share of the window and did not deliver it.
+    let task = buildTask("preferred-late", PastMixShare)
     let accepted = task.msgHash
     check:
       (await service.runRound(task)) == DeliveryState.Propagated
@@ -756,10 +759,10 @@ suite "SendService - anonymity level with a mounted mix":
       (await service.runRound(free)) == DeliveryState.Propagated
       plain.calls == 1
 
-    # With an exit, the end of the mix window does not hand the task over.
+    # With an exit, the end of the mix share does not hand the task over.
     addMixPeer(60174, lightpush = true)
     check waku.selectMixLightpushPeer(shard).isSome()
-    let late = buildTask("unanswered-past-mix-window", chronos.seconds(90))
+    let late = buildTask("unanswered-past-share", PastMixShare)
     late.mixUnanswered = true
     let attempt = service.step(late, DeliveryState.Mix)
     check:
@@ -768,8 +771,7 @@ suite "SendService - anonymity level with a mounted mix":
     await attempt.cancelAndWait()
 
     # A task with the mark ends at the end of the delivery window, with no plain send.
-    let ended =
-      buildTask("unanswered-past-window", service.maxDeliveryTime + chronos.seconds(1))
+    let ended = buildTask("unanswered-past-window", DeliveryWindow + chronos.seconds(1))
     ended.mixUnanswered = true
     check:
       (await service.step(ended, DeliveryState.NextRoundRetry)) ==
@@ -860,10 +862,11 @@ suite "SendService - anonymity level with a mounted mix":
     await plainAttempt.cancelAndWait()
     check not plain.mixUnanswered
 
-  asyncTest "an RLN proof refresh starts a new Preferred mix window":
-    ## The refresh clears `firstAdmittedTime`, so the new proof
-    ## draws a new nonce. The window runs from that field, so the refreshed task
-    ## gets a whole window again and mix attempts it.
+  asyncTest "an RLN proof refresh does not start a new Preferred mix window":
+    ## The refresh clears `charged`, so the new proof takes a new charge.
+    ## The windows count from the timestamp of the message, and a new proof
+    ## does not change it. So a refreshed task past its mix share stays on the
+    ## plain path.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60145 + i, lightpush = true)
 
@@ -878,20 +881,18 @@ suite "SendService - anonymity level with a mounted mix":
       )
     )
 
-    let task = buildTask("rln-park", chronos.seconds(90))
+    let task = buildTask("rln-refresh-window", PastMixShare)
     task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
 
-    # The refresh clears the proof and `firstAdmittedTime`, which resets the window.
     check:
       task.refreshRlnProof(waku)
       task.msg.proof.len == 0
-      task.firstAdmittedTime.isNone()
+      not task.charged
 
-    let fut = service.step(task, DeliveryState.Mix)
     check:
-      task.tryCount == 1 # a whole window again, so mix attempts it
-      plain.calls == 0 # no hand-over
-    await fut.cancelAndWait()
+      (await service.step(task, DeliveryState.Mix)) == DeliveryState.Lightpush
+      task.lastReport.get().trigger == Trigger.MixWindowElapsed
+      task.tryCount == 0 # no mix attempt
 
   asyncTest "an RLN rejection fails the task when no backend can refresh":
     ## No RLN backend is mounted, so no refresh follows and a retry would be
@@ -925,7 +926,7 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       (await service.runRound(task)) == DeliveryState.NextRoundRetry
       task.msg.proof.len == 0
-      task.firstAdmittedTime.isNone()
+      not task.charged
 
   asyncTest "a rejection with an empty text gives an empty error text":
     let rejecting = ScriptedResultProcessor(trigger: Trigger.Rejected, desc: "")
@@ -934,31 +935,6 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       (await service.runRound(task)) == DeliveryState.NotPropagated
       task.errorText() == ""
-
-  asyncTest "a task parked for budget does not spend its mix window":
-    ## The window runs from admission. A task that did not pass admission has
-    ## spent none of it, however old its message is, so mix attempts it.
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60150 + i, lightpush = true)
-
-    let plain = PlainSendProcessor()
-    let service = newService(AnonymityLevel.Preferred, plain)
-
-    let task = buildTask("late-admission", chronos.seconds(90))
-    task.firstAdmittedTime = Opt.none(Moment) # parked for epoch budget
-
-    let fut = service.step(task, DeliveryState.Mix)
-    check:
-      task.tryCount == 1 # the window is intact, so mix attempts it
-      plain.calls == 0
-    await fut.cancelAndWait()
-
-    # The same service hands over a task that has spent its window, so the
-    # case above cannot pass on a window that never elapses.
-    let spent = buildTask("late-admission-spent", chronos.seconds(90))
-    check:
-      (await service.runRound(spent)) == DeliveryState.Propagated
-      plain.calls == 1
 
   asyncTest "a Required task waits during its grace when mix cannot encode its own hop, then fails":
     ## The pool is usable and the self hop is not, so no reply path can be built.
@@ -978,8 +954,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     let task = buildTask("self-hop", ZeroDuration)
     check (await service.runRound(task)) == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.setAge(MixUnusableGrace + chronos.seconds(1))
     check:
       (await service.runRound(task)) == DeliveryState.NotPropagated
       plain.calls == 0

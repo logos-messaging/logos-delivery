@@ -35,10 +35,9 @@ type DeliveryTask* = ref object
     ## Set once on the first successful propagation; never reset on re-publish.
     ## Anchors the archive wait before the first Store query (see
     ## `nextStoreValidationBatch`).
-  firstAdmittedTime*: Opt[Moment]
-    ## Set when the task takes its charge of the epoch budget. `enqueue` takes
-    ## the first one. A proof refresh clears it, and the next round takes a new
-    ## charge. It anchors the delivery window (`isDeliveryTimedOut`).
+  charged*: bool
+    ## True while the task has the charge of its message. `enqueue` takes it.
+    ## With RLN, a proof refresh clears it, and the new proof takes a new charge.
   charge*: Opt[uint64] ## The result of `RateLimitManager.admit` for this task.
   chargeUnused*: bool
     ## True while the charge paid for no RLN message id and for no attempt.
@@ -149,19 +148,16 @@ proc propagationAge*(self: DeliveryTask): timer.Duration =
   else:
     return ZeroDuration
 
-proc admissionAge*(self: DeliveryTask): timer.Duration =
-  ## Time since the task took its charge; ZeroDuration while it has none.
-  if self.firstAdmittedTime.isSome():
-    return timer.Moment.now() - self.firstAdmittedTime.get()
-  else:
-    return ZeroDuration
+proc age*(self: DeliveryTask): timer.Duration =
+  ## How far the timestamp of the message is from the clock of this node.
+  ## A Store node and an RLN relay validator compare the same two values, so a
+  ## timestamp ahead of the clock also counts.
+  return timer.nanoseconds(abs(getNowInNanosecondTime() - self.msg.timestamp))
 
 proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
-  ## True when an admitted task has been trying to deliver longer than `maxTime`
-  ## without ever propagating. The clock runs from the admission time.
-  return
-    self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
-    self.admissionAge() > maxTime
+  ## True when the message never propagated and its timestamp is more than
+  ## `maxTime` from the clock.
+  return self.firstPropagatedTime.isNone() and self.age() > maxTime
 
 proc isEphemeral*(self: DeliveryTask): bool =
   return self.msg.ephemeral

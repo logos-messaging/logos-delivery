@@ -399,7 +399,7 @@ suite "Waku Mix - end to end transport":
       pubsubTopic: shard,
       msg: msg,
       msgHash: computeMessageHash(shard, msg),
-      firstAdmittedTime: Opt.some(Moment.now()), # admitted: no budget, no proof
+      charged: true, # admitted: no budget, no proof
     )
     let before = hopCounts()
     check service.enqueue(task).isOk()

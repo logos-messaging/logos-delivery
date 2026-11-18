@@ -169,7 +169,7 @@ suite "SendService - message size at send":
     checkTooLarge(service.enqueue(tooLarge), Limit + 1)
     check:
       tooLarge.state == DeliveryState.Initial
-      tooLarge.firstAdmittedTime.isNone()
+      not tooLarge.charged
       tooLarge.msg.proof.len == 0
       draws[] == 1
       manager.sentInCurrentEpoch == 1
