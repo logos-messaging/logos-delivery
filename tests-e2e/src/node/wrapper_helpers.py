@@ -30,6 +30,8 @@ CACHE_EXPIRY_SLACK_S = 10.0
 ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
 RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
 STORE_VALIDATION_TIMEOUT_MSG = "Propagated but not confirmed by a store node within the store validation window"
+# The text of a refused send ends with the kind of the refusal.
+SEND_TOO_LARGE_SUFFIX = "(TooLarge)"
 
 
 def event_send_id(event: dict) -> Optional[str]:

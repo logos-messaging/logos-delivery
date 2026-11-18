@@ -227,6 +227,33 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "a send above the size limit of the node answers 413":
+    var conf = restNodeConf()
+    conf.kernel.maxMessageSize = "1000 B"
+    var node: LogosDelivery
+    var rest: RestService
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      rest = (await node.startWithRest()).valueOr:
+        raiseAssert "Failed to start node: " & error
+    defer:
+      await rest.stop(node)
+      (await node.stop()).expect("Failed to stop node")
+
+    let resp = await issueRequest(
+      rest.server.getAddress("/messaging/v1/messages"),
+      meth = MethodPost,
+      headers = @[("Content-Type", "application/json")],
+      body =
+        "{\"payload\":\"" & $base64.encode(newSeq[byte](1001)) &
+        "\",\"contentTopic\":\"/test/1/messaging-rest-too-large/proto\"}",
+    )
+    check:
+      resp.status == 413
+      resp.data.startsWith("Send failed: Message size exceeded")
+      resp.data.endsWith(" (TooLarge)")
+
   asyncTest "a send over the rate-limit budget answers 429 with the time to the refill":
     let conf = LogosDeliveryConf.init(
       KernelConf(restNodeConf().kernel),
@@ -332,6 +359,7 @@ suite "Messaging REST API":
     check:
       sendRefused(SendError.init(SendErrorKind.QueueFull, "full")).status == Http429
       sendRefused(SendError.init(SendErrorKind.Duplicate, "queued")).status == Http409
+      sendRefused(SendError.init(SendErrorKind.TooLarge, "large")).status == Http413
       sendRefused(SendError.init(SendErrorKind.Other, "fault")).status == Http500
     # A rate-limited send tells the client when to send again, in whole seconds.
     let limited = sendRefused(

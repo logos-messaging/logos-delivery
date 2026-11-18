@@ -41,7 +41,6 @@ type
     ProofTransient
     ProofPermanent
     ProofBudgetExhausted
-    ProofSizeUnknown
     Published ## The publish reached at least one peer.
     ZeroPeers ## The publish worked and reached no peer.
     NoRelayPeers
@@ -145,8 +144,6 @@ const
     ## The check of the lightpush peer before a resend gives `NoLightpushPeer`.
   ProveFailures = {OverBudget, ProofPermanent, ProofBudgetExhausted}
     ## The triggers of the proof step that fail the send.
-  SizeCheckFailures = {ProofSizeUnknown, TooLargeForMix}
-    ## A `Required` node checks the size of the message for mix before the admission.
   ProveTriggers = ProveFailures + {Proved, ProofNotReady, ProofTransient, StepRaised}
   RelayTriggers = {
     Published, ZeroPeers, NoRelayPeers, ProofRejected, Rejected, StepRaised,
@@ -278,10 +275,7 @@ func buildDeliveryPlan*(
   arrows.add starts -- Started --> chain[0]
   arrows.add Prove -- Proved --> chain[0]
   arrows.add Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-  if level == AnonymityLevel.Required:
-    arrows.add Prove -- (ProveFailures + SizeCheckFailures) --> NotPropagated
-  else:
-    arrows.add Prove -- ProveFailures --> NotPropagated
+  arrows.add Prove -- ProveFailures --> NotPropagated
 
   arrows.add plain -- Published[Reliable] / {ReportPropagated} --> AwaitingStore
   arrows.add plain -- Published / {ReportPropagated} --> Propagated
@@ -335,10 +329,7 @@ func stepTriggers*(plan: DeliveryPlan, state: DeliveryState): set[Trigger] =
   ## The triggers that the step of `state` can report in `plan`.
   case state
   of Prove:
-    if plan.level == AnonymityLevel.Required:
-      ProveTriggers + SizeCheckFailures
-    else:
-      ProveTriggers
+    ProveTriggers
   of Relay:
     RelayTriggers
   of Lightpush:

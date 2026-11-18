@@ -166,6 +166,7 @@ The `on_reply` callback of `logosdelivery_ctx_send` gets the message hash before
 
 - `NotStarted`: the node is not started.
 - `NoShard`: the node finds no shard for the content topic of the message.
+- `TooLarge`: the message is too large. With its RLN proof, it is above the `--max-msg-size` of the node. At the anonymity level `Required`, a message that one mix message cannot hold is also too large.
 - `RateLimited`: the rate-limit budget of the epoch is spent. The description ends with `retry after <N> s`, and N is the seconds until the budget refills. With an RLN backend that does not state its epoch length, N is 1. An ephemeral message also gets this error when the budget is near its end. With RLN, the RLN budget also limits the sends.
 - `QueueFull`: the node already has 50 sends that did not get their last event.
 - `Duplicate`: the node already sends a message with this hash. Two sends of the same message get one hash only when the clock of the node gives them the same timestamp.

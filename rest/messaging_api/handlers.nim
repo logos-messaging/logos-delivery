@@ -57,6 +57,8 @@ proc sendRefused(refusal: SendError): RestApiResponse =
     return RestApiResponse.error(
       Http429, msg, $MIMETYPE_TEXT, [("Retry-After", SendQueueFullRetryAfterSec)]
     )
+  of SendErrorKind.TooLarge:
+    return RestApiResponse.error(Http413, msg, $MIMETYPE_TEXT)
   of SendErrorKind.Duplicate:
     return RestApiResponse.error(Http409, msg, $MIMETYPE_TEXT)
   of SendErrorKind.NotStarted, SendErrorKind.NoShard, SendErrorKind.Other:

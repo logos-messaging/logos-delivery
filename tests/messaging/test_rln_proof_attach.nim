@@ -493,14 +493,13 @@ suite "SendService RLN proof attach - RLN mounted":
     service.startSendService()
     defer:
       await service.stopSendService()
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.NotPropagated
+    let refused = service.enqueue(task)
     check:
-      task.errorText().startsWith(MixTooLargeReason)
+      refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
+      refused.isErr() and refused.error.desc.startsWith(MixTooLargeReason)
       task.msg.proof.len == 0
       onchainRln.nonceManager.nextId == 0
-      quota.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
+      quota.sentInCurrentEpoch == 0
 
   asyncTest "attaches a proof":
     let attached = (await waku.attachRlnProof(testMessage())).expect("attachRlnProof")

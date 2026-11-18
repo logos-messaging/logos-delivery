@@ -17,10 +17,10 @@ type SendProcessors* = object ## A nil field is a processor that the node does n
   lightpush*: BaseSendProcessor
   resender*: BaseSendProcessor ## Sends a message again after a Store miss.
 
-method checkBeforeAdmission*(
+method checkBeforeSend*(
     self: BaseSendProcessor, task: DeliveryTask
-): Result[void, StepReport] {.base, gcsafe, raises: [].} =
-  ## Refuses a message that can never go out, before it spends budget or a message id.
+): Result[void, SendError] {.base, gcsafe, raises: [].} =
+  ## Refuses a message that can never go out, before it takes a charge or a message id.
   ## Only a `Required` node asks, because mix is its only transport.
   return ok()
 

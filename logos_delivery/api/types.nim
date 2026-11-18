@@ -24,6 +24,9 @@ type
   SendErrorKind* {.pure.} = enum
     NotStarted ## The messaging client does not run.
     NoShard ## The node finds no shard for the content topic of the message.
+    TooLarge
+      ## The message is above the size limit of the node, or above the size of
+      ## one mix message at the `Required` anonymity level.
     RateLimited ## The rate-limit budget of the epoch does not admit the message.
     Duplicate ## The node already sends a message with this hash.
     QueueFull ## The node has `MaxSendsInFlight` sends with no last event.

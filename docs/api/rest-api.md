@@ -69,6 +69,7 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 
 `200` means that the node accepted the message, and `messageHash` is the hash of the message on the network. The node sets the timestamp of the message when it accepts it, so the hash does not change. The node refuses a message that it cannot accept, and then no event comes:
 
+* HTTP `413`: the message is too large. With its RLN proof, it is above the `--max-msg-size` of the node. At the anonymity level `Required`, a message that one mix message cannot hold is also too large.
 * HTTP `429`: the rate-limit budget of the epoch is spent. `Retry-After` gives the seconds until the budget refills. With an RLN backend that does not state its epoch length, it is 1. An ephemeral message also gets `429` when the budget is near its end. With RLN, the RLN budget also limits the sends.
 * HTTP `429` with `Retry-After: 1`: the node already has 50 sends that did not get their last event.
 * HTTP `409`: the node already sends a message with this hash. Two sends of the same message get one hash only when the clock of the node gives them the same timestamp.

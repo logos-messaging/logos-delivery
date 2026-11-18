@@ -487,7 +487,6 @@ suite "SendService - deliver":
       Trigger.StoreWindowElapsed:
         "Propagated but not confirmed by a store node within the store validation window",
       Trigger.TooLargeForMix: "message too large for mix: detail",
-      Trigger.ProofSizeUnknown: "Failed to determine RLN proof size: detail",
       Trigger.ProofPermanent: "Failed to attach RLN proof: detail",
       Trigger.ProofBudgetExhausted: "Failed to attach RLN proof: detail",
       Trigger.MixNotMounted: "mix is not mounted or knows fewer than 4 usable mix nodes",

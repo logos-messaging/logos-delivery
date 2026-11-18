@@ -181,17 +181,17 @@ suite "Delivery plan":
 
   test "a trigger is listed only for the steps that can report it":
     ## Only the check of a lightpush peer gives `NoLightpushPeer`.
-    ## Only a `Required` node checks the size before the admission.
+    ## Only a mix step gives `TooLargeForMix`, because `send` checks the size first.
     let required = planOf(AnonymityLevel.Required, {DeliveryState.Mix})
     let preferred = planOf(AnonymityLevel.Preferred, AllTransports)
-    let sizeFailures = {Trigger.ProofSizeUnknown, Trigger.TooLargeForMix}
     check:
       Trigger.NoLightpushPeer notin preferred.stepTriggers(DeliveryState.Mix)
       Trigger.NoLightpushPeer notin preferred.stepTriggers(DeliveryState.Relay)
       Trigger.NoLightpushPeer in preferred.stepTriggers(DeliveryState.Lightpush)
       Trigger.NoLightpushPeer in preferred.stepTriggers(DeliveryState.StoreResend)
-      preferred.stepTriggers(DeliveryState.Prove) * sizeFailures == {}
-      sizeFailures <= required.stepTriggers(DeliveryState.Prove)
+      Trigger.TooLargeForMix notin preferred.stepTriggers(DeliveryState.Prove)
+      Trigger.TooLargeForMix notin required.stepTriggers(DeliveryState.Prove)
+      Trigger.TooLargeForMix in required.stepTriggers(DeliveryState.Mix)
       Trigger.AttemptTimedOut notin preferred.stepTriggers(DeliveryState.Lightpush)
       Trigger.AttemptTimedOut in preferred.stepTriggers(DeliveryState.StoreResend)
 
@@ -276,8 +276,6 @@ suite "Delivery plan":
       plan.toState(DeliveryState.Mix, Trigger.MixNotMounted, {Guard.InMixGrace}) ==
         Opt.some(DeliveryState.NotPropagated)
       plan.fixedToState(DeliveryState.Mix, Trigger.TooLargeForMix) ==
-        Opt.some(DeliveryState.NotPropagated)
-      plan.fixedToState(DeliveryState.Prove, Trigger.TooLargeForMix) ==
         Opt.some(DeliveryState.NotPropagated)
 
   test "Preferred hands the task to the plain path when mix cannot take it":
@@ -547,7 +545,7 @@ Prove -- Started[NeedsProof] --> Prove
 Prove -- Started --> Mix
 Prove -- Proved --> Mix
 Prove -- {ProofNotReady, ProofTransient, StepRaised} --> NextRoundRetry
-Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted, ProofSizeUnknown, TooLargeForMix} --> NotPropagated
+Prove -- {OverBudget, ProofPermanent, ProofBudgetExhausted} --> NotPropagated
 Mix -- Started[NeedsProof] --> Prove
 Mix -- Started --> Mix
 Mix -- ProofRejected[CanRefreshProof] / {RefreshProof} --> NextRoundRetry

@@ -39,6 +39,13 @@ proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
 
 const NoBudgetForNewProofReason* = "No rate-limit budget for a new RLN proof"
 
+const MessageTooLargeReason* = "Message size exceeded"
+  ## The start of the error text of a message above `maxMessageSizeBytes`.
+
+func messageTooLargeDesc*(size: int, limit: uint64): string =
+  MessageTooLargeReason & ": the message has " & $size & " bytes, the limit is " & $limit &
+    " bytes"
+
 const RetryInterval* = chronos.seconds(1)
   ## The pause between two ticks of `retryLoop`, and between two Store validation
   ## rounds.
@@ -359,8 +366,6 @@ func errorText*(report: StepReport): string =
     "Propagated but not confirmed by a store node within the store validation window"
   of TooLargeForMix:
     MixTooLargeReason & ": " & report.desc
-  of ProofSizeUnknown:
-    "Failed to determine RLN proof size: " & report.desc
   of ProofPermanent, ProofBudgetExhausted:
     "Failed to attach RLN proof: " & report.desc
   of MixUnusableTriggers:
@@ -393,10 +398,6 @@ proc takeCharge(self: SendService, task: DeliveryTask): bool =
 proc prove(self: SendService, task: DeliveryTask): Future[StepReport] {.async.} =
   ## Attaches the RLN proof. `enqueue` took the charge of the first proof.
   ## A proof refresh clears the charge, and the new proof takes a new one here.
-  if self.plan.level == AnonymityLevel.Required:
-    self.processors.processorOf(self.plan.chain[0]).checkBeforeAdmission(task).isOkOr:
-      return error
-
   if task.firstAdmittedTime.isNone() and not self.takeCharge(task):
     debug "No rate-limit budget for a new RLN proof", msgHash = task.msgHash.to0xHex()
     return StepReport.init(Trigger.OverBudget)
@@ -803,6 +804,21 @@ proc startDeliverSoon(self: SendService, task: DeliveryTask) =
         task.deliverHandle = self.deliver(task)
   )
 
+proc checkSize(self: SendService, task: DeliveryTask): Result[void, SendError] =
+  ## Refuses a message that is too large to go out, with its RLN proof.
+  if self.plan.level == AnonymityLevel.Required:
+    ?self.processors.processorOf(self.plan.chain[0]).checkBeforeSend(task)
+  let message = self.waku.messageForSizeCheck(task.msg).valueOr:
+    debug "No valid proof size, checking the size of the message without its proof",
+      msgHash = task.msgHash.to0xHex(), error = $error
+    task.msg
+  let size = message.encodedSize()
+  let limit = self.waku.maxMessageSizeBytes
+  if uint64(size) <= limit:
+    return ok()
+  debug "Message too large", msgHash = task.msgHash.to0xHex(), size, limit
+  return err(SendError.init(SendErrorKind.TooLarge, messageTooLargeDesc(size, limit)))
+
 proc rateLimitedError(self: SendService, desc: string): SendError =
   let retryAfter = self.rateLimitManager.retryAfter()
   return SendError.init(
@@ -829,7 +845,8 @@ proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
   ## Puts `task` in the send queue and charges it against the epoch budget.
   ## It makes no attempt and emits no event, so the caller gets the result first.
   ## The hash of a message identifies its send, so a message that the send queue
-  ## already has is refused. A message over the budget is refused with `RateLimited`.
+  ## already has is refused. A message above the size limit is refused with
+  ## `TooLarge`, and a message over the budget with `RateLimited`.
   assert(not task.isNil(), "task for enqueue must not be nil")
   let queued = self.deliveryTasks.getOrDefault(task.msgHash)
   if not queued.isNil():
@@ -838,6 +855,7 @@ proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
     return err(
       SendError.init(SendErrorKind.Duplicate, "The node already sends this message")
     )
+  ?self.checkSize(task)
   if self.isFull():
     # A burst over the limit is back-pressure for the app, and no fault of the node.
     debug "Send refused, the node has its maximum of sends with no last event",

@@ -1181,6 +1181,43 @@ suite "Messaging API - refused sends":
           ", retry after " & $refused.error.retryAfter.seconds & " s (RateLimited)"
         )
 
+  asyncTest "a send above the size limit of the node is refused as TooLarge, with no charge":
+    const Topic = ContentTopic("/test/1/too-large/proto")
+    var nodeConf = defaultTestNodeConf()
+    nodeConf.kernel.maxMessageSize = "1000 B"
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          KernelConf(nodeConf.kernel),
+          MessagingClientConf(
+            rateLimitEnabled: Opt.some(true),
+            rateLimitEpochPeriodSec: Opt.some(600'u64),
+            rateLimitMessagesPerEpoch: Opt.some(1'u64),
+          ),
+          ReliableChannelManagerConf(),
+        )
+      ).expect("LogosDelivery.new")
+      (await node.start()).expect("start")
+    defer:
+      (await node.stop()).expect("stop")
+    let client = node.messagingClient
+
+    # `send` does not suspend, so the refusal is there when the call returns.
+    let refused = client.send(MessageEnvelope.init(Topic, newSeq[byte](1001)))
+    check refused.finished()
+    if refused.finished():
+      check refused.read().isErr()
+      if refused.read().isErr():
+        check:
+          refused.read().error.kind == SendErrorKind.TooLarge
+          refused.read().refusal().startsWith("Message size exceeded")
+          refused.read().refusal().endsWith(" (TooLarge)")
+    check client.rateLimitManager.sentInCurrentEpoch == 0'u64
+
+    # The refused message took no charge, so the one charge of the epoch is free.
+    check (await client.send(MessageEnvelope.init(Topic, "fits"))).isOk()
+
   asyncTest "with RLN, a refused send gives the time to the end of the RLN epoch":
     ## The RLN backend states its epoch length.
     ## So the node can tell the app when the budget refills.

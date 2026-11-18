@@ -64,12 +64,19 @@ func mixUnusableText*(trigger: Trigger): string =
   of Trigger.MixNoExit: MixNoExitReason
   else: MixUnavailableReason
 
-method checkBeforeAdmission*(
+method checkBeforeSend*(
     self: MixSendProcessor, task: DeliveryTask
-): Result[void, StepReport] {.gcsafe, raises: [].} =
+): Result[void, SendError] {.gcsafe, raises: [].} =
   let message = self.waku.messageForSizeCheck(task.msg).valueOr:
-    return err(StepReport.init(Trigger.ProofSizeUnknown, $error))
-  return self.checkSize(task, message)
+    return err(
+      SendError.init(
+        SendErrorKind.Other, "Failed to determine RLN proof size: " & $error
+      )
+    )
+  self.checkSize(task, message).isOkOr:
+    return
+      err(SendError.init(SendErrorKind.TooLarge, MixTooLargeReason & ": " & error.desc))
+  return ok()
 
 method checkBeforeAttempt*(
     self: MixSendProcessor, task: DeliveryTask

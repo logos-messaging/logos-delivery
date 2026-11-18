@@ -94,16 +94,11 @@ suite "Waku Mix - the size of a mix send":
     let limit = mixLightpushSize(DefaultPubsubTopic, fakeWakuMessage()).limit
 
     let tooLarge = sizedTask(limit + 1)
-    check service.enqueue(tooLarge).isOk()
-    checkUntilTimeout:
-      tooLarge.state == DeliveryState.NotPropagated
+    let refused = service.enqueue(tooLarge)
     check:
-      tooLarge.state == DeliveryState.NotPropagated
-      tooLarge.errorText().startsWith(MixTooLargeReason)
+      refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
+      refused.isErr() and refused.error.desc.startsWith(MixTooLargeReason)
       tooLarge.tryCount == 0
-    checkUntilTimeout:
-      errors.len == 1
-    check errors == @[tooLarge.errorText()]
 
     let fits = sizedTask(limit)
     check service.enqueue(fits).isOk()
@@ -112,4 +107,4 @@ suite "Waku Mix - the size of a mix send":
     check:
       fits.state == DeliveryState.Propagated
       fits.propagatedAnonymously
-      errors.len == 1
+      errors.len == 0 # the refused send got no event

@@ -22,7 +22,10 @@ PROPAGATED_TIMEOUT_S = 30.0
 SENT_TIMEOUT_S = 10.0
 NO_SENT_OBSERVATION_S = 5.0
 SENT_AFTER_STORE_TIMEOUT_S = 60.0
-OVERSIZED_PAYLOAD_BYTES = 200 * 1024
+# The lightpush service of S14 takes messages up to this size.
+SERVICE_MAX_MESSAGE_SIZE = "50KiB"
+# Above the limit of the service, and below the limit of the edge sender (150KiB).
+OVERSIZED_PAYLOAD_BYTES = 80 * 1024
 RECOVERY_TIMEOUT_S = 45.0
 SERVICE_DOWN_SETTLE_S = 3.0
 
@@ -474,9 +477,9 @@ class TestS12IsolatedSenderNoPeers(StepsCommon):
 class TestS14LightpushNonRetryableError(StepsCommon):
     """
     S14 — Lightpush non-retryable error via oversized message.
-    Edge sender publishes a message exceeding DefaultMaxWakuMessageSize (150KiB)
-    through a lightpush service node. The server validates message size and
-    returns INVALID_MESSAGE (420), a non-retryable error.
+    Edge sender publishes a message that is above the size limit of its
+    lightpush service node, and below its own limit. The server validates
+    message size and returns a non-retryable error.
     Expected: send() returns Ok(message hash), then message_error event.
     """
 
@@ -490,7 +493,7 @@ class TestS14LightpushNonRetryableError(StepsCommon):
             "numShardsInNetwork": 1,
         }
 
-        service_config = build_node_config(relay=True, lightpush=True, **common)
+        service_config = build_node_config(relay=True, lightpush=True, maxMessageSize=SERVICE_MAX_MESSAGE_SIZE, **common)
         service_result = WrapperManager.create_and_start(config=service_config)
         assert service_result.is_ok(), f"Failed to start service: {service_result.err()}"
 

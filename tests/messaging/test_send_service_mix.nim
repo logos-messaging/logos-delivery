@@ -165,7 +165,7 @@ suite "SendService - mix size before admission":
       .new(RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1))
       .expect("RateLimitManager.new")
 
-  asyncTest "proof overhead rejects Required before admission and leaves budget for a fitting task":
+  asyncTest "proof overhead refuses a Required send, and leaves budget for a fitting task":
     const proofBytes = 289
     let draws = countingRln(waku, proofBytes)
     let manager = newManager()
@@ -186,18 +186,16 @@ suite "SendService - mix size before admission":
       await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
 
     let large = sizedProofTask("unproven-fits", mixLimit(), 0)
-    check service.enqueue(large).isOk()
-    checkUntilTimeout:
-      errors.len == 1
+    let refused = service.enqueue(large)
     check:
-      large.state == DeliveryState.NotPropagated
-      large.lastFailure == Opt.some(Trigger.TooLargeForMix)
-      large.errorText().startsWith(MixTooLargeReason)
+      refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
+      refused.isErr() and refused.error.desc.startsWith(MixTooLargeReason)
+      large.state == DeliveryState.Initial # never scheduled
+      large.firstAdmittedTime.isNone() # a refused message takes no charge
       large.msg.proof.len == 0
-      large.tryCount == 0
       not large.anonymized
       draws[] == 0
-      manager.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
+      manager.sentInCurrentEpoch == 0
 
     let fits = sizedProofTask("proven-fits", mixLimit(), proofBytes)
     check service.enqueue(fits).isOk()
@@ -210,9 +208,9 @@ suite "SendService - mix size before admission":
       fits.msg.proof.len == proofBytes
       mixLightpushSize(fits.pubsubTopic, fits.msg).size == mixLimit()
       fits.lastFailure == Opt.some(Trigger.MixUnavailable)
-      errors.len == 1
+      errors.len == 0 # a refused send gets no event
 
-  asyncTest "Required rejects one byte above the proven limit without spending budget":
+  asyncTest "Required refuses one byte above the proven limit without spending budget":
     let draws = countingRln(waku, 289)
     let manager = newManager()
     let mix = MixSendProcessor.new(waku, waku.brokerCtx)
@@ -221,13 +219,14 @@ suite "SendService - mix size before admission":
     defer:
       await service.stopSendService()
     let task = sizedProofTask("proven-too-large", mixLimit() + 1, 289)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.NotPropagated
+    let refused = service.enqueue(task)
     check:
-      task.errorText().contains("the request has " & $(mixLimit() + 1) & " bytes")
+      refused.isErr() and refused.error.kind == SendErrorKind.TooLarge
+      refused.isErr() and
+        refused.error.desc.contains("the request has " & $(mixLimit() + 1) & " bytes")
+      task.firstAdmittedTime.isNone()
       draws[] == 0
-      manager.sentInCurrentEpoch == 0 # the charge of `enqueue` went back
+      manager.sentInCurrentEpoch == 0
 
   asyncTest "Preferred spends one proof and one admission for its plain fallback":
     let draws = countingRln(waku, 289)
@@ -251,21 +250,21 @@ suite "SendService - mix size before admission":
       not task.anonymized
       task.tryCount == 1 # the plain attempt, and none over mix
 
-  asyncTest "a supplied proof uses its actual length before admission":
+  asyncTest "a supplied proof uses its actual length in the size check of a send":
     let draws = countingRln(waku, 400)
     let task = sizedProofTask("supplied-proof", mixLimit(), 289)
     task.msg.proof = newSeq[byte](289)
     let mix = MixSendProcessor.new(waku, waku.brokerCtx)
-    check mix.checkBeforeAdmission(task).isOk()
+    check mix.checkBeforeSend(task).isOk()
     check:
       draws[] == 0
       task.msg.proof.len == 289
       mixLightpushSize(task.pubsubTopic, task.msg).size == mixLimit()
     task.msg.proof.add(1)
-    check mix.checkBeforeAdmission(task).error.trigger == Trigger.TooLargeForMix
+    check mix.checkBeforeSend(task).error.kind == SendErrorKind.TooLarge
     check draws[] == 0
 
-  asyncTest "an undeclared proof size fails Required before drawing a proof":
+  asyncTest "an undeclared proof size refuses a Required send before a proof is drawn":
     let draws = countingRln(waku, 289)
     var plugin = waku.node.rlnPlugin.get()
     plugin.proofSize = Opt.none(int)
@@ -277,12 +276,10 @@ suite "SendService - mix size before admission":
     defer:
       await service.stopSendService()
     let task = sizedProofTask("unknown-proof", mixLimit(), 0)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.NotPropagated
+    let refused = service.enqueue(task)
     check:
-      task.lastFailure == Opt.some(Trigger.ProofSizeUnknown)
-      task.errorText().contains("does not declare its proof size")
+      refused.isErr() and refused.error.kind == SendErrorKind.Other
+      refused.isErr() and refused.error.desc.contains("does not declare its proof size")
       draws[] == 0
       manager.sentInCurrentEpoch == 0
 
