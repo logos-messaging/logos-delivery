@@ -40,8 +40,7 @@ proc checkSize(
   let (size, limit) = self.waku.mixLightpushSize(task.pubsubTopic, message)
   if size <= limit:
     return ok()
-  debug "Message too large for mix",
-    requestId = task.requestId, msgHash = task.msgHash.to0xHex(), size, limit
+  debug "Message too large for mix", msgHash = task.msgHash.to0xHex(), size, limit
   return err(StepReport.init(Trigger.TooLargeForMix, sizeDesc(size, limit)))
 
 proc checkUsable(self: MixSendProcessor, task: DeliveryTask): Result[void, StepReport] =
@@ -83,19 +82,16 @@ method attempt*(
     self: MixSendProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
   debug "Trying message delivery via Mix",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg, mixify = true)
   ).valueOr:
     let failure = lightpushReport(error)
     debug "Mix publish failed",
-      requestId = task.requestId, trigger = failure.trigger, error = failure.desc
+      msgHash = task.msgHash.to0xHex(), trigger = failure.trigger, error = failure.desc
     return failure
 
   if numLightpushServers > 0:
-    debug "Message propagated via Mix",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Message propagated via Mix", msgHash = task.msgHash.to0xHex()
   return publishReport(numLightpushServers)

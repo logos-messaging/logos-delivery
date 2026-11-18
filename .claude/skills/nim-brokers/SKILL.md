@@ -284,12 +284,12 @@ Passing a plain closure works too, so it is a strict superset of the typed verbs
 
 ```nim
 # before — hand-written forwarding closure
-MessagingSend.setProvider(self.brokerCtx,
-  proc(e: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-    await self.send(e))
+MessagingUnsubscribe.setProvider(self.brokerCtx,
+  proc(topic: ContentTopic): Result[void, string] =
+    self.unsubscribe(topic))
 
 # after — the sugar generates exactly that trampoline
-MessagingSend.bindProvider(self.brokerCtx, self.send)
+MessagingUnsubscribe.bindProvider(self.brokerCtx, self.unsubscribe)
 ```
 
 | Broker | install sugar | replace sugar |

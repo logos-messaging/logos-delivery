@@ -36,11 +36,16 @@ proc newTask(id: string, pubsubTopic = PubsubTopic("/waku/2/rs/3/0")): DeliveryT
     timestamp: 1_700_000_000_000_000_000,
   )
   return DeliveryTask(
-    requestId: RequestId(id),
-    pubsubTopic: pubsubTopic,
-    msg: msg,
-    msgHash: computeMessageHash(pubsubTopic, msg),
+    pubsubTopic: pubsubTopic, msg: msg, msgHash: computeMessageHash(pubsubTopic, msg)
   )
+
+proc label(task: DeliveryTask): string =
+  ## The payload text, the name of a task in these tests.
+  return string.fromBytes(task.msg.payload)
+
+proc hashHex(task: DeliveryTask): string =
+  ## The message hash as the events carry it.
+  return task.msgHash.to0xHex()
 
 proc propagatedAt(id: string, time: Moment): DeliveryTask =
   ## A task that propagated at `time` and waits for a Store confirmation.
@@ -168,26 +173,26 @@ type SendEvent {.pure.} = enum
   Failed
 
 type SendEventLog = ref object
-  ## Records the request ids of send events and wakes the tests that wait for one.
+  ## Records the message hashes of send events and wakes the tests that wait for one.
   brokerCtx: BrokerContext
-  ids: array[SendEvent, seq[RequestId]]
+  ids: array[SendEvent, seq[string]]
   changed: AsyncEvent
   propagatedListener: MessagePropagatedEventListener
   sentListener: MessageSentEventListener
   errorListener: MessageErrorEventListener
 
-proc record(log: SendEventLog, event: SendEvent, id: RequestId) =
+proc record(log: SendEventLog, event: SendEvent, id: string) =
   log.ids[event].add(id)
   log.changed.fire()
 
 proc newSendEventLog(brokerCtx: BrokerContext): SendEventLog =
   let log = SendEventLog(brokerCtx: brokerCtx, changed: newAsyncEvent())
   let onPropagated = proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Propagated, event.requestId)
+    log.record(SendEvent.Propagated, event.messageHash)
   let onSent = proc(event: MessageSentEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Sent, event.requestId)
+    log.record(SendEvent.Sent, event.messageHash)
   let onError = proc(event: MessageErrorEvent) {.async: (raises: []).} =
-    log.record(SendEvent.Failed, event.requestId)
+    log.record(SendEvent.Failed, event.messageHash)
   log.propagatedListener =
     MessagePropagatedEvent.listen(brokerCtx, onPropagated).expect("listen propagated")
   log.sentListener = MessageSentEvent.listen(brokerCtx, onSent).expect("listen sent")
@@ -210,11 +215,11 @@ proc waitEvent(
   let deadline = Moment.now() + timeout
   while true:
     log.changed.clear()
-    if task.requestId in log.ids[event]:
+    if task.hashHex() in log.ids[event]:
       return true
     let remaining = deadline - Moment.now()
     if remaining <= ZeroDuration or not await log.changed.wait().withTimeout(remaining):
-      return task.requestId in log.ids[event]
+      return task.hashHex() in log.ids[event]
 
 suite "SendService - mix completion":
   var waku {.threadvar.}: Waku
@@ -467,7 +472,7 @@ suite "SendService - Store validation batches":
       let batch = service.nextStoreValidationBatch(tasks, now)
       check:
         batch.len == size
-        batch[0].requestId == RequestId("t" & $first)
+        batch[0].label() == "t" & $first
       for task in batch:
         task.lastStoreQueryTime = Opt.some(now)
     check service.nextStoreValidationBatch(tasks, now).len == 0
@@ -479,9 +484,9 @@ suite "SendService - Store validation batches":
     let later = service.nextStoreValidationBatch(tasks, now + chronos.seconds(5))
     check:
       later.len == 100
-      later[0].requestId == RequestId("t250")
-      later[1].requestId == RequestId("t0")
-      later[99].requestId == RequestId("t98")
+      later[0].label() == "t250"
+      later[1].label() == "t0"
+      later[99].label() == "t98"
 
   asyncTest "a task that propagated within ArchiveTime or over mix is not in a batch":
     let now = Moment.now()
@@ -646,7 +651,7 @@ suite "SendService - Store validation loop":
     check:
       await log.waitEvent(SendEvent.Sent, taskC)
       taskA.state == DeliveryState.NotStored
-      taskA.requestId notin log.ids[SendEvent.Sent]
+      taskA.hashHex() notin log.ids[SendEvent.Sent]
 
   asyncTest "stopping the service ends a pending Store query":
     let service = startedService()
@@ -674,7 +679,7 @@ suite "SendService - Store validation loop":
     check:
       await log.waitEvent(SendEvent.Sent, task)
       processor.calls == 1
-      log.ids[SendEvent.Propagated].countIt(it == task.requestId) == 1
+      log.ids[SendEvent.Propagated].countIt(it == task.hashHex()) == 1
 
   asyncTest "a message the Store does not report yet is asked again, and the send processor does not run again":
     let processor = ScriptedProc()

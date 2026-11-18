@@ -9,7 +9,6 @@
 import results, chronos
 import
   logos_delivery/api/events/messaging_client_events,
-  logos_delivery/api/types,
   rest/messaging_api/event_cache,
   rest/messaging_api/types
 
@@ -56,25 +55,25 @@ proc start*(self: MessagingRestEvents, ctx: BrokerContext): Result[void, string]
 
   if self.sent.isNone():
     let listener = MessageSentEvent.listenIt(ctx):
-      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Sent)
+      cache.recordSend(it.messageHash, SendEventKind.Sent)
     let registered = listener.valueOr:
       return err(listenFailed("MessageSentEvent", error))
     self.sent = Opt.some(registered)
   if self.queued.isNone():
     let listener = MessageQueuedEvent.listenIt(ctx):
-      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Queued)
+      cache.recordSend(it.messageHash, SendEventKind.Queued)
     let registered = listener.valueOr:
       return err(listenFailed("MessageQueuedEvent", error))
     self.queued = Opt.some(registered)
   if self.propagated.isNone():
     let listener = MessagePropagatedEvent.listenIt(ctx):
-      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Propagated)
+      cache.recordSend(it.messageHash, SendEventKind.Propagated)
     let registered = listener.valueOr:
       return err(listenFailed("MessagePropagatedEvent", error))
     self.propagated = Opt.some(registered)
   if self.errored.isNone():
     let listener = MessageErrorEvent.listenIt(ctx):
-      cache.recordSend($it.requestId, it.messageHash, SendEventKind.Error, it.error)
+      cache.recordSend(it.messageHash, SendEventKind.Error, it.error)
     let registered = listener.valueOr:
       return err(listenFailed("MessageErrorEvent", error))
     self.errored = Opt.some(registered)

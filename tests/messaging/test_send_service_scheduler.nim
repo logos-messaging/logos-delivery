@@ -22,6 +22,9 @@ privateAccess(SendService) # the tests read `attempts`
 ## delivery outcome. Each service ticks each 10 minutes, so the tests start each
 ## next attempt with `retryNow`.
 
+proc refusedAs(res: Result[void, SendError], kind: SendErrorKind): bool =
+  return res.isErr() and res.error.kind == kind
+
 type FakeSendProcessor = ref object of BaseSendProcessor
   ## Returns one trigger of `script` for each attempt, and the last entry repeats.
   calls: int
@@ -70,16 +73,16 @@ suite "SendService - rate-limit scheduling":
   ): DeliveryTask =
     ## Built directly rather than via `DeliveryTask.new`, which needs a broker
     ## provider only registered once the node starts. The message is from now,
-    ## so a task that parks for budget is not too old.
+    ## so a task that parks for budget is not too old. The id in the content
+    ## topic gives each task its own hash.
     let msg = WakuMessage(
-      contentTopic: "/test/1/scheduler/proto",
+      contentTopic: "/test/1/" & id & "/proto",
       payload: payload.toBytes(),
       timestamp: timestamp,
       ephemeral: ephemeral,
     )
     let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
     return DeliveryTask(
-      requestId: RequestId(id),
       pubsubTopic: pubsubTopic,
       msg: msg,
       msgHash: computeMessageHash(pubsubTopic, msg),
@@ -287,7 +290,6 @@ suite "SendService - rate-limit scheduling":
     await service.sendNow(second)
     check:
       queued.len == 1
-      queued[0].requestId == second.requestId
       queued[0].messageHash == second.msgHash.to0xHex()
 
     ## Still over budget: the task parks again, the event does not repeat.
@@ -365,7 +367,6 @@ suite "SendService - rate-limit scheduling":
       manager.sentInCurrentEpoch == 2'u64
       processor.calls == callsBefore
       queued.len == 0
-      errors.mapIt(it.requestId) == @[eph.requestId]
       errors.mapIt(it.messageHash) == @[eph.msgHash.to0xHex()]
 
     ## It is not parked, so no later attempt gives it to the processor.
@@ -494,7 +495,7 @@ suite "SendService - rate-limit scheduling":
       stale.firstAdmittedTime.isNone()
       fresh.firstAdmittedTime.isNone()
       stale.state == DeliveryState.NotPropagated
-      errors[].mapIt(it.requestId) == @[stale.requestId]
+      errors[].mapIt(it.messageHash) == @[stale.msgHash.to0xHex()]
       admitted.state == DeliveryState.NextRoundRetry
       fresh.state == DeliveryState.NextRoundRetry
 
@@ -538,7 +539,7 @@ suite "SendService - rate-limit scheduling":
       errors[].len == 0
 
     let rejected = buildTask("cap-rejected", "three")
-    check service.enqueue(rejected).errorOr("accepted") == "Send queue full, retry later"
+    check service.enqueue(rejected).refusedAs(SendErrorKind.QueueFull)
     check:
       errors[].len == 0 # the caller gets the error, so no event follows
       rejected.state == DeliveryState.Initial # never scheduled
@@ -577,7 +578,7 @@ suite "SendService - rate-limit scheduling":
       expired.state == DeliveryState.NotStored
       fresh.state == DeliveryState.AwaitingStore
       await errorSeen.wait().withTimeout(chronos.seconds(1))
-      errors[].mapIt(it.requestId) == @[expired.requestId]
+      errors[].mapIt(it.messageHash) == @[expired.msgHash.to0xHex()]
 
   asyncTest "with reliability off a propagated task is evicted without MessageError":
     let manager =

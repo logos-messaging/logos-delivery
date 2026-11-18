@@ -14,6 +14,7 @@ import
   logos_delivery/api/conf/logos_delivery_conf,
   rest/messaging_api/client as messaging_rest_client,
   rest/messaging_api/event_cache,
+  rest/messaging_api/handlers {.all.},
   rest/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
@@ -81,7 +82,7 @@ suite "Messaging REST API":
     let sendResp = await client.messagingPostMessagesV1(msg)
     check:
       sendResp.status == 200
-      sendResp.data.requestId.len > 0
+      sendResp.data.messageHash.len > 0
 
     let unsubResp = await client.messagingDeleteSubscriptionsV1(@[contentTopic])
     check unsubResp.status == 200
@@ -120,7 +121,7 @@ suite "Messaging REST API":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "send events are grouped by requestId and evict after poll":
+  asyncTest "send events are grouped by message hash and evict after poll":
     var node: LogosDelivery
     var rest: RestService
     lockNewGlobalBrokerContext:
@@ -131,41 +132,44 @@ suite "Messaging REST API":
     let client = restClientFor(rest)
     let brokerCtx = node.waku.brokerCtx
 
-    let reqA = RequestId("req-A")
-    let reqB = RequestId("req-B")
+    let hashA = fakeMessageHash("a").to0xHex()
+    let hashB = fakeMessageHash("b").to0xHex()
 
-    # reqA sees the full lifecycle; reqB only an error.
-    MessagePropagatedEvent.emit(
-      brokerCtx, MessagePropagatedEvent(requestId: reqA, messageHash: "0xaa")
-    )
-    MessageSentEvent.emit(
-      brokerCtx, MessageSentEvent(requestId: reqA, messageHash: "0xaa")
-    )
+    # hashA sees the full lifecycle; hashB only an error.
+    MessagePropagatedEvent.emit(brokerCtx, MessagePropagatedEvent(messageHash: hashA))
+    MessageSentEvent.emit(brokerCtx, MessageSentEvent(messageHash: hashA))
     MessageErrorEvent.emit(
-      brokerCtx, MessageErrorEvent(requestId: reqB, messageHash: "0xbb", error: "boom")
+      brokerCtx, MessageErrorEvent(messageHash: hashB, error: "boom")
     )
     await sleepAsync(settleDelay)
 
-    # GET by id returns only reqA and removes it.
-    let byIdResp = await client.messagingGetSendEventsByIdV1($reqA)
-    check:
-      byIdResp.status == 200
-      byIdResp.data.requestId == $reqA
-      byIdResp.data.events.len == 2
-      byIdResp.data.events.anyIt(it.kind == SendEventKind.Sent)
-      byIdResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
+    # A text that is not a hash of 32 bytes gets 400, so a client does not poll it.
+    for malformed in ["0xaa", "not-a-hash"]:
+      let malformedResp = await client.messagingGetSendEventsByHashRawV1(malformed)
+      check malformedResp.status == 400
 
-    # Unknown / already-polled id → 404 (raw string client so the text error
+    # GET by hash returns only hashA and removes it. The lookup takes the hash
+    # in upper case and without `0x`.
+    let byHashResp =
+      await client.messagingGetSendEventsByHashV1(hashA[2 ..^ 1].toUpperAscii())
+    check:
+      byHashResp.status == 200
+      byHashResp.data.messageHash == hashA
+      byHashResp.data.events.len == 2
+      byHashResp.data.events.anyIt(it.kind == SendEventKind.Sent)
+      byHashResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
+
+    # Unknown / already-polled hash → 404 (raw string client so the text error
     # body decodes; the typed client would raise on a non-2xx body).
-    let missingResp = await client.messagingGetSendEventsByIdRawV1($reqA)
+    let missingResp = await client.messagingGetSendEventsByHashRawV1(hashA)
     check missingResp.status == 404
 
-    # GET all now returns only reqB (with its error), then clears.
+    # GET all now returns only hashB (with its error), then clears.
     let allResp = await client.messagingGetSendEventsV1()
     check:
       allResp.status == 200
       allResp.data.len == 1
-      allResp.data[0].requestId == $reqB
+      allResp.data[0].messageHash == hashB
       allResp.data[0].events.len == 1
       allResp.data[0].events[0].kind == SendEventKind.Error
       allResp.data[0].events[0].error == "boom"
@@ -251,7 +255,7 @@ suite "Messaging REST API":
       )
       resp.data.contains("Field `payload` is missing or empty")
 
-  asyncTest "a send whose meta exceeds the limit is accepted with a requestId":
+  asyncTest "a send whose meta exceeds the limit is accepted with a message hash":
     var node: LogosDelivery
     var rest: RestService
     lockNewGlobalBrokerContext:
@@ -274,16 +278,22 @@ suite "Messaging REST API":
     )
     check:
       resp.status == 200
-      resp.data.startsWith("{\"requestId\":\"")
+      resp.data.startsWith("{\"messageHash\":\"0x")
+
+  test "a refused send answers the HTTP status of its kind":
+    check:
+      sendRefused(SendError.init(SendErrorKind.QueueFull, "full")).status == Http429
+      sendRefused(SendError.init(SendErrorKind.Duplicate, "queued")).status == Http409
+      sendRefused(SendError.init(SendErrorKind.Other, "fault")).status == Http500
 
   test "an evicted send status counts in logos_delivery_rest_send_dropped":
     let cache = MessagingEventCache.new(maxSendRequests = 2)
     let before = logos_delivery_rest_send_dropped.value()
-    for id in ["a", "b", "c"]:
-      cache.recordSend(id, "0x" & id, SendEventKind.Propagated)
+    for hash in ["0xa", "0xb", "0xc"]:
+      cache.recordSend(hash, SendEventKind.Propagated)
     check:
       logos_delivery_rest_send_dropped.value() == before + 1
-      cache.pollAllSend().mapIt(it.requestId) == @["b", "c"]
+      cache.pollAllSend().mapIt(it.messageHash) == @["0xb", "0xc"]
 
   asyncTest "received messages are observable, capped, and evict after poll":
     var node: LogosDelivery
@@ -413,7 +423,7 @@ suite "Messaging REST API":
 
   test "clear drops the buffered send statuses and received messages":
     let cache = MessagingEventCache.new()
-    cache.recordSend("req-1", "0x1", SendEventKind.Sent)
+    cache.recordSend("0x1", SendEventKind.Sent)
     cache.recordReceived(
       "0x2",
       toRelayWakuMessage(fakeWakuMessage(contentTopic = "/test/1/recv/proto")),

@@ -26,22 +26,17 @@ method attempt*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
   debug "Trying message delivery via Lightpush",
-    requestId = task.requestId, msgHash = task.loggedHash(), tryCount = task.tryCount
+    msgHash = task.loggedHash(), tryCount = task.tryCount
 
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     let failure = lightpushReport(error)
     debug "Lightpush publish failed",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      trigger = failure.trigger,
-      error = failure.desc
+      msgHash = task.loggedHash(), trigger = failure.trigger, error = failure.desc
     return failure
 
   if numLightpushServers > 0:
     debug "Message propagated via Lightpush",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      servers = numLightpushServers
+      msgHash = task.loggedHash(), servers = numLightpushServers
   return publishReport(numLightpushServers)

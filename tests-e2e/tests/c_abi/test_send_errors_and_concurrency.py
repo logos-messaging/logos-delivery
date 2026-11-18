@@ -26,7 +26,7 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
     gets past NO_PEERS_TO_RELAY), but the relay publish fails for another
     reason. An oversized payload is used so the relay processor rejects the
     message immediately. No lightpush fallback is configured.
-      - Expected: Ok(RequestId), then a message_error event.
+      - Expected: Ok(message hash), then a message_error event.
     """
 
     def test_s13_relay_hard_failure_without_fallback(self, node_config):
@@ -68,10 +68,10 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
                 )
 
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                assert send_result.is_ok(), f"send() must return Ok(message hash), got: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 error_event = wait_for_error(
                     collector=sender_collector,
@@ -81,7 +81,7 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
                 assert error_event is not None, (
                     f"No message_error event within {ERROR_TIMEOUT_S}s from the " f"relay processor. Collected events: {sender_collector.events}"
                 )
-                assert error_event["requestId"] == request_id
+                assert error_event["messageHash"] == request_id
                 assert MESSAGE_SIZE_EXCEEDED_MSG in (error_event.get("error") or ""), (
                     f"Expected error to contain {MESSAGE_SIZE_EXCEEDED_MSG!r}.\n" f"Got: {error_event.get('error')!r}\n" f"Full event: {error_event}"
                 )

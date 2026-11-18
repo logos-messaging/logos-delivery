@@ -106,11 +106,13 @@ method attempt(
 type RejectingProcessor = ref object of BaseSendProcessor
   ## Rejects the proof of each attempt.
   proofs: seq[seq[byte]] ## The proof of each attempt.
+  hashes: seq[WakuMessageHash] ## The hash of the message of each attempt.
 
 method attempt(
     self: RejectingProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
   self.proofs.add(task.msg.proof)
+  self.hashes.add(computeMessageHash(task.pubsubTopic, task.msg))
   return StepReport.init(Trigger.ProofRejected, "rln proof rejected")
 
 type CountingProcessor = ref object of BaseSendProcessor
@@ -123,14 +125,11 @@ method attempt(
   inc self.calls
   return StepReport.init(Trigger.Published)
 
-proc buildTask(id: string): DeliveryTask =
+proc buildTask(): DeliveryTask =
   let msg = testMessage()
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
-    pubsubTopic: pubsubTopic,
-    msg: msg,
-    msgHash: computeMessageHash(pubsubTopic, msg),
+    pubsubTopic: pubsubTopic, msg: msg, msgHash: computeMessageHash(pubsubTopic, msg)
   )
 
 suite "SendService RLN proof attach":
@@ -212,7 +211,7 @@ suite "SendService RLN proof attach - failing backend":
     let backend = waku.mountFailingRln(RlnErrorKind.Permanent)
     let processor = CountingProcessor()
     let service = newService(processor)
-    let task = buildTask("permanent-in-first-attempt")
+    let task = buildTask()
 
     check service.enqueue(task).isOk()
     service.startSendService()
@@ -223,7 +222,7 @@ suite "SendService RLN proof attach - failing backend":
     check:
       task.state == DeliveryState.NotPropagated
       processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 1
       not service.isFull() # removed, so it is not retried or reported again
@@ -234,7 +233,7 @@ suite "SendService RLN proof attach - failing backend":
     let backend = waku.mountFailingRln(RlnErrorKind.NotReady)
     let processor = CountingProcessor()
     let service = newService(processor)
-    let task = buildTask("permanent-in-retry")
+    let task = buildTask()
 
     check service.enqueue(task).isOk()
     service.startSendService()
@@ -253,7 +252,7 @@ suite "SendService RLN proof attach - failing backend":
     check:
       task.state == DeliveryState.NotPropagated
       processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 2
       not service.isFull() # removed, so no later attempt reserves an id for it
@@ -291,7 +290,7 @@ suite "SendService RLN proof attach - refresh after a rejection":
         retryInterval = chronos.minutes(10),
       )
       .expect("SendService.new")
-    let task = buildTask("proof-rejected-once")
+    let task = buildTask()
 
     check service.enqueue(task).isOk()
     service.startSendService()
@@ -387,7 +386,8 @@ suite "SendService RLN proof attach - RLN mounted":
         retryInterval = chronos.milliseconds(10),
       )
       .expect("SendService.new")
-    let task = buildTask("proof-rejected-each-time")
+    let task = buildTask()
+    let accepted = task.msgHash
 
     check service.enqueue(task).isOk()
     service.startSendService()
@@ -399,6 +399,8 @@ suite "SendService RLN proof attach - RLN mounted":
       backend.refreshes == MaxProofRefreshes
       backend.proofs == MaxProofRefreshes + 1
       processor.proofs == (1 .. MaxProofRefreshes + 1).mapIt(@[byte(it)])
+      # A new proof sends the same message, with the hash that `enqueue` accepted.
+      processor.hashes == newSeqWith(MaxProofRefreshes + 1, accepted)
       manager.sentInCurrentEpoch == uint64(MaxProofRefreshes + 1) # and no charge after
       errors == @["rln proof rejected"]
 
@@ -415,7 +417,7 @@ suite "SendService RLN proof attach - RLN mounted":
         mixLightpushSize(PubsubTopic("/waku/2/rs/3/0"), proven).size
 
   asyncTest "an oversized Required send leaves EVM message ids and admission budget untouched":
-    let task = buildTask("oversized-with-evm")
+    let task = buildTask()
     let limit = mixLightpushSize(task.pubsubTopic, task.msg).limit
     for n in 0 .. limit:
       task.msg.payload = newSeq[byte](n)

@@ -41,14 +41,12 @@ method attempt*(
     self: RelaySendProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
   debug "Trying message delivery via Relay",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
     let errorMessage = error.desc.get($error.code)
     debug "Failed to publish message with relay",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
+      msgHash = task.msgHash.to0xHex(), error = errorMessage
     if error.isRlnRejection():
       return StepReport.init(Trigger.ProofRejected, errorMessage)
     if error.code == LightPushErrorCode.NO_PEERS_TO_RELAY:
@@ -57,7 +55,5 @@ method attempt*(
 
   if noOfPublishedPeers > 0:
     debug "Message propagated via Relay",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      noOfPeers = noOfPublishedPeers
+      msgHash = task.msgHash.to0xHex(), noOfPeers = noOfPublishedPeers
   return publishReport(noOfPublishedPeers)

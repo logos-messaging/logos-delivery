@@ -106,6 +106,11 @@ proc fakeWakuMessage*(
     proof: proof,
   )
 
+proc fakeMessageHash*(id: string): WakuMessageHash =
+  ## The message hash that a fake `MessagingSend` provider returns.
+  ## Each id gives its own hash.
+  return computeMessageHash(DefaultPubsubTopic, WakuMessage(payload: toBytes(id)))
+
 proc fakeWakuMessageEncodedAt*(
     encodedSize: int, contentTopic = DefaultContentTopic, ts = now()
 ): WakuMessage =

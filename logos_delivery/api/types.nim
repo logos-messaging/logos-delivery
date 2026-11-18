@@ -1,11 +1,13 @@
 {.push raises: [].}
 
-import libp2p/crypto/crypto, chronos
+import libp2p/crypto/crypto, chronos, results
 import stew/byteutils
 import logos_delivery/waku/utils/requests as request_utils
-import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]
+import
+  logos_delivery/waku/waku_core/
+    [topics/content_topic, message/message, message/digest, time]
 
-export content_topic, message
+export content_topic, message, digest
 
 type
   MessageEnvelope* = object
@@ -17,7 +19,20 @@ type
       ## Higher layers (e.g. Reliable Channel) stamp this so peers can route
       ## ingress traffic to their corresponding layer. Empty by default.
 
-  RequestId* = distinct string
+  RequestId* = distinct string ## Identifies one send of a reliable channel.
+
+  SendErrorKind* {.pure.} = enum
+    NotStarted ## The messaging client does not run.
+    NoShard ## The node finds no shard for the content topic of the message.
+    Duplicate ## The node already sends a message with this hash.
+    QueueFull ## The send queue of the node is full.
+    Other ## A fault with no kind of its own.
+
+  SendError* = object
+    kind*: SendErrorKind
+    desc*: string
+
+  SendResult* = Result[WakuMessageHash, SendError]
 
   ConnectionStatus* {.pure.} = enum
     Disconnected
@@ -42,6 +57,17 @@ proc `$`*(r: RequestId): string {.inline.} =
 
 proc `==`*(a, b: RequestId): bool {.inline.} =
   string(a) == string(b)
+
+func init*(T: type SendError, kind: SendErrorKind, desc: string): T =
+  SendError(kind: kind, desc: desc)
+
+func `$`*(error: SendError): string =
+  ## The description, then the kind in parentheses. An `Other` error gives only
+  ## its description. The kind comes last, so code that reads the start of a
+  ## text still finds it.
+  if error.kind == SendErrorKind.Other:
+    return error.desc
+  return error.desc & " (" & $error.kind & ")"
 
 proc init*(
     T: type MessageEnvelope,

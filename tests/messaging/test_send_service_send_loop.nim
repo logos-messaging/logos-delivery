@@ -26,6 +26,17 @@ const PollInterval = chronos.milliseconds(5)
 const FastRetryInterval = chronos.milliseconds(10)
   ## The `retryInterval` of most tests, so a parked task retries soon.
 
+proc label(task: DeliveryTask): string =
+  ## The payload text, the name of a task in these tests.
+  return string.fromBytes(task.msg.payload)
+
+proc hashHex(task: DeliveryTask): string =
+  ## The message hash as the events carry it.
+  return task.msgHash.to0xHex()
+
+proc refusedAs(res: Result[void, SendError], kind: SendErrorKind): bool =
+  return res.isErr() and res.error.kind == kind
+
 type ScriptedProcessor = ref object of BaseSendProcessor
   ## The first call parks a task. A retry of a `stalled` task waits for its reply,
   ## a `raising` task raises, and other retries propagate the task.
@@ -49,7 +60,7 @@ proc retryStarted(self: ScriptedProcessor, id: string): Future[void] =
 method attempt(
     self: ScriptedProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
-  let id = $task.requestId
+  let id = task.label()
   if id notin self.seen:
     self.seen.add(id)
     return StepReport.init(Trigger.ServiceUnavailable)
@@ -91,11 +102,11 @@ method attempt(
 
 type OrderProcessor = ref object of BaseSendProcessor
   ## Parks each task at its first call and propagates it at the next one.
-  ## `calls` holds the request ids in call order.
+  ## `calls` holds the labels of the tasks in call order.
   calls: seq[string]
 
 method attempt(self: OrderProcessor, task: DeliveryTask): Future[StepReport] {.async.} =
-  let id = $task.requestId
+  let id = task.label()
   let trigger = if id in self.calls: Trigger.Published else: Trigger.ServiceUnavailable
   self.calls.add(id)
   return StepReport.init(trigger)
@@ -200,10 +211,10 @@ method attempt(
   return StepReport()
 
 type OutcomeLog = ref object
-  ## The request ids of the propagation and error events, in order.
+  ## The message hashes of the propagation and error events, in order.
   brokerCtx: BrokerContext
-  propagated: seq[RequestId]
-  errors: seq[RequestId]
+  propagated: seq[string]
+  errors: seq[string]
   propagatedCount: EventCounter
   propagatedListener: MessagePropagatedEventListener
   errorListener: MessageErrorEventListener
@@ -219,7 +230,7 @@ proc newOutcomeLog(brokerCtx: BrokerContext): OutcomeLog =
     .listen(
       brokerCtx,
       proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-        log.propagated.add(event.requestId)
+        log.propagated.add(event.messageHash)
         log.propagatedCount.inc(),
     )
     .expect("listen propagated")
@@ -227,7 +238,7 @@ proc newOutcomeLog(brokerCtx: BrokerContext): OutcomeLog =
     .listen(
       brokerCtx,
       proc(event: MessageErrorEvent) {.async: (raises: []).} =
-        log.errors.add(event.requestId),
+        log.errors.add(event.messageHash),
     )
     .expect("listen error")
   return log
@@ -265,7 +276,7 @@ type SendOnErrorHook = ref object
   timer: Future[void] ## a `sleepAsync(ZeroDuration)` from the first error
   stoppedByTimer: bool
   stoppedAt: Moment
-  results: seq[Result[RequestId, string]]
+  results: seq[Result[void, SendError]]
   done: Future[void]
 
 proc testConf(): WakuConf =
@@ -306,7 +317,6 @@ suite "SendService - deliver":
     )
     let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
     return DeliveryTask(
-      requestId: RequestId(id),
       pubsubTopic: pubsubTopic,
       msg: msg,
       msgHash: computeMessageHash(pubsubTopic, msg),
@@ -365,7 +375,7 @@ suite "SendService - deliver":
     ## Marks the task as charged, and its first call as done, so its first call
     ## is a retry.
     task.firstAdmittedTime = Opt.some(Moment.now())
-    processor.seen.add($task.requestId)
+    processor.seen.add(task.label())
     return task
 
   asyncTest "a send that ends is reported while another send still waits":
@@ -382,7 +392,7 @@ suite "SendService - deliver":
       await service.stopSendService()
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      log.propagated == @[fast.requestId]
+      log.propagated == @[fast.hashHex()]
       processor.running == 1 # the retry of `slow` still waits for its reply
 
   asyncTest "at most MaxSendsInFlight sends run at the same time":
@@ -532,7 +542,7 @@ suite "SendService - deliver":
     service.retryNow()
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      log.propagated == @[first.requestId]
+      log.propagated == @[first.hashHex()]
       second.state == DeliveryState.NextRoundRetry
       manager.sentInCurrentEpoch == 1'u64
 
@@ -587,12 +597,12 @@ suite "SendService - deliver":
     checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
       service.attempts == 5 # both read in epoch 1 and parked again
       epoch[] == 2'u64 # the roll landed after their reads
-    check log.propagated == @[spent.requestId]
+    check log.propagated == @[spent.hashHex()]
 
     service.retryNow()
     check await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      log.propagated == @[spent.requestId, first.requestId]
+      log.propagated == @[spent.hashHex(), first.hashHex()]
       second.state == DeliveryState.NextRoundRetry
 
   asyncTest "a cancel of the RLN quota read is raised, and it is not a missing quota":
@@ -653,14 +663,14 @@ suite "SendService - deliver":
       await service.stopSendService()
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      log.propagated == @[fine.requestId]
+      log.propagated == @[fine.hashHex()]
       boom.state == DeliveryState.NextRoundRetry
       log.errors.len == 0
 
     processor.raising = @[]
     service.retryNow()
     check await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_MEDIUM)
-    check log.propagated == @[fine.requestId, boom.requestId]
+    check log.propagated == @[fine.hashHex(), boom.hashHex()]
 
   asyncTest "an attempt that waits for a send slot past the window is not made":
     let stalling = StallingProcessor()
@@ -801,7 +811,7 @@ suite "SendService - deliver":
     await service.stopSendService()
     check:
       task.state == DeliveryState.AwaitingStore
-      log.propagated == @[task.requestId]
+      log.propagated == @[task.hashHex()]
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -943,12 +953,12 @@ suite "SendService - deliver":
     let service = newService(processor)
     let first = buildTask("first")
     let second = buildTask("second")
-    let results = new seq[Result[RequestId, string]]
+    let results = new seq[Result[void, SendError]]
     let listener = MessagePropagatedEvent
       .listen(
         waku.brokerCtx,
         proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-          if event.requestId == first.requestId:
+          if event.messageHash == first.hashHex():
             results[].add(service.enqueue(second))
         ,
       )
@@ -965,7 +975,7 @@ suite "SendService - deliver":
       results[].len == 1
       results[].allIt(it.isOk())
       processor.calls == 2
-      log.propagated == @[first.requestId, second.requestId]
+      log.propagated == @[first.hashHex(), second.hashHex()]
 
   asyncTest "the event loop runs while a listener sends at each error":
     ## The budget is 0, so each admission drops its ephemeral message with no
@@ -1063,7 +1073,7 @@ suite "SendService - deliver":
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check not await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_SHORT)
     check:
-      log.propagated == @[task.requestId]
+      log.propagated == @[task.hashHex()]
       log.errors.len == 0
       handOff.calls == 3 # the restart starts a round at mix again
 
@@ -1091,12 +1101,12 @@ suite "SendService - deliver":
       await service.stopSendService()
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
 
-  asyncTest "enqueue returns the task of a queued message, waits while stopped, and refuses only a full send queue":
+  asyncTest "enqueue refuses a queued message and a full send queue, and waits while stopped":
     let processor = FakePropagatingProcessor()
     let service = newService(processor, sendQueueCapacity = 2)
     let first = buildTask("first")
+    let second = buildTask("second")
     let copy = DeliveryTask(
-      requestId: RequestId("copy-of-first"),
       pubsubTopic: first.pubsubTopic,
       msg: first.msg, # the same message, so the same hash
       msgHash: first.msgHash,
@@ -1104,21 +1114,19 @@ suite "SendService - deliver":
     )
 
     check:
-      service.enqueue(first).valueOr(RequestId("refused")) == first.requestId
-      service.enqueue(copy).valueOr(RequestId("refused")) == first.requestId
-        # the task of `first`
-      service.enqueue(buildTask("second")).isOk()
+      service.enqueue(first).isOk()
+      service.enqueue(copy).refusedAs(SendErrorKind.Duplicate)
+      service.enqueue(second).isOk()
       service.isFull()
-      service.enqueue(buildTask("third")).errorOr("accepted") ==
-        "Send queue full, retry later"
-      service.enqueue(copy).valueOr(RequestId("refused")) == first.requestId
-        # a queued message gets its request id also when the send queue is full
+      service.enqueue(buildTask("third")).refusedAs(SendErrorKind.QueueFull)
+      service.enqueue(copy).refusedAs(SendErrorKind.Duplicate)
+        # a queued message is a duplicate also when the send queue is full
 
     service.startSendService()
     check await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
       processor.calls == 2 # `first` and `second`
-      log.propagated == @[first.requestId, RequestId("second")]
+      log.propagated == @[first.hashHex(), second.hashHex()]
 
     await service.stopSendService()
     check service.enqueue(buildTask("after-stop")).isOk()

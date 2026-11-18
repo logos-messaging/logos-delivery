@@ -1,6 +1,6 @@
 # Run a Messaging API node
 
-A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{requestId}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
+A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`, which returns the hash of the message. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{messageHash}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
 
 ## Network
 

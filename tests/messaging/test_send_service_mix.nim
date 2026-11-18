@@ -41,11 +41,13 @@ import ../testlib/[futures, testasync, wakucore, wakunodeconf]
 
 type PlainSendProcessor = ref object of BaseSendProcessor
   calls: int
+  hashes: seq[WakuMessageHash] ## The hash of the message of each attempt.
 
 method attempt(
     self: PlainSendProcessor, task: DeliveryTask
 ): Future[StepReport] {.async.} =
   inc self.calls
+  self.hashes.add(computeMessageHash(task.pubsubTopic, task.msg))
   return StepReport.init(Trigger.Published)
 
 type ScriptedResultProcessor = ref object of BaseSendProcessor
@@ -104,7 +106,6 @@ proc buildTask(
   )
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
@@ -704,7 +705,7 @@ suite "SendService - anonymity level with a mounted mix":
       task.lastReport.get().trigger == Trigger.WindowElapsed
       task.lastFailure == Opt.some(Trigger.ServiceBusy)
       task.tryCount > 1
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
       errors.mapIt(it.error) == @["Unable to send within retry time window"]
 
   asyncTest "a Preferred task falls back to the plain path once the window elapsed":
@@ -718,10 +719,12 @@ suite "SendService - anonymity level with a mounted mix":
 
     # Mix had the task since admission and did not deliver it.
     let task = buildTask("preferred-late", chronos.seconds(90))
+    let accepted = task.msgHash
     check:
       (await service.runRound(task)) == DeliveryState.Propagated
       plain.calls == 1
       task.tryCount == 1 # the plain attempt, and none over mix
+      plain.hashes == @[accepted] # the hand-over sends the same message
 
   asyncTest "an RLN proof refresh starts a new Preferred mix window":
     ## The refresh clears `firstAdmittedTime`, so the new proof

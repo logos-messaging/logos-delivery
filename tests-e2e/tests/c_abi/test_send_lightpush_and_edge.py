@@ -44,7 +44,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                         staticnodes=[lightpush_peer],
                         storenode=store_peer,
                         reliabilityEnabled=True
-    Expected: send() returns Ok(RequestId), Propagated arrives, then Sent
+    Expected: send() returns Ok(message hash), Propagated arrives, then Sent
     (store validation succeeds), no Error.
     Purpose: edge-mode fully validated success path against a real docker
     store node (cross-implementation check).
@@ -109,7 +109,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                 assert send_result.is_ok(), f"send() failed: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
@@ -119,7 +119,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 sent = wait_for_sent(
                     collector=sender_collector,
@@ -129,7 +129,7 @@ class TestS11EdgeSenderLightpushAndStore(StepsCommon):
                 assert sent is not None, (
                     f"No message_sent event within {SENT_AFTER_STORE_TIMEOUT_S}s " f"after propagation. Collected events: {sender_collector.events}"
                 )
-                assert sent["requestId"] == request_id
+                assert sent["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -147,7 +147,7 @@ class TestS16LightpushPeerAppearsLater(StepsCommon):
         [Edge]          wrapper, mode="Edge", relay=False, no staticnodes.
         [LightpushPeer] wrapper, relay=True, lightpush=True, staticnodes=[edge].
         [RelayPeer]     wrapper, relay=True, staticnodes=[lightpush_peer].
-    Expected: send() returns Ok(RequestId), then eventually Propagated.
+    Expected: send() returns Ok(message hash), then eventually Propagated.
     """
 
     def test_s16_lightpush_peer_appears_later(self):
@@ -176,7 +176,7 @@ class TestS16LightpushPeerAppearsLater(StepsCommon):
             send_result = edge_sender.send_message(message=msg)
             assert send_result.is_ok(), f"send() failed: {send_result.err()}"
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             delay(SERVICE_DOWN_SETTLE_S)
 
@@ -204,7 +204,7 @@ class TestS16LightpushPeerAppearsLater(StepsCommon):
                         f"after the lightpush peer joined. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after recovery: {error}"
@@ -257,16 +257,16 @@ class TestS18StagedTopologyReformation(StepsCommon):
         assert sender_result.is_ok(), f"Failed to start sender: {sender_result.err()}"
 
         with sender_result.ok_value as sender:
-            # send() before any peer exists must still return Ok(RequestId).
+            # send() before any peer exists must still return Ok(message hash).
             message = create_message_bindings(
                 payload=to_base64("S18 lightpush-first staged recovery"),
                 contentTopic="/test/1/s18-lightpush-first/proto",
             )
             send_result = sender.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) while isolated, got: {send_result.err()}"
+            assert send_result.is_ok(), f"send() must return Ok(message hash) while isolated, got: {send_result.err()}"
 
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             # No peers yet: the message must not propagate.
             delay(SERVICE_DOWN_SETTLE_S)
@@ -303,7 +303,7 @@ class TestS18StagedTopologyReformation(StepsCommon):
                         f"after peers appeared in stages. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after staged recovery: {error}"
@@ -323,16 +323,16 @@ class TestS18StagedTopologyReformation(StepsCommon):
         assert sender_result.is_ok(), f"Failed to start sender: {sender_result.err()}"
 
         with sender_result.ok_value as sender:
-            # send() before any peer exists must still return Ok(RequestId).
+            # send() before any peer exists must still return Ok(message hash).
             message = create_message_bindings(
                 payload=to_base64("S18 relay-first staged recovery"),
                 contentTopic="/test/1/s18-relay-first/proto",
             )
             send_result = sender.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) while isolated, got: {send_result.err()}"
+            assert send_result.is_ok(), f"send() must return Ok(message hash) while isolated, got: {send_result.err()}"
 
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             # No peers yet: the message must not propagate.
             delay(SERVICE_DOWN_SETTLE_S)
@@ -369,7 +369,7 @@ class TestS18StagedTopologyReformation(StepsCommon):
                         f"after peers appeared in stages. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == request_id
 
                     error = wait_for_error(sender_collector, request_id, timeout_s=0)
                     assert error is None, f"Unexpected message_error after staged recovery: {error}"
@@ -451,7 +451,7 @@ class TestS25EphemeralLightpushWithStore(StepsCommon):
                 assert send_result.is_ok(), f"send() failed: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
@@ -461,7 +461,7 @@ class TestS25EphemeralLightpushWithStore(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 # Ephemeral messages are never store-validated, so no Sent
                 # event must arrive even though the store peer is reachable.

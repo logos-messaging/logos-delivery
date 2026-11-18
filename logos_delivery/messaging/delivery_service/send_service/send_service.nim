@@ -421,14 +421,12 @@ proc admitAndProve(
       let quotaState = await self.rateLimitManager.quotaState()
       if quotaState != QuotaState.Normal:
         debug "Dropping ephemeral message as we are approaching rate-limit quota",
-          requestId = task.requestId,
-          msgHash = task.msgHash.to0xHex(),
-          quotaState = quotaState
+          msgHash = task.msgHash.to0xHex(), quotaState = quotaState
         return StepReport.init(Trigger.EphemeralDropped, $quotaState)
 
     (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
       debug "Over rate-limit budget, task waits for the epoch to roll",
-        requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+        msgHash = task.msgHash.to0xHex()
       return StepReport.init(Trigger.OverBudget)
     task.firstAdmittedTime = Opt.some(Moment.now())
 
@@ -442,10 +440,7 @@ proc admitAndProve(
       of RlnErrorKind.NotReady: Trigger.ProofNotReady
       of RlnErrorKind.Transient: Trigger.ProofTransient
     debug "Failed to attach RLN proof",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      trigger = trigger,
-      error = $error
+      msgHash = task.msgHash.to0xHex(), trigger = trigger, error = $error
     return StepReport.init(trigger, $error)
 
   return StepReport.init(Trigger.Admitted)
@@ -462,8 +457,7 @@ proc admissionStep(
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
-    error "Exception in admission",
-      requestId = task.requestId, msgHash = self.loggedHash(task), error = exc.msg
+    error "Exception in admission", msgHash = self.loggedHash(task), error = exc.msg
     return StepReport.init(Trigger.StepRaised, exc.msg)
   finally:
     self.admissionLock.release2()
@@ -489,14 +483,13 @@ proc runAttempt(
   try:
     return await attempt.wait(timeout)
   except AsyncTimeoutError:
-    debug "Send attempt timed out",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Send attempt timed out", msgHash = task.msgHash.to0xHex()
     return StepReport.init(Trigger.AttemptTimedOut)
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
     error "Exception in a send attempt",
-      requestId = task.requestId, msgHash = self.loggedHash(task), error = exc.msg
+      msgHash = self.loggedHash(task), error = exc.msg
     return StepReport.init(Trigger.StepRaised, exc.msg)
 
 proc transportStep(
@@ -579,7 +572,6 @@ proc storeStep(
             else:
               await resend
           debug "Resend after a Store miss finished",
-            requestId = task.requestId,
             msgHash = task.msgHash.to0xHex(),
             resendCount = task.resendCount,
             trigger = report.trigger
@@ -640,23 +632,20 @@ proc reportPropagated(self: SendService, task: DeliveryTask) =
   # INFO lines reach log collectors.
   # A hash in them ties this node to an anonymized message.
   # `MixSendProcessor` still logs the hash at DEBUG.
-  info "Message successfully propagated",
-    requestId = task.requestId, msgHash = self.loggedHash(task)
+  info "Message successfully propagated", msgHash = self.loggedHash(task)
   # A listener runs inside `emit`, so the task records the event first.
   task.propagatedEventEmitted = true
-  MessagePropagatedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  MessagePropagatedEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
 proc reportQueued(self: SendService, task: DeliveryTask) =
   if task.queuedEventEmitted:
     return
-  info "Message queued for rate-limit budget",
-    requestId = task.requestId, msgHash = self.loggedHash(task)
+  info "Message queued for rate-limit budget", msgHash = self.loggedHash(task)
   task.queuedEventEmitted = true
-  MessageQueuedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  MessageQueuedEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
 proc reportMixFallback(self: SendService, task: DeliveryTask, trigger: Trigger) =
   debug "Handing the task from mix to the plain send path",
-    requestId = task.requestId,
     msgHash = task.msgHash.to0xHex(),
     trigger = trigger,
     admissionAge = task.admissionAge()
@@ -667,9 +656,7 @@ proc reportMixFallback(self: SendService, task: DeliveryTask, trigger: Trigger) 
 
 proc reportStoreTimeout(self: SendService, task: DeliveryTask) =
   info "Message propagated but not validated by a store node within time window; stop trying.",
-    requestId = task.requestId,
-    msgHash = self.loggedHash(task),
-    waited = task.storeWaited()
+    msgHash = self.loggedHash(task), waited = task.storeWaited()
   recordStoreValidationTimeout()
 
 proc startStoreWait(self: SendService, task: DeliveryTask) =
@@ -682,24 +669,20 @@ proc startStoreWait(self: SendService, task: DeliveryTask) =
 proc reportSent(self: SendService, task: DeliveryTask) =
   # An anonymized task gets here only through a clear republish.
   # That is a `Preferred` send that made a mix attempt in an earlier round.
-  info "Message successfully sent",
-    requestId = task.requestId, msgHash = self.loggedHash(task)
-  MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  info "Message successfully sent", msgHash = self.loggedHash(task)
+  MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
 proc reportSentOverMix(self: SendService, task: DeliveryTask) =
   # The reply of the exit ends a mixed send, so it gets the event of a stored send.
-  info "Message successfully sent over mix", requestId = task.requestId
-  MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  info "Message successfully sent over mix", msgHash = self.loggedHash(task)
+  MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
 
 proc reportNotStored(self: SendService, task: DeliveryTask, report: StepReport) =
-  MessageErrorEvent.emit(
-    self.brokerCtx, task.requestId, task.msgHash.to0xHex(), report.errorText()
-  )
+  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
 
 proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
   # A mix exit may have published the message even though its reply was lost.
   error "Failed to send message",
-    requestId = task.requestId,
     msgHash = self.loggedHash(task),
     error = report.errorText(),
     trigger = report.trigger,
@@ -713,9 +696,7 @@ proc reportFailed(self: SendService, task: DeliveryTask, report: StepReport) =
         task.messageAge()
       else:
         task.admissionAge()
-  MessageErrorEvent.emit(
-    self.brokerCtx, task.requestId, task.msgHash.to0xHex(), report.errorText()
-  )
+  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), report.errorText())
 
 proc finish(self: SendService, task: DeliveryTask) =
   task.endStoreWait()
@@ -791,7 +772,7 @@ proc unplanned(
   ## A trigger that the plan cannot take fails the send.
   ## `listed` is false for a trigger that the step of `fromState` must not report.
   error "A trigger that the delivery plan cannot take",
-    requestId = task.requestId,
+    msgHash = self.loggedHash(task),
     state = fromState,
     trigger = trigger,
     listed = trigger in self.plan.stepTriggers(fromState)
@@ -868,29 +849,26 @@ proc startDeliverSoon(self: SendService, task: DeliveryTask) =
         task.deliverHandle = self.deliver(task)
   )
 
-proc enqueue*(self: SendService, task: DeliveryTask): Result[RequestId, string] =
-  ## Puts `task` in the send queue and returns its request id. It makes no
-  ## attempt and emits no event, so the caller gets the result first. The network
-  ## keeps one copy of a message, so a message that the send queue already has
-  ## gets the request id of the queued task.
+proc enqueue*(self: SendService, task: DeliveryTask): Result[void, SendError] =
+  ## Puts `task` in the send queue. It makes no attempt and emits no event, so
+  ## the caller gets the result first. The hash of a message identifies its
+  ## send, so a message that the send queue already has is refused.
   assert(not task.isNil(), "task for enqueue must not be nil")
   let queued = self.deliveryTasks.getOrDefault(task.msgHash)
   if not queued.isNil():
-    info "Message already in the send queue, request folded into the queued one",
-      requestId = task.requestId,
-      queuedRequestId = queued.requestId,
+    debug "Send refused, the message is already in the send queue",
       msgHash = self.loggedHash(queued)
-    return ok(queued.requestId)
+    return err(
+      SendError.init(SendErrorKind.Duplicate, "The node already sends this message")
+    )
   if self.isFull():
-    error "Send queue full, request cannot be enqueued",
-      requestId = task.requestId, msgHash = self.loggedHash(task)
-    return err("Send queue full, retry later")
+    error "Send queue full, request cannot be enqueued", msgHash = self.loggedHash(task)
+    return err(SendError.init(SendErrorKind.QueueFull, "Send queue full, retry later"))
 
-  info "Task added to the send queue",
-    requestId = task.requestId, msgHash = self.loggedHash(task)
+  info "Task added to the send queue", msgHash = self.loggedHash(task)
   self.deliveryTasks[task.msgHash] = task
   self.startDeliverSoon(task)
-  return ok(task.requestId)
+  return ok()
 
 proc startSendService*(self: SendService) =
   ## Starts each task. Call it after `stopSendService` ends. A call while the

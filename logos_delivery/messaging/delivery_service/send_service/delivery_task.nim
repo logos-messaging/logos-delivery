@@ -18,7 +18,6 @@ type StoreAnswer* = ref object
   deadline*: Moment ## The end of the Store validation window of the task.
 
 type DeliveryTask* = ref object
-  requestId*: RequestId
   pubsubTopic*: PubsubTopic
   msg*: WakuMessage
   msgHash*: WakuMessageHash
@@ -117,10 +116,7 @@ proc waitAnswer*(
   await answer.signal.wait()
 
 proc new*(
-    T: typedesc[DeliveryTask],
-    requestId: RequestId,
-    envelop: MessageEnvelope,
-    brokerCtx: BrokerContext,
+    T: typedesc[DeliveryTask], envelop: MessageEnvelope, brokerCtx: BrokerContext
 ): Result[T, string] =
   let msg = envelop.toWakuMessage()
   # TODO: use sync request for such as soon as available
@@ -133,8 +129,7 @@ proc new*(
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()
   let msgHash = computeMessageHash(pubsubTopic, msg)
 
-  return
-    ok(T(requestId: requestId, pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
+  return ok(T(pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
 
 proc loggedHash*(task: DeliveryTask): string =
   ## The hash for INFO and ERROR records, withheld once the task is anonymized.

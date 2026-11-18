@@ -4,6 +4,8 @@
 
 The liblogosdelivery library emits four types of message delivery events and one message receipt event that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageQueued`, `onMessageSent`, `onMessagePropagated`, `onMessageError` and `onMessageReceived` (the JSON `eventType` inside each payload is `message_queued` / `message_sent` / `message_propagated` / `message_error` / `message_received`).
 
+`logosdelivery_ctx_send` returns the hash of the message as text, `0x` and 64 hex digits in lower case. Each delivery event of the send carries the same text in `messageHash`.
+
 ## Event Types
 
 ### 1. message_sent
@@ -13,15 +15,13 @@ Emitted when the node confirms the delivery of a message that is not ephemeral, 
 ```json
 {
   "eventType": "message_sent",
-  "requestId": "unique-request-id",
   "messageHash": "0x..."
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_sent"
-- `requestId`: Request ID returned from the send operation
-- `messageHash`: Hash of the message that was sent
+- `messageHash`: Hash that the send operation returned
 
 ### 2. message_propagated
 Emitted when a message has been successfully propagated to neighboring nodes on the network.
@@ -30,15 +30,13 @@ Emitted when a message has been successfully propagated to neighboring nodes on 
 ```json
 {
   "eventType": "message_propagated",
-  "requestId": "unique-request-id",
   "messageHash": "0x..."
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_propagated"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that was propagated
+- `messageHash`: Hash that the send operation returned
 
 ### 3. message_error
 Emitted when a send fails: rejected, retry window elapsed, parked too long, ephemeral dropped near the rate limit, or store validation timed out.
@@ -47,7 +45,6 @@ Emitted when a send fails: rejected, retry window elapsed, parked too long, ephe
 ```json
 {
   "eventType": "message_error",
-  "requestId": "unique-request-id",
   "messageHash": "0x...",
   "error": "error description"
 }
@@ -55,8 +52,7 @@ Emitted when a send fails: rejected, retry window elapsed, parked too long, ephe
 
 **Fields:**
 - `eventType`: Always "message_error"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that failed
+- `messageHash`: Hash that the send operation returned
 - `error`: Description of what went wrong
 
 ### 4. message_queued
@@ -66,15 +62,13 @@ Emitted when a send is held back because the current epoch's rate-limit budget i
 ```json
 {
   "eventType": "message_queued",
-  "requestId": "unique-request-id",
   "messageHash": "0x..."
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_queued"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that was held back
+- `messageHash`: Hash that the send operation returned
 
 ### 5. message_received
 Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.
@@ -163,22 +157,37 @@ logosdelivery_ctx_start_node(ctx, on_reply, userData);
 
 For a typical successful message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_sent** → A store node or the mix exit confirms the message (only with the `reliability` option on)
 
 For a failed message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_error** → Delivery failed with error description
 
 For a send that no store node confirms (only with the `reliability` option on):
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_error** → No store node confirmed the message within the validation window
 
-The `on_reply` callback of `logosdelivery_ctx_send` gets the request ID before the event thread gets an event of that request. When the send queue is full, `logosdelivery_ctx_send` returns an error and no request ID. A send of a message that the send queue already has gets the request ID of the queued send.
+For a refused message send:
+
+1. **send** → Returns an error, and no event comes
+
+The `on_reply` callback of `logosdelivery_ctx_send` gets the message hash before the event thread gets an event of that send.
+
+## Send Errors
+
+`logosdelivery_ctx_send` sets the timestamp of the message, so the message hash does not change after the call. It refuses a message that the node cannot accept. The error text is `Send failed: <description> (<kind>)`, for example `Send failed: node is not started (NotStarted)`. The kinds are:
+
+- `NotStarted`: the node is not started.
+- `NoShard`: the node finds no shard for the content topic of the message.
+- `QueueFull`: the send queue of the node is full.
+- `Duplicate`: the node already sends a message with this hash. Two sends of the same message get one hash only when the clock of the node gives them the same timestamp.
+
+A text with no kind at its end is another fault.
 
 ## Important Notes
 

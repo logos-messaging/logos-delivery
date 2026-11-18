@@ -88,7 +88,8 @@ class TestLogosDeliveryLifecycle:
             assert send_result.is_ok(), f"channel_send on a node never started failed: {send_result.err()}"
             request_id = send_result.ok_value
 
-            error_event = wait_for_error(node_collector, request_id, ERROR_TIMEOUT_S)
+            # The refused send got no message hash, so its message_error event has an empty one.
+            error_event = wait_for_error(node_collector, "", ERROR_TIMEOUT_S)
             assert error_event is not None, f"no message_error for request {request_id}. Collected events: {node_collector.events}"
             assert MESSAGING_SEND_NO_PROVIDER_RE.fullmatch(error_event["error"]), error_event["error"]
 

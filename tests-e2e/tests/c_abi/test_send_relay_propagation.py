@@ -21,7 +21,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
     S29 — Send on two different content topics that map to different shards.
     Sender has a relay peer reachable on shard X and shard Y; topic A maps to
     shard X and topic B maps to shard Y. Two independent sends, one per topic.
-    Expected: both sends return Ok(RequestId), and each request gets its own
+    Expected: both sends return Ok(message hash), and each request gets its own
     message_propagated event following the availability of its own shard.
     Purpose: ensures shard derivation and delivery behavior are topic-specific.
     """
@@ -72,7 +72,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 send_a = sender.send_message(message=message_a)
                 assert send_a.is_ok(), f"send() on TOPIC_A failed: {send_a.err()}"
                 request_id_a = send_a.ok_value
-                assert request_id_a, "send() on TOPIC_A returned an empty RequestId"
+                assert request_id_a, "send() on TOPIC_A returned an empty message hash"
 
                 # Send on topic B (shard Y).
                 message_b = create_message_bindings(
@@ -82,9 +82,9 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 send_b = sender.send_message(message=message_b)
                 assert send_b.is_ok(), f"send() on TOPIC_B failed: {send_b.err()}"
                 request_id_b = send_b.ok_value
-                assert request_id_b, "send() on TOPIC_B returned an empty RequestId"
+                assert request_id_b, "send() on TOPIC_B returned an empty message hash"
 
-                assert request_id_a != request_id_b, "Each send must produce a distinct RequestId"
+                assert request_id_a != request_id_b, "Each send must produce a distinct message hash"
 
                 # Each request propagates over its own shard's mesh independently.
                 propagated_a = wait_for_propagated(
@@ -95,7 +95,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_a is not None, (
                     f"No message_propagated event for TOPIC_A within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_a["requestId"] == request_id_a
+                assert propagated_a["messageHash"] == request_id_a
 
                 propagated_b = wait_for_propagated(
                     collector=sender_collector,
@@ -105,7 +105,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                 assert propagated_b is not None, (
                     f"No message_propagated event for TOPIC_B within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_b["requestId"] == request_id_b
+                assert propagated_b["messageHash"] == request_id_b
 
                 # No cross-talk: neither request should produce an error.
                 for request_id in (request_id_a, request_id_b):

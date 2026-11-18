@@ -396,7 +396,6 @@ suite "Waku Mix - end to end transport":
       timestamp: getNowInNanosecondTime(),
     )
     let task = DeliveryTask(
-      requestId: RequestId("mix-e2e-required"),
       pubsubTopic: shard,
       msg: msg,
       msgHash: computeMessageHash(shard, msg),

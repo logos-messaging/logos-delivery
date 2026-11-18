@@ -141,7 +141,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert wait_for_connected(sender_collector) is not None, "Sender did not reach Connected/PartiallyConnected state"
 
                 # Explicit subscribe before send — this is what S03 is about.
-                # The send path must still return Ok(RequestId) and emit the
+                # The send path must still return Ok(message hash) and emit the
                 # same events as the topology in S06.
                 subscribe_result = sender.subscribe_content_topic(content_topic)
                 assert subscribe_result.is_ok(), f"subscribe_content_topic failed: {subscribe_result.err()}"
@@ -155,7 +155,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert send_result.is_ok(), f"send() failed: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
@@ -165,7 +165,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
@@ -182,7 +182,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
     Sender subscribes to topic A, unsubscribes from A, then sends on A.
     The send path must deliver normally.
     Topology mirrors S06 (relay-only sender + relay peer, no store).
-    Expected: send() returns Ok(RequestId), Propagated arrives,
+    Expected: send() returns Ok(message hash), Propagated arrives,
     no Sent (store disabled), no Error.
     Purpose: verifies send() delivers normally after local unsubscribe.
     """
@@ -237,7 +237,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                 assert send_result.is_ok(), f"send() failed after unsubscribe: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
@@ -248,7 +248,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s "
                     f"after unsubscribe + send. Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == request_id
 
                 error = wait_for_error(sender_collector, request_id, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"

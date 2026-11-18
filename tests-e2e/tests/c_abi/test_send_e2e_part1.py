@@ -13,6 +13,7 @@ from src.node.wrapper_helpers import (
     assert_event_invariants,
     assert_no_error,
     create_message_bindings,
+    event_send_id,
     get_node_multiaddr,
     wait_for_connected,
     wait_for_mesh,
@@ -61,7 +62,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
     def test_s17_send_before_relay_peers_joins(self, node_config):
         """
         S17: sender starts isolated, calls send()
-          - send() returns Ok(RequestId) immediately
+          - send() returns Ok(message hash) immediately
           - Propagated event eventually arrives
         """
         sender_collector = EventCollector()
@@ -84,10 +85,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         with sender_result.ok_value as sender_node:
             message = create_message_bindings()
             send_result = sender_node.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) even with no peers, got: {send_result.err()}"
+            assert send_result.is_ok(), f"send() must return Ok(message hash) even with no peers, got: {send_result.err()}"
 
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             # Step 2: start a relay peer with store enabled.
             relay_config = {
@@ -133,7 +134,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
     def test_s19_store_peer_appears_after_propagation(self, node_config):
         """
         S19: a store peer comes online later.
-          - send() returns Ok(RequestId) immediately
+          - send() returns Ok(message hash) immediately
           - Propagated --- relay peer
           - The store peer missed the message, the sender sends it again
             through lightpush, and Sent follows once the store reports it.
@@ -169,10 +170,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                 )
                 message = create_message_bindings()
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                assert send_result.is_ok(), f"send() must return Ok(message hash), got: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 # Propagated should arrive via the relay peer.
                 propagated_event = wait_for_propagated(
@@ -280,10 +281,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
                 message = create_message_bindings(ephemeral=False)
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                assert send_result.is_ok(), f"send() must return Ok(message hash), got: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated_event = wait_for_propagated(
                     collector=sender_collector,
@@ -347,10 +348,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         with sender_result.ok_value as sender_node:
             message = create_message_bindings()
             send_result = sender_node.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) even with no peers, got: {send_result.err()}"
+            assert send_result.is_ok(), f"send() must return Ok(message hash) even with no peers, got: {send_result.err()}"
 
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             # No peer
             error_event = wait_for_error(
@@ -378,7 +379,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         """
         S22: non-ephemeral message with reliabilityEnabled disabled.
           - propagation path exists ,reliabilityEnabled = false.
-          - Expected: Ok(RequestId), Propagated event only, no Sent event.
+          - Expected: Ok(message hash), Propagated event only, no Sent event.
           Note: S17 already covers the positive path of this test with reliabilityEnabled=True.
         """
         sender_collector = EventCollector()
@@ -419,10 +420,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
                 message = create_message_bindings(ephemeral=False)
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                assert send_result.is_ok(), f"send() must return Ok(message hash), got: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated_event = wait_for_propagated(
                     collector=sender_collector,
@@ -449,7 +450,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
     def test_s23_no_sent_event_when_relay_has_no_store(self, node_config):
         """
         S23: non-ephemeral message, reliability enabled, no store peer ever reachable.
-          - Expected: Ok(RequestId), Propagated, no immediate error, then message_error
+          - Expected: Ok(message hash), Propagated, no immediate error, then message_error
             once the store validation window elapses, and no Sent.
         """
         sender_collector = EventCollector()
@@ -473,10 +474,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         with sender_result.ok_value as sender_node:
             message = create_message_bindings(ephemeral=False)
             send_result = sender_node.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) even with no peers, got: {send_result.err()}"
+            assert send_result.is_ok(), f"send() must return Ok(message hash) even with no peers, got: {send_result.err()}"
 
             request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
+            assert request_id, "send() returned an empty message hash"
 
             relay_config = {
                 **node_config,
@@ -534,7 +535,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         """
         S24: ephemeral message, reliability enabled, reachable store peer.
           - Setup: propagation path exists, relay peer has store=True (reachable),
-          - Expected: Ok(RequestId), Propagated event only, no Sent event.
+          - Expected: Ok(message hash), Propagated event only, no Sent event.
         """
 
         sender_collector = EventCollector()
@@ -568,10 +569,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
             with relay_result.ok_value:
                 message = create_message_bindings(ephemeral=True)
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                assert send_result.is_ok(), f"send() must return Ok(message hash), got: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                assert request_id, "send() returned an empty message hash"
 
                 propagated_event = wait_for_propagated(
                     collector=sender_collector,
@@ -679,10 +680,10 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
                     message = create_message_bindings()
                     send_result = sender_node.send_message(message=message)
-                    assert send_result.is_ok(), f"send() must return Ok(RequestId) during peer churn, got: {send_result.err()}"
+                    assert send_result.is_ok(), f"send() must return Ok(message hash) during peer churn, got: {send_result.err()}"
 
                     request_id = send_result.ok_value
-                    assert request_id, "send() returned an empty RequestId"
+                    assert request_id, "send() returned an empty message hash"
 
                     # Expect Propagated via the surviving lightpush peer (peer2).
                     propagated_event = wait_for_propagated(
@@ -710,7 +711,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         S30: concurrent sends on the same content topic.
           - Sender starts unsubscribed to the target topic.
           - Several send() calls are issued at nearly the same time.
-          - Each call must return Ok(RequestId) with a unique id.
+          - Each call must return Ok(message hash) with a unique id.
           - Each request id must get its own propagated event,
             with no dropped or cross-associated events.
         """
@@ -756,16 +757,16 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                 with ThreadPoolExecutor(max_workers=S30_CONCURRENT_SENDS) as pool:
                     send_results = list(pool.map(sender_node.send_message, messages))
 
-                # Every send must return Ok(RequestId).
+                # Every send must return Ok(message hash).
                 request_ids = []
                 for i, send_result in enumerate(send_results):
                     assert send_result.is_ok(), f"Concurrent send #{i} failed: {send_result.err()}"
                     request_id = send_result.ok_value
-                    assert request_id, f"Concurrent send #{i} returned an empty RequestId"
+                    assert request_id, f"Concurrent send #{i} returned an empty message hash"
                     request_ids.append(request_id)
 
                 # Request ids must be unique across concurrent sends.
-                assert len(set(request_ids)) == len(request_ids), f"Duplicate RequestIds returned by concurrent sends: {request_ids}"
+                assert len(set(request_ids)) == len(request_ids), f"Duplicate message hashes returned by concurrent sends: {request_ids}"
 
                 # Each request id must get its own propagated event and no error.
                 for request_id in request_ids:
@@ -787,19 +788,19 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
                     )
                     assert error_event is None, f"Unexpected message_error for request_id={request_id}: {error_event}"
 
-                # Cross-association guard: every event with a requestId must
+                # Cross-association guard: every send event must
                 # belong to exactly one of the request ids we issued.
                 issued = set(request_ids)
                 for event in sender_collector.snapshot():
-                    event_request_id = event.get("requestId")
+                    event_request_id = event_send_id(event)
                     if event_request_id is None:
                         continue
                     assert event_request_id in issued, (
-                        f"Event carries an unknown requestId={event_request_id!r}, " f"not in issued set {issued}. Event: {event}"
+                        f"Event carries an unknown messageHash={event_request_id!r}, " f"not in issued set {issued}. Event: {event}"
                     )
 
                 # Per-request invariants apply to every concurrent send
-                # (correct requestId, no duplicate terminal events,
+                # (correct messageHash, no duplicate terminal events,
                 # Sent never before Propagated).
                 for request_id in request_ids:
                     assert_event_invariants(sender_collector, request_id)
@@ -877,7 +878,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
             phase3_ids = self._s31_fire_burst(sender_node, phase_label="phase3")
             all_request_ids.extend(phase3_ids)
 
-            assert len(set(all_request_ids)) == len(all_request_ids), f"Duplicate RequestIds across bursts: {all_request_ids}"
+            assert len(set(all_request_ids)) == len(all_request_ids), f"Duplicate message hashes across bursts: {all_request_ids}"
 
             # Phase 1 ran before any churn, so the mesh was stable — standard timeout.
             # Phase 3 ran right after restart + re-attach, so the mesh needed to
@@ -916,11 +917,11 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
             issued = set(all_request_ids)
             for event in sender_collector.snapshot():
-                event_request_id = event.get("requestId")
+                event_request_id = event_send_id(event)
                 if event_request_id is None:
                     continue
                 assert event_request_id in issued, (
-                    f"Event carries an unknown requestId={event_request_id!r}, " f"not in issued set {issued}. Event: {event}"
+                    f"Event carries an unknown messageHash={event_request_id!r}, " f"not in issued set {issued}. Event: {event}"
                 )
 
             # Use the hash the wrapper emitted on message_sent so the store
@@ -958,7 +959,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
 
     def _s31_fire_burst(self, sender_node, *, phase_label: str) -> list[str]:
         """Fire S31_BURST_SIZE concurrent sends, one per topic in S31_CONTENT_TOPICS.
-        Returns the list of RequestIds. Asserts every send returned Ok."""
+        Returns the list of message hashes. Asserts every send returned Ok."""
         messages = [
             self.create_message(
                 contentTopic=S31_CONTENT_TOPICS[i],
@@ -974,7 +975,7 @@ class TestSendBeforeRelay(StepsStore, StepsMetrics):
         for i, send_result in enumerate(send_results):
             assert send_result.is_ok(), f"{phase_label}: concurrent send #{i} failed: {send_result.err()}"
             request_id = send_result.ok_value
-            assert request_id, f"{phase_label}: concurrent send #{i} returned an empty RequestId"
+            assert request_id, f"{phase_label}: concurrent send #{i} returned an empty message hash"
             request_ids.append(request_id)
 
         return request_ids

@@ -41,14 +41,13 @@ proc newService(waku: Waku, level: AnonymityLevel): SendService =
   service.startSendService()
   return service
 
-proc sizedTask(id: string, size: int): DeliveryTask =
+proc sizedTask(size: int): DeliveryTask =
   ## An admitted task whose lightpush request over mix has `size` bytes.
   const contentTopic = "/mix-size/1/probe/proto"
   for n in 0 .. size:
     let msg = fakeWakuMessage(payload = newSeq[byte](n), contentTopic = contentTopic)
     if mixLightpushSize(DefaultPubsubTopic, msg).size == size:
       return DeliveryTask(
-        requestId: RequestId(id),
         pubsubTopic: DefaultPubsubTopic,
         msg: msg,
         msgHash: computeMessageHash(DefaultPubsubTopic, msg),
@@ -94,7 +93,7 @@ suite "Waku Mix - the size of a mix send":
       await service.stopSendService()
     let limit = mixLightpushSize(DefaultPubsubTopic, fakeWakuMessage()).limit
 
-    let tooLarge = sizedTask("one-byte-too-many", limit + 1)
+    let tooLarge = sizedTask(limit + 1)
     check service.enqueue(tooLarge).isOk()
     checkUntilTimeout:
       tooLarge.state == DeliveryState.NotPropagated
@@ -106,7 +105,7 @@ suite "Waku Mix - the size of a mix send":
       errors.len == 1
     check errors == @[tooLarge.errorText()]
 
-    let fits = sizedTask("largest-that-fits", limit)
+    let fits = sizedTask(limit)
     check service.enqueue(fits).isOk()
     checkUntilTimeout:
       fits.state == DeliveryState.Propagated

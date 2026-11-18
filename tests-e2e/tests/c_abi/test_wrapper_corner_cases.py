@@ -77,7 +77,7 @@ class TestWrapperAutoPortAllocation(StepsCommon):
                 assert send_result.is_ok(), f"send failed: {send_result.err()}"
 
                 request_id = send_result.ok_value
-                assert request_id, "send returned empty RequestId"
+                assert request_id, "send returned empty message hash"
 
                 propagated = wait_for_propagated(collector, request_id, PROPAGATED_TIMEOUT_S)
                 assert propagated is not None, f"no message_propagated event. Events: {collector.events}"

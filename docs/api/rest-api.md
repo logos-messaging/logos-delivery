@@ -62,12 +62,18 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `GET /messaging/v1/subscriptions` | | `["/app/1/topic/proto", ...]`, sorted |
 | `POST /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `DELETE /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
-| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"requestId":"..."}` |
+| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"messageHash":"0x..."}` |
 | `GET /messaging/v1/events/send` | | every buffered send status, then cleared |
-| `GET /messaging/v1/events/send/{requestId}` | | the send status of one request, then cleared; `404` while nothing is buffered for it |
+| `GET /messaging/v1/events/send/{messageHash}` | | the send status of one message, then cleared; `404` while nothing is buffered for it |
 | `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
-A send is asynchronous. `200` means that the node accepted the message. The result arrives as send events with the same `requestId`:
+`200` means that the node accepted the message, and `messageHash` is the hash of the message on the network. The node sets the timestamp of the message when it accepts it, so the hash does not change. The node refuses a message that it cannot accept, and then no event comes:
+
+* HTTP `429` with a `Retry-After` header: the send queue of the node is full.
+* HTTP `409`: the node already sends a message with this hash. Two sends of the same message get one hash only when the clock of the node gives them the same timestamp.
+* HTTP `500`: another fault, for example a node that is not started.
+
+The delivery is asynchronous. Its result arrives as send events with the same `messageHash`:
 
 * `queued`: the send waits for rate-limit budget (only when rate limiting is on)
 * `propagated`: the message reached at least one peer
@@ -81,7 +87,7 @@ After a `sent` or `error` event, no more events come for that message.
 * Reliability is on by default, and off for the `twn` and `status.prod` presets. `--reliability` overrides that.
 * Without reliability, or for an ephemeral message, `propagated` is the last event.
 * Later versions can add new event types. A client must skip an event type that it does not know.
-* `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
+* `GET /messaging/v1/events/send/{messageHash}` answers `404` while the node has no event for that message: the hash is unknown, a client already read its events, or no event came yet. Call it again until the last event comes. The hash can be in upper or lower case, with or without `0x`, and a text that is not a hash of 32 bytes gets `400`.
 
 The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it.
 
@@ -100,9 +106,9 @@ With the `backfill-enabled` setting on (the default), the node saves the state o
 * Each message has a `seq` number that goes up by 1 for each message. A jump in `seq` between two calls is the number of dropped messages, or of messages that another client got. `seq` starts again at 1 when the node restarts.
 * The metric `logos_delivery_rest_received_dropped_total` counts the dropped messages.
 
-The send buffer keeps the statuses of the newest requests and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
+The send buffer keeps the statuses of the newest sends and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
 
-Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. A send to a full send queue gets HTTP `429` with a `Retry-After` header.
+Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`.
 
 ### Node configuration
 To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).

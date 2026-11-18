@@ -38,8 +38,8 @@ proc start*(self: MessagingClient): Result[void, string] =
   # place belongs to another owner.
   ?MessagingSend.setProvider(
     self.brokerCtx,
-    proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
-      return await self.send(envelope),
+    proc(envelope: MessageEnvelope): Future[Result[SendResult, string]] {.async.} =
+      return ok(await self.send(envelope)),
   )
 
   MessagingSubscribe.setProvider(
