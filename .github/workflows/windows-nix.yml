@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   windows:
-    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@a060c2da64e2fc4a4c677362a712ea5473648dc8
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@v1
     # The pinned workflow consumes optional Attic secrets without declaring
     # named workflow_call secrets, so inheritance is its only valid interface.
     secrets: inherit
