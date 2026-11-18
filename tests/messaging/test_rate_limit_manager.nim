@@ -7,7 +7,7 @@ import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 proc fixedQuota(epochIndex, rateLimit: uint64): QuotaProvider =
   ## A quota source pinned to one epoch with its budget untouched, so
   ## limit-boundary tests don't touch the wall clock.
-  return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+  return proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
     return Opt.some(
       EpochQuota(epochIndex: epochIndex, rateLimit: rateLimit, remaining: rateLimit)
     )
@@ -57,7 +57,7 @@ suite "RateLimitManager - admission":
     let rl = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
           return Opt.some(EpochQuota(epochIndex: epoch, rateLimit: 100, remaining: 100)),
       )
       .expect("RateLimitManager.new")
@@ -105,7 +105,7 @@ suite "RateLimitManager - admission":
     let rl = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 10),
-        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
           return
             Opt.some(EpochQuota(epochIndex: 7, rateLimit: 10, remaining: remaining)),
       )
@@ -122,7 +122,7 @@ suite "RateLimitManager - admission":
     let rl = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
           return Opt.none(EpochQuota),
       )
       .expect("RateLimitManager.new")
@@ -149,6 +149,23 @@ proc approachedManager(
 proc spend(rl: RateLimitManager, n: int) {.async.} =
   for i in 0 ..< n:
     doAssert (await rl.admit(("m" & $i).toBytes())).isOk()
+
+suite "RateLimitManager - cancel":
+  asyncTest "a cancel of the quota read cancels the admission, with no charge":
+    let read = Future[void].Raising([CancelledError]).init("quota read")
+    let rl = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 10),
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
+          await read
+          return Opt.none(EpochQuota),
+      )
+      .expect("RateLimitManager.new")
+    let admission = rl.admit("m".toBytes())
+    await admission.cancelAndWait()
+    check:
+      admission.cancelled()
+      rl.sentInCurrentEpoch == 0
 
 suite "RateLimitManager - quota state":
   test "the default config carries the default approached threshold":
@@ -276,7 +293,7 @@ suite "RateLimitManager - quota state":
           messagesPerEpoch: 2,
           approachedThresholdPercent: 50,
         ),
-        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
           return Opt.some(EpochQuota(epochIndex: epoch, rateLimit: 100, remaining: 100)),
       )
       .expect("RateLimitManager.new")
@@ -301,7 +318,7 @@ suite "RateLimitManager - quota state":
           messagesPerEpoch: 10,
           approachedThresholdPercent: 80,
         ),
-        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
           return
             Opt.some(EpochQuota(epochIndex: 4, rateLimit: 100, remaining: remaining)),
       )

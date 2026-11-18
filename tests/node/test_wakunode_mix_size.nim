@@ -34,9 +34,9 @@ proc newService(waku: Waku, level: AnonymityLevel): SendService =
   ## Each accepted task runs through the scheduler.
   let manager =
     RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-  let chain = setupSendProcessorChain(waku, level).expect("chain")
+  let processors = setupSendProcessors(waku, level).expect("processors")
   let service = SendService
-    .new(false, waku, manager, chain, level, retryInterval = chronos.hours(1))
+    .new(false, waku, manager, processors, level, retryInterval = chronos.hours(1))
     .expect("SendService.new")
   service.startSendService()
   return service
@@ -52,7 +52,6 @@ proc sizedTask(id: string, size: int): DeliveryTask =
         pubsubTopic: DefaultPubsubTopic,
         msg: msg,
         msgHash: computeMessageHash(DefaultPubsubTopic, msg),
-        state: DeliveryState.Entry,
         firstAdmittedTime: Opt.some(Moment.now()), # no budget and no proof
       )
   raiseAssert "no payload gives a request of " & $size & " bytes"
@@ -98,20 +97,20 @@ suite "Waku Mix - the size of a mix send":
     let tooLarge = sizedTask("one-byte-too-many", limit + 1)
     check service.enqueue(tooLarge).isOk()
     checkUntilTimeout:
-      tooLarge.state == DeliveryState.FailedToDeliver
+      tooLarge.state == DeliveryState.NotPropagated
     check:
-      tooLarge.state == DeliveryState.FailedToDeliver
-      tooLarge.errorDesc.startsWith(MixTooLargeReason)
+      tooLarge.state == DeliveryState.NotPropagated
+      tooLarge.errorText().startsWith(MixTooLargeReason)
       tooLarge.tryCount == 0
     checkUntilTimeout:
       errors.len == 1
-    check errors == @[tooLarge.errorDesc]
+    check errors == @[tooLarge.errorText()]
 
     let fits = sizedTask("largest-that-fits", limit)
     check service.enqueue(fits).isOk()
     checkUntilTimeout:
-      fits.state == DeliveryState.SuccessfullyPropagated
+      fits.state == DeliveryState.Propagated
     check:
-      fits.state == DeliveryState.SuccessfullyPropagated
+      fits.state == DeliveryState.Propagated
       fits.propagatedAnonymously
       errors.len == 1

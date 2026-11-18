@@ -141,15 +141,17 @@ proc epochQuota*(
     return err(RlnError.permanent("the mounted RLN backend keeps no epoch budget"))
   return await backend.getEpochQuota(timestamp)
 
+func refreshesProofs*(plugin: Opt[RlnPlugin]): bool =
+  ## True when the mounted backend can refresh its proofs after a rejection.
+  return plugin.isSome() and not plugin.get().onProofRejected.isNil()
+
 proc notifyProofRejected*(plugin: Opt[RlnPlugin]): bool =
   ## Tells the mounted backend that a publish was rejected as RLN-invalid, so
   ## it can refresh whatever proofs are built against. False when there is no
   ## backend or it has no such hook.
-  let backend = plugin.valueOr:
+  if not plugin.refreshesProofs():
     return false
-  if backend.onProofRejected.isNil():
-    return false
-  backend.onProofRejected()
+  plugin.get().onProofRejected()
   return true
 
 {.pop.}

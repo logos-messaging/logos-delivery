@@ -1,38 +1,22 @@
 import results, chronos, chronicles
 import brokers/broker_context
 import logos_delivery/waku/[waku_core], logos_delivery/waku/waku_lightpush/[common, rpc]
-import logos_delivery/waku/waku, logos_delivery/waku/api/publish
+import logos_delivery/waku/api/publish
 import logos_delivery/waku/requests/health_requests
-import logos_delivery/api/types
-import ./[delivery_task, send_processor]
+import ./[delivery_task, delivery_plan, send_processor]
 
 logScope:
   topics = "send service relay processor"
 
 type RelaySendProcessor* = ref object of BaseSendProcessor
-  waku: Waku
   publishProc: PushMessageHandler
-  fallbackStateToSet: DeliveryState
 
 proc new*(
     T: typedesc[RelaySendProcessor],
-    lightpushAvailable: bool,
     publishProc: PushMessageHandler,
-    waku: Waku,
     brokerCtx: BrokerContext,
 ): RelaySendProcessor =
-  let fallbackStateToSet =
-    if lightpushAvailable:
-      DeliveryState.FallbackRetry
-    else:
-      DeliveryState.FailedToDeliver
-
-  return RelaySendProcessor(
-    waku: waku,
-    publishProc: publishProc,
-    fallbackStateToSet: fallbackStateToSet,
-    brokerCtx: brokerCtx,
-  )
+  return RelaySendProcessor(publishProc: publishProc, brokerCtx: brokerCtx)
 
 proc isTopicHealthy(self: RelaySendProcessor, topic: PubsubTopic): bool {.gcsafe.} =
   let healthReport = RequestShardTopicsHealth.request(self.brokerCtx, @[topic]).valueOr:
@@ -46,15 +30,16 @@ proc isTopicHealthy(self: RelaySendProcessor, topic: PubsubTopic): bool {.gcsafe
   debug "isTopicHealthy: topic health is ", topic = topic, health = health
   return health == MINIMALLY_HEALTHY or health == SUFFICIENTLY_HEALTHY
 
-method isValidProcessor*(
+method checkBeforeAttempt*(
     self: RelaySendProcessor, task: DeliveryTask
-): bool {.gcsafe.} =
+): Result[void, StepReport] {.gcsafe.} =
   # Topic health query is not reliable enough after a fresh subscribe...
   # return self.isTopicHealthy(task.pubsubTopic)
-  return true
+  return ok()
 
-method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
-  task.tryCount.inc()
+method attempt*(
+    self: RelaySendProcessor, task: DeliveryTask
+): Future[StepReport] {.async.} =
   debug "Trying message delivery via Relay",
     requestId = task.requestId,
     msgHash = task.msgHash.to0xHex(),
@@ -62,28 +47,17 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
 
   let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
     let errorMessage = error.desc.get($error.code)
-    error "Failed to publish message with relay",
+    debug "Failed to publish message with relay",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
-
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, errorMessage)
-      return
-
-    if error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
-      task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = errorMessage
-    else:
-      task.state = self.fallbackStateToSet
-    return
+      return StepReport.init(Trigger.ProofRejected, errorMessage)
+    if error.code == LightPushErrorCode.NO_PEERS_TO_RELAY:
+      return StepReport.init(Trigger.NoRelayPeers, errorMessage)
+    return StepReport.init(Trigger.Rejected, errorMessage)
 
   if noOfPublishedPeers > 0:
     debug "Message propagated via Relay",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       noOfPeers = noOfPublishedPeers
-    task.state = DeliveryState.SuccessfullyPropagated
-    if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = Opt.some(Moment.now())
-  else:
-    # It shall not happen, but still covering it
-    task.state = self.fallbackStateToSet
+  return publishReport(noOfPublishedPeers)

@@ -33,10 +33,12 @@ proc rlnQuotaProvider(waku: Waku): QuotaProvider =
   ## Sources the rate limit manager's epoch budget from RLN. The closure
   ## queries `waku` on each admission, so a node whose RLN mounts after
   ## construction upgrades from the local fallback automatically.
-  return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+  return proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
     let res =
       try:
         await waku.rlnEpochQuota(uint64(getTime().toUnix()))
+      except CancelledError as exc:
+        raise exc
       except CatchableError:
         return Opt.none(EpochQuota)
     let quota = res.valueOr:
@@ -66,13 +68,13 @@ proc new*(
   let sendQueueCapacity = conf.sendQueueCapacity.get(uint(DefaultSendQueueCapacity))
   if sendQueueCapacity notin 1'u .. SendQueueCapacityLimit:
     return err("sendQueueCapacity must be between 1 and " & $SendQueueCapacityLimit)
-  let sendProcessor = setupSendProcessorChain(waku, anonymityLevel).valueOr:
+  let sendProcessors = setupSendProcessors(waku, anonymityLevel).valueOr:
     return err("failed to setup SendProcessorChain: " & error)
   let sendService = ?SendService.new(
     reliability,
     waku,
     rateLimitManager,
-    sendProcessor,
+    sendProcessors,
     anonymityLevel = anonymityLevel,
     maxParkedAge = seconds(int64(maxParkedAgeSec)),
     sendQueueCapacity = int(sendQueueCapacity),

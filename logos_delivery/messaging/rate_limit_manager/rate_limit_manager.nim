@@ -54,14 +54,14 @@ proc new*(
 
 proc currentQuota(
     self: RateLimitManager
-): Future[Opt[EpochQuota]] {.async: (raises: []).} =
+): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]).} =
   if self.quotaProvider.isNil():
     return Opt.none(EpochQuota)
   return await self.quotaProvider()
 
 proc refreshEpoch(
     self: RateLimitManager
-): Future[(uint64, Opt[EpochQuota])] {.async: (raises: []).} =
+): Future[(uint64, Opt[EpochQuota])] {.async: (raises: [CancelledError]).} =
   ## Rolls the window when the epoch has advanced and returns the epoch's limit
   ## together with RLN's budget snapshot, if any.
   let quota = await self.currentQuota()
@@ -102,7 +102,9 @@ proc stateOf(self: RateLimitManager, used, limit: uint64): QuotaState =
     return QuotaState.Approached
   return QuotaState.Normal
 
-proc quotaState*(self: RateLimitManager): Future[QuotaState] {.async: (raises: []).} =
+proc quotaState*(
+    self: RateLimitManager
+): Future[QuotaState] {.async: (raises: [CancelledError]).} =
   ## Where the current epoch's budget stands: the tighter of the local count
   ## against the local cap and RLN's consumption against RLN's own limit. A
   ## disabled config is always `Normal`.
@@ -119,7 +121,7 @@ proc quotaState*(self: RateLimitManager): Future[QuotaState] {.async: (raises: [
 
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
-): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
+): Future[Result[void, RateLimitError]] {.async: (raises: [CancelledError]).} =
   ## Charges one message against the current epoch's limit, rolling the window
   ## first when the epoch has advanced. A disabled config admits everything.
   if not self.config.enabled:

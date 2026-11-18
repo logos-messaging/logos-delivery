@@ -45,7 +45,8 @@ proc sendPushRequest(
       )
 
   defer:
-    await connection.closeWithEOF()
+    # The request does not wait for the EOF of its peer, after a reply or a cancel.
+    asyncSpawn connection.close()
 
   await connection.writeLP(req.encode())
 

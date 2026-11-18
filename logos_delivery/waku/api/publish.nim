@@ -91,6 +91,10 @@ proc onRlnProofRejected*(self: Waku): bool =
   ## `notifyProofRejected`.
   return self.node.rlnPlugin.notifyProofRejected()
 
+proc rlnRefreshesProofs*(self: Waku): bool =
+  ## True when the mounted RLN backend refreshes its proofs after a rejection.
+  return self.node.rlnPlugin.refreshesProofs()
+
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
@@ -175,8 +179,8 @@ proc lightpushPublishToAny*(
     return
       await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
   except CancelledError as exc:
-    # The send service cancelled this attempt during its stop. Raise the cancel
-    # again, so that `deliver` ends with the cancel and counts no failed attempt.
+    # The send service cancelled this attempt.
+    # Raise the cancel again, so that the send service counts no failed attempt.
     raise exc
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)

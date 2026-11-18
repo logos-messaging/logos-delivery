@@ -1,86 +1,74 @@
+## A send processor runs the step of one transport state of the delivery plan.
+## It makes one attempt and returns its report.
+
 import results, chronos
 import brokers/broker_context
-import logos_delivery/waku/waku, logos_delivery/waku/api/publish
-import ./delivery_task
+import logos_delivery/waku/api/publish
+import ./[delivery_task, delivery_plan]
 
 {.push raises: [].}
 
 type BaseSendProcessor* = ref object of RootObj
-  fallbackProcessor*: BaseSendProcessor
   brokerCtx*: BrokerContext
 
-proc chain*(self: BaseSendProcessor, next: BaseSendProcessor) =
-  self.fallbackProcessor = next
-
-method isValidProcessor*(
-    self: BaseSendProcessor, task: DeliveryTask
-): bool {.base, gcsafe.} =
-  return false
+type SendProcessors* = object ## A nil field is a processor that the node does not have.
+  mix*: BaseSendProcessor
+  relay*: BaseSendProcessor
+  lightpush*: BaseSendProcessor
+  resender*: BaseSendProcessor ## Sends a message again after a Store miss.
 
 method checkBeforeAdmission*(
     self: BaseSendProcessor, task: DeliveryTask
-): bool {.base, gcsafe, raises: [].} =
-  ## Returns false when the task fails before it spends budget or a message id.
-  return true
+): Result[void, StepReport] {.base, gcsafe, raises: [].} =
+  ## Refuses a message that can never go out, before it spends budget or a message id.
+  ## Only a `Required` node asks, because mix is its only transport.
+  return ok()
 
-method sendImpl*(
+method checkBeforeAttempt*(
     self: BaseSendProcessor, task: DeliveryTask
-): Future[void] {.async, base.} =
-  assert false, "Not implemented"
+): Result[void, StepReport] {.base, gcsafe, raises: [].} =
+  ## Refuses an attempt that cannot work now, with no network call.
+  return ok()
 
-method canResend*(self: BaseSendProcessor, task: DeliveryTask): bool {.base, gcsafe.} =
-  ## True when this processor can send the task again after a Store miss.
-  return false
-
-method resendImpl*(
+method attempt*(
     self: BaseSendProcessor, task: DeliveryTask
-): Future[void] {.async: (raises: [CancelledError]), base.} =
-  ## Sends the task again. A processor that returns true from `canResend` must
-  ## override it, and it must log each error and raise only `CancelledError`, as
-  ## no caller reads a result.
-  assert false, "Not implemented"
+): Future[StepReport] {.async, base.} =
+  raiseAssert "attempt is not implemented"
 
-proc resend*(
-    self: BaseSendProcessor, task: DeliveryTask
-) {.async: (raises: [CancelledError]).} =
-  ## Sends the task again through the first processor of the chain that can.
-  var currentProcessor: BaseSendProcessor = self
-  while not currentProcessor.isNil():
-    if currentProcessor.canResend(task):
-      await currentProcessor.resendImpl(task)
-      return
-    currentProcessor = currentProcessor.fallbackProcessor
+func transports*(processors: SendProcessors): set[DeliveryState] =
+  var states: set[DeliveryState]
+  if not processors.mix.isNil():
+    states.incl(DeliveryState.Mix)
+  if not processors.relay.isNil():
+    states.incl(DeliveryState.Relay)
+  if not processors.lightpush.isNil():
+    states.incl(DeliveryState.Lightpush)
+  return states
 
-proc parkForRlnProofRefresh*(task: DeliveryTask, waku: Waku, errorDesc: string) =
-  ## The service refused the task's proof as RLN-invalid: its proof went stale
-  ## against a moved merkle root. Schedules a background merkle-path refresh and
-  ## clears the proof so the next retry regenerates one against the refreshed
-  ## path; `attachRlnProof` reuses an existing proof, so without the clear the
-  ## rejected bytes would be resent. Resetting admission charges the new nonce
-  ## the regenerated proof draws. Without a backend refresh hook a retry would
-  ## be rejected the same way, so the task fails with `errorDesc`.
-  if not waku.onRlnProofRejected():
-    task.state = DeliveryState.FailedToDeliver
-    task.errorDesc = errorDesc
-    return
-  task.msg.proof = @[]
-  task.firstAdmittedTime = Opt.none(Moment)
-  task.state = DeliveryState.NextRoundRetry
+func processorOf*(processors: SendProcessors, state: DeliveryState): BaseSendProcessor =
+  case state
+  of DeliveryState.Mix: processors.mix
+  of DeliveryState.Relay: processors.relay
+  of DeliveryState.Lightpush: processors.lightpush
+  of DeliveryState.StoreResend: processors.resender
+  else: nil
 
-method process*(
-    self: BaseSendProcessor, task: DeliveryTask
-): Future[void] {.async, base.} =
-  var currentProcessor: BaseSendProcessor = self
-  var keepTrying = true
-  while not currentProcessor.isNil() and keepTrying:
-    if currentProcessor.isValidProcessor(task):
-      await currentProcessor.sendImpl(task)
-    currentProcessor = currentProcessor.fallbackProcessor
-    keepTrying = task.state == DeliveryState.FallbackRetry
+func lightpushReport*(error: ErrorStatus): StepReport =
+  ## Only the text tells an RLN rejection apart from another invalid message.
+  let desc = error.desc.get($error.code)
+  if error.isRlnRejection():
+    return StepReport.init(Trigger.ProofRejected, desc)
+  let trigger =
+    case error.code
+    of LightPushErrorCode.NO_PEERS_TO_RELAY: Trigger.ServiceNoRelayPeers
+    of LightPushErrorCode.TOO_MANY_REQUESTS: Trigger.ServiceBusy
+    of LightPushErrorCode.SERVICE_NOT_AVAILABLE: Trigger.ServiceUnavailable
+    of LightPushErrorCode.INTERNAL_SERVER_ERROR: Trigger.ServiceError
+    else: Trigger.Rejected
+  return StepReport.init(trigger, desc)
 
-  # A task still in `FallbackRetry` exhausted the chain without delivering, and
-  # one still in `Entry` was never attempted because no processor had a usable
-  # peer yet (e.g. a lightpush peer that finishes registering right after the
-  # first send). Both must wait for the next attempt.
-  if task.state == DeliveryState.FallbackRetry or task.state == DeliveryState.Entry:
-    task.state = DeliveryState.NextRoundRetry
+func publishReport*(peers: uint32): StepReport =
+  if peers > 0:
+    StepReport.init(Trigger.Published)
+  else:
+    StepReport.init(Trigger.ZeroPeers)

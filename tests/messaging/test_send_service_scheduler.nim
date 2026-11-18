@@ -23,17 +23,16 @@ privateAccess(SendService) # the tests read `attempts`
 ## next attempt with `retryNow`.
 
 type FakeSendProcessor = ref object of BaseSendProcessor
+  ## Returns one trigger of `script` for each attempt, and the last entry repeats.
   calls: int
-  script: seq[DeliveryState]
-    ## State to stamp on the task per invocation; the last entry repeats.
+  script: seq[Trigger]
 
-method process(self: FakeSendProcessor, task: DeliveryTask): Future[void] {.async.} =
-  let outcome = self.script[min(self.calls, self.script.high)]
+method attempt(
+    self: FakeSendProcessor, task: DeliveryTask
+): Future[StepReport] {.async.} =
+  let trigger = self.script[min(self.calls, self.script.high)]
   inc self.calls
-  task.state = outcome
-  if outcome == DeliveryState.SuccessfullyPropagated and
-      task.firstPropagatedTime.isNone():
-    task.firstPropagatedTime = Opt.some(Moment.now())
+  return StepReport.init(trigger)
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -45,7 +44,7 @@ proc fixedEpochQuota(
   ## Quota pinned to whatever `epoch` (and `remaining`, when given) holds, so a
   ## test rolls the epoch or spends RLN budget by writing through the ref.
   ## Without `remaining` the epoch's budget is reported untouched.
-  return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+  return proc(): Future[Opt[EpochQuota]] {.async: (raises: [CancelledError]), gcsafe.} =
     let left = if remaining.isNil(): rateLimit else: remaining[]
     return
       Opt.some(EpochQuota(epochIndex: epoch[], rateLimit: rateLimit, remaining: left))
@@ -84,7 +83,7 @@ suite "SendService - rate-limit scheduling":
       pubsubTopic: pubsubTopic,
       msg: msg,
       msgHash: computeMessageHash(pubsubTopic, msg),
-      state: DeliveryState.Entry,
+      state: DeliveryState.Initial,
     )
 
   proc waitAttempts(
@@ -132,11 +131,16 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(
-      script: @[DeliveryState.NextRoundRetry, DeliveryState.SuccessfullyPropagated]
-    )
+    let processor =
+      FakeSendProcessor(script: @[Trigger.ServiceUnavailable, Trigger.Published])
     let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.minutes(10),
+      )
       .expect("SendService.new")
 
     let task = buildTask("charge-once", "hi")
@@ -150,7 +154,7 @@ suite "SendService - rate-limit scheduling":
     check:
       manager.sentInCurrentEpoch == 1'u64 # not re-charged on retry
       processor.calls == 2
-      task.state == DeliveryState.SuccessfullyPropagated
+      task.state == DeliveryState.Propagated
 
   asyncTest "an over-budget task is parked, then released when the epoch rolls":
     ## Budget of one per epoch. The second send is parked until the epoch rolls,
@@ -163,15 +167,21 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.minutes(10),
+      )
       .expect("SendService.new")
 
     let first = buildTask("in-budget", "one")
     await service.sendNow(first)
     check:
-      first.state == DeliveryState.SuccessfullyPropagated
+      first.state == DeliveryState.Propagated
       manager.sentInCurrentEpoch == 1'u64
 
     let second = buildTask("over-budget", "two")
@@ -194,7 +204,7 @@ suite "SendService - rate-limit scheduling":
     await service.retryAndWait(1)
     check:
       second.firstAdmittedTime.isSome()
-      second.state == DeliveryState.SuccessfullyPropagated
+      second.state == DeliveryState.Propagated
 
   asyncTest "RLN's remaining budget parks a send until the epoch rolls":
     ## The local cap has room, but RLN reports the epoch's budget spent, so the
@@ -209,9 +219,15 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 10, remaining),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.minutes(10),
+      )
       .expect("SendService.new")
 
     let task = buildTask("rln-spent", "one")
@@ -231,7 +247,7 @@ suite "SendService - rate-limit scheduling":
     await service.retryAndWait(1)
     check:
       task.firstAdmittedTime.isSome()
-      task.state == DeliveryState.SuccessfullyPropagated
+      task.state == DeliveryState.Propagated
 
   asyncTest "a task parked for budget reports itself queued, exactly once":
     ## The park branch is re-entered every retry round; the event must not be.
@@ -243,9 +259,15 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.minutes(10),
+      )
       .expect("SendService.new")
 
     var queued: seq[MessageQueuedEvent]
@@ -276,7 +298,7 @@ suite "SendService - rate-limit scheduling":
     epoch[] = 2'u64
     await service.retryAndWait(1)
     check:
-      second.state == DeliveryState.SuccessfullyPropagated
+      second.state == DeliveryState.Propagated
       queued.len == 1
 
     await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
@@ -297,14 +319,20 @@ suite "SendService - rate-limit scheduling":
       )
       .expect("RateLimitManager.new")
     let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
+      .new(
+        false,
+        waku,
+        manager,
+        SendProcessors(lightpush: processor),
+        retryInterval = chronos.minutes(10),
+      )
       .expect("SendService.new")
     return (service, manager)
 
   asyncTest "an ephemeral message is dropped when the quota is approached":
     let epoch = new uint64
     epoch[] = 1'u64
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let (service, manager) = approachedService(epoch, 4, processor)
 
     var errors: seq[MessageErrorEvent]
@@ -332,7 +360,7 @@ suite "SendService - rate-limit scheduling":
     let eph = buildTask("ephemeral-approached", "eph", ephemeral = true)
     await service.sendNow(eph)
     check:
-      eph.state == DeliveryState.FailedToDeliver
+      eph.state == DeliveryState.NotPropagated
       eph.firstAdmittedTime.isNone() # no slot, so no RLN proof either
       manager.sentInCurrentEpoch == 2'u64
       processor.calls == callsBefore
@@ -350,7 +378,7 @@ suite "SendService - rate-limit scheduling":
   asyncTest "an ephemeral message is dropped, not parked, when the quota is exhausted":
     let epoch = new uint64
     epoch[] = 1'u64
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let (service, manager) = approachedService(epoch, 1, processor)
 
     var errors: seq[MessageErrorEvent]
@@ -369,7 +397,7 @@ suite "SendService - rate-limit scheduling":
     let eph = buildTask("ephemeral-exhausted", "eph", ephemeral = true)
     await service.sendNow(eph)
     check:
-      eph.state == DeliveryState.FailedToDeliver
+      eph.state == DeliveryState.NotPropagated
       eph.firstAdmittedTime.isNone()
       errors.len == 1
 
@@ -386,20 +414,20 @@ suite "SendService - rate-limit scheduling":
   asyncTest "an ephemeral message below the threshold is charged and sent":
     let epoch = new uint64
     epoch[] = 1'u64
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let (service, manager) = approachedService(epoch, 4, processor)
 
     let eph = buildTask("ephemeral-normal", "eph", ephemeral = true)
     await service.sendNow(eph)
     check:
-      eph.state == DeliveryState.SuccessfullyPropagated
+      eph.state == DeliveryState.Propagated
       eph.firstAdmittedTime.isSome()
       manager.sentInCurrentEpoch == 1'u64
 
   asyncTest "a durable message is still admitted when the quota is approached":
     let epoch = new uint64
     epoch[] = 1'u64
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let (service, manager) = approachedService(epoch, 4, processor)
 
     await service.sendNow(buildTask("durable-a", "a"))
@@ -409,7 +437,7 @@ suite "SendService - rate-limit scheduling":
     let durable = buildTask("durable-approached", "c")
     await service.sendNow(durable)
     check:
-      durable.state == DeliveryState.SuccessfullyPropagated
+      durable.state == DeliveryState.Propagated
       manager.sentInCurrentEpoch == 3'u64
 
   proc listenErrors(
@@ -437,15 +465,14 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(
-      script: @[DeliveryState.NextRoundRetry, DeliveryState.SuccessfullyPropagated]
-    )
+    let processor =
+      FakeSendProcessor(script: @[Trigger.ServiceUnavailable, Trigger.Published])
     let service = SendService
       .new(
         false,
         waku,
         manager,
-        processor,
+        SendProcessors(lightpush: processor),
         maxParkedAge = chronos.seconds(30),
         retryInterval = chronos.minutes(10),
       )
@@ -466,7 +493,7 @@ suite "SendService - rate-limit scheduling":
       admitted.firstAdmittedTime.isSome()
       stale.firstAdmittedTime.isNone()
       fresh.firstAdmittedTime.isNone()
-      stale.state == DeliveryState.FailedToDeliver
+      stale.state == DeliveryState.NotPropagated
       errors[].mapIt(it.requestId) == @[stale.requestId]
       admitted.state == DeliveryState.NextRoundRetry
       fresh.state == DeliveryState.NextRoundRetry
@@ -476,7 +503,7 @@ suite "SendService - rate-limit scheduling":
     await service.retryAndWait(2)
     check:
       fresh.firstAdmittedTime.isSome()
-      fresh.state == DeliveryState.SuccessfullyPropagated
+      fresh.state == DeliveryState.Propagated
 
     await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
 
@@ -489,13 +516,13 @@ suite "SendService - rate-limit scheduling":
         fixedEpochQuota(epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.NextRoundRetry])
+    let processor = FakeSendProcessor(script: @[Trigger.ServiceUnavailable])
     let service = SendService
       .new(
         false,
         waku,
         manager,
-        processor,
+        SendProcessors(lightpush: processor),
         sendQueueCapacity = 2,
         retryInterval = chronos.minutes(10),
       )
@@ -514,7 +541,7 @@ suite "SendService - rate-limit scheduling":
     check service.enqueue(rejected).errorOr("accepted") == "Send queue full, retry later"
     check:
       errors[].len == 0 # the caller gets the error, so no event follows
-      rejected.state == DeliveryState.Entry # never scheduled
+      rejected.state == DeliveryState.Initial # never scheduled
       processor.calls == 1
 
     await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
@@ -522,13 +549,13 @@ suite "SendService - rate-limit scheduling":
   asyncTest "a propagated task past the validation window fails; a fresh one stays":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let service = SendService
       .new(
         true,
         waku,
         manager,
-        processor,
+        SendProcessors(lightpush: processor),
         maxValidationAge = chronos.seconds(30),
         retryInterval = chronos.minutes(10),
       )
@@ -547,21 +574,21 @@ suite "SendService - rate-limit scheduling":
     await service.sendNow(expired)
     await service.sendNow(fresh)
     check:
-      expired.state == DeliveryState.FailedToDeliver
-      fresh.state == DeliveryState.SuccessfullyPropagated
+      expired.state == DeliveryState.NotStored
+      fresh.state == DeliveryState.AwaitingStore
       await errorSeen.wait().withTimeout(chronos.seconds(1))
       errors[].mapIt(it.requestId) == @[expired.requestId]
 
   asyncTest "with reliability off a propagated task is evicted without MessageError":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let processor = FakeSendProcessor(script: @[Trigger.Published])
     let service = SendService
       .new(
         false,
         waku,
         manager,
-        processor,
+        SendProcessors(lightpush: processor),
         sendQueueCapacity = 1,
         maxValidationAge = chronos.seconds(30),
         retryInterval = chronos.minutes(10),
@@ -577,6 +604,6 @@ suite "SendService - rate-limit scheduling":
     let task = buildTask("reliability-off", "one")
     await service.sendNow(task)
     check:
-      task.state == DeliveryState.SuccessfullyPropagated
+      task.state == DeliveryState.Propagated
       errors[].len == 0
       not service.isFull() # the service removed the task
