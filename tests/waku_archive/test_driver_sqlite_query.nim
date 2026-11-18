@@ -1624,3 +1624,39 @@ suite "SQLite driver - query by time range":
 
     ## Cleanup
     (await driver.close()).expect("driver to close")
+
+  asyncTest "hashes and time range":
+    ## Given
+    let driver = newSqliteArchiveDriver()
+
+    let timeOrigin = now()
+    let messages = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], ts = ts(30, timeOrigin)),
+    ]
+    let hashes = messages.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+
+    for i, msg in messages:
+      require (await driver.put(hashes[i], DefaultPubsubTopic, msg)).isOk()
+
+    ## When
+    let res = await driver.getMessages(
+      hashes = @[hashes[0], hashes[1], hashes[3]],
+      startTime = Opt.some(ts(05, timeOrigin)),
+      endTime = Opt.some(ts(35, timeOrigin)),
+      maxPageSize = 10,
+      ascendingOrder = true,
+    )
+
+    ## Then
+    check:
+      res.isOk()
+
+    let filteredMessages = res.tryGet().mapIt(it[2])
+    check:
+      filteredMessages == @[messages[1], messages[3]]
+
+    ## Cleanup
+    (await driver.close()).expect("driver to close")
