@@ -41,7 +41,9 @@ const MaxConcurrentPeers = 4
   ## Peers that pushes are sent to at the same time. Each one runs its own
   ## archive queries, so this caps the load that the pushes put on the database.
 
-const MaxBatchSize = 20 ## Pushes to one peer that are looked up in one archive query.
+const MaxBatchSize = 10
+  ## Pushes to one peer that are looked up in one archive query. The messages of
+  ## a batch stay in memory until it is sent, up to MaxConcurrentPeers batches.
 
 const MaxBatchSpan = Timestamp(5 * 60 * 1_000_000_000)
   ## Time between the oldest and the newest message of a batch, in nanoseconds,
