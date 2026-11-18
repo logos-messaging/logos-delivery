@@ -261,6 +261,7 @@ suite "Waku Sync Storage":
       storage.contains(element)
       not storage.contains(SyncID(time: Timestamp(1000), hash: randomHash(rng)))
       not storage.contains(SyncID(time: Timestamp(2000), hash: element.hash))
+      not storage.contains(SyncID(time: Timestamp(500), hash: element.hash))
 
   test "prune elements":
     var rng = initRand()

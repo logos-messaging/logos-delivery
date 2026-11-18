@@ -409,6 +409,98 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.len == 2
     check remoteNeeds.contains((switchC.peerInfo.peerId, hash))
 
+  asyncTest "a peer that asked for a pending message gets it when it arrives after the timeout":
+    # Given a server holding one message, an empty client with a short timeout
+    # and an empty third node
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      (switchC, nodeC, _) = await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await nodeC.stop()
+      await switchC.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      clientIds,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 500.milliseconds,
+      pendingClock = pendingClockInTest,
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the third node asks the client for the message while it is pending,
+    # and the next session of the client starts after its timeout
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    res = await nodeC.storeSynchronization(Opt.some(clientPeerInfo))
+    assert res.isOk(), res.error
+    pendingNowInTest += 600.milliseconds
+    res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 2
+    check not client.isPending(hash)
+
+    # And the message then arrives at the client
+    await clientIds.deliver(msg, serverPeerInfo.peerId)
+
+    # Then the client queues it for the third node
+    checkUntilTimeout:
+      remoteNeeds.len == 3
+    check remoteNeeds.contains((switchC.peerInfo.peerId, hash))
+
+  asyncTest "a peer that promises a message again after the timeout does not keep it from another peer":
+    # Given two servers holding one message and an empty client with a short timeout
+    let
+      msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+      (switchB, serverB, serverBPeerInfo) =
+        await newSecondServer(idsChannel, localWants, remoteNeeds)
+    defer:
+      await serverB.stop()
+      await switchB.stop()
+    server = await newTestWakuRecon(
+      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      pendingTimeout = 500.milliseconds,
+      pendingClock = pendingClockInTest,
+    )
+    server.messageIngress(hash, DefaultPubsubTopic, msg)
+    serverB.messageIngress(hash, DefaultPubsubTopic, msg)
+
+    # When the first server promises the message, and promises it again in a
+    # session after the timeout
+    var res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    check remoteNeeds.len == 1
+    pendingNowInTest += 600.milliseconds
+    res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 2
+    check not client.isPending(hash)
+
+    # Then the second server promises it and queues it
+    res = await client.storeSynchronization(Opt.some(serverBPeerInfo))
+    assert res.isOk(), res.error
+    checkUntilTimeout:
+      remoteNeeds.len == 3
+    check client.isPending(hash)
+
   asyncTest "sync 2 nodes empty client full server, relay jitter shifts the time range":
     server = await newTestWakuRecon(
       serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds

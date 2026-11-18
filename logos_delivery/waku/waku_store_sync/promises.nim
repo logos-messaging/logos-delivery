@@ -14,11 +14,11 @@ import ../waku_core/message/digest, ./common
 
 type
   PromiseRound = object
-    peer: PeerId
+    peerId: PeerId
     madeAt: Moment
     ids: seq[SyncID]
-    open: int # elements of the round that are still wanted from it
-    delivered: bool # the peer sent at least one element of the round
+    numWantedElements: int # elements of the round that are still wanted from it
+    anyDelivered: bool # the peer sent at least one element of the round
     released: bool # the elements of the round are no longer pending
 
   PeerRounds = object
@@ -53,30 +53,31 @@ func isWanted*(self: Promises, hash: WakuMessageHash): bool =
   ## True when a round asked for the element and it did not arrive.
   self.wanted.contains(hash)
 
-proc promise*(
-    self: var Promises, peer: PeerId, ids: seq[SyncID], now: Moment
+func promise*(
+    self: var Promises, peerId: PeerId, ids: seq[SyncID], now: Moment
 ): seq[SyncID] =
-  ## Records the elements that `peer` promised in one round. Returns the elements
-  ## to keep as pending. An element that the same peer already let go stays in its
-  ## released round, so that this peer cannot keep the node from asking another.
-  let round = (ref PromiseRound)(peer: peer, madeAt: now)
+  ## Records the elements that `peerId` promised in one round. Returns the
+  ## elements to keep as pending. An element that the same peer already let go
+  ## stays in its released round, so that this peer cannot keep the node from
+  ## asking another.
+  let round = (ref PromiseRound)(peerId: peerId, madeAt: now)
   for id in ids:
     let earlier = self.wanted.getOrDefault(id.hash)
     if not earlier.isNil():
-      if earlier.released and earlier.peer == peer:
+      if earlier.released and earlier.peerId == peerId:
         continue
-      earlier.open.dec()
+      earlier.numWantedElements.dec()
     round.ids.add(id)
-    round.open.inc()
+    round.numWantedElements.inc()
     self.wanted[id.hash] = round
 
   if round.ids.len > 0:
     self.peers
-      .mgetOrPut(peer, PeerRounds(rounds: initDeque[ref PromiseRound]())).rounds
+      .mgetOrPut(peerId, PeerRounds(rounds: initDeque[ref PromiseRound]())).rounds
       .addLast(round)
   return round.ids
 
-proc arrive*(
+func arrive*(
     self: var Promises, hash: WakuMessageHash, sender: Opt[PeerId], now: Moment
 ): Arrival =
   ## Records the arrival of an element. `sender` is the peer that transferred it,
@@ -85,59 +86,59 @@ proc arrive*(
   var round: ref PromiseRound
   if not self.wanted.pop(hash, round):
     return Arrival.Unwanted
-  round.open.dec()
-  if sender.isSome() and sender.get() == round.peer:
-    round.delivered = true
-    self.peers.withValue(round.peer, rounds):
+  round.numWantedElements.dec()
+  if sender.isSome() and sender.get() == round.peerId:
+    round.anyDelivered = true
+    self.peers.withValue(round.peerId, rounds):
       rounds.lastDelivery = now
   return if round.released: Arrival.Late else: Arrival.Pending
 
-proc release(self: var Promises, round: ref PromiseRound, ended: var seq[SyncID]) =
+func release(self: var Promises, round: ref PromiseRound, ended: var seq[SyncID]) =
   round.released = true
   self.released.add(round)
   for id in round.ids:
     if self.wanted.getOrDefault(id.hash) == round:
       ended.add(id)
 
-proc expire*(
-    self: var Promises, now: Moment
-): tuple[ended: seq[SyncID], dropped: seq[WakuMessageHash]] =
-  ## Releases the rounds that are no longer pending. `ended` holds their elements
-  ## that are still wanted, so that the caller removes their placeholders.
-  ## `dropped` holds the elements that are no longer wanted.
+func newestDelivered(rounds: Deque[ref PromiseRound]): int =
+  ## The index of the newest round with a delivery, -1 when none has one. A
+  ## delivery of a round shows that the peer sent the rounds before it, so the
+  ## elements of those rounds that did not arrive are lost.
+  var newest = -1
+  for i in 0 ..< rounds.len:
+    if rounds[i].anyDelivered:
+      newest = i
+  return newest
+
+func isStale(self: Promises, round: ref PromiseRound, lastDelivery, now: Moment): bool =
+  ## True when the peer sent nothing of its promises for one timeout, or when
+  ## the round reached `maxPending`.
+  now >= max(round.madeAt, lastDelivery) + self.timeout or
+    now >= round.madeAt + self.maxPending
+
+func releaseStale(
+    self: var Promises, peerRounds: var PeerRounds, now: Moment, ended: var seq[SyncID]
+) =
+  let newest = peerRounds.rounds.newestDelivered()
+  var kept = initDeque[ref PromiseRound]()
+  for i in 0 ..< peerRounds.rounds.len:
+    let round = peerRounds.rounds[i]
+    if round.numWantedElements == 0:
+      continue
+    if i < newest or self.isStale(round, peerRounds.lastDelivery, now):
+      self.release(round, ended)
+    else:
+      kept.addLast(round)
+  peerRounds.rounds = kept
+
+func dropUnwanted(self: var Promises, now: Moment): seq[WakuMessageHash] =
+  ## Forgets the released rounds whose accept window ended, and returns their
+  ## elements that are no longer wanted.
   var
-    ended: seq[SyncID]
+    kept: seq[ref PromiseRound]
     dropped: seq[WakuMessageHash]
-    idle: seq[PeerId]
-  for peer, peerRounds in self.peers.mpairs:
-    # A delivery of a round shows that the peer sent the rounds before it, so the
-    # elements of those rounds that did not arrive are lost.
-    var newestDelivered = -1
-    for i in 0 ..< peerRounds.rounds.len:
-      if peerRounds.rounds[i].delivered:
-        newestDelivered = i
-
-    var kept = initDeque[ref PromiseRound]()
-    for i in 0 ..< peerRounds.rounds.len:
-      let round = peerRounds.rounds[i]
-      if round.open == 0:
-        continue
-      let
-        stalled = now >= max(round.madeAt, peerRounds.lastDelivery) + self.timeout
-        tooLong = now >= round.madeAt + self.maxPending
-      if i < newestDelivered or stalled or tooLong:
-        self.release(round, ended)
-      else:
-        kept.addLast(round)
-    peerRounds.rounds = kept
-    if kept.len == 0:
-      idle.add(peer)
-  for peer in idle:
-    self.peers.del(peer)
-
-  var kept: seq[ref PromiseRound]
   for round in self.released:
-    if round.open == 0:
+    if round.numWantedElements == 0:
       continue
     if now < round.madeAt + self.acceptWindow:
       kept.add(round)
@@ -147,5 +148,22 @@ proc expire*(
         self.wanted.del(id.hash)
         dropped.add(id.hash)
   self.released = kept
+  return dropped
 
-  return (ended, dropped)
+func expire*(
+    self: var Promises, now: Moment
+): tuple[ended: seq[SyncID], dropped: seq[WakuMessageHash]] =
+  ## Releases the rounds that are no longer pending. `ended` holds their elements
+  ## that are still wanted, so that the caller removes their placeholders.
+  ## `dropped` holds the elements that are no longer wanted.
+  var
+    ended: seq[SyncID]
+    idle: seq[PeerId]
+  for peerId, peerRounds in self.peers.mpairs:
+    self.releaseStale(peerRounds, now, ended)
+    if peerRounds.rounds.len == 0:
+      idle.add(peerId)
+  for peerId in idle:
+    self.peers.del(peerId)
+
+  return (ended, self.dropUnwanted(now))
