@@ -248,8 +248,8 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.containsPush(serverPeerInfo.peerId, hash3) == true
 
   asyncTest "an empty client learns every message of a server that holds more than one frame":
-    # About 360 IDs fit in a frame of 12,000 bytes, so the server's
-    # 1,000 messages take several replies.
+    # About 350 IDs, 1,000 ns apart, fit in a frame of 12,000 bytes, so the
+    # server's 1,000 messages take several replies.
     const
       count = 1_000
       frameSizeLimit = 12_000

@@ -28,7 +28,8 @@ type SeqStorage* = ref object of SyncStorage
   # Number of element in a range for which item sets are used instead of fingerprints.
   lengthThreshold: int
 
-  # Largest encoded reply this storage builds, in bytes (WAKU-SYNC frame size limit).
+  # WAKU-SYNC frame size limit, in bytes. Only the first range of a reply that
+  # is not Skip may take a reply over it.
   frameSizeLimit: int
 
 method length*(self: SeqStorage): int {.raises: [].} =
@@ -231,18 +232,18 @@ proc processFingerprintRange*(
     pubsubTopicSet: PackedSet[int],
     inputFingerprint: Fingerprint,
     output: var RangesData,
-    room: var int,
+    frameBytesLeft: var int,
 ) {.raises: [].} =
-  ## Compares fingerprints and partition new ranges. Each range that it adds
-  ## takes its encoded size from `room`, in bytes, and an item set is added
-  ## only when it fits.
+  ## Compares fingerprints and partition new ranges. Subtracts the encoded size
+  ## of each range that it adds from `frameBytesLeft`, the bytes still free in
+  ## the reply.
 
   let idxSlice = self.findIdxBounds(inputBounds)
   let ourFingerprint = self.computeFingerprintFromSlice(idxSlice, pubsubTopicSet)
 
   if ourFingerprint == inputFingerprint:
     output.ranges.add((inputBounds, RangeType.Skip))
-    room -= maxEncodedRangeSize(RangeType.Skip)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     return
 
   # An empty range is not marked reconciled: the peer then replies with its
@@ -251,7 +252,7 @@ proc processFingerprintRange*(
     output.ranges.add((inputBounds, RangeType.ItemSet))
     let state = ItemSet(elements: @[], reconciled: false)
     output.itemSets.add(state)
-    room -= maxEncodedRangeSize(RangeType.ItemSet, state)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.ItemSet, state)
     return
 
   let slice = idxSlice.get()
@@ -264,8 +265,8 @@ proc processFingerprintRange*(
     # An item set that does not fit makes the range too large, so it is
     # divided (WAKU-SYNC). A range too short to divide is listed anyway, so
     # that the session progresses.
-    if size <= room or partitions.len == 0:
-      room -= size
+    if size <= frameBytesLeft or partitions.len == 0:
+      frameBytesLeft -= size
       output.ranges.add((inputBounds, RangeType.ItemSet))
       output.itemSets.add(state)
       return
@@ -277,7 +278,7 @@ proc processFingerprintRange*(
       output.ranges.add((partitionBounds, RangeType.ItemSet))
       let state = ItemSet(elements: @[], reconciled: false)
       output.itemSets.add(state)
-      room -= maxEncodedRangeSize(RangeType.ItemSet, state)
+      frameBytesLeft -= maxEncodedRangeSize(RangeType.ItemSet, state)
       continue
 
     let slice = sliceOpt.get()
@@ -287,8 +288,8 @@ proc processFingerprintRange*(
       let state = ItemSet(elements: elements, reconciled: false)
       let size = maxEncodedRangeSize(RangeType.ItemSet, state)
       # A partition whose item set does not fit is sent as a fingerprint.
-      if size <= room:
-        room -= size
+      if size <= frameBytesLeft:
+        frameBytesLeft -= size
         output.ranges.add((partitionBounds, RangeType.ItemSet))
         output.itemSets.add(state)
         continue
@@ -296,7 +297,7 @@ proc processFingerprintRange*(
     let fingerprint = self.computeFingerprintFromSlice(Opt.some(slice), pubsubTopicSet)
     output.ranges.add((partitionBounds, RangeType.Fingerprint))
     output.fingerprints.add(fingerprint)
-    room -= maxEncodedRangeSize(RangeType.Fingerprint)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.Fingerprint)
     continue
 
 proc addDifferences(
@@ -322,14 +323,14 @@ proc processItemSetRange*(
     idsToSend: var seq[SyncID],
     idsToRecv: var seq[SyncID],
     output: var RangesData,
-    room: var int,
+    frameBytesLeft: var int,
     mustAnswer: bool,
 ): bool {.raises: [].} =
-  ## Compares item sets and outputs differences. The reply takes its encoded
-  ## size from `room`, in bytes; when the reply to an unreconciled item set does
-  ## not fit, the range is split at a cutoff (WAKU-SYNC frame size limit).
-  ## Returns false, and adds nothing, when not even the first timestamp of the
-  ## range fits and `mustAnswer` is false.
+  ## Compares item sets and outputs differences. Subtracts the encoded size of
+  ## its answer from `frameBytesLeft`, the bytes still free in the reply. A
+  ## listing that does not fit is split at a cutoff (WAKU-SYNC). Returns false,
+  ## and adds nothing, when not even the first timestamp fits and `mustAnswer`
+  ## is false.
 
   let idxSlice = self.findIdxBounds(inputBounds)
   let ours =
@@ -362,7 +363,7 @@ proc processItemSetRange*(
   if inputItemSet.reconciled:
     addDifferences(ourOnly, theirOnly, Opt.none(SyncID), idsToSend, idsToRecv)
     output.ranges.add((inputBounds, RangeType.Skip))
-    room -= maxEncodedRangeSize(RangeType.Skip)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     return true
 
   let full = ItemSet(elements: ours, reconciled: true)
@@ -371,11 +372,12 @@ proc processItemSetRange*(
   # Number of elements that the reply lists.
   var fitting = ours.len
 
-  if fullSize > room:
-    # The cutoff sits where the timestamp changes, so that it encodes without
-    # its hash, and leaves room for the fingerprint of the rest.
+  if fullSize > frameBytesLeft:
+    # The cutoff has a zero hash, so it falls before every element of its
+    # timestamp: the listing can end only where the timestamp changes.
+    # `available` keeps back the size of the fingerprint of the rest.
     let
-      available = room - maxEncodedRangeSize(RangeType.Fingerprint)
+      available = frameBytesLeft - maxEncodedRangeSize(RangeType.Fingerprint)
       emptyListing = maxEncodedRangeSize(RangeType.ItemSet, ItemSet())
     var
       elementsSize = 0
@@ -407,7 +409,7 @@ proc processItemSetRange*(
     addDifferences(ourOnly, theirOnly, Opt.none(SyncID), idsToSend, idsToRecv)
     output.ranges.add((inputBounds, RangeType.ItemSet))
     output.itemSets.add(full)
-    room -= fullSize
+    frameBytesLeft -= fullSize
     return true
 
   let cutoff = SyncID(time: ours[fitting].time, hash: EmptyFingerprint)
@@ -420,7 +422,7 @@ proc processItemSetRange*(
   output.itemSets.add(listed)
   output.ranges.add((cutoff .. inputBounds.b, RangeType.Fingerprint))
   output.fingerprints.add(rest)
-  room -=
+  frameBytesLeft -=
     maxEncodedRangeSize(RangeType.ItemSet, listed) +
     maxEncodedRangeSize(RangeType.Fingerprint)
 
@@ -443,7 +445,7 @@ proc processItemSetRange*(
   var
     idsToSend: seq[SyncID]
     idsToRecv: seq[SyncID]
-    room = high(int)
+    frameBytesLeft = high(int)
   discard self.processItemSetRange(
     inputBounds,
     pubsubTopicSet,
@@ -451,7 +453,7 @@ proc processItemSetRange*(
     idsToSend,
     idsToRecv,
     output,
-    room,
+    frameBytesLeft,
     mustAnswer = true,
   )
   for id in idsToSend:
@@ -470,17 +472,16 @@ method processPayload*(
   ## lacks, and to `idsToRecv` the peer's elements missing here, with their
   ## timestamps, so the caller can index them before they arrive.
   ##
-  ## The reply stays within the frame size limit (WAKU-SYNC): from the first
-  ## range whose answer does not fit, it answers the remaining ranges with one
-  ## fingerprint range.
+  ## The reply stays within the frame size limit (WAKU-SYNC), except for its
+  ## first range that is not Skip. From the first range whose answer does not
+  ## fit, it answers the remaining ranges with one fingerprint range.
   var output = RangesData()
 
   var
     i = 0
     j = 0
-    # Room for one fingerprint range is kept back for the range that ends a
-    # full reply.
-    room =
+    # Keeps back the size of the fingerprint range that ends a stopped reply.
+    frameBytesLeft =
       self.frameSizeLimit - maxEncodedHeaderSize(input.shards.len) -
       maxEncodedRangeSize(RangeType.Fingerprint)
     # Only the first answered range that is not Skip may go over the limit, so
@@ -496,10 +497,10 @@ method processPayload*(
   for idx in 0 ..< input.ranges.len:
     let (bounds, rangeType) = input.ranges[idx]
 
-    # Each answer is built apart, and kept only when it fits.
+    # Each answer is built separately, so that one that does not fit is dropped.
     var
       answer = RangesData()
-      answerRoom = room
+      answerBytesLeft = frameBytesLeft
       answerSend: seq[SyncID]
       answerRecv: seq[SyncID]
       answered = true
@@ -507,13 +508,13 @@ method processPayload*(
     case rangeType
     of RangeType.Skip:
       answer.ranges.add((bounds, RangeType.Skip))
-      answerRoom -= maxEncodedRangeSize(RangeType.Skip)
+      answerBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     of RangeType.Fingerprint:
       let fingerprint = input.fingerprints[i]
       i.inc()
 
       self.processFingerprintRange(
-        bounds, pubsubTopicSet, fingerprint, answer, answerRoom
+        bounds, pubsubTopicSet, fingerprint, answer, answerBytesLeft
       )
     of RangeType.ItemSet:
       let itemSet = input.itemsets[j]
@@ -526,12 +527,12 @@ method processPayload*(
         answerSend,
         answerRecv,
         answer,
-        answerRoom,
+        answerBytesLeft,
         mustAnswer = not answeredOne,
       )
 
     let mustKeep = rangeType != RangeType.Skip and not answeredOne
-    if not mustKeep and (not answered or answerRoom < 0):
+    if not mustKeep and (not answered or answerBytesLeft < 0):
       stopAt = idx
       break
 
@@ -540,7 +541,7 @@ method processPayload*(
     output.itemSets.add(answer.itemSets)
     idsToSend.add(answerSend)
     idsToRecv.add(answerRecv)
-    room = answerRoom
+    frameBytesLeft = answerBytesLeft
     if rangeType != RangeType.Skip:
       answeredOne = true
 
@@ -603,7 +604,7 @@ proc processPayload*(
   return output
 
 func minFrameSizeLimit(): int =
-  ## A reply to a payload with no shards that holds one fingerprint range.
+  ## The size of the smallest reply: no shards and one fingerprint range.
   maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint)
 
 proc new*(

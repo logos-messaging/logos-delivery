@@ -10,10 +10,10 @@ import
   ../../logos_delivery/waku/waku_store_sync/storage/seq_storage,
   ./sync_utils
 
-proc frameLeaving(room: int): int =
-  ## A frame size limit that leaves `room` bytes for the ranges of a reply to a
-  ## payload with no shards.
-  maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint) + room
+proc frameLeaving(frameBytesLeft: int): int =
+  ## A frame size limit that leaves `frameBytesLeft` bytes for the ranges of a
+  ## reply to a payload with no shards.
+  maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint) + frameBytesLeft
 
 proc listingSize(elements: openArray[SyncID]): int =
   maxEncodedRangeSize(RangeType.ItemSet, ItemSet(elements: @elements))
@@ -23,9 +23,9 @@ const ExampleBounds =
   SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
 
 proc exampleIds(rng: var Rand): seq[SyncID] =
-  ## The SyncIDs of the WAKU-SYNC split example, in order: two share timestamp
-  ## 1002. The IDs after 1500 make the rest of a cut larger than the
-  ## fingerprint range that replaces it, so that a split saves room.
+  ## The SyncIDs of the WAKU-SYNC split example, in order (two share timestamp
+  ## 1002), plus IDs at 1600 to 1800 so that the rest of a split is larger than
+  ## the fingerprint range that replaces it.
   @[1000'i64, 1002, 1002, 1003, 1500, 1600, 1700, 1800]
     .mapIt(SyncID(time: Timestamp(it), hash: randomHash(rng)))
     .sorted(
@@ -56,20 +56,20 @@ proc answer(storage: SeqStorage, payload: RangesData): (RangesData, seq[Fingerpr
   let reply = storage.processPayload(payload, hashToSend, idsToRecv)
   (reply, hashToSend)
 
-proc roomFor(ids: seq[SyncID], fitting: int): int =
-  ## Room for the item set of the first `fitting` SyncIDs and the fingerprint
-  ## after it, and less than one more SyncID.
+proc bytesLeftFor(ids: seq[SyncID], fitting: int): int =
+  ## Bytes for the item set of the first `fitting` SyncIDs and the fingerprint
+  ## after it, plus fewer bytes than one more SyncID takes.
   listingSize(ids[0 ..< fitting]) + maxEncodedRangeSize(RangeType.Fingerprint) + 10
 
 proc splitReply(
-    storage: SeqStorage, theirs: seq[SyncID], room: int, mustAnswer: bool
+    storage: SeqStorage, theirs: seq[SyncID], frameBytesLeft: int, mustAnswer: bool
 ): (bool, RangesData, seq[Fingerprint], seq[SyncID]) =
   ## The reply to an unreconciled item set of `theirs` over ExampleBounds.
   var
     hashToSend: seq[Fingerprint]
     idsToRecv: seq[SyncID]
     output: RangesData
-    room = room
+    frameBytesLeft = frameBytesLeft
   let answered = storage.processItemSetRange(
     ExampleBounds,
     initPackedSet[int](),
@@ -77,7 +77,7 @@ proc splitReply(
     hashToSend,
     idsToRecv,
     output,
-    room,
+    frameBytesLeft,
     mustAnswer,
   )
   (answered, output, hashToSend, idsToRecv)
@@ -108,10 +108,10 @@ suite "Waku Sync Storage":
 
     var
       outputPayload: RangesData
-      room = DefaultMaxPayloadSize
+      frameBytesLeft = DefaultMaxPayloadSize
 
     storage2.processFingerprintRange(
-      bounds, emptySet, fingerprint1, outputPayload, room
+      bounds, emptySet, fingerprint1, outputPayload, frameBytesLeft
     )
 
     let expected =
@@ -248,7 +248,7 @@ suite "Waku Sync Storage":
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
       (answered, output, hashToSend, idsToRecv) =
-        storage.splitReply(@[], roomFor(ids, 3), mustAnswer = false)
+        storage.splitReply(@[], bytesLeftFor(ids, 3), mustAnswer = false)
 
     check:
       answered
@@ -270,7 +270,7 @@ suite "Waku Sync Storage":
       c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
       # Two fit, but both SyncIDs at 1002 must be on the same side of the cutoff.
       (answered, output, hashToSend, _) =
-        storage.splitReply(@[], roomFor(ids, 2), mustAnswer = false)
+        storage.splitReply(@[], bytesLeftFor(ids, 2), mustAnswer = false)
 
     check:
       answered
@@ -288,10 +288,10 @@ suite "Waku Sync Storage":
       ids = exampleIds(rng)
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
-      noRoom = maxEncodedRangeSize(RangeType.Fingerprint) + 10
+      tooFewBytes = maxEncodedRangeSize(RangeType.Fingerprint) + 10
       (skipped, skippedOutput, skippedSend, _) =
-        storage.splitReply(@[], noRoom, mustAnswer = false)
-      (answered, output, _, _) = storage.splitReply(@[], noRoom, mustAnswer = true)
+        storage.splitReply(@[], tooFewBytes, mustAnswer = false)
+      (answered, output, _, _) = storage.splitReply(@[], tooFewBytes, mustAnswer = true)
 
     check:
       not skipped
@@ -310,7 +310,7 @@ suite "Waku Sync Storage":
       below = SyncID(time: Timestamp(1001), hash: randomHash(rng))
       above = SyncID(time: Timestamp(1600), hash: randomHash(rng))
       (answered, _, hashToSend, idsToRecv) =
-        storage.splitReply(@[below, above], roomFor(ids, 3), mustAnswer = false)
+        storage.splitReply(@[below, above], bytesLeftFor(ids, 3), mustAnswer = false)
 
     check:
       answered
@@ -351,7 +351,7 @@ suite "Waku Sync Storage":
       reply.fingerprints == @[storage.computeFingerprint(span(2000, 5000), @[])]
       reply.deltaEncode().len <= frame
 
-  test "a later unreconciled item set is split with the room that is left":
+  test "a later unreconciled item set is split with the frameBytesLeft that is left":
     var rng = initRand()
     let
       inFirst = idsAt(toSeq(0 ..< 5).mapIt(1001 + 200 * it), rng)

@@ -41,17 +41,17 @@ proc deltaEncode*(itemSet: ItemSet): seq[byte] =
 
 const
   MaxVarIntLen = int(Leb128.maxLen(uint64))
-  # A time difference, then for an equal timestamp the hash prefix length and
-  # the prefix (see encodeUpperBound).
+  # A bound's time difference, then, when its timestamp equals the previous
+  # bound's, a prefix length byte and a hash prefix (see encodeUpperBound).
   MaxBoundLen = MaxVarIntLen + 1 + HashLen
 
 func encodedElementSize*(id: SyncID, previousTime: Timestamp): int =
   ## The bytes that `deltaEncode(ItemSet)` writes for `id` after an element at
-  ## `previousTime`, or after 0 for the first element.
+  ## `previousTime`, which is 0 for the first element.
   int(Leb128.len(uint64(id.time) - uint64(previousTime))) + HashLen
 
 func encodedSize*(itemSet: ItemSet): int =
-  ## The length of `itemSet.deltaEncode()`, from the same time differences.
+  ## The length of `itemSet.deltaEncode()`, without encoding it.
   var
     size = 1 # the reconciled byte
     lastTime = Timestamp(0)
