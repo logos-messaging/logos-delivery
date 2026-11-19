@@ -798,13 +798,14 @@ proc publish*(
   # A lone node still serves its own message (store, filter push), so this does
   # not wait for a peer. The id is consumed only for a topic that has a handler,
   # and a retry after `NoPeersToPublish` is not handled twice.
-  if (onBehalfOfPeer or not w.ownMessageHandler.isNil()) and fitsMaxSize and
-      w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(msgId):
+  if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
+    msgId
+  ):
     if onBehalfOfPeer:
       # Gossipsub does not bring a message back to its publisher, so the
       # `subscribe` handlers get it here. They serve it too.
       await procCall PubSub(w).handleData(pubsubTopic, data)
-    else:
+    elif not w.ownMessageHandler.isNil():
       await w.ownMessageHandler(pubsubTopic, message)
 
   if relayedPeerCount <= 0:
