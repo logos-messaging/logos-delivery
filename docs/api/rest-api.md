@@ -110,7 +110,7 @@ Malformed bodies and content topics get HTTP `400`. A node without autosharding 
 | the same message still in flight | `409` |
 | message too large, with its RLN proof | `413` |
 | 200 sends with no last event yet | `429` with `Retry-After: 1` |
-| rate-limit budget of the epoch spent | `429` with `Retry-After` set to the seconds until the next epoch |
+| rate-limit budget of the epoch spent | `429` with `Retry-After` set to the seconds until the next epoch, or 1 when the RLN backend does not state the length of its epoch |
 
 The body of a refusal ends with the kind of the refusal in parentheses, such as `(RateLimited)`. The body of a `RateLimited` refusal also gives the seconds of its `Retry-After`, such as `retry after 42 s (RateLimited)`. The node queues nothing for a refused send.
 

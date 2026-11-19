@@ -1201,10 +1201,17 @@ suite "Messaging API - send refusals":
     let viaBroker = await MessagingSend.request(
       node.waku.brokerCtx, MessageEnvelope.init(RefusalTopic, "broker")
     )
-    check:
-      viaBroker.isErr()
-      viaBroker.error.endsWith(" s (RateLimited)")
-      viaBroker.error.contains(", retry after ")
+    check viaBroker.isErr()
+    if viaBroker.isErr():
+      # The broker text has the seconds to wait as a number.
+      let seconds =
+        try:
+          viaBroker.error.split(", retry after ")[^1].split(" s (")[0].parseInt()
+        except ValueError:
+          -1
+      check:
+        viaBroker.error.endsWith(" s (RateLimited)")
+        seconds > 0
     check client.sendService.deliveryTasks.len == 0
 
   asyncTest "a message still in the send queue is refused as Duplicate, and a full queue as QueueFull":

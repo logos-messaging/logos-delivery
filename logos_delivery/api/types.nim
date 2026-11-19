@@ -34,7 +34,9 @@ type
   SendError* = object
     kind*: SendErrorKind
     desc*: string
-    retryAfter*: Duration ## For `RateLimited`: the time until the next epoch.
+    retryAfter*: Duration
+      ## For `RateLimited`: the time until the next epoch, or 1 s when the RLN
+      ## backend does not state the length of its epoch.
 
   ConnectionStatus* {.pure.} = enum
     Disconnected
