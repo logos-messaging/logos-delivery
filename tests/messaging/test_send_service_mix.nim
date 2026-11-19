@@ -43,19 +43,19 @@ method isValidProcessor(self: PlainSendProcessor, task: DeliveryTask): bool {.gc
 
 method sendImpl(self: PlainSendProcessor, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
-  task.state = DeliveryState.SuccessfullyPropagated
   task.firstPropagatedTime = Opt.some(Moment.now())
+  task.state = DeliveryState.SuccessfullyPropagated
 
 type RetryingProcessor = ref object of BaseSendProcessor
-  ## Leaves every task for a retry, with `reason` in `errorDesc`.
+  ## Leaves every task for a retry, with `reason` as the outcome's `desc`.
   reason: string
 
 method isValidProcessor(self: RetryingProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
 method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.async.} =
-  task.errorDesc = self.reason
   task.state = DeliveryState.NextRoundRetry
+  task.errorDesc = self.reason
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -73,7 +73,6 @@ proc buildTask(
   )
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
@@ -142,14 +141,7 @@ suite "SendService - mix size before admission":
       waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
     )
     let service = SendService
-      .new(
-        false,
-        waku,
-        manager,
-        mix,
-        AnonymityLevel.Required,
-        retryInterval = chronos.hours(1),
-      )
+      .new(false, waku, manager, mix, retryInterval = chronos.hours(1))
       .expect("SendService.new")
     service.startSendService()
     defer:
@@ -166,22 +158,25 @@ suite "SendService - mix size before admission":
       await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
 
     let large = sizedProofTask("unproven-fits", mixLimit(), 0)
-    check service.enqueue(large).isOk()
-    checkUntilTimeout:
-      errors.len == 1
+    let refused = service.enqueue(large)
+    check refused.isErr()
     check:
-      large.state == DeliveryState.FailedToDeliver
-      large.errorDesc.startsWith(MixTooLargeReason)
+      refused.error.kind == SendErrorKind.TooLarge
+      refused.error.desc.startsWith(MixTooLargeReason)
+      large.state == DeliveryState.Entry
       large.firstAdmittedTime.isNone()
       large.msg.proof.len == 0
       large.tryCount == 0
       not large.anonymized
       draws[] == 0
       manager.sentInCurrentEpoch == 0
-      not large.queuedEventEmitted
+      errors.len == 0 # a refused message gets no event
 
     let fits = sizedProofTask("proven-fits", mixLimit(), proofBytes)
-    check service.enqueue(fits).isOk()
+    let accepted = service.enqueue(fits)
+    check:
+      accepted.isOk()
+      accepted.value == fits.msgHash
     checkUntilTimeout:
       fits.state == DeliveryState.NextRoundRetry
     check:
@@ -191,7 +186,7 @@ suite "SendService - mix size before admission":
       fits.msg.proof.len == proofBytes
       mixLightpushSize(fits.pubsubTopic, fits.msg).size == mixLimit()
       fits.errorDesc == MixUnavailableReason
-      errors.len == 1
+      errors.len == 0
 
   asyncTest "Required rejects one byte above the proven limit without spending budget":
     let draws = countingRln(waku, 289)
@@ -206,11 +201,12 @@ suite "SendService - mix size before admission":
     defer:
       await service.stopSendService()
     let task = sizedProofTask("proven-too-large", mixLimit() + 1, 289)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
+    let refused = service.enqueue(task)
+    check refused.isErr()
     check:
-      task.errorDesc.contains("the request has " & $(mixLimit() + 1) & " bytes")
+      refused.error.kind == SendErrorKind.TooLarge
+      refused.error.desc.contains("the request has " & $(mixLimit() + 1) & " bytes")
+      task.state == DeliveryState.Entry
       draws[] == 0
       manager.sentInCurrentEpoch == 0
       task.firstAdmittedTime.isNone()
@@ -230,7 +226,7 @@ suite "SendService - mix size before admission":
     defer:
       await service.stopSendService()
     let task = sizedProofTask("plain-fallback", mixLimit() + 1, 289)
-    check service.enqueue(task).isOk()
+    check (service.enqueue(task)).isOk()
     checkUntilTimeout:
       task.state == DeliveryState.SuccessfullyPropagated
     check:
@@ -248,13 +244,13 @@ suite "SendService - mix size before admission":
     let mix = MixSendProcessor.new(
       waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
     )
-    check mix.checkBeforeAdmission(task)
+    check mix.checkBeforeSend(task).isOk()
     check:
       draws[] == 0
       task.msg.proof.len == 289
       mixLightpushSize(task.pubsubTopic, task.msg).size == mixLimit()
     task.msg.proof.add(1)
-    check not mix.checkBeforeAdmission(task)
+    check mix.checkBeforeSend(task).isErr()
     check draws[] == 0
 
   asyncTest "an undeclared proof size fails Required before drawing a proof":
@@ -273,11 +269,12 @@ suite "SendService - mix size before admission":
     defer:
       await service.stopSendService()
     let task = sizedProofTask("unknown-proof", mixLimit(), 0)
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
+    let refused = service.enqueue(task)
+    check refused.isErr()
     check:
-      task.errorDesc.contains("does not declare its proof size")
+      refused.error.kind == SendErrorKind.TooLarge
+      refused.error.desc.contains("does not declare its proof size")
+      task.state == DeliveryState.Entry
       draws[] == 0
       manager.sentInCurrentEpoch == 0
 
@@ -374,23 +371,21 @@ suite "SendService - anonymity level":
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
 
-  asyncTest "Preferred gets a second delivery window, the other levels do not":
+  asyncTest "every level gets one delivery window, and the mix window fits in it":
+    ## `Preferred` spends `MixWindow` on mix and keeps the rest of the same
+    ## `DeliveryWindow` for the plain path, so no level gets a longer send.
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
 
     proc serviceFor(level: AnonymityLevel): SendService =
       let chain = setupSendProcessorChain(waku, level).expect("send processor chain")
-      return
-        SendService.new(false, waku, manager, chain, level).expect("SendService.new")
-
-    let plainService = serviceFor(AnonymityLevel.None)
-    let mixOnlyService = serviceFor(AnonymityLevel.Required)
-    let bestEffortService = serviceFor(AnonymityLevel.Preferred)
+      return SendService.new(false, waku, manager, chain).expect("SendService.new")
 
     check:
-      plainService.maxDeliveryTime == DeliveryWindow
-      mixOnlyService.maxDeliveryTime == DeliveryWindow
-      bestEffortService.maxDeliveryTime == DeliveryWindow + DeliveryWindow
+      serviceFor(AnonymityLevel.None).deliveryWindow == DeliveryWindow
+      serviceFor(AnonymityLevel.Required).deliveryWindow == DeliveryWindow
+      serviceFor(AnonymityLevel.Preferred).deliveryWindow == DeliveryWindow
+      MixWindow < DeliveryWindow
 
   asyncTest "enqueue emits no event, and the service emits the outcome later":
     ## A `Required` task that mix cannot attempt fails with no network call.
@@ -410,16 +405,14 @@ suite "SendService - anonymity level":
     let chain = setupSendProcessorChain(waku, AnonymityLevel.Required).expect(
         "send processor chain"
       )
-    let service = SendService
-      .new(false, waku, manager, chain, AnonymityLevel.Required)
-      .expect("SendService.new")
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
 
     service.startSendService()
     defer:
       await service.stopSendService()
     let task = buildTask("failfast", chronos.seconds(1))
     check:
-      service.enqueue(task).isOk()
+      (service.enqueue(task)).isOk()
       errors.value == 0 # no event inside `enqueue`
     check await errors.waitCount(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check not await errors.waitCount(2).withTimeout(FUTURE_TIMEOUT_SHORT)
@@ -666,9 +659,13 @@ suite "SendService - anonymity level with a mounted mix":
       .new(false, waku, manager, RetryingProcessor(reason: "scripted reason"))
       .expect("SendService.new")
 
-    # Past its delivery window, so the end of its first attempt fails it.
-    let task = buildTask("reaper", DeliveryWindow + chronos.seconds(1))
-    check service.enqueue(task).isOk()
+    # Its delivery window ends right after its first attempt, so the next tick
+    # fails it with the reason that attempt left.
+    let task = buildTask("reaper", ZeroDuration)
+    task.msg.timestamp =
+      getNowInNanosecondTime() - (DeliveryWindow - chronos.milliseconds(300)).nanoseconds
+    task.msgHash = computeMessageHash(task.pubsubTopic, task.msg)
+    check (service.enqueue(task)).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -676,28 +673,37 @@ suite "SendService - anonymity level with a mounted mix":
       errors.len == 1
     check:
       task.state == DeliveryState.FailedToDeliver
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
       errors.mapIt(it.error) == @["scripted reason"]
 
-  asyncTest "a Preferred task falls back to the plain path once the window elapsed":
-    ## The window ends the mix phase of a task that mix did not deliver. Only a
+  asyncTest "a Preferred task falls back to the plain path once the mix window elapsed":
+    ## `MixWindow` ends the mix phase of a task that mix did not deliver. Only a
     ## usable mix shows this: with an unusable mix the reasons decide first.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60140 + i, lightpush = true)
 
     let plain = PlainSendProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
+    let mix =
+      MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred, MixWindow)
     mix.chain(plain)
 
-    # Mix had the task since admission and did not deliver it.
-    let task = buildTask("preferred-late", chronos.minutes(2))
+    # Within the mix window, mix attempts the task.
+    let early = buildTask("preferred-within-window", MixWindow - chronos.seconds(1))
+    let fut = mix.process(early)
+    check:
+      early.tryCount == 1
+      plain.calls == 0
+    await fut.cancelAndWait()
+
+    # Mix had the task for its whole window and did not deliver it.
+    let task = buildTask("preferred-late", MixWindow + chronos.seconds(1))
     await mix.process(task)
 
     check:
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
+      task.tryCount == 0
 
   asyncTest "an RLN proof refresh starts a new Preferred mix window":
     ## `parkForRlnProofRefresh` clears `firstAdmittedTime`, so the new proof

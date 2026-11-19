@@ -333,8 +333,8 @@ class WakuNode:
     def messaging_send_events(self):
         return self._api.messaging_send_events()
 
-    def messaging_send_events_by_id(self, request_id):
-        return self._api.messaging_send_events_by_id(request_id)
+    def messaging_send_events_by_hash(self, message_hash):
+        return self._api.messaging_send_events_by_hash(message_hash)
 
     def messaging_received(self):
         return self._api.messaging_received()

@@ -17,11 +17,11 @@ method isValidProcessor*(
 ): bool {.base, gcsafe.} =
   return false
 
-method checkBeforeAdmission*(
+method checkBeforeSend*(
     self: BaseSendProcessor, task: DeliveryTask
-): bool {.base, gcsafe, raises: [].} =
-  ## Returns false when the task fails before it spends budget or a message id.
-  return true
+): Result[void, SendError] {.base, gcsafe, raises: [].} =
+  ## Refuses a message in `send`, before it spends budget or a message id.
+  return ok()
 
 method sendImpl*(
     self: BaseSendProcessor, task: DeliveryTask

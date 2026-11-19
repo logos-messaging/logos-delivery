@@ -7,6 +7,7 @@ from src.env_vars import NODE_1, NODE_2
 from src.libs.common import to_base64
 from src.libs.custom_logger import get_custom_logger
 from src.node.waku_node import WakuNode
+from src.node.wrapper_helpers import MESSAGE_HASH_RE
 from src.steps.common import StepsCommon
 from src.steps.metrics import StepsMetrics
 
@@ -57,10 +58,11 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         message.update(kwargs)
         return message
 
-    def send_and_get_request_id(self, node, text=None, **kwargs):
+    def send_and_get_message_hash(self, node, text=None, **kwargs):
         response = node.messaging_send(self.messaging_message(text, **kwargs))
-        assert response.get("requestId"), f"no requestId in send response {response}"
-        return response["requestId"]
+        message_hash = response.get("messageHash")
+        assert MESSAGE_HASH_RE.fullmatch(message_hash or ""), f"no 0x hex messageHash in send response {response}"
+        return message_hash
 
     def collect_received(self, node, count, timeout=30):
         """Polls the received endpoint until it has `count` records."""
@@ -73,8 +75,8 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         assert len(records) >= count, f"collected {len(records)} received records, expected {count}"
         return records
 
-    def collect_send_kinds(self, node, request_id, kinds, timeout=30):
-        """Polls the send events of `request_id` until every kind in `kinds` appears.
+    def collect_send_kinds(self, node, message_hash, kinds, timeout=30):
+        """Polls the send events of `message_hash` until every kind in `kinds` appears.
 
         A 404 means that nothing is buffered yet. The status is matched at the start of the
         error text, because the URL in the text contains random digits.
@@ -83,44 +85,44 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         deadline = time() + timeout
         while not set(kinds) <= seen and time() < deadline:
             try:
-                status = node.messaging_send_events_by_id(request_id)
+                status = node.messaging_send_events_by_hash(message_hash)
                 seen.update(event["kind"] for event in status["events"])
             except Exception as ex:
                 if not str(ex).startswith("Error: 404 "):
                     raise
             if not set(kinds) <= seen:
                 sleep(0.5)
-        assert set(kinds) <= seen, f"send events for {request_id}: saw {sorted(seen)}, expected {kinds}"
+        assert set(kinds) <= seen, f"send events for {message_hash}: saw {sorted(seen)}, expected {kinds}"
         return seen
 
-    def collect_send_events(self, node, request_id, timeout=30):
-        """Polls the send events of `request_id` until a "sent" or "error" event comes, the last one of a send.
+    def collect_send_events(self, node, message_hash, timeout=30):
+        """Polls the send events of `message_hash` until a "sent" or "error" event comes, the last one of a send.
 
-        Returns the (kind, error) pair of each event, in order; only an "error" event has an error text.
-        A 404 means that nothing is buffered yet.
+        Returns the (kind, errorKind, error) triple of each event, in order; only an "error" event has an
+        errorKind and an error text. A 404 means that nothing is buffered yet.
         """
         events = []
         deadline = time() + timeout
-        while not any(kind in ("sent", "error") for kind, _ in events) and time() < deadline:
+        while not any(kind in ("sent", "error") for kind, _, _ in events) and time() < deadline:
             try:
-                status = node.messaging_send_events_by_id(request_id)
-                events.extend((event["kind"], event.get("error")) for event in status["events"])
+                status = node.messaging_send_events_by_hash(message_hash)
+                events.extend((event["kind"], event.get("errorKind"), event.get("error")) for event in status["events"])
             except Exception as ex:
                 if not str(ex).startswith("Error: 404 "):
                     raise
-            if not any(kind in ("sent", "error") for kind, _ in events):
+            if not any(kind in ("sent", "error") for kind, _, _ in events):
                 sleep(0.5)
-        assert any(kind in ("sent", "error") for kind, _ in events), f"send events for {request_id}: saw {events}, no sent or error"
+        assert any(kind in ("sent", "error") for kind, _, _ in events), f"send events for {message_hash}: saw {events}, no sent or error"
         return events
 
-    def collect_sent_request_ids(self, node, count, timeout=60):
-        """Polls all send events until `count` request ids have a "sent" event."""
+    def collect_sent_message_hashes(self, node, count, timeout=60):
+        """Polls all send events until `count` message hashes have a "sent" event."""
         sent = set()
         deadline = time() + timeout
         while len(sent) < count and time() < deadline:
             for status in node.messaging_send_events():
                 if any(event["kind"] == "sent" for event in status["events"]):
-                    sent.add(status["requestId"])
+                    sent.add(status["messageHash"])
             if len(sent) < count:
                 sleep(1)
         assert len(sent) == count, f"{len(sent)} of {count} sends confirmed 'sent' within {timeout}s"

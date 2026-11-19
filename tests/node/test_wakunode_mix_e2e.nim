@@ -385,9 +385,7 @@ suite "Waku Mix - end to end transport":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
     let chain = setupSendProcessorChain(waku, AnonymityLevel.Required).expect("chain")
-    let service = SendService
-      .new(false, waku, manager, chain, AnonymityLevel.Required)
-      .expect("SendService.new")
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
     let msg = WakuMessage(
       payload: toBytes("mix-e2e-send-service over mix"),
       contentTopic: "/mix-e2e/1/probe/proto",
@@ -395,15 +393,13 @@ suite "Waku Mix - end to end transport":
       timestamp: getNowInNanosecondTime(),
     )
     let task = DeliveryTask(
-      requestId: RequestId("mix-e2e-required"),
       pubsubTopic: shard,
       msg: msg,
       msgHash: computeMessageHash(shard, msg),
       state: DeliveryState.Entry,
-      firstAdmittedTime: Opt.some(Moment.now()), # admitted: no budget, no proof
     )
     let before = hopCounts()
-    check service.enqueue(task).isOk()
+    check (service.enqueue(task)).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()

@@ -60,9 +60,10 @@ type
     totalExpectedSegments: int
       ## Total segments produced by `segmentation.performSegmentation`
       ## for this `channelReqId`. Set once in `send`, never mutated.
-    inflightMessagingIds: seq[RequestId]
-      ## Messaging-layer ids minted by the send handler that have not
-      ## yet produced a final event. Removed on `MessageSentEvent` / `MessageErrorEvent`.
+    inflightHashes: seq[string]
+      ## Hex message hashes of the segments that `send` accepted and that have
+      ## not yet produced a final event. Removed on `MessageSentEvent` /
+      ## `MessageErrorEvent`.
     confirmedCount: int
     failedCount: int
 
@@ -99,7 +100,7 @@ func init(
   return ChannelReqState(
     persistenceReqType: persistenceReqType,
     totalExpectedSegments: totalExpectedSegments,
-    inflightMessagingIds: @[],
+    inflightHashes: @[],
     confirmedCount: 0,
     failedCount: 0,
   )
@@ -135,7 +136,7 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.
     return
-  if state.inflightMessagingIds.len != 0:
+  if state.inflightHashes.len != 0:
     return
   if state.confirmedCount + state.failedCount < state.totalExpectedSegments:
     return
@@ -162,13 +163,13 @@ type MessagingOutcome {.pure.} = enum
   Failed
 
 proc onMessageFinal(
-    self: ReliableChannel, messagingReqId: RequestId, outcome: MessagingOutcome
+    self: ReliableChannel, messageHash: string, outcome: MessagingOutcome
 ) =
   for channelReqId, state in self.channelReqs.mpairs:
-    let idx = state.inflightMessagingIds.find(messagingReqId)
+    let idx = state.inflightHashes.find(messageHash)
     if idx < 0:
       continue
-    state.inflightMessagingIds.del(idx)
+    state.inflightHashes.del(idx)
     case outcome
     of MessagingOutcome.Sent:
       state.confirmedCount.inc()
@@ -187,10 +188,10 @@ proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId) =
   self.tryFinalizeChannelReq(channelReqId)
 
 proc markSegmentInflight(
-    self: ReliableChannel, channelReqId: RequestId, messagingReqId: RequestId
+    self: ReliableChannel, channelReqId: RequestId, messageHash: string
 ) =
   try:
-    self.channelReqs[channelReqId].inflightMessagingIds.add(messagingReqId)
+    self.channelReqs[channelReqId].inflightHashes.add(messageHash)
   except KeyError as e:
     error "unreachable: channelReqId not found in markSegmentInflight",
       channelReqId = $channelReqId, error = e.msg
@@ -259,19 +260,15 @@ proc send*(
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    let messagingReqId = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
-      MessageErrorEvent.emit(
-        self.brokerCtx,
-        MessageErrorEvent(
-          requestId: channelReqId,
-          messageHash: "",
-          error: "messaging send failed: " & error,
-        ),
-      )
+    # A refused segment gets no messaging event, so the channel counts it as
+    # failed here and its final event reports it.
+    let msgHash = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
+      debug "messaging send refused a segment",
+        channelId = self.channelId, channelReqId = $channelReqId, error = error
       self.markSegmentFailed(channelReqId)
       continue
 
-    self.markSegmentInflight(channelReqId, messagingReqId)
+    self.markSegmentInflight(channelReqId, msgHash.to0xHex())
 
   return ok(channelReqId)
 
@@ -354,9 +351,7 @@ proc onMessageReceived(
     MessageErrorEvent.emit(
       self.brokerCtx,
       MessageErrorEvent(
-        requestId: RequestId(""),
-        messageHash: messageHash,
-        error: "SDS handleIncoming failed: " & error,
+        messageHash: messageHash, error: "SDS handleIncoming failed: " & error
       ),
     )
     return
@@ -428,14 +423,13 @@ proc new*(
     error "MessageReceivedEvent.listen failed", channelId = channelId, error = error
     MessageReceivedEventListener()
 
-  ## Send-completion events are tagged with the per-segment messaging
-  ## `requestId` — globally unique, so we don't need any channel filter
-  ## up front. The handler scans this channel's pending entries for a
+  ## Send-completion events are tagged with the message hash of a segment,
+  ## so we don't need any channel filter up front. The handler scans this channel's pending entries for a
   ## match and is a no-op when the id belongs to a different channel.
   chn.sentListener = MessageSentEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageFinal(evt.requestId, MessagingOutcome.Sent),
+      chn.onMessageFinal(evt.messageHash, MessagingOutcome.Sent),
   ).valueOr:
     error "MessageSentEvent.listen failed", channelId = channelId, error = error
     MessageSentEventListener()
@@ -443,7 +437,7 @@ proc new*(
   chn.errorListener = MessageErrorEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageFinal(evt.requestId, MessagingOutcome.Failed),
+      chn.onMessageFinal(evt.messageHash, MessagingOutcome.Failed),
   ).valueOr:
     error "MessageErrorEvent.listen failed", channelId = channelId, error = error
     MessageErrorEventListener()

@@ -5,27 +5,33 @@ import logos_delivery/api/types
 import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku
+import logos_delivery/waku/node/peer_manager
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
-proc enqueueSend(
-    self: MessagingClient, envelope: MessageEnvelope
-): Result[RequestId, string] =
-  let requestId = RequestId.new(self.waku.rng)
-  info "Messaging API enqueueSend", requestId
-
-  ## The body of `send`. It is not async, so it cannot suspend.
-  ?self.checkApiAvailability()
-
-  let deliveryTask = DeliveryTask.new(requestId, envelope, self.waku.brokerCtx).valueOr:
-    error "Failed to create delivery task", error, requestId
-    return err("MessagingClient.send: Failed to create delivery task: " & error)
-
-  return self.sendService.enqueue(deliveryTask)
-
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope
-): Future[Result[RequestId, string]] {.async.} =
-  ## Queues the message and returns its request id. It never suspends, so the
-  ## caller gets the id before any event of the request, also over the FFI.
-  return self.enqueueSend(envelope)
+): Future[Result[WakuMessageHash, SendError]] {.async: (raises: []).} =
+  ## Stamps the message, charges the rate-limit budget and returns the message
+  ## hash. It never suspends: the budget is the one that the rate limit manager
+  ## last read. A refused message gets a `SendError` and no event. The events of
+  ## an accepted message carry its hash and come after `send` returns, also over
+  ## the FFI.
+  self.checkApiAvailability().isOkOr:
+    return err(SendError.init(SendErrorKind.NotStarted, error))
+
+  # Only a node with no peer at all is refused: the health status needs more than
+  # a send does, such as a filter peer for an edge or relay peers for a node that
+  # falls back to lightpush.
+  let (inPeers, outPeers) = self.waku.node.peerManager.connectedPeers()
+  if inPeers.len + outPeers.len == 0:
+    return err(SendError.init(SendErrorKind.NotConnected, "node has no connected peer"))
+
+  let deliveryTask = DeliveryTask.new(envelope, self.waku.brokerCtx).valueOr:
+    debug "Failed to create delivery task", error
+    return err(SendError.init(SendErrorKind.NoShard, error))
+
+  let msgHash = self.sendService.enqueue(deliveryTask).valueOr:
+    debug "Send refused", msgHash = deliveryTask.loggedHash(), error = $error
+    return err(error)
+  return ok(msgHash)

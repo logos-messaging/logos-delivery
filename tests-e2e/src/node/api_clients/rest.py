@@ -148,8 +148,8 @@ class REST(BaseClient):
     def messaging_send_events(self):
         return self.rest_call("get", "messaging/v1/events/send").json()
 
-    def messaging_send_events_by_id(self, request_id):
-        return self.rest_call("get", f"messaging/v1/events/send/{quote(request_id, safe='')}").json()
+    def messaging_send_events_by_hash(self, message_hash):
+        return self.rest_call("get", f"messaging/v1/events/send/{quote(message_hash, safe='')}").json()
 
     def messaging_received(self):
         return self.rest_call("get", "messaging/v1/events/received").json()

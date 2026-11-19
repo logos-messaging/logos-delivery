@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[algorithm, sets],
+  std/[algorithm, sets, strutils],
   chronos,
   chronicles,
   results,
@@ -17,7 +17,6 @@ import
   logos_delivery/messaging/messaging_client,
   logos_delivery/messaging/api/subscription,
   logos_delivery/messaging/api/send,
-  logos_delivery/messaging/delivery_service/send_service,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   rest/messaging_api/types,
@@ -33,18 +32,47 @@ logScope:
 const ROUTE_MESSAGING_SUBSCRIPTIONSV1* = "/messaging/v1/subscriptions"
 const ROUTE_MESSAGING_MESSAGESV1* = "/messaging/v1/messages"
 const ROUTE_MESSAGING_EVENTS_SENDV1* = "/messaging/v1/events/send"
-const ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1* = "/messaging/v1/events/send/{requestId}"
+const ROUTE_MESSAGING_EVENTS_SEND_BY_HASHV1* = "/messaging/v1/events/send/{messageHash}"
 const ROUTE_MESSAGING_EVENTS_RECEIVEDV1* = "/messaging/v1/events/received"
 
 const AutoshardingRequiredMsg =
   "autosharding is not configured: content-topic subscriptions and sends need --preset or --num-shards-in-network"
 
-const SendQueueFullMsg = "Send queue full, retry later"
-
 const SendQueueFullRetryAfterSec = "1"
   ## A send leaves the send queue at its last event. A send that waits for a
   ## retry tries again at the next tick of `retryLoop`, at most
   ## `RetryInterval` (1 s) later.
+
+proc refusedSendResponse(error: SendError): RestApiResponse =
+  ## The HTTP answer to a send that `send` refused.
+  let text = "Send refused: " & $error
+  case error.kind
+  of SendErrorKind.NotStarted, SendErrorKind.NotConnected:
+    return RestApiResponse.serviceUnavailable(text)
+  of SendErrorKind.NoShard:
+    return RestApiResponse.badRequest(text)
+  of SendErrorKind.Duplicate:
+    return RestApiResponse.error(Http409, text, $MIMETYPE_TEXT)
+  of SendErrorKind.TooLarge:
+    return RestApiResponse.error(Http413, text, $MIMETYPE_TEXT)
+  of SendErrorKind.QueueFull:
+    return RestApiResponse.error(
+      Http429, text, $MIMETYPE_TEXT, [("Retry-After", SendQueueFullRetryAfterSec)]
+    )
+  of SendErrorKind.RateLimited:
+    let retryAfterSec = max(1'i64, error.retryAfter.seconds())
+    return RestApiResponse.error(
+      Http429, text, $MIMETYPE_TEXT, [("Retry-After", $retryAfterSec)]
+    )
+
+func isHexMessageHash(text: string): bool =
+  ## True for a `0x`-prefixed hex message hash, the form of the send events.
+  if text.len != 66 or not text.startsWith("0x"):
+    return false
+  for c in text[2 ..^ 1]:
+    if c notin {'0' .. '9', 'a' .. 'f', 'A' .. 'F'}:
+      return false
+  return true
 
 proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string] =
   ## Rejects a content topic that autosharding cannot resolve.
@@ -140,7 +168,7 @@ proc installMessagingApiHandlers*(
   router.api(MethodPost, ROUTE_MESSAGING_MESSAGESV1) do(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
-    ## Sends a message through the messaging client, returning the request id.
+    ## Sends a message through the messaging client, returning its message hash.
     let req: MessagingJsonEnvelope = decodeRequestBody[MessagingJsonEnvelope](
       contentBody
     ).valueOr:
@@ -155,20 +183,11 @@ proc installMessagingApiHandlers*(
     if not autoshardingConfigured:
       return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
 
-    if client.sendService.isFull():
-      debug "Messaging SEND rejected, the send queue is full"
-      return RestApiResponse.error(
-        Http429,
-        SendQueueFullMsg,
-        $MIMETYPE_TEXT,
-        [("Retry-After", SendQueueFullRetryAfterSec)],
-      )
+    let msgHash = (await client.send(envelope)).valueOr:
+      debug "Messaging SEND refused", error = $error
+      return refusedSendResponse(error)
 
-    let requestId = (await client.send(envelope)).valueOr:
-      error "Messaging SEND failed", error = error
-      return RestApiResponse.internalServerError("Send failed: " & error)
-
-    let data = MessagingSendResponse(requestId: $requestId)
+    let data = MessagingSendResponse(messageHash: msgHash.to0xHex())
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
       error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
@@ -179,26 +198,29 @@ proc installMessagingApiHandlers*(
     return RestApiResponse.ok()
 
   router.api(MethodGet, ROUTE_MESSAGING_EVENTS_SENDV1) do() -> RestApiResponse:
-    ## Returns all buffered send events grouped by request id, then clears them.
+    ## Returns all buffered send events grouped by message hash, then clears them.
     let data = eventCache.pollAllSend()
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
       error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
-  router.api(MethodOptions, ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1) do(
-    requestId: string
+  router.api(MethodOptions, ROUTE_MESSAGING_EVENTS_SEND_BY_HASHV1) do(
+    messageHash: string
   ) -> RestApiResponse:
     return RestApiResponse.ok()
 
-  router.api(MethodGet, ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1) do(
-    requestId: string
+  router.api(MethodGet, ROUTE_MESSAGING_EVENTS_SEND_BY_HASHV1) do(
+    messageHash: string
   ) -> RestApiResponse:
-    ## Returns the buffered send events for one request id, then removes them.
-    let reqId = requestId.valueOr:
-      return RestApiResponse.badRequest("Invalid requestId")
+    ## Returns the buffered send events for one message hash, then removes them.
+    let hash = messageHash.valueOr:
+      return RestApiResponse.badRequest("Invalid messageHash")
+    if not hash.isHexMessageHash():
+      return RestApiResponse.badRequest("messageHash is not a 0x hex hash: " & hash)
 
-    let status = eventCache.pollSend(reqId).valueOr:
-      return RestApiResponse.notFound("No send events for requestId: " & reqId)
+    # The events carry the hash in lowercase hex.
+    let status = eventCache.pollSend(hash.toLowerAscii()).valueOr:
+      return RestApiResponse.notFound("No send events for messageHash: " & hash)
 
     return RestApiResponse.jsonResponse(status, status = Http200).valueOr:
       error "An error occurred while building the json response", error = error

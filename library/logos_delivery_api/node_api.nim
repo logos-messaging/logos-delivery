@@ -17,7 +17,7 @@ import
   ../declare_lib,
   ../json_event
 
-# Add JSON serialization for RequestId
+# Add JSON serialization for RequestId, which channel events still carry
 proc `%`*(id: RequestId): JsonNode =
   %($id)
 
@@ -43,15 +43,6 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ).isOkOr:
     chronicles.error "MessageErrorEvent.listen failed", err = $error
     return err("MessageErrorEvent.listen failed: " & $error)
-
-  MessageQueuedEvent.listen(
-    self.waku.brokerCtx,
-    proc(event: MessageQueuedEvent) {.async: (raises: []).} =
-      emitEvent("onMessageQueued"):
-        $newJsonEvent("message_queued", event),
-  ).isOkOr:
-    chronicles.error "MessageQueuedEvent.listen failed", err = $error
-    return err("MessageQueuedEvent.listen failed: " & $error)
 
   MessagePropagatedEvent.listen(
     self.waku.brokerCtx,
@@ -168,7 +159,6 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   ## thread reused for a later node starts with clean broker state.
   await MessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await MessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
-  await MessageQueuedEvent.dropAllListeners(self.waku.brokerCtx)
   await MessagePropagatedEvent.dropAllListeners(self.waku.brokerCtx)
   await MessageReceivedEvent.dropAllListeners(self.waku.brokerCtx)
   await EventConnectionStatusChange.dropAllListeners(self.waku.brokerCtx)

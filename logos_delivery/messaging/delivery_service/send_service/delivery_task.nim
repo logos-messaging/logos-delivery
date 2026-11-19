@@ -16,7 +16,6 @@ type DeliveryState* {.pure.} = enum
   FailedToDeliver # final state of failed delivery
 
 type DeliveryTask* = ref object
-  requestId*: RequestId
   pubsubTopic*: PubsubTopic
   msg*: WakuMessage
   msgHash*: WakuMessageHash
@@ -27,16 +26,12 @@ type DeliveryTask* = ref object
     ## Anchors the archive wait before the first Store query (see
     ## `nextStoreValidationBatch`).
   firstAdmittedTime*: Opt[Moment]
-    ## Set when the task first passes rate-limit admission; `none` while parked
-    ## waiting for epoch budget. Guards re-admission on retry and anchors the
-    ## delivery window (`isDeliveryTimedOut`), so a task parked for budget is not
-    ## aged out before it can be sent.
+    ## Set when `send` charges the rate-limit budget. A rejected RLN proof clears
+    ## it, so the new proof gets a new charge.
+
   propagatedEventEmitted*: bool
     ## Set when the task emits `MessagePropagatedEvent`. After a restart, the send
     ## service does not send the task again.
-  queuedEventEmitted*: bool
-    ## Set once the task has reported itself queued for rate-limit budget, so
-    ## the event fires on the first park only and not on every retry.
   anonymized*: bool
     ## Set at the first anonymous send attempt and never cleared; from then on,
     ## the INFO and ERROR records of this task withhold the hash.
@@ -62,24 +57,22 @@ type DeliveryTask* = ref object
   errorDesc*: string
 
 proc new*(
-    T: typedesc[DeliveryTask],
-    requestId: RequestId,
-    envelop: MessageEnvelope,
-    brokerCtx: BrokerContext,
+    T: typedesc[DeliveryTask], envelop: MessageEnvelope, brokerCtx: BrokerContext
 ): Result[T, string] =
+  ## Stamps the message with the time of `send`. The timestamp, and so the hash,
+  ## never changes after this.
   let msg = envelop.toWakuMessage()
   # TODO: use sync request for such as soon as available
   let relayShardRes = (
     RequestRelayShard.request(brokerCtx, Opt.none(PubsubTopic), envelop.contentTopic)
   ).valueOr:
     debug "RequestRelayShard.request failed", error = error
-    return err("Failed create DeliveryTask: " & $error)
+    return err("failed to create DeliveryTask: " & $error)
 
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()
   let msgHash = computeMessageHash(pubsubTopic, msg)
 
-  return
-    ok(T(requestId: requestId, pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
+  return ok(T(pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
 
 proc loggedHash*(task: DeliveryTask): string =
   ## The hash for INFO and ERROR records, withheld once the task is anonymized.
@@ -104,27 +97,18 @@ proc propagationAge*(self: DeliveryTask): timer.Duration =
     return ZeroDuration
 
 proc admissionAge*(self: DeliveryTask): timer.Duration =
-  ## Time since the task first passed admission; ZeroDuration while never
-  ## admitted (still parked waiting for epoch budget).
+  ## Time since `send` charged the budget, or since the charge of a new RLN
+  ## proof; ZeroDuration while the task has no charge.
   if self.firstAdmittedTime.isSome():
     return timer.Moment.now() - self.firstAdmittedTime.get()
   else:
     return ZeroDuration
 
-proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
-  ## True when an admitted task has been trying to deliver longer than `maxTime`
-  ## without ever propagating. A task never admitted (parked for budget) is
-  ## exempt: the clock runs from admission time, so waiting for budget does not count
-  ## against it.
-  return
-    self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
-    self.admissionAge() > maxTime
-
-proc isParkedExpired*(self: DeliveryTask, maxAge: timer.Duration): bool =
-  ## True when a task never admitted (parked for budget) has outlived `maxAge`,
-  ## measured from the message timestamp, so parking cannot grow the backlog
-  ## and deliver arbitrarily late.
-  return self.firstAdmittedTime.isNone() and self.messageAge() > maxAge
+proc isDeliveryTimedOut*(self: DeliveryTask, window: timer.Duration): bool =
+  ## True when the task did not propagate within `window` of its message
+  ## timestamp. Store and RLN validators refuse a message far off their clock, so
+  ## a later attempt would be refused anyway.
+  return self.firstPropagatedTime.isNone() and self.messageAge() > window
 
 proc isEphemeral*(self: DeliveryTask): bool =
   return self.msg.ephemeral

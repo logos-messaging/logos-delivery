@@ -116,9 +116,9 @@ template captureWire(sink: untyped) =
   ## Stands in for the messaging layer, recording what reaches the wire.
   MessagingSend.replaceProvider(
     brokerCtx,
-    proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+    proc(envelope: MessageEnvelope): Future[Result[WakuMessageHash, string]] {.async.} =
       sink.add(envelope.payload)
-      return ok(RequestId("fake-req")),
+      return ok(default(WakuMessageHash)),
   ).isOkOr:
     raiseAssert "replaceProvider failed: " & error
 
@@ -198,9 +198,11 @@ suite "Channel encryption - egress":
     var sendCalls = 0
     MessagingSend.replaceProvider(
       brokerCtx,
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      proc(
+          envelope: MessageEnvelope
+      ): Future[Result[WakuMessageHash, string]] {.async.} =
         sendCalls.inc
-        return ok(RequestId("fake-req")),
+        return ok(default(WakuMessageHash)),
     ).isOkOr:
       raiseAssert "replaceProvider failed: " & error
 

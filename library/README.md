@@ -170,7 +170,7 @@ The buffer belongs to the calling thread and stays valid until that thread calls
 
 ### Messaging
 
-`logosdelivery_ctx_subscribe`, `logosdelivery_ctx_unsubscribe` and `logosdelivery_ctx_send` answer `RET_ERR` until the reply of `logosdelivery_ctx_start_node` gives `RET_OK`, and again from `logosdelivery_ctx_stop_node` on. The error message ends with `node is not started`.
+`logosdelivery_ctx_subscribe`, `logosdelivery_ctx_unsubscribe` and `logosdelivery_ctx_send` answer `RET_ERR` until the reply of `logosdelivery_ctx_start_node` gives `RET_OK`, and again from `logosdelivery_ctx_stop_node` on. The error message contains `node is not started`.
 
 #### `logosdelivery_ctx_subscribe`
 Subscribe to a content topic to receive messages.
@@ -228,7 +228,7 @@ int logosdelivery_ctx_send(
 
 Note: The `payload` field should be base64-encoded.
 
-**Returns:** Request ID in the callback message that can be used to track message delivery.
+**Returns:** The `0x` hex message hash in the callback message. Every delivery event of the message carries it. A refused send answers `RET_ERR` with a text that ends with the kind of the refusal, such as `(RateLimited)`; see [MESSAGE_EVENTS.md](MESSAGE_EVENTS.md).
 
 ### Events
 
@@ -250,7 +250,7 @@ uint64_t logosdelivery_add_event_listener(
 );
 ```
 
-Event names: `onMessageQueued`, `onMessageSent`, `onMessageError`,
+Event names: `onMessageSent`, `onMessageError`,
 `onMessagePropagated`, `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
 `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
 `onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.

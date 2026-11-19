@@ -3,9 +3,11 @@
 import libp2p/crypto/crypto, chronos
 import stew/byteutils
 import logos_delivery/waku/utils/requests as request_utils
-import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]
+import
+  logos_delivery/waku/waku_core/
+    [topics/content_topic, message/message, message/digest, time]
 
-export content_topic, message
+export content_topic, message, digest
 
 type
   MessageEnvelope* = object
@@ -18,6 +20,21 @@ type
       ## ingress traffic to their corresponding layer. Empty by default.
 
   RequestId* = distinct string
+
+  SendErrorKind* {.pure.} = enum
+    ## Why `send` refused a message. A refused message gets no event.
+    NotStarted ## The messaging client is not started.
+    NotConnected ## The node has no connection to the network.
+    NoShard ## The content topic maps to no shard of this node.
+    Duplicate ## A message with the same hash is still in flight.
+    QueueFull ## The node has its maximum of 50 sends with no last event.
+    RateLimited ## The rate-limit budget of the epoch is spent, see `retryAfter`.
+    TooLarge ## The message, with its RLN proof, exceeds the maximum message size.
+
+  SendError* = object
+    kind*: SendErrorKind
+    desc*: string
+    retryAfter*: Duration ## For `RateLimited`: the time until the next epoch.
 
   ConnectionStatus* {.pure.} = enum
     Disconnected
@@ -42,6 +59,15 @@ proc `$`*(r: RequestId): string {.inline.} =
 
 proc `==`*(a, b: RequestId): bool {.inline.} =
   string(a) == string(b)
+
+func init*(
+    T: type SendError, kind: SendErrorKind, desc: string, retryAfter = ZeroDuration
+): T =
+  return T(kind: kind, desc: desc, retryAfter: retryAfter)
+
+func `$`*(error: SendError): string =
+  ## The text of the refusal, with its kind in parentheses at the end.
+  return error.desc & " (" & $error.kind & ")"
 
 proc init*(
     T: type MessageEnvelope,

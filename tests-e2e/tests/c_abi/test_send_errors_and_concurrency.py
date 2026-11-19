@@ -3,33 +3,32 @@ import base64
 from src.steps.common import StepsCommon
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    SEND_REFUSED_TOO_LARGE,
     EventCollector,
-    assert_event_invariants,
+    assert_no_message_events,
+    assert_send_refused,
     create_message_bindings,
     get_node_multiaddr,
     wait_for_connected,
-    wait_for_propagated,
-    wait_for_error,
 )
 
 
-# Payload above DefaultMaxWakuMessageSize (150KiB), so the relay publish
-# rejects it instead of failing with NO_PEERS_TO_RELAY.
+# Payload above DefaultMaxWakuMessageSize (150KiB).
 OVERSIZED_PAYLOAD_BYTES = 200 * 1024
-ERROR_TIMEOUT_S = 30.0
-MESSAGE_SIZE_EXCEEDED_MSG = "Message size exceeded"
+# A refused send gets no event; how long to watch for one.
+NO_EVENT_OBSERVATION_S = 3.0
+MESSAGE_SIZE_EXCEEDED_MSG = "exceeds the maximum message size"
 
 
 class TestS13RelayHardFailureWithoutFallback(StepsCommon):
     """
-    S13: relay path is reachable (a relay peer is connected, so the publish
-    gets past NO_PEERS_TO_RELAY), but the relay publish fails for another
-    reason. An oversized payload is used so the relay processor rejects the
-    message immediately. No lightpush fallback is configured.
-      - Expected: Ok(RequestId), then a message_error event.
+    S13: relay path is reachable (a relay peer is connected), but the message
+    is larger than the maximum message size. send() checks the size, with the
+    RLN proof, before any network attempt. No lightpush fallback is configured.
+      - Expected: send() is refused with TooLarge, and the message gets no event.
     """
 
-    def test_s13_relay_hard_failure_without_fallback(self, node_config):
+    def test_s13_oversized_message_is_refused(self, node_config):
         sender_collector = EventCollector()
 
         node_config.update(
@@ -55,8 +54,7 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
             assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
 
             with relay_result.ok_value:
-                # A connected relay peer means the publish gets past
-                # NO_PEERS_TO_RELAY and actually reaches the relay processor.
+                # Connected, so the refusal comes from the size check and not from the connection check.
                 assert wait_for_connected(sender_collector) is not None, (
                     f"Sender did not reach Connected/PartiallyConnected. " f"Collected events: {sender_collector.events}"
                 )
@@ -68,25 +66,7 @@ class TestS13RelayHardFailureWithoutFallback(StepsCommon):
                 )
 
                 send_result = sender_node.send_message(message=message)
-                assert send_result.is_ok(), f"send() must return Ok(RequestId), got: {send_result.err()}"
+                error = assert_send_refused(send_result, SEND_REFUSED_TOO_LARGE)
+                assert MESSAGE_SIZE_EXCEEDED_MSG in error, f"Expected error to contain {MESSAGE_SIZE_EXCEEDED_MSG!r}, got: {error!r}"
 
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
-
-                error_event = wait_for_error(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=ERROR_TIMEOUT_S,
-                )
-                assert error_event is not None, (
-                    f"No message_error event within {ERROR_TIMEOUT_S}s from the " f"relay processor. Collected events: {sender_collector.events}"
-                )
-                assert error_event["requestId"] == request_id
-                assert MESSAGE_SIZE_EXCEEDED_MSG in (error_event.get("error") or ""), (
-                    f"Expected error to contain {MESSAGE_SIZE_EXCEEDED_MSG!r}.\n" f"Got: {error_event.get('error')!r}\n" f"Full event: {error_event}"
-                )
-
-                propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
-                assert propagated is None, f"Unexpected message_propagated event for a failed relay publish: {propagated}"
-
-                assert_event_invariants(sender_collector, request_id)
+                assert_no_message_events(sender_collector, NO_EVENT_OBSERVATION_S)
