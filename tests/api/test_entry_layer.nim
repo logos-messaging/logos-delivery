@@ -8,6 +8,7 @@ import
   logos_delivery/api/conf/logos_delivery_conf,
   rest/messaging_api/client as messaging_rest_client,
   logos_delivery/messaging/delivery_service/send_service/send_service,
+  logos_delivery/messaging/delivery_service/send_service/mix_processor,
   logos_delivery/waku/[
     common/base64,
     waku_core,
@@ -104,9 +105,9 @@ suite "LogosDelivery - entry layer selection":
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
-    check:
-      node.messagingClient.sendService.maxDeliveryTime ==
-        maxDeliveryTime(AnonymityLevel.Preferred)
+    # At `Preferred`, the processor chain of the send service starts with mix.
+    privateAccess(SendService)
+    check node.messagingClient.sendService.sendProcessor of MixSendProcessor
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 
