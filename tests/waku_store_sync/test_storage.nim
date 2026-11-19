@@ -41,8 +41,20 @@ func span(a, b: int64): Slice[SyncID] =
   SyncID(time: Timestamp(a), hash: EmptyFingerprint) ..
     SyncID(time: Timestamp(b), hash: EmptyFingerprint)
 
-proc exampleStorage(ids: seq[SyncID]): SeqStorage =
-  SeqStorage.new(ids, newSeqWith(ids.len, DefaultPubsubTopic))
+proc exampleStorage(
+    ids: seq[SyncID], frameSizeLimit = DefaultMaxPayloadSize
+): SeqStorage =
+  SeqStorage.new(
+    ids, newSeqWith(ids.len, DefaultPubsubTopic), frameSizeLimit = frameSizeLimit
+  )
+
+proc answer(storage: SeqStorage, payload: RangesData): (RangesData, seq[Fingerprint]) =
+  ## The reply of `storage` to `payload`, and the hashes that it sends.
+  var
+    hashToSend: seq[Fingerprint]
+    idsToRecv: seq[SyncID]
+  let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+  (reply, hashToSend)
 
 proc roomFor(ids: seq[SyncID], fitting: int): int =
   ## Room for the item set of the first `fitting` SyncIDs and the fingerprint
@@ -205,145 +217,29 @@ suite "Waku Sync Storage":
       idsToSend.len == 0
       idsToRecv == @[first, second]
 
-  test "the item sets of one reply fit in the frame size limit":
-    var rng = initRand()
-    let count = 400
-    var elements = newSeqOfCap[SyncID](count)
-    # Odd times never sit on a partition bound, so each of the eight 100 ns
-    # partitions holds 50 elements.
-    for i in 0 ..< count:
-      elements.add(SyncID(time: Timestamp(1001 + 2 * i), hash: randomHash(rng)))
-
-    # Room for two partitions' item sets, not three.
-    let partition = listingSize(elements[0 ..< 50])
-    let
-      storage = SeqStorage.new(
-        elements,
-        newSeqWith(count, DefaultPubsubTopic),
-        frameSizeLimit = frameLeaving(2 * partition + partition div 2),
-      )
-      bounds =
-        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
-        SyncID(time: Timestamp(1800), hash: EmptyFingerprint)
-      payload = RangesData(
-        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
-      )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
-
-    check:
-      reply.ranges.mapIt(it[1]) ==
-        @[RangeType.ItemSet, RangeType.ItemSet] & newSeqWith(6, RangeType.Fingerprint)
-      reply.itemSets.mapIt(it.elements.len) == @[50, 50]
-
   test "a range under the threshold whose item set does not fit is divided":
     var rng = initRand()
-    let count = 50
-    var elements = newSeqOfCap[SyncID](count)
-    # 7 elements in the first 100 ns partition and 6 in the second, none on a bound.
-    for i in 0 ..< count:
-      elements.add(SyncID(time: Timestamp(1001 + 16 * i), hash: randomHash(rng)))
-
-    # Room for the first partition's item set, not for the second one's.
     let
-      storage = SeqStorage.new(
+      # 7 elements in the first 100 ns partition and 6 in the second, none on a bound.
+      elements = idsAt(toSeq(0 ..< 50).mapIt(1001 + 16 * it), rng)
+      # Room for the first partition's item set, not for the second one's.
+      storage = exampleStorage(
         elements,
-        newSeqWith(count, DefaultPubsubTopic),
-        frameSizeLimit = frameLeaving(
+        frameLeaving(
           listingSize(elements[0 ..< 7]) + listingSize(elements[7 ..< 13]) div 2
         ),
       )
-      bounds =
-        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
-        SyncID(time: Timestamp(1800), hash: EmptyFingerprint)
       payload = RangesData(
-        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
+        ranges: @[(span(1000, 1800), RangeType.Fingerprint)],
+        fingerprints: @[randomHash(rng)],
       )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+      (reply, _) = storage.answer(payload)
 
     check:
       reply.ranges.len == 8
       reply.ranges[0][1] == RangeType.ItemSet
       reply.ranges[1 ..^ 1].allIt(it[1] == RangeType.Fingerprint)
       reply.itemSets.mapIt(it.elements.len) == @[7]
-
-  test "a range too short to divide is listed even when it does not fit":
-    var rng = initRand()
-    let count = 4
-    var elements = newSeqOfCap[SyncID](count)
-    for i in 0 ..< count:
-      elements.add(SyncID(time: Timestamp(1000 + i), hash: randomHash(rng)))
-
-    let
-      storage = SeqStorage.new(
-        elements,
-        newSeqWith(count, DefaultPubsubTopic),
-        frameSizeLimit = frameLeaving(10),
-      )
-      bounds =
-        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
-        SyncID(time: Timestamp(1004), hash: EmptyFingerprint)
-      payload = RangesData(
-        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
-      )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
-
-    check:
-      reply.ranges == @[(bounds, RangeType.ItemSet)]
-      reply.itemSets == @[ItemSet(elements: elements, reconciled: false)]
-
-  test "an item set that a reply must list uses up the frame size limit":
-    var rng = initRand()
-    var elements: seq[SyncID]
-    # Range A holds 100 elements, range B 50, none on a bound.
-    for i in 0 ..< 100:
-      elements.add(SyncID(time: Timestamp(1001 + 2 * i), hash: randomHash(rng)))
-    for i in 0 ..< 50:
-      elements.add(SyncID(time: Timestamp(1201 + 16 * i), hash: randomHash(rng)))
-
-    # Room for range A's listing and half of range B's.
-    let
-      storage = SeqStorage.new(
-        elements,
-        newSeqWith(elements.len, DefaultPubsubTopic),
-        frameSizeLimit = frameLeaving(
-          listingSize(elements[0 ..< 100]) + listingSize(elements[100 ..< 150]) div 2
-        ),
-      )
-      rangeA =
-        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
-        SyncID(time: Timestamp(1200), hash: EmptyFingerprint)
-      rangeB =
-        SyncID(time: Timestamp(1200), hash: EmptyFingerprint) ..
-        SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
-      payload = RangesData(
-        ranges: @[(rangeA, RangeType.ItemSet), (rangeB, RangeType.Fingerprint)],
-        fingerprints: @[randomHash(rng)],
-        itemSets: @[ItemSet(elements: @[], reconciled: false)],
-      )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
-
-    # Range A is listed in full, which leaves too little room to list range B whole.
-    check:
-      reply.ranges[0] == (rangeA, RangeType.ItemSet)
-      reply.itemSets[0].elements.len == 100
-      (rangeB, RangeType.ItemSet) notin reply.ranges
-      reply.itemSets[1 ..^ 1].mapIt(it.elements.len).foldl(a + b, 0) < 50
 
   test "an unreconciled item set whose reply does not fit is split at a timestamp change":
     var rng = initRand()
@@ -430,11 +326,7 @@ suite "Waku Sync Storage":
       # Room for the first two answers, and too little for the third one's.
       frame =
         frameLeaving(maxEncodedRangeSize(RangeType.Skip) + listingSize(inFirst) + 100)
-      storage = SeqStorage.new(
-        inFirst & inSecond & inThird,
-        newSeqWith(65, DefaultPubsubTopic),
-        frameSizeLimit = frame,
-      )
+      storage = exampleStorage(inFirst & inSecond & inThird, frame)
       # The WAKU-SYNC stop example: Skip, three mismatching fingerprints, Skip.
       payload = RangesData(
         ranges: @[
@@ -446,11 +338,7 @@ suite "Waku Sync Storage":
         ],
         fingerprints: @[randomHash(rng), randomHash(rng), randomHash(rng)],
       )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+      (reply, _) = storage.answer(payload)
 
     check:
       reply.ranges ==
@@ -471,11 +359,7 @@ suite "Waku Sync Storage":
       inThird = idsAt(toSeq(0 ..< 10).mapIt(3001 + 50 * it), rng)
       # Room for the first answer and about half of the second one's.
       frame = frameLeaving(listingSize(inFirst) + listingSize(inSecond) div 2)
-      storage = SeqStorage.new(
-        inFirst & inSecond & inThird,
-        newSeqWith(65, DefaultPubsubTopic),
-        frameSizeLimit = frame,
-      )
+      storage = exampleStorage(inFirst & inSecond & inThird, frame)
       payload = RangesData(
         ranges: @[
           (span(1000, 2000), RangeType.Fingerprint),
@@ -485,12 +369,8 @@ suite "Waku Sync Storage":
         fingerprints: @[randomHash(rng), randomHash(rng)],
         itemSets: @[ItemSet(elements: @[], reconciled: false)],
       )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
-    let listed = reply.itemSets[1].elements
+      (reply, hashToSend) = storage.answer(payload)
+      listed = reply.itemSets[1].elements
 
     check:
       reply.ranges.mapIt(it[1]) ==
@@ -512,11 +392,7 @@ suite "Waku Sync Storage":
     let
       inShort = idsAt(@[1000, 1001, 1002, 1003], rng)
       inLong = idsAt(toSeq(0 ..< 10).mapIt(1101 + 50 * it), rng)
-      storage = SeqStorage.new(
-        inShort & inLong,
-        newSeqWith(14, DefaultPubsubTopic),
-        frameSizeLimit = frameLeaving(10),
-      )
+      storage = exampleStorage(inShort & inLong, frameLeaving(10))
       # The first range is too short to divide, so it is listed anyway.
       payload = RangesData(
         ranges: @[
@@ -525,11 +401,7 @@ suite "Waku Sync Storage":
         ],
         fingerprints: @[randomHash(rng), randomHash(rng)],
       )
-
-    var
-      hashToSend: seq[Fingerprint]
-      idsToRecv: seq[SyncID]
-    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+      (reply, _) = storage.answer(payload)
 
     check:
       reply.ranges ==
