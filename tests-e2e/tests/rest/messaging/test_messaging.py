@@ -9,13 +9,14 @@ from src.steps.messaging import StepsMessaging
 class TestMessagingRest(StepsMessaging):
     def test_subscribe_send_receive(self):
         self.node2.messaging_subscribe([self.test_content_topic])
-        self.send_and_get_message_hash(self.node1, "hello messaging")
+        message_hash = self.send_and_get_message_hash(self.node1, "hello messaging")
         record = self.collect_received(self.node2, 1)[0]
         assert record["seq"] == 1  # the node's first received record
         assert record["source"] == "live"
         assert record["message"]["contentTopic"] == self.test_content_topic
         assert self.decode_payload(record) == "hello messaging"
-        assert record["messageHash"].startswith("0x") and len(record["messageHash"]) == 66
+        # The receiver gets the hash that `send` returned.
+        assert record["messageHash"] == message_hash
         # evict-after-poll: a second poll is empty
         assert self.node2.messaging_received() == []
 
