@@ -548,6 +548,95 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "an edge whose only peer is a lightpush service peer sends, and its first attempt connects it":
+    ## `--lightpushnode` puts the peer in a service slot and does not dial it,
+    ## and an edge with no relay dials nothing by itself. `send` accepts the
+    ## message at once, and the lightpush attempt dials the peer.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+    node.waku.node.peerManager.addServicePeer(lightpushNodePeerInfo, WakuLightPushCodec)
+    let (inPeers, outPeers) = node.waku.node.peerManager.connectedPeers()
+    check inPeers.len + outPeers.len == 0
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let sending = node.messagingClient.send(
+      MessageEnvelope.init(
+        ContentTopic("/waku/2/default-content/proto"), "test payload"
+      )
+    )
+    # `send` does not wait for the dial.
+    check sending.finished()
+    let sent = await sending
+    check sent.isOk()
+    if sent.isOk():
+      discard await eventManager.waitForEvents(10.seconds)
+      eventManager.validate({SendEventOutcome.Propagated}, sent.get())
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "a send to a lightpush service peer that is down fails with NotPropagated":
+    ## The node knows a lightpush peer, so `send` accepts the message. No attempt
+    ## can dial that peer, so the message fails at the end of its window.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+    node.messagingClient.sendService.deliveryWindow = 2.seconds
+
+    # A peer that stopped, so nothing answers on its address.
+    let down = await startBystander()
+    let downInfo = down.peerInfo.toRemotePeerInfo()
+    await down.stop()
+    node.waku.node.peerManager.addServicePeer(downInfo, WakuLightPushCodec)
+
+    var errors: seq[MessageErrorEvent]
+    let listener = MessageErrorEvent
+      .listen(
+        node.waku.brokerCtx,
+        proc(event: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(event),
+      )
+      .expect("listen error")
+    defer:
+      await MessageErrorEvent.dropListener(node.waku.brokerCtx, listener)
+
+    let sent = await node.messagingClient.send(
+      MessageEnvelope.init(
+        ContentTopic("/waku/2/default-content/proto"), "test payload"
+      )
+    )
+    check sent.isOk()
+    if sent.isOk():
+      checkUntilTimeout:
+        errors.len == 1
+      check:
+        errors.len == 1 and errors[0].messageHash == sent.get().to0xHex()
+        errors.len == 1 and errors[0].kind == MessageErrorKind.NotPropagated
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "S16 - sender with no lightpush peer recovers when one appears later":
     ## Edge sender starts with no lightpush peer; one appears mid-send and a
     ## later retry must deliver the queued message.

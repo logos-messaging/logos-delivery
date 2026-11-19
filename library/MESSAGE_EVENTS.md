@@ -13,7 +13,7 @@ The liblogosdelivery library emits three types of message delivery events and on
 | Kind | When |
 | --- | --- |
 | `NotStarted` | The node is not started. |
-| `NotConnected` | The node has no connection to the network. |
+| `NotConnected` | The node has no connected peer, and knows no lightpush peer that a send can dial. |
 | `NoShard` | The content topic maps to no shard of the node. |
 | `Duplicate` | A message with the same hash is still in flight. |
 | `QueueFull` | The node already has 200 sends with no last event. |

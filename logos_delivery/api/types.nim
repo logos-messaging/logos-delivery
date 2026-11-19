@@ -24,7 +24,7 @@ type
   SendErrorKind* {.pure.} = enum
     ## Why `send` refused a message. A refused message gets no event.
     NotStarted ## The messaging client is not started.
-    NotConnected ## The node has no connection to the network.
+    NotConnected ## The node has no connected peer and knows no lightpush peer.
     NoShard ## The content topic maps to no shard of this node.
     Duplicate ## A message with the same hash is still in flight.
     QueueFull ## The node has its maximum of 200 sends with no last event.
