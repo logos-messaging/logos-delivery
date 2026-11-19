@@ -168,6 +168,21 @@ suite "Self advertisement":
           kad.advertisedSecondary[0]
       ) == Opt.some(intoCurve25519Key(mixKeyBytes()))
 
+  asyncTest "a mix node that is not ready advertises as a delivery node only":
+    ## With Mix RLN, a node without a usable Mix membership cannot prove a hop.
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(
+      @[IPeerDiscovery(kad)],
+      confWith(CoreFlags).withMix(),
+      TestShards,
+      mixReady = false,
+    )
+    check:
+      kad.advertised == @["service:" & LogosDeliveryServiceId]
+      kad.advertisedSecondary[0].len == 0
+      not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
+      kad.advertisedCaps().supportsCapability(Capabilities.Relay)
+
   asyncTest "a relay node without mix lists the delivery service alone":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(@[IPeerDiscovery(kad)], confWith(CoreFlags), TestShards)
