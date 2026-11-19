@@ -291,7 +291,7 @@ suite "Waku Sync: reconciliation":
     check:
       hashes.allIt(client.isPending(it))
       remoteNeeds.len == count
-      hashes.allIt(remoteNeeds.contains((clientPeerInfo.peerId, it)))
+      hashes.allIt(remoteNeeds.containsPush(clientPeerInfo.peerId, it))
 
   asyncTest "a second round does not queue a message the first round already promised":
     # Given two servers holding one message and an empty client
