@@ -58,6 +58,7 @@ DELIVERY_TIMEOUT_S = 50.0
 NO_CHANNEL_DELIVERY_WINDOW_S = 10.0
 
 RC09_RECOVERY_TIMEOUT_S = 90.0
+RC09_BYSTANDER_TIMEOUT_S = 20.0
 
 
 def wait_for_channel_received(collector, channel_id, timeout_s, poll_interval_s=0.5):
@@ -140,6 +141,17 @@ def wait_for_distinct_message_received(collector, content_topic, count, timeout_
         if len(received) >= count or time.monotonic() >= deadline:
             return list(received.values())
         time.sleep(poll_interval_s)
+
+
+def wait_for_peer_connected(collector: EventCollector, timeout_s: float) -> bool:
+    """Polls until the node of `collector` reports a connected peer, or the timeout ends."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        for event in collector.snapshot():
+            if event.get("eventType") == "connection_change" and event.get("peerEvent") == "EventConnected":
+                return True
+        time.sleep(0.2)
+    return False
 
 
 class TestChannelDelivery:
@@ -406,7 +418,9 @@ class TestChannelDelivery:
         """RC09: A sends m1 while B is not up yet; B joins and still ends up with
         both m1 and m2.
 
-        Recovery here is the send service's relay retry, not SDS: A republishes
+        A has a bystander peer that carries no message, so `send` accepts m1 and
+        the send service tries again until B joins. Recovery here is the send
+        service's relay retry, not SDS: A republishes
         m1 while it is unacknowledged (within MaxTimeInCache) and it lands as
         soon as B joins the mesh. SDS-R is not exercised — a repair request only
         rides out after T_req, a hash in [repairTMin, repairTMax) = [30s, 300s)
@@ -425,38 +439,48 @@ class TestChannelDelivery:
                 "numShardsInNetwork": 1,
             }
         )
-        # A comes up first with nobody to dial; B joins later and dials A.
+        # A comes up first; B joins later and dials A. A node with no peer at all
+        # refuses a send with NotConnected, so a bystander that carries no message
+        # connects to A before m1, as the S16 test of the send API does.
         with ChannelSenderProcess(
             node_config,
             content_topic=RC09_CONTENT_TOPIC,
             channel_id=channel_id,
             sender_id=SENDER_A,
-            payload_b64=to_base64(m1),
         ) as sender:
-            receiver_collector = EventCollector()
-            receiver_config = {**node_config, "staticnodes": [sender.multiaddr]}
-            receiver_result = WrapperManager.create(config=receiver_config, event_cb=receiver_collector.event_callback)
-            assert receiver_result.is_ok(), f"Failed to create receiver: {receiver_result.err()}"
+            bystander_collector = EventCollector()
+            bystander_config = {**node_config, "mode": "Edge", "relay": False, "staticnodes": [sender.multiaddr]}
+            bystander_result = WrapperManager.create_and_start(config=bystander_config, event_cb=bystander_collector.event_callback)
+            assert bystander_result.is_ok(), f"Failed to start the bystander: {bystander_result.err()}"
 
-            with receiver_result.ok_value as receiver:
-                receiver_create = receiver.channel_create(channel_id, RC09_CONTENT_TOPIC, SENDER_B)
-                assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
+            with bystander_result.ok_value:
+                assert wait_for_peer_connected(bystander_collector, RC09_BYSTANDER_TIMEOUT_S), "the bystander did not connect to A"
+                sender.send(to_base64(m1))
 
-                start_result = receiver.start_node()
-                assert start_result.is_ok(), f"Failed to start receiver: {start_result.err()}"
+                receiver_collector = EventCollector()
+                receiver_config = {**node_config, "staticnodes": [sender.multiaddr]}
+                receiver_result = WrapperManager.create(config=receiver_config, event_cb=receiver_collector.event_callback)
+                assert receiver_result.is_ok(), f"Failed to create receiver: {receiver_result.err()}"
 
-                subscribe_result = receiver.subscribe_content_topic(RC09_CONTENT_TOPIC)
-                assert subscribe_result.is_ok(), f"receiver subscribe_content_topic failed: {subscribe_result.err()}"
-                assert wait_for_connected(receiver_collector) is not None, "Receiver did not reach Connected/PartiallyConnected state"
-                assert wait_for_mesh(receiver_collector), "receiver gossipsub mesh has no peer"
+                with receiver_result.ok_value as receiver:
+                    receiver_create = receiver.channel_create(channel_id, RC09_CONTENT_TOPIC, SENDER_B)
+                    assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
-                sender.send(to_base64(m2))
+                    start_result = receiver.start_node()
+                    assert start_result.is_ok(), f"Failed to start receiver: {start_result.err()}"
 
-                recovered = wait_for_channel_received_count(receiver_collector, channel_id, 2, RC09_RECOVERY_TIMEOUT_S)
-                assert channel_payloads(recovered) == [m1.encode(), m2.encode()], (
-                    f"B must end up with the message sent before it joined, then the one after; "
-                    f"got {channel_payloads(recovered)!r}. Collected events: {receiver_collector.snapshot()}"
-                )
+                    subscribe_result = receiver.subscribe_content_topic(RC09_CONTENT_TOPIC)
+                    assert subscribe_result.is_ok(), f"receiver subscribe_content_topic failed: {subscribe_result.err()}"
+                    assert wait_for_connected(receiver_collector) is not None, "Receiver did not reach Connected/PartiallyConnected state"
+                    assert wait_for_mesh(receiver_collector), "receiver gossipsub mesh has no peer"
+
+                    sender.send(to_base64(m2))
+
+                    recovered = wait_for_channel_received_count(receiver_collector, channel_id, 2, RC09_RECOVERY_TIMEOUT_S)
+                    assert channel_payloads(recovered) == [m1.encode(), m2.encode()], (
+                        f"B must end up with the message sent before it joined, then the one after; "
+                        f"got {channel_payloads(recovered)!r}. Collected events: {receiver_collector.snapshot()}"
+                    )
 
     def test_rc10_missing_dependency_is_parked(self, node_config):
         """RC10 setup: a message whose causal dependency B never saw is parked,
