@@ -1141,6 +1141,25 @@ suite "Messaging API - send refusals":
       full.error.kind == SendErrorKind.QueueFull
       $full.error == "send queue full, retry later (QueueFull)"
 
+  asyncTest "send and the MessagingSend provider return a finished future":
+    ## `send` does not suspend, so both futures are finished when the call returns.
+    let (node, bystander) = await refusalNode(MessagingClientConf())
+    defer:
+      (await node.stop()).expect("stop")
+      await bystander.stop()
+
+    let direct = node.messagingClient.send(MessageEnvelope.init(RefusalTopic, "direct"))
+    let viaBroker = MessagingSend.request(
+      node.waku.brokerCtx, MessageEnvelope.init(RefusalTopic, "broker")
+    )
+    check:
+      direct.finished()
+      viaBroker.finished()
+    if direct.finished() and viaBroker.finished():
+      check:
+        direct.read().isOk()
+        viaBroker.read().isOk()
+
   asyncTest "no event comes before its message hash, through the client and the broker":
     let (node, bystander) = await refusalNode(MessagingClientConf())
     defer:
