@@ -123,3 +123,16 @@ suite "Waku Mix RLN - membership changes":
     check:
       node.mixMembershipUsable
       changes[] == 1
+
+suite "Waku Mix RLN - readiness to advertise":
+  test "a node without Mix RLN is ready":
+    check WakuNode(ports: BoundPorts.init()).mixAdvertReady()
+
+  test "a node with Mix RLN is ready only with a usable membership":
+    let node = WakuNode(
+      ports: BoundPorts.init(), wakuMixRln: FakeRlnModule(state: "active").mixRln()
+    )
+    check not node.mixAdvertReady()
+
+    node.mixMembershipUsable = true
+    check node.mixAdvertReady()
