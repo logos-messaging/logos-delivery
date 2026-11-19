@@ -345,18 +345,6 @@ proc addServiceToDiscover*(self: WakuKademlia, service: string) =
     discard self.protocol.registerInterest(service)
     debug "Added service to discover", service
 
-proc addServiceToAdvertise*(
-    self: WakuKademlia, service: ServiceInfo, advert: seq[byte]
-) =
-  ## `advert` is the signed record to publish verbatim for this service; the
-  ## caller signs it, libp2p only registers it.
-  if service notin self.servicesToAdvertise:
-    self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
-      warn "Failed to advertise service", service = service.id, error = error
-      return
-    self.servicesToAdvertise[service] = Opt.some(advert)
-    debug "Added service to advertise", service = service.id
-
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.missingOrExcl(service):
     self.protocol.unregisterInterest(service)
@@ -370,13 +358,43 @@ proc removeServiceToAdvertise*(
     await self.protocol.stopAdvertising(service.id)
     debug "Removed service to advertise", service = service.id
 
+func advertisedService(self: WakuKademlia, serviceId: string): Opt[ServiceInfo] =
+  ## The stored ServiceInfo with this id, looked up by id since ServiceInfo
+  ## equality includes the advertised payload.
+  for service in self.servicesToAdvertise.keys:
+    if service.id == serviceId:
+      return Opt.some(service)
+  return Opt.none(ServiceInfo)
+
 proc removeServiceToAdvertise*(
     self: WakuKademlia, serviceId: string
 ) {.async: (raises: [CancelledError]).} =
-  ## Id-based variant: looks up the stored ServiceInfo (set equality includes
-  ## the advertised payload, which the caller may not have at hand).
-  for service in self.servicesToAdvertise.keys:
-    if service.id == serviceId:
-      await self.removeServiceToAdvertise(service)
-      return
-  debug "Service to remove not advertised", service = serviceId
+  let service = self.advertisedService(serviceId).valueOr:
+    debug "Service to remove not advertised", service = serviceId
+    return
+  await self.removeServiceToAdvertise(service)
+
+proc removeReplacedService*(
+    self: WakuKademlia, service: ServiceInfo
+) {.async: (raises: [CancelledError]).} =
+  ## Stops advertising `service.id` with data other than `service`'s, since
+  ## libp2p holds one advertisement per service id.
+  let advertised = self.advertisedService(service.id).valueOr:
+    return
+  if advertised != service:
+    await self.removeServiceToAdvertise(advertised)
+
+proc addServiceToAdvertise*(
+    self: WakuKademlia, service: ServiceInfo, advert: seq[byte]
+) {.async: (raises: [CancelledError]).} =
+  ## `advert` is the signed record to publish verbatim for this service; the
+  ## caller signs it, libp2p only registers it. It replaces an advertisement of
+  ## the same service with other data.
+  if service in self.servicesToAdvertise:
+    return
+  await self.removeReplacedService(service)
+  self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
+    warn "Failed to advertise service", service = service.id, error = error
+    return
+  self.servicesToAdvertise[service] = Opt.some(advert)
+  debug "Added service to advertise", service = service.id

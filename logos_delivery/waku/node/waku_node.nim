@@ -65,6 +65,7 @@ import
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./delivery_dialer,
@@ -174,6 +175,10 @@ type
       ## The background lookup of the `dns4` mix node names; `nil` when none.
     mixNodeNames: seq[MixNodeName]
       ## The names without an answer yet; `start` resumes them after a stop.
+    mixAdvertisement: Future[void].Raising([])
+      ## The advertisement of the newest mix key; `nil` before the first one.
+    mixAdvertising: bool
+      ## True from `startMixAdvertising` with key rotation until `stop`.
     wakuKademlia*: WakuKademlia
     discoveries*: seq[IPeerDiscovery]
       ## Attached IPeerDiscovery backends; started after the node is up,
@@ -249,15 +254,21 @@ proc getCapabilitiesGetter(node: WakuNode): GetCapabilities =
       return @[]
     return node.enr.getCapabilities()
 
+proc mixPubKeyHex*(node: WakuNode): Opt[string] =
+  ## This node's current mix public key in hex, or none without mix or while mix
+  ## holds no key.
+  if node.wakuMix.isNil():
+    return Opt.none(string)
+  let key = node.wakuMix.currentMixPubKey().valueOr:
+    return Opt.none(string)
+  return Opt.some(key.to0xHex())
+
 proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
   return proc(): WakuPeerRecord {.closure, gcsafe, raises: [].} =
-    var mixKey: string
-    if not node.wakuMix.isNil():
-      mixKey = node.wakuMix.pubKey.to0xHex()
     return WakuPeerRecord.init(
       peerId = node.switch.peerInfo.peerId,
       addresses = node.announcedAddresses,
-      mixKey = mixKey,
+      mixKey = node.mixPubKeyHex().get(""),
     )
 
 proc onLearnedHost(node: WakuNode, ma: MultiAddress): Opt[MultiAddress] =
@@ -439,10 +450,8 @@ proc info*(node: WakuNode): WakuInfo =
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
-  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
-  if not node.wakuMix.isNil():
-    let keyStr = node.wakuMix.pubKey.to0xHex()
-    wakuInfo.mixPubKey = Opt.some(keyStr)
+  let wakuInfo =
+    WakuInfo(listenAddresses: listenStr, enrUri: enrUri, mixPubKey: node.mixPubKeyHex())
   info "node info", wakuInfo
   return wakuInfo
 
@@ -626,9 +635,12 @@ proc mountMix*(
     mixnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
     allowAllAddresses: bool = false,
+    keyRotation: bool = false,
 ): Future[Result[void, string]] {.async.} =
   ## With `allowAllAddresses`, a path can use a mix node at a private, a loopback or
-  ## a circuit relay address. See `WakuMix.new`.
+  ## a circuit relay address. With `keyRotation`, mix rotates this node's mix key,
+  ## and `mixnodes` is ignored: their configured keys are not the keys rotating
+  ## nodes hold, so mix keys come from discovery only. See `WakuMix.new`.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
@@ -638,11 +650,19 @@ proc mountMix*(
     return err("Failed to convert multiaddress to string.")
   info "local addr", localaddr = localaddrStr
 
-  let (literals, names, dropped) = node.splitMixNodes(mixnodes)
+  if keyRotation and mixnodes.len > 0:
+    warn "Ignoring configured mix nodes: with mix key rotation, mix keys come from discovery",
+      ignored = mixnodes.len
+  let configured =
+    if keyRotation:
+      newSeq[MixNodePubInfo]()
+    else:
+      mixnodes
+  let (literals, names, dropped) = node.splitMixNodes(configured)
 
   node.wakuMix = WakuMix.new(
     localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection,
-    allowAllAddresses,
+    allowAllAddresses, keyRotation,
   ).valueOr:
     return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
@@ -662,6 +682,63 @@ proc mountMix*(
     node.mixNodeNames = names
     node.mixNodeResolution = node.resolveMixNodeNames()
   return ok()
+
+proc advertiseMixKeyAfter(
+    node: WakuNode, previous: Future[void].Raising([]), key: Curve25519Key
+) {.async: (raises: []).} =
+  ## Advertises `key` once the advertisement of the previous key has stopped,
+  ## so the newest key is the last one published. Cancelling ends the step the
+  ## previous advertisement is in, and its key check stops the rest.
+  ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#4-key-publication
+  if not previous.isNil():
+    await previous.cancelAndWait()
+  await advertiseMix(
+    node.discoveries,
+    key,
+    proc(): bool {.gcsafe, raises: [].} =
+      node.mixAdvertising and node.wakuMix.currentMixPubKey() == Opt.some(key),
+  )
+
+proc advertiseMixKey(node: WakuNode, key: Curve25519Key) =
+  ## Advertises `key` in the background, in place of the previous key.
+  node.mixAdvertisement = node.advertiseMixKeyAfter(node.mixAdvertisement, key)
+
+proc startMixAdvertising*(node: WakuNode) {.async: (raises: []).} =
+  ## Advertises this node's mix key on every service-capable backend, and returns
+  ## once it is advertised. With key rotation it returns at once: each key,
+  ## starting with the current one, is advertised in the background in place of
+  ## the previous one, until `stop`.
+  if node.wakuMix.isNil():
+    return
+  let ring = node.wakuMix.keyRing().valueOr:
+    let key = node.wakuMix.currentMixPubKey().valueOr:
+      return
+    await advertiseMix(
+      node.discoveries,
+      key,
+      proc(): bool {.gcsafe, raises: [].} =
+        true,
+    )
+    return
+  node.mixAdvertising = true
+  ring.setKeyHandler(
+    proc(key: Curve25519Key) {.gcsafe, raises: [].} =
+      node.advertiseMixKey(key)
+  )
+
+proc stopMixAdvertising(node: WakuNode) {.async: (raises: []).} =
+  ## With key rotation, stops advertising mix keys and withdraws the mix advert:
+  ## stopping destroys the key, so a backend that republishes its stored adverts
+  ## at the next start would publish a destroyed key.
+  if node.wakuMix.isNil():
+    return
+  let ring = node.wakuMix.keyRing().valueOr:
+    return
+  node.mixAdvertising = false
+  ring.setKeyHandler(nil)
+  if not node.mixAdvertisement.isNil():
+    await node.mixAdvertisement.cancelAndWait()
+  await withdrawMix(node.discoveries)
 
 proc mountKademlia*(
     node: WakuNode, config: KademliaDiscoveryConf
@@ -962,6 +1039,9 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel a mix node name lookup that is still pending.
   if not node.mixNodeResolution.isNil():
     await node.mixNodeResolution.cancelAndWait()
+
+  # Withdraws the mix advert while the discovery backends can still do it.
+  await node.stopMixAdvertising()
 
   await node.subscriptionManager.stop()
 

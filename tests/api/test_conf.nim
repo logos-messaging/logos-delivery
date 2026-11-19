@@ -269,6 +269,16 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().allowAllAddresses
 
+  test "a messaging override sets mix key rotation":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"anonymityLevel": "Required", "mix-key-rotation": true}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().keyRotation
+
   test "a mix conf does not allow all addresses by default":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
       raiseAssert error
@@ -567,6 +577,14 @@ suite "MessagingClientConf - mix hop addresses":
       raiseAssert error
     check kc.mixAllowAllAddresses
 
+suite "MessagingClientConf - mix key rotation":
+  test "the mix key rotation option reaches the kernel":
+    let kc = MessagingClientConf(mixKeyRotation: Opt.some(true)).toWakuNodeConf(
+      LogosDeliveryMode.Core
+    ).valueOr:
+      raiseAssert error
+    check kc.mixKeyRotation
+
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
   let conf = LogosDeliveryConf.init(
@@ -609,6 +627,18 @@ suite "LogosDeliveryConf - anonymity level":
     ).valueOr:
       raiseAssert error
     check WakuNodeConf(conf.kernelConf).mixAllowAllAddresses
+
+  test "a raw kernel config takes the mix key rotation option from the messaging config":
+    let conf = LogosDeliveryConf.init(
+      KernelConf(defaultTestWakuNodeConf()),
+      MessagingClientConf(
+        anonymityLevel: Opt.some(AnonymityLevel.Required),
+        mixKeyRotation: Opt.some(true),
+      ),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(conf.kernelConf).mixKeyRotation
 
   test "the mix protocol config is built, not just the ENR capability bit":
     let wakuConf = kernelWithAnonymity(Opt.some(AnonymityLevel.Preferred))

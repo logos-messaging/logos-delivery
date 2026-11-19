@@ -1,77 +1,19 @@
 {.used.}
 
 import std/[base64, sequtils]
-import chronos, results, testutils/unittests
-import brokers/broker_implement
+import
+  chronos,
+  results,
+  testutils/unittests,
+  libp2p/crypto/curve25519,
+  libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/waku_enr/capabilities
 import tools/confutils/cli_args
-
-## A backend that records what it was asked to do, so the fan-out rules can be
-## checked without standing up a DHT.
-type FakeBackend = ref object of IPeerDiscovery
-  id: string
-  kinds: seq[string]
-  advertised: seq[string]
-  advertisedData: seq[seq[byte]]
-  interests: seq[string]
-
-BrokerImplement FakeBackend of IPeerDiscovery:
-  proc new(T: typedesc[FakeBackend], id: string, kinds: seq[string]): FakeBackend =
-    FakeBackend(id: id, kinds: kinds)
-
-  method backendInfo(
-      self: FakeBackend
-  ): Future[Result[DiscoveryBackendInfo, string]] {.async.} =
-    ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
-
-  method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte]
-  ): Future[Result[void, string]] {.async.} =
-    self.advertised.add(key)
-    self.advertisedData.add(data)
-    ok()
-
-  method registerInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    self.interests.add(key)
-    ok()
-
-  ## Not exercised here; the interface requires every verb.
-  method startDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method stopDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method lookupServicePeers(
-      self: FakeBackend, key: string, limit: int
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method lookupRandom(
-      self: FakeBackend
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method stopAdvertising(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method unregisterInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method addBootstrapEntries(
-      self: FakeBackend, entries: seq[string]
-  ): Future[Result[void, string]] {.async.} =
-    ok()
+import ../testlib/fake_discovery
 
 proc confWith(flags: CapabilitiesBitfield): WakuConf =
   var conf = defaultKernelConf().valueOr:
@@ -129,6 +71,22 @@ suite "Self advertisement":
       plugin.advertised.len == 1
       discv5.advertised.len == 0
       discv5.interests.len == 0
+
+  asyncTest "the mix advert carries the given key under the mix service":
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    var key: Curve25519Key
+    for i in 0 ..< key.len:
+      key[i] = byte(i)
+    await advertiseMix(
+      @[IPeerDiscovery(kad)],
+      key,
+      proc(): bool {.gcsafe, raises: [].} =
+        true,
+    )
+    check:
+      kad.advertised == @["service:" & MixProtocolID]
+      kad.advertisedData == @[@key]
+      kad.interests == @["service:" & MixProtocolID]
 
   test "the payload carries version, cluster, capabilities and shards":
     let raw = cast[seq[byte]](base64.decode(
