@@ -307,6 +307,36 @@ suite "SendService - Store validation window":
       service.isFull()
       (service.enqueue(newTask("over"))).error.kind == SendErrorKind.QueueFull
 
+  asyncTest "a listener of MessageSentEvent can send at once, at the limit":
+    ## A task leaves the send queue before its Store confirmation event, so a
+    ## listener that sends from that event finds the place of the task free.
+    let service = reliableService(waku, ScriptedProc())
+    service.maxSendsInFlight = 1
+    var fromSent: seq[Result[WakuMessageHash, SendError]]
+    let listener = MessageSentEvent
+      .listen(
+        waku.brokerCtx,
+        proc(event: MessageSentEvent) {.async: (raises: []).} =
+          if fromSent.len == 0:
+            fromSent.add(service.enqueue(newTask("after-sent")))
+        ,
+      )
+      .expect("listen sent")
+    defer:
+      await MessageSentEvent.dropListener(waku.brokerCtx, listener)
+
+    let task = newTask("confirmed")
+    check (service.enqueue(task)).isOk()
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeout:
+      not task.storeAnswer.isNil()
+    task.storeAnswer.complete()
+    checkUntilTimeout:
+      fromSent.len == 1
+    check fromSent[0].isOk()
+
   asyncTest "the time while the service is stopped does not count against the window":
     ## The task propagates, then the service stops for longer than the window.
     ## After the restart the task still waits for its Store confirmation.

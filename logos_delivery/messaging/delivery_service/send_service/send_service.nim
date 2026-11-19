@@ -365,11 +365,12 @@ proc fail(
     errorDesc: string,
     kind = MessageErrorKind.NotPropagated,
 ) =
-  ## Fails the task with `MessageErrorEvent`, its last event.
+  ## Fails the task with `MessageErrorEvent`, its last event. The task leaves
+  ## the send queue first, so a listener of the event can send again at once.
   task.state = DeliveryState.FailedToDeliver
   task.errorDesc = errorDesc
-  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), kind, errorDesc)
   self.finish(task)
+  MessageErrorEvent.emit(self.brokerCtx, task.msgHash.to0xHex(), kind, errorDesc)
 
 proc failExpired(self: SendService, task: DeliveryTask): bool =
   ## Fails the task when its delivery window ended.
@@ -390,7 +391,10 @@ proc failExpired(self: SendService, task: DeliveryTask): bool =
 
 proc reportPropagated(self: SendService, task: DeliveryTask) =
   ## Emits `MessagePropagatedEvent`, and `MessageSentEvent` for a mixed send that
-  ## a plain send would confirm in Store.
+  ## a plain send would confirm in Store. A task with no Store wait leaves the
+  ## send queue first, so a listener of its last event can send again at once.
+  if not self.awaitsStoreValidation(task):
+    self.finish(task)
   # INFO lines reach log collectors, where a hash would tie this node to an
   # anonymized message; `MixSendProcessor` still logs it at DEBUG.
   info "Message successfully propagated", msgHash = task.loggedHash()
@@ -524,8 +528,8 @@ proc waitForStoreValidation(
       # An anonymized task gets here only through the clear republish of a
       # `Preferred` send whose mix reply was lost.
       info "Message successfully sent", msgHash = task.loggedHash()
-      MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
       self.finish(task)
+      MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
     else:
       info "Message propagated but not validated by a store node within time window; stop trying.",
         msgHash = task.msgHash.to0xHex(),

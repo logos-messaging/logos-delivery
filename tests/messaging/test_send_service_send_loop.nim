@@ -468,6 +468,51 @@ suite "SendService - deliver":
       "slow-proof" notin processor.seen # no attempt
       slow.errorDesc == "Unable to send within the delivery window"
 
+  asyncTest "a listener of the last event of a task can send at once, at the limit":
+    ## A task leaves the send queue before its last event, so a listener that
+    ## sends from that event finds the place of the task free.
+    let propagating = newService(FakePropagatingProcessor(), maxSendsInFlight = 1)
+    let failing = newService(FailingProcessor(), maxSendsInFlight = 1)
+    var fromPropagated: seq[Result[WakuMessageHash, SendError]]
+    var fromError: seq[Result[WakuMessageHash, SendError]]
+    let propagatedListener = MessagePropagatedEvent
+      .listen(
+        waku.brokerCtx,
+        proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
+          if fromPropagated.len == 0:
+            fromPropagated.add(propagating.enqueue(buildTask("after-propagated")))
+        ,
+      )
+      .expect("listen propagated")
+    let errorListener = MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(event: MessageErrorEvent) {.async: (raises: []).} =
+          if fromError.len == 0:
+            fromError.add(failing.enqueue(buildTask("after-error")))
+        ,
+      )
+      .expect("listen error")
+    defer:
+      await MessagePropagatedEvent.dropListener(waku.brokerCtx, propagatedListener)
+      await MessageErrorEvent.dropListener(waku.brokerCtx, errorListener)
+
+    check (propagating.enqueue(buildTask("propagates"))).isOk()
+    propagating.startSendService()
+    defer:
+      await propagating.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      fromPropagated.len == 1
+    check fromPropagated[0].isOk()
+
+    check (failing.enqueue(buildTask("fails"))).isOk()
+    failing.startSendService()
+    defer:
+      await failing.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      fromError.len == 1
+    check fromError[0].isOk()
+
   asyncTest "a send does not wait for a budget read":
     ## The quota read of the fake provider waits for its reply. `enqueue` reads
     ## the budget that the manager last got, so it returns at once while the read
