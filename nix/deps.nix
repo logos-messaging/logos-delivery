@@ -327,8 +327,8 @@
 
   mix_rln_spam_protection = pkgs.fetchgit {
     url = "https://github.com/logos-co/mix-rln-spam-protection-plugin";
-    rev = "538e3e424b1870cb3e5592b2d7bdbfdcf0b5837c";
-    sha256 = "173zld6z8p9i3w78rc3sxfagc6xk2p7dh46hrhdbpfdk7r1w2s5g";
+    rev = "0d24a6607c31e74803910d17331801a0ece4f94e";
+    sha256 = "0rk9sbqdp7n2sy6pvn3dnmb5ilc1y9skb492vkw7g8zw6d0ab1iv";
     fetchSubmodules = true;
   };
 
