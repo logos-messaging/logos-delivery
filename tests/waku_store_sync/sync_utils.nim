@@ -42,14 +42,21 @@ proc transferCount*(direction: TransferDirection): float64 =
   except ValueError:
     return 0.0
 
-proc failureCount*(reason: string): float64 =
+proc reasonCount(counter: Counter, reason: string): float64 =
   ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
   try:
-    return logos_delivery_transfer_receive_failures.valueByName(
-      "logos_delivery_transfer_receive_failures_total", [reason]
-    )
+    return counter.valueByName(counter.name & "_total", [reason])
   except ValueError:
     return 0.0
+
+# The counters are globals; reading them from a test is safe.
+proc failureCount*(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_transfer_receive_failures, reason)
+
+proc reconciliationFailures*(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_reconciliation_failures, reason)
 
 proc randomHash*(rng: var Rand): WakuMessageHash =
   var hash = EmptyWakuMessageHash
@@ -72,8 +79,13 @@ proc newTestWakuRecon*(
     cluster: uint16 = DefaultClusterId,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
     pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
+    peerManager: PeerManager = nil,
 ): Future[SyncReconciliation] {.async.} =
-  let peerManager = PeerManager.new(switch)
+  let peerManager =
+    if peerManager.isNil():
+      PeerManager.new(switch)
+    else:
+      peerManager
 
   let res = await SyncReconciliation.new(
     cluster = cluster,

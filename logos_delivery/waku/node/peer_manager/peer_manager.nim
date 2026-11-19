@@ -273,7 +273,7 @@ proc selectPeers*(
   shuffle(peers)
   return peers
 
-proc slotPeer(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
+proc slotPeer*(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
   ## The peer in the service slot of `proto`, if any. Relay has no service slot.
   if proto != WakuRelayCodec:
     pm.serviceSlots.withValue(proto, serviceSlot):

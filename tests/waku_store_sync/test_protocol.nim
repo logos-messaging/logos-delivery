@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sets, sequtils, random, algorithm],
+  std/[sets, sequtils, random, algorithm, importutils],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -1805,6 +1805,108 @@ suite "Waku Sync: reconciliation":
     checkUntilTimeout:
       remoteNeeds.len == count
     await conn.close()
+
+proc newRecon(
+    switch: Switch, shards: seq[uint16], peerManager: PeerManager = nil
+): Future[SyncReconciliation] =
+  newTestWakuRecon(
+    switch,
+    shards,
+    DefaultSyncRange,
+    newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+    newAsyncQueue[PeerId](),
+    newAsyncQueue[(PeerId, WakuMessageHash)](),
+    peerManager = peerManager,
+  )
+
+proc addDiscovered(switch: Switch, peer: Switch, shards: seq[uint16]) =
+  let info = peer.peerInfo.toRemotePeerInfo()
+  switch.peerStore.addPeer(info)
+  switch.peerStore.setShardInfo(info.peerId, shards)
+
+suite "Waku Sync: sync peer shard set":
+  var
+    clientSwitch {.threadvar.}: Switch
+    sameSwitch {.threadvar.}: Switch
+    otherSwitch {.threadvar.}: Switch
+    same {.threadvar.}: SyncReconciliation
+    other {.threadvar.}: SyncReconciliation
+    client {.threadvar.}: SyncReconciliation
+
+  asyncSetup:
+    clientSwitch = newTestSwitch()
+    sameSwitch = newTestSwitch()
+    otherSwitch = newTestSwitch()
+    await allFutures(clientSwitch.start(), sameSwitch.start(), otherSwitch.start())
+    same = await newRecon(sameSwitch, @[1'u16, 2])
+    other = await newRecon(otherSwitch, @[3'u16])
+
+  asyncTeardown:
+    await allFutures(client.stop(), same.stop(), other.stop())
+    await allFutures(clientSwitch.stop(), sameSwitch.stop(), otherSwitch.stop())
+
+  asyncTest "a peer that advertises another shard set is tried in every round":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let first = await client.storeSynchronization()
+    let second = await client.storeSynchronization()
+
+    # Each mismatching session counts twice: once on each end.
+    check:
+      first.isErr()
+      second.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 4
+
+  asyncTest "a peer whose relay advertises more shards than it syncs is still synced with":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(sameSwitch, @[1'u16, 2, 3])
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+
+  asyncTest "a node syncs with the discovered peer that advertises its shard set":
+    client = await newRecon(clientSwitch, @[1'u16, 2])
+    clientSwitch.addDiscovered(otherSwitch, @[3'u16])
+    clientSwitch.addDiscovered(sameSwitch, @[2'u16, 1])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+    check reconciliationFailures("scope_mismatch") == mismatchesBefore
+
+  asyncTest "a configured peer with another shard set is selected and the mismatch counted":
+    let peerManager = PeerManager.new(clientSwitch)
+    peerManager.addServicePeer(
+      otherSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
+    )
+    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
+    clientSwitch.addDiscovered(sameSwitch, @[1'u16, 2])
+    let mismatchesBefore = reconciliationFailures("scope_mismatch")
+
+    let res = await client.storeSynchronization()
+
+    # Both ends of the session count it: the peer and the node itself.
+    check:
+      res.isErr()
+      reconciliationFailures("scope_mismatch") == mismatchesBefore + 2
+
+  asyncTest "a successful session with the configured peer clears its mismatch report":
+    privateAccess(SyncReconciliation)
+    let peerManager = PeerManager.new(clientSwitch)
+    peerManager.addServicePeer(
+      sameSwitch.peerInfo.toRemotePeerInfo(), WakuReconciliationCodec
+    )
+    client = await newRecon(clientSwitch, @[1'u16, 2], peerManager)
+    client.configuredOutOfScope = true
+
+    let res = await client.storeSynchronization()
+
+    assert res.isOk(), res.error
+    check not client.configuredOutOfScope
 
 suite "Waku Sync: reconciliation stop":
   asyncTest "a periodic sync stopped while it waits for its peer completes its stop":

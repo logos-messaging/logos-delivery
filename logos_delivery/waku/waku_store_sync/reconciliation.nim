@@ -80,6 +80,10 @@ type SyncReconciliation* = ref object of LPProtocol
   # Peers that asked for a pending element. They get it when it arrives.
   deferredTx: Table[WakuMessageHash, HashSet[PeerId]]
 
+  # Whether the configured peer was reported outside the sync scope since its
+  # last successful session, so that it is warned about once.
+  configuredOutOfScope: bool
+
   # futures
   periodicSyncFut: Future[void]
   periodicPruneFut: Future[void]
@@ -169,6 +173,49 @@ proc messageIngress*(
 func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
   ## The match of WAKU-SYNC: the same cluster and the same set of shards.
   payload.cluster == self.cluster and payload.shards.toHashSet() == self.shards
+
+func isConfiguredPeer(self: SyncReconciliation, peerId: PeerId): bool =
+  let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
+  slotted.isSome() and slotted.get().peerId == peerId
+
+proc reportOutOfScope(self: SyncReconciliation, peerId: PeerId, remote: RangesData) =
+  logos_delivery_reconciliation_failures.inc(labelValues = ["scope_mismatch"])
+
+  # A discovered peer is a remote anomaly, already logged at debug by the caller.
+  if self.configuredOutOfScope or not self.isConfiguredPeer(peerId):
+    return
+  self.configuredOutOfScope = true
+
+  warn "Store sync peer is outside the sync scope, no message is synced with it",
+    peer_id = peerId,
+    cluster = self.cluster,
+    shards = self.shards.toSeq(),
+    peer_cluster = remote.cluster,
+    peer_shards = remote.shards,
+    fix =
+      "give both nodes the same --cluster-id and --shard values, and with autosharding the same --content-topic values"
+
+func advertisesScope(self: SyncReconciliation, peer: RemotePeerInfo): bool =
+  ## The metadata protocol already rejected peers of another cluster, so only
+  ## the shards it reported are compared.
+  peer.shards.len > 0 and peer.shards.toHashSet() == self.shards
+
+proc selectSyncPeer(self: SyncReconciliation): Opt[RemotePeerInfo] =
+  ## The configured peer when there is one, so that a mismatch with it is
+  ## reported rather than hidden. Otherwise a peer that advertises our scope,
+  ## else any peer: metadata advertises the relay shards, which can differ
+  ## from the sync scope, so no peer is ruled out by what it advertises.
+  let slotted = self.peerManager.slotPeer(WakuReconciliationCodec)
+  if slotted.isSome():
+    return slotted
+
+  let peers = self.peerManager.selectPeers(WakuReconciliationCodec)
+  for peer in peers:
+    if self.advertisesScope(peer):
+      return Opt.some(peer)
+  if peers.len > 0:
+    return Opt.some(peers[0])
+  return Opt.none(RemotePeerInfo)
 
 proc preProcessPayload*(
     self: SyncReconciliation, payload: RangesData, lowerBound: Timestamp
@@ -351,6 +398,7 @@ proc processRequest(
       payload = recvPayload
 
     if not self.matchesScope(recvPayload):
+      self.reportOutOfScope(conn.peerId, recvPayload)
       # The empty payload of WAKU-SYNC aborts the session.
       # A peer that sent an empty payload already aborted it, and gets no reply.
       if recvPayload.ranges.len > 0:
@@ -397,6 +445,8 @@ proc processRequest(
 
   logos_delivery_reconciliation_roundtrips.observe(roundTrips)
   logos_delivery_reconciliation_differences.observe(diffs)
+  if self.isConfiguredPeer(conn.peerId):
+    self.configuredOutOfScope = false
 
   await conn.close()
 
@@ -456,13 +506,13 @@ proc storeSynchronization*(
     syncRange: Duration = self.syncRange,
 ): Future[Result[void, string]] {.async.} =
   let peer = peerInfo.valueOr:
-    self.peerManager.selectPeer(WakuReconciliationCodec).valueOr:
+    self.selectSyncPeer().valueOr:
       return err("no suitable peer found for sync")
 
   let connOpt = await self.peerManager.dialPeer(peer, WakuReconciliationCodec)
 
   let conn: Connection = connOpt.valueOr:
-    return err("fail to dial remote " & $peer.peerId)
+    return err("fail to dial remote: " & $peer.peerId)
 
   debug "Sync session initialized",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
