@@ -67,6 +67,9 @@ const
 
 type Advert = object
   data: seq[byte]
+  secondary: seq[DiscoveredService]
+    ## Further services listed in the signed record. The plugin never sees
+    ## them apart from the record.
   taken: bool ## the plugin holds this advert; no call until something changes
   resign: bool
     ## The plugin may hold an older record for the key -- the node's addresses
@@ -254,15 +257,18 @@ proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).}
     self.emitPeers("", peers)
 
 proc signRecord(
-    self: ExternalServiceDiscovery, key: string, data: seq[byte]
+    self: ExternalServiceDiscovery,
+    key: string,
+    data: seq[byte],
+    secondary: seq[DiscoveredService],
 ): Result[seq[byte], string] =
-  ## This node's record listing exactly this service, from its current
-  ## identity and addresses. Identity and key come from the node-state getters,
-  ## the way the discv5 backend gets its ENR and key.
+  ## This node's record for this service, with the `secondary` services listed
+  ## in it, from its current identity and addresses. Identity and key come from
+  ## the node-state getters, the way the discv5 backend gets its ENR and key.
   let serviceId = key[ServiceKeyPrefix.len ..^ 1]
   let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
   let nodeKey = ?GetNodeKey.request(self.nodeCtx)
-  signedServiceRecord(peerInfo, nodeKey, serviceId, data)
+  signedServiceRecord(peerInfo, nodeKey, serviceId, data, secondary)
 
 proc resignAll(self: ExternalServiceDiscovery) =
   ## Every advert is handed to the plugin again, stopped first and signed
@@ -301,7 +307,7 @@ proc sendAdvert(
   ## The plugin's discovery node is not this node: left to itself it would
   ## publish its own identity under our service. So it gets a record signed
   ## here, from the node's current addresses, and publishes it verbatim.
-  let record = ?self.signRecord(key, advert.data)
+  let record = ?self.signRecord(key, advert.data, advert.secondary)
   if advert.resign:
     ## Its failure is not fatal: the start below says whether the plugin
     ## still holds an older record.
@@ -594,7 +600,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ok(peers)
 
   method startAdvertising(
-      self: ExternalServiceDiscovery, key: string, data: seq[byte]
+      self: ExternalServiceDiscovery,
+      key: string,
+      data: seq[byte],
+      secondary: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     ## Ok means taken on, not yet published: the announce loop hands it to the
     ## plugin and logs when the plugin takes it. What can never succeed is
@@ -603,17 +612,18 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       return err("external backend: only service: keys can be advertised")
     ## Signed now only to refuse a node with no identity to sign with; the
     ## record sent is signed when it is sent.
-    self.signRecord(key, data).isOkOr:
+    self.signRecord(key, data, secondary).isOkOr:
       return err("external backend: cannot sign advert for: " & key & ": " & error)
     self.adverts.withValue(key, advert):
-      if advert.data != data:
-        ## The plugin holds the old data under this key.
+      if advert.data != data or advert.secondary != secondary:
+        ## The plugin holds the old record under this key.
         advert.data = data
+        advert.secondary = secondary
         advert.taken = false
         advert.resign = true
         inc advert.version
     do:
-      self.adverts[key] = Advert(data: data)
+      self.adverts[key] = Advert(data: data, secondary: secondary)
     self.announceWanted.fire()
     ok()
 

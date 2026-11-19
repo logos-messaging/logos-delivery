@@ -187,7 +187,10 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     await self.lookupServicePeers("", 0)
 
   method startAdvertising(
-      self: Discv5PeerDiscovery, key: string, data: seq[byte]
+      self: Discv5PeerDiscovery,
+      key: string,
+      data: seq[byte],
+      secondary: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     ## Advertising for discv5 = mutating our own ENR; only topic: keys map.
     if not self.running:

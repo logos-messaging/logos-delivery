@@ -2,7 +2,10 @@
 
 import chronos, results, testutils/unittests
 import libp2p/[switch, peerinfo, crypto/crypto, extended_peer_record, signed_envelope]
-import logos_delivery/waku/discovery/signed_service_record, ../testlib/wakucore
+import
+  logos_delivery/waku/discovery/signed_service_record,
+  logos_delivery/waku/discovery/peer_discovery_interface,
+  ../testlib/wakucore
 
 suite "Signed service record":
   asyncTest "encodes this node's identity, the one service, and verifies":
@@ -26,6 +29,34 @@ suite "Signed service record":
       decoded.data.services[0].id == "/logos/delivery"
       decoded.data.services[0].data == Opt.some(@[1'u8, 2, 3])
       decoded.data.seqNo > 0
+
+  asyncTest "lists the secondary services after the one it is filed under":
+    let switch = newTestSwitch()
+    await switch.start()
+    defer:
+      await switch.stop()
+    let peerInfo = switch.peerInfo
+    ## The sizes a delivery record of a mix node has: a full payload and a key.
+    let payload = newSeq[byte](32)
+    let mixKey = newSeq[byte](32)
+
+    let bytes = signedServiceRecord(
+        peerInfo,
+        peerInfo.privateKey,
+        "/logos/delivery",
+        payload,
+        @[DiscoveredService(id: "/mix/1.0.0", data: mixKey)],
+      )
+      .expect("signs")
+
+    let decoded = SignedExtendedPeerRecord.decode(bytes).expect("decodes")
+    decoded.checkValid().expect("signature matches the record's peer id")
+    check:
+      decoded.isValid() # within what a registrar accepts
+      decoded.data.services.len == 2
+      decoded.data.services[0].id == "/logos/delivery"
+      decoded.data.services[1].id == "/mix/1.0.0"
+      decoded.data.services[1].data == Opt.some(mixKey)
 
   asyncTest "a record signed with another key does not verify":
     let switch = newTestSwitch()
