@@ -212,6 +212,53 @@ suite "Waku Mix - end to end transport":
       after.forwarded - before.forwarded >= 2.0
       after.exited - before.exited >= 1.0
 
+  asyncTest "the exit node receives the message it publishes for the sender":
+    ## The exit is the one that publishes, so gossipsub never brings the
+    ## message back to it. Its own subscribers still have to get it: the
+    ## message is the sender's, not the exit's.
+    let mixnet = await setupMixNet(23890)
+    defer:
+      await teardownMixNet(mixnet)
+
+    let shard = DefaultPubsubTopic
+    let marker = "mix-e2e-exit-" & $Moment.now()
+    let exitArrival = newFuture[void]("mix-e2e-exit-arrival")
+    var exitArrivals = 0
+
+    proc exitHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      if string.fromBytes(msg.payload).startsWith(marker):
+        exitArrivals.inc()
+        if not exitArrival.finished():
+          exitArrival.complete()
+
+    proc otherHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    mixnet.nodes[0].subscribe((kind: PubsubSub, topic: shard), exitHandler).isOkOr:
+      raiseAssert "subscribe exit: " & $error
+    for i in 1 ..< NumCore:
+      mixnet.nodes[i].subscribe((kind: PubsubSub, topic: shard), otherHandler).isOkOr:
+        raiseAssert "subscribe core " & $i & ": " & $error
+
+    await sleepAsync(chronos.seconds(2)) # gossipsub mesh
+
+    let msg = WakuMessage(
+      payload: toBytes(marker & " over mix"),
+      contentTopic: "/mix-e2e/1/probe/proto",
+      version: 2,
+      timestamp: getNowInNanosecondTime(),
+    )
+    let exit = mixnet.nodes[0].peerInfo.toRemotePeerInfo()
+    let res = await mixnet.sender().lightpushPublish(
+      Opt.some(shard), msg, Opt.some(exit), mixify = true
+    )
+    check res.isOk()
+
+    check await exitArrival.withTimeout(ReceiveTimeout)
+    # Once: the copies its mesh peers hold do not come back as a second one.
+    await sleepAsync(chronos.seconds(1))
+    check exitArrivals == 1
+
   asyncTest "four mixed sends in flight at once all get their own reply":
     ## Four mixed sends from one node at once each complete on their own reply
     ## and release their own credentials. The send service relies on this when
