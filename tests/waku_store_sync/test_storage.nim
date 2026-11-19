@@ -1,12 +1,74 @@
 {.used.}
 
-import results, std/[random, sequtils, packedsets], testutils/unittests, chronos
+import
+  results, std/[algorithm, random, sequtils, packedsets], testutils/unittests, chronos
 
 import
   ../../logos_delivery/waku/waku_core,
   ../../logos_delivery/waku/waku_store_sync/common,
+  ../../logos_delivery/waku/waku_store_sync/codec,
   ../../logos_delivery/waku/waku_store_sync/storage/seq_storage,
   ./sync_utils
+
+proc frameLeaving(room: int): int =
+  ## A frame size limit that leaves `room` bytes for the ranges of a reply to a
+  ## payload with no shards.
+  maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint) + room
+
+proc listingSize(elements: openArray[SyncID]): int =
+  maxEncodedRangeSize(RangeType.ItemSet, ItemSet(elements: @elements))
+
+const ExampleBounds =
+  SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
+  SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
+
+proc exampleIds(rng: var Rand): seq[SyncID] =
+  ## The SyncIDs of the WAKU-SYNC split example, in order: two share timestamp
+  ## 1002. The IDs after 1500 make the rest of a cut larger than the
+  ## fingerprint range that replaces it, so that a split saves room.
+  @[1000'i64, 1002, 1002, 1003, 1500, 1600, 1700, 1800]
+    .mapIt(SyncID(time: Timestamp(it), hash: randomHash(rng)))
+    .sorted(
+      proc(x, y: SyncID): int =
+        cmp(x, y)
+    )
+
+proc idsAt(times: openArray[int], rng: var Rand): seq[SyncID] =
+  ## SyncIDs at `times`, which must be in increasing order.
+  times.mapIt(SyncID(time: Timestamp(it), hash: randomHash(rng)))
+
+func span(a, b: int64): Slice[SyncID] =
+  SyncID(time: Timestamp(a), hash: EmptyFingerprint) ..
+    SyncID(time: Timestamp(b), hash: EmptyFingerprint)
+
+proc exampleStorage(ids: seq[SyncID]): SeqStorage =
+  SeqStorage.new(ids, newSeqWith(ids.len, DefaultPubsubTopic))
+
+proc roomFor(ids: seq[SyncID], fitting: int): int =
+  ## Room for the item set of the first `fitting` SyncIDs and the fingerprint
+  ## after it, and less than one more SyncID.
+  listingSize(ids[0 ..< fitting]) + maxEncodedRangeSize(RangeType.Fingerprint) + 10
+
+proc splitReply(
+    storage: SeqStorage, theirs: seq[SyncID], room: int, mustAnswer: bool
+): (bool, RangesData, seq[Fingerprint], seq[SyncID]) =
+  ## The reply to an unreconciled item set of `theirs` over ExampleBounds.
+  var
+    hashToSend: seq[Fingerprint]
+    idsToRecv: seq[SyncID]
+    output: RangesData
+    room = room
+  let answered = storage.processItemSetRange(
+    ExampleBounds,
+    initPackedSet[int](),
+    ItemSet(elements: theirs, reconciled: false),
+    hashToSend,
+    idsToRecv,
+    output,
+    room,
+    mustAnswer,
+  )
+  (answered, output, hashToSend, idsToRecv)
 
 suite "Waku Sync Storage":
   test "process hash range":
@@ -32,9 +94,13 @@ suite "Waku Sync Storage":
     let bounds = lb .. ub
     let fingerprint1 = storage1.computeFingerprint(bounds, @[])
 
-    var outputPayload: RangesData
+    var
+      outputPayload: RangesData
+      room = DefaultMaxPayloadSize
 
-    storage2.processFingerprintRange(bounds, emptySet, fingerprint1, outputPayload)
+    storage2.processFingerprintRange(
+      bounds, emptySet, fingerprint1, outputPayload, room
+    )
 
     let expected =
       RangesData(ranges: @[(bounds, RangeType.Skip)], fingerprints: @[], itemSets: @[])
@@ -138,6 +204,341 @@ suite "Waku Sync Storage":
     check:
       idsToSend.len == 0
       idsToRecv == @[first, second]
+
+  test "the item sets of one reply fit in the frame size limit":
+    var rng = initRand()
+    let count = 400
+    var elements = newSeqOfCap[SyncID](count)
+    # Odd times never sit on a partition bound, so each of the eight 100 ns
+    # partitions holds 50 elements.
+    for i in 0 ..< count:
+      elements.add(SyncID(time: Timestamp(1001 + 2 * i), hash: randomHash(rng)))
+
+    # Room for two partitions' item sets, not three.
+    let partition = listingSize(elements[0 ..< 50])
+    let
+      storage = SeqStorage.new(
+        elements,
+        newSeqWith(count, DefaultPubsubTopic),
+        frameSizeLimit = frameLeaving(2 * partition + partition div 2),
+      )
+      bounds =
+        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(1800), hash: EmptyFingerprint)
+      payload = RangesData(
+        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      reply.ranges.mapIt(it[1]) ==
+        @[RangeType.ItemSet, RangeType.ItemSet] & newSeqWith(6, RangeType.Fingerprint)
+      reply.itemSets.mapIt(it.elements.len) == @[50, 50]
+
+  test "a range under the threshold whose item set does not fit is divided":
+    var rng = initRand()
+    let count = 50
+    var elements = newSeqOfCap[SyncID](count)
+    # 7 elements in the first 100 ns partition and 6 in the second, none on a bound.
+    for i in 0 ..< count:
+      elements.add(SyncID(time: Timestamp(1001 + 16 * i), hash: randomHash(rng)))
+
+    # Room for the first partition's item set, not for the second one's.
+    let
+      storage = SeqStorage.new(
+        elements,
+        newSeqWith(count, DefaultPubsubTopic),
+        frameSizeLimit = frameLeaving(
+          listingSize(elements[0 ..< 7]) + listingSize(elements[7 ..< 13]) div 2
+        ),
+      )
+      bounds =
+        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(1800), hash: EmptyFingerprint)
+      payload = RangesData(
+        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      reply.ranges.len == 8
+      reply.ranges[0][1] == RangeType.ItemSet
+      reply.ranges[1 ..^ 1].allIt(it[1] == RangeType.Fingerprint)
+      reply.itemSets.mapIt(it.elements.len) == @[7]
+
+  test "a range too short to divide is listed even when it does not fit":
+    var rng = initRand()
+    let count = 4
+    var elements = newSeqOfCap[SyncID](count)
+    for i in 0 ..< count:
+      elements.add(SyncID(time: Timestamp(1000 + i), hash: randomHash(rng)))
+
+    let
+      storage = SeqStorage.new(
+        elements,
+        newSeqWith(count, DefaultPubsubTopic),
+        frameSizeLimit = frameLeaving(10),
+      )
+      bounds =
+        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(1004), hash: EmptyFingerprint)
+      payload = RangesData(
+        ranges: @[(bounds, RangeType.Fingerprint)], fingerprints: @[randomHash(rng)]
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      reply.ranges == @[(bounds, RangeType.ItemSet)]
+      reply.itemSets == @[ItemSet(elements: elements, reconciled: false)]
+
+  test "an item set that a reply must list uses up the frame size limit":
+    var rng = initRand()
+    var elements: seq[SyncID]
+    # Range A holds 100 elements, range B 50, none on a bound.
+    for i in 0 ..< 100:
+      elements.add(SyncID(time: Timestamp(1001 + 2 * i), hash: randomHash(rng)))
+    for i in 0 ..< 50:
+      elements.add(SyncID(time: Timestamp(1201 + 16 * i), hash: randomHash(rng)))
+
+    # Room for range A's listing and half of range B's.
+    let
+      storage = SeqStorage.new(
+        elements,
+        newSeqWith(elements.len, DefaultPubsubTopic),
+        frameSizeLimit = frameLeaving(
+          listingSize(elements[0 ..< 100]) + listingSize(elements[100 ..< 150]) div 2
+        ),
+      )
+      rangeA =
+        SyncID(time: Timestamp(1000), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(1200), hash: EmptyFingerprint)
+      rangeB =
+        SyncID(time: Timestamp(1200), hash: EmptyFingerprint) ..
+        SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
+      payload = RangesData(
+        ranges: @[(rangeA, RangeType.ItemSet), (rangeB, RangeType.Fingerprint)],
+        fingerprints: @[randomHash(rng)],
+        itemSets: @[ItemSet(elements: @[], reconciled: false)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    # Range A is listed in full, which leaves too little room to list range B whole.
+    check:
+      reply.ranges[0] == (rangeA, RangeType.ItemSet)
+      reply.itemSets[0].elements.len == 100
+      (rangeB, RangeType.ItemSet) notin reply.ranges
+      reply.itemSets[1 ..^ 1].mapIt(it.elements.len).foldl(a + b, 0) < 50
+
+  test "an unreconciled item set whose reply does not fit is split at a timestamp change":
+    var rng = initRand()
+    let
+      ids = exampleIds(rng)
+      storage = exampleStorage(ids)
+      c = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
+      (answered, output, hashToSend, idsToRecv) =
+        storage.splitReply(@[], roomFor(ids, 3), mustAnswer = false)
+
+    check:
+      answered
+      output.ranges ==
+        @[
+          (ExampleBounds.a .. c, RangeType.ItemSet),
+          (c .. ExampleBounds.b, RangeType.Fingerprint),
+        ]
+      output.itemSets == @[ItemSet(elements: ids[0 ..< 3], reconciled: true)]
+      output.fingerprints == @[storage.computeFingerprint(c .. ExampleBounds.b, @[])]
+      hashToSend == ids[0 ..< 3].mapIt(it.hash)
+      idsToRecv.len == 0
+
+  test "a cutoff inside one timestamp moves back to the start of that timestamp":
+    var rng = initRand()
+    let
+      ids = exampleIds(rng)
+      storage = exampleStorage(ids)
+      c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
+      # Two fit, but both SyncIDs at 1002 must be on the same side of the cutoff.
+      (answered, output, hashToSend, _) =
+        storage.splitReply(@[], roomFor(ids, 2), mustAnswer = false)
+
+    check:
+      answered
+      output.ranges ==
+        @[
+          (ExampleBounds.a .. c, RangeType.ItemSet),
+          (c .. ExampleBounds.b, RangeType.Fingerprint),
+        ]
+      output.itemSets == @[ItemSet(elements: ids[0 ..< 1], reconciled: true)]
+      hashToSend == @[ids[0].hash]
+
+  test "a first timestamp that does not fit is listed only when the range must be answered":
+    var rng = initRand()
+    let
+      ids = exampleIds(rng)
+      storage = exampleStorage(ids)
+      c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
+      noRoom = maxEncodedRangeSize(RangeType.Fingerprint) + 10
+      (skipped, skippedOutput, skippedSend, _) =
+        storage.splitReply(@[], noRoom, mustAnswer = false)
+      (answered, output, _, _) = storage.splitReply(@[], noRoom, mustAnswer = true)
+
+    check:
+      not skipped
+      skippedOutput.ranges.len == 0
+      skippedSend.len == 0
+      answered
+      output.ranges[0] == (ExampleBounds.a .. c, RangeType.ItemSet)
+      output.itemSets == @[ItemSet(elements: ids[0 ..< 1], reconciled: true)]
+
+  test "differences at or above the cutoff are left for a later round":
+    var rng = initRand()
+    let
+      ids = exampleIds(rng)
+      storage = exampleStorage(ids)
+      # The peer holds one SyncID below the cutoff (1003) and one above it.
+      below = SyncID(time: Timestamp(1001), hash: randomHash(rng))
+      above = SyncID(time: Timestamp(1600), hash: randomHash(rng))
+      (answered, _, hashToSend, idsToRecv) =
+        storage.splitReply(@[below, above], roomFor(ids, 3), mustAnswer = false)
+
+    check:
+      answered
+      hashToSend == ids[0 ..< 3].mapIt(it.hash)
+      idsToRecv == @[below]
+
+  test "a reply stops at the first range whose answer does not fit":
+    var rng = initRand()
+    let
+      inFirst = idsAt(toSeq(0 ..< 5).mapIt(1001 + 200 * it), rng)
+      inSecond = idsAt(toSeq(0 ..< 50).mapIt(2001 + 16 * it), rng)
+      inThird = idsAt(toSeq(0 ..< 10).mapIt(3001 + 50 * it), rng)
+      # Room for the first two answers, and too little for the third one's.
+      frame =
+        frameLeaving(maxEncodedRangeSize(RangeType.Skip) + listingSize(inFirst) + 100)
+      storage = SeqStorage.new(
+        inFirst & inSecond & inThird,
+        newSeqWith(65, DefaultPubsubTopic),
+        frameSizeLimit = frame,
+      )
+      # The WAKU-SYNC stop example: Skip, three mismatching fingerprints, Skip.
+      payload = RangesData(
+        ranges: @[
+          (span(0, 1000), RangeType.Skip),
+          (span(1000, 2000), RangeType.Fingerprint),
+          (span(2000, 3000), RangeType.Fingerprint),
+          (span(3000, 4000), RangeType.Fingerprint),
+          (span(4000, 5000), RangeType.Skip),
+        ],
+        fingerprints: @[randomHash(rng), randomHash(rng), randomHash(rng)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      reply.ranges ==
+        @[
+          (span(0, 1000), RangeType.Skip),
+          (span(1000, 2000), RangeType.ItemSet),
+          (span(2000, 5000), RangeType.Fingerprint),
+        ]
+      reply.itemSets == @[ItemSet(elements: inFirst, reconciled: false)]
+      reply.fingerprints == @[storage.computeFingerprint(span(2000, 5000), @[])]
+      reply.deltaEncode().len <= frame
+
+  test "a later unreconciled item set is split with the room that is left":
+    var rng = initRand()
+    let
+      inFirst = idsAt(toSeq(0 ..< 5).mapIt(1001 + 200 * it), rng)
+      inSecond = idsAt(toSeq(0 ..< 50).mapIt(2001 + 16 * it), rng)
+      inThird = idsAt(toSeq(0 ..< 10).mapIt(3001 + 50 * it), rng)
+      # Room for the first answer and about half of the second one's.
+      frame = frameLeaving(listingSize(inFirst) + listingSize(inSecond) div 2)
+      storage = SeqStorage.new(
+        inFirst & inSecond & inThird,
+        newSeqWith(65, DefaultPubsubTopic),
+        frameSizeLimit = frame,
+      )
+      payload = RangesData(
+        ranges: @[
+          (span(1000, 2000), RangeType.Fingerprint),
+          (span(2000, 3000), RangeType.ItemSet),
+          (span(3000, 4000), RangeType.Fingerprint),
+        ],
+        fingerprints: @[randomHash(rng), randomHash(rng)],
+        itemSets: @[ItemSet(elements: @[], reconciled: false)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+    let listed = reply.itemSets[1].elements
+
+    check:
+      reply.ranges.mapIt(it[1]) ==
+        @[
+          RangeType.ItemSet, RangeType.ItemSet, RangeType.Fingerprint,
+          RangeType.Fingerprint,
+        ]
+      reply.ranges[1][0].a == span(2000, 3000).a
+      reply.ranges[2][0].b == span(2000, 3000).b
+      reply.ranges[3][0] == span(3000, 4000)
+      reply.itemSets[1].reconciled
+      listed.len > 0
+      listed == inSecond[0 ..< listed.len]
+      hashToSend == listed.mapIt(it.hash)
+      reply.deltaEncode().len <= frame
+
+  test "only the first range that is not Skip may go over the frame size limit":
+    var rng = initRand()
+    let
+      inShort = idsAt(@[1000, 1001, 1002, 1003], rng)
+      inLong = idsAt(toSeq(0 ..< 10).mapIt(1101 + 50 * it), rng)
+      storage = SeqStorage.new(
+        inShort & inLong,
+        newSeqWith(14, DefaultPubsubTopic),
+        frameSizeLimit = frameLeaving(10),
+      )
+      # The first range is too short to divide, so it is listed anyway.
+      payload = RangesData(
+        ranges: @[
+          (span(1000, 1004), RangeType.Fingerprint),
+          (span(1004, 2000), RangeType.Fingerprint),
+        ],
+        fingerprints: @[randomHash(rng), randomHash(rng)],
+      )
+
+    var
+      hashToSend: seq[Fingerprint]
+      idsToRecv: seq[SyncID]
+    let reply = storage.processPayload(payload, hashToSend, idsToRecv)
+
+    check:
+      reply.ranges ==
+        @[
+          (span(1000, 1004), RangeType.ItemSet),
+          (span(1004, 2000), RangeType.Fingerprint),
+        ]
+      reply.itemSets == @[ItemSet(elements: inShort, reconciled: false)]
+      reply.fingerprints == @[storage.computeFingerprint(span(1004, 2000), @[])]
 
   test "a fingerprint over a pubsub topic with no local message is empty":
     var rng = initRand()

@@ -1,11 +1,15 @@
 import
-  std/[algorithm, sequtils, tables, packedsets, sugar], results, chronos, stew/arrayops
+  std/[algorithm, sequtils, tables, packedsets, sugar],
+  results,
+  chronos,
+  stew/[arrayops, leb128]
 
 import
   ../../waku_core/time,
   ../../waku_core/message/digest,
   ../../waku_core/topics/pubsub_topic,
   ../common,
+  ../codec,
   ./range_processing,
   ./storage
 
@@ -23,6 +27,9 @@ type SeqStorage* = ref object of SyncStorage
 
   # Number of element in a range for which item sets are used instead of fingerprints.
   lengthThreshold: int
+
+  # Largest encoded reply this storage builds, in bytes (WAKU-SYNC frame size limit).
+  frameSizeLimit: int
 
 method length*(self: SeqStorage): int {.raises: [].} =
   return self.elements.len
@@ -224,14 +231,18 @@ proc processFingerprintRange*(
     pubsubTopicSet: PackedSet[int],
     inputFingerprint: Fingerprint,
     output: var RangesData,
+    room: var int,
 ) {.raises: [].} =
-  ## Compares fingerprints and partition new ranges.
+  ## Compares fingerprints and partition new ranges. Each range that it adds
+  ## takes its encoded size from `room`, in bytes, and an item set is added
+  ## only when it fits.
 
   let idxSlice = self.findIdxBounds(inputBounds)
   let ourFingerprint = self.computeFingerprintFromSlice(idxSlice, pubsubTopicSet)
 
   if ourFingerprint == inputFingerprint:
     output.ranges.add((inputBounds, RangeType.Skip))
+    room -= maxEncodedRangeSize(RangeType.Skip)
     return
 
   # An empty range is not marked reconciled: the peer then replies with its
@@ -240,18 +251,25 @@ proc processFingerprintRange*(
     output.ranges.add((inputBounds, RangeType.ItemSet))
     let state = ItemSet(elements: @[], reconciled: false)
     output.itemSets.add(state)
+    room -= maxEncodedRangeSize(RangeType.ItemSet, state)
     return
 
   let slice = idxSlice.get()
+  let partitions = equalPartitioning(inputBounds, self.partitionCount)
 
   if slice.len <= self.lengthThreshold:
-    output.ranges.add((inputBounds, RangeType.ItemSet))
     let elements = self.getFilteredElements(slice, pubsubTopicSet)
     let state = ItemSet(elements: elements, reconciled: false)
-    output.itemSets.add(state)
-    return
+    let size = maxEncodedRangeSize(RangeType.ItemSet, state)
+    # An item set that does not fit makes the range too large, so it is
+    # divided (WAKU-SYNC). A range too short to divide is listed anyway, so
+    # that the session progresses.
+    if size <= room or partitions.len == 0:
+      room -= size
+      output.ranges.add((inputBounds, RangeType.ItemSet))
+      output.itemSets.add(state)
+      return
 
-  let partitions = equalPartitioning(inputBounds, self.partitionCount)
   for partitionBounds in partitions:
     let sliceOpt = self.findIdxBounds(partitionBounds)
 
@@ -259,21 +277,42 @@ proc processFingerprintRange*(
       output.ranges.add((partitionBounds, RangeType.ItemSet))
       let state = ItemSet(elements: @[], reconciled: false)
       output.itemSets.add(state)
+      room -= maxEncodedRangeSize(RangeType.ItemSet, state)
       continue
 
     let slice = sliceOpt.get()
 
     if slice.len <= self.lengthThreshold:
-      output.ranges.add((partitionBounds, RangeType.ItemSet))
       let elements = self.getFilteredElements(slice, pubsubTopicSet)
       let state = ItemSet(elements: elements, reconciled: false)
-      output.itemSets.add(state)
-      continue
+      let size = maxEncodedRangeSize(RangeType.ItemSet, state)
+      # A partition whose item set does not fit is sent as a fingerprint.
+      if size <= room:
+        room -= size
+        output.ranges.add((partitionBounds, RangeType.ItemSet))
+        output.itemSets.add(state)
+        continue
 
     let fingerprint = self.computeFingerprintFromSlice(Opt.some(slice), pubsubTopicSet)
     output.ranges.add((partitionBounds, RangeType.Fingerprint))
     output.fingerprints.add(fingerprint)
+    room -= maxEncodedRangeSize(RangeType.Fingerprint)
     continue
+
+proc addDifferences(
+    ourOnly, theirOnly: seq[SyncID],
+    cutoff: Opt[SyncID],
+    idsToSend: var seq[SyncID],
+    idsToRecv: var seq[SyncID],
+) =
+  ## Appends the differences below `cutoff`, or all of them without one.
+  for id in ourOnly:
+    if cutoff.isNone() or id < cutoff.get():
+      idsToSend.add(id)
+
+  for id in theirOnly:
+    if cutoff.isNone() or id < cutoff.get():
+      idsToRecv.add(id)
 
 proc processItemSetRange*(
     self: SeqStorage,
@@ -283,71 +322,112 @@ proc processItemSetRange*(
     idsToSend: var seq[SyncID],
     idsToRecv: var seq[SyncID],
     output: var RangesData,
-) {.raises: [].} =
-  ## Compares item sets and outputs differences
+    room: var int,
+    mustAnswer: bool,
+): bool {.raises: [].} =
+  ## Compares item sets and outputs differences. The reply takes its encoded
+  ## size from `room`, in bytes; when the reply to an unreconciled item set does
+  ## not fit, the range is split at a cutoff (WAKU-SYNC frame size limit).
+  ## Returns false, and adds nothing, when not even the first timestamp of the
+  ## range fits and `mustAnswer` is false.
 
   let idxSlice = self.findIdxBounds(inputBounds)
-
-  if idxSlice.isNone():
-    for element in inputItemSet.elements:
-      idsToRecv.add(element)
-
-    if not inputItemSet.reconciled:
-      output.ranges.add((inputBounds, RangeType.ItemSet))
-      let state = ItemSet(elements: @[], reconciled: true)
-      output.itemSets.add(state)
+  let ours =
+    if idxSlice.isSome():
+      self.getFilteredElements(idxSlice.get(), pubsubTopicSet)
     else:
-      output.ranges.add((inputBounds, RangeType.Skip))
+      @[]
+  let theirs = inputItemSet.elements
 
-    return
+  var
+    ourOnly: seq[SyncID]
+    theirOnly: seq[SyncID]
+    i = 0
+    j = 0
 
-  let slice = idxSlice.get()
-
-  var i = 0
-  let n = inputItemSet.elements.len
-
-  var j = slice.a
-  let m = slice.b + 1
-
-  while (j < m):
-    let ourElement = self.elements[j]
-    let pubsub = self.pubsubTopicIndexes[j]
-
-    if pubsubTopicSet.len > 0 and pubsub notin pubsubTopicSet:
-      j.inc()
-      continue
-
-    if i >= n:
-      # in case we have more elements
-      idsToSend.add(ourElement)
-      j.inc()
-      continue
-
-    let theirElement = inputItemSet.elements[i]
-
-    if theirElement < ourElement:
-      idsToRecv.add(theirElement)
+  while i < theirs.len and j < ours.len:
+    if theirs[i] < ours[j]:
+      theirOnly.add(theirs[i])
       i.inc()
-    elif theirElement > ourElement:
-      idsToSend.add(ourElement)
+    elif theirs[i] > ours[j]:
+      ourOnly.add(ours[j])
       j.inc()
     else:
       i.inc()
       j.inc()
 
-  while (i < n):
-    # in case they have more elements
-    let theirElement = inputItemSet.elements[i]
-    i.inc()
-    idsToRecv.add(theirElement)
+  theirOnly.add(theirs[i ..^ 1])
+  ourOnly.add(ours[j ..^ 1])
 
-  if not inputItemSet.reconciled:
-    output.ranges.add((inputBounds, RangeType.ItemSet))
-    let elements = self.getFilteredElements(slice, pubsubTopicSet)
-    let state = ItemSet(elements: elements, reconciled: true)
-    output.itemSets.add(state)
-  else:
+  if inputItemSet.reconciled:
+    addDifferences(ourOnly, theirOnly, Opt.none(SyncID), idsToSend, idsToRecv)
     output.ranges.add((inputBounds, RangeType.Skip))
+    room -= maxEncodedRangeSize(RangeType.Skip)
+    return true
+
+  let full = ItemSet(elements: ours, reconciled: true)
+  let fullSize = maxEncodedRangeSize(RangeType.ItemSet, full)
+
+  # Number of elements that the reply lists.
+  var fitting = ours.len
+
+  if fullSize > room:
+    # The cutoff sits where the timestamp changes, so that it encodes without
+    # its hash, and leaves room for the fingerprint of the rest.
+    let
+      available = room - maxEncodedRangeSize(RangeType.Fingerprint)
+      emptyListing = maxEncodedRangeSize(RangeType.ItemSet, ItemSet())
+    var
+      elementsSize = 0
+      previousTime = Timestamp(0)
+
+    fitting = 0
+    for k in 0 ..< ours.len:
+      elementsSize += encodedElementSize(ours[k], previousTime)
+      previousTime = ours[k].time
+      # emptyListing counts one byte for an element count of zero.
+      let listing = emptyListing - 1 + int(Leb128.len(uint64(k + 1))) + elementsSize
+      if listing > available:
+        break
+      if k + 1 == ours.len or ours[k + 1].time != ours[k].time:
+        fitting = k + 1
+
+    if fitting == 0:
+      if not mustAnswer:
+        return false
+
+      # WAKU-SYNC lists the first timestamp of the range even when it does not
+      # fit, so that every round makes progress.
+      if ours.len > 0:
+        fitting = 1
+        while fitting < ours.len and ours[fitting].time == ours[0].time:
+          fitting.inc()
+
+  if fitting == ours.len:
+    addDifferences(ourOnly, theirOnly, Opt.none(SyncID), idsToSend, idsToRecv)
+    output.ranges.add((inputBounds, RangeType.ItemSet))
+    output.itemSets.add(full)
+    room -= fullSize
+    return true
+
+  let cutoff = SyncID(time: ours[fitting].time, hash: EmptyFingerprint)
+  let listed = ItemSet(elements: ours[0 ..< fitting], reconciled: true)
+  var rest = EmptyFingerprint
+  for id in ours[fitting ..^ 1]:
+    rest = rest xor id.hash
+
+  output.ranges.add((inputBounds.a .. cutoff, RangeType.ItemSet))
+  output.itemSets.add(listed)
+  output.ranges.add((cutoff .. inputBounds.b, RangeType.Fingerprint))
+  output.fingerprints.add(rest)
+  room -=
+    maxEncodedRangeSize(RangeType.ItemSet, listed) +
+    maxEncodedRangeSize(RangeType.Fingerprint)
+
+  # The peer learns the rest of the range in a later round, and accepts over
+  # transfer only what it has learned.
+  addDifferences(ourOnly, theirOnly, Opt.some(cutoff), idsToSend, idsToRecv)
+  return true
 
 proc processItemSetRange*(
     self: SeqStorage,
@@ -358,12 +438,21 @@ proc processItemSetRange*(
     hashToRecv: var seq[Fingerprint],
     output: var RangesData,
 ) {.raises: [].} =
-  ## Same as above, with only the hashes of the elements.
+  ## Same as above, with only the hashes of the elements, and no frame size
+  ## limit.
   var
     idsToSend: seq[SyncID]
     idsToRecv: seq[SyncID]
-  self.processItemSetRange(
-    inputBounds, pubsubTopicSet, inputItemSet, idsToSend, idsToRecv, output
+    room = high(int)
+  discard self.processItemSetRange(
+    inputBounds,
+    pubsubTopicSet,
+    inputItemSet,
+    idsToSend,
+    idsToRecv,
+    output,
+    room,
+    mustAnswer = true,
   )
   for id in idsToSend:
     hashToSend.add(id.hash)
@@ -380,38 +469,87 @@ method processPayload*(
   ## send back. Appends to `idsToSend` the local elements the peer
   ## lacks, and to `idsToRecv` the peer's elements missing here, with their
   ## timestamps, so the caller can index them before they arrive.
+  ##
+  ## The reply stays within the frame size limit (WAKU-SYNC): from the first
+  ## range whose answer does not fit, it answers the remaining ranges with one
+  ## fingerprint range.
   var output = RangesData()
 
   var
     i = 0
     j = 0
+    # Room for one fingerprint range is kept back for the range that ends a
+    # full reply.
+    room =
+      self.frameSizeLimit - maxEncodedHeaderSize(input.shards.len) -
+      maxEncodedRangeSize(RangeType.Fingerprint)
+    # Only the first answered range that is not Skip may go over the limit, so
+    # that every round makes progress.
+    answeredOne = false
+    # The first received range that the reply does not answer, if any.
+    stopAt = -1
 
   let pubsubTopicSet = self.pubsubScope(
     input.shards.mapIt($RelayShard(clusterId: input.cluster, shardId: it))
   )
 
-  for (bounds, rangeType) in input.ranges:
+  for idx in 0 ..< input.ranges.len:
+    let (bounds, rangeType) = input.ranges[idx]
+
+    # Each answer is built apart, and kept only when it fits.
+    var
+      answer = RangesData()
+      answerRoom = room
+      answerSend: seq[SyncID]
+      answerRecv: seq[SyncID]
+      answered = true
+
     case rangeType
     of RangeType.Skip:
-      output.ranges.add((bounds, RangeType.Skip))
-
-      continue
+      answer.ranges.add((bounds, RangeType.Skip))
+      answerRoom -= maxEncodedRangeSize(RangeType.Skip)
     of RangeType.Fingerprint:
       let fingerprint = input.fingerprints[i]
       i.inc()
 
-      self.processFingerprintRange(bounds, pubsubTopicSet, fingerprint, output)
-
-      continue
+      self.processFingerprintRange(
+        bounds, pubsubTopicSet, fingerprint, answer, answerRoom
+      )
     of RangeType.ItemSet:
       let itemSet = input.itemsets[j]
       j.inc()
 
-      self.processItemSetRange(
-        bounds, pubsubTopicSet, itemSet, idsToSend, idsToRecv, output
+      answered = self.processItemSetRange(
+        bounds,
+        pubsubTopicSet,
+        itemSet,
+        answerSend,
+        answerRecv,
+        answer,
+        answerRoom,
+        mustAnswer = not answeredOne,
       )
 
-      continue
+    let mustKeep = rangeType != RangeType.Skip and not answeredOne
+    if not mustKeep and (not answered or answerRoom < 0):
+      stopAt = idx
+      break
+
+    output.ranges.add(answer.ranges)
+    output.fingerprints.add(answer.fingerprints)
+    output.itemSets.add(answer.itemSets)
+    idsToSend.add(answerSend)
+    idsToRecv.add(answerRecv)
+    room = answerRoom
+    if rangeType != RangeType.Skip:
+      answeredOne = true
+
+  if stopAt >= 0:
+    let rest = input.ranges[stopAt][0].a .. input.ranges[^1][0].b
+    output.ranges.add((rest, RangeType.Fingerprint))
+    output.fingerprints.add(
+      self.computeFingerprintFromSlice(self.findIdxBounds(rest), pubsubTopicSet)
+    )
 
   # merge consecutive skip ranges
   var allSkip = true
@@ -464,11 +602,24 @@ proc processPayload*(
 
   return output
 
-proc new*(T: type SeqStorage, capacity: int, threshold = 100, partitions = 8): T =
+func minFrameSizeLimit(): int =
+  ## A reply to a payload with no shards that holds one fingerprint range.
+  maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint)
+
+proc new*(
+    T: type SeqStorage,
+    capacity: int,
+    threshold = 100,
+    partitions = 8,
+    frameSizeLimit = DefaultMaxPayloadSize,
+): T =
+  doAssert frameSizeLimit >= minFrameSizeLimit(),
+    "frameSizeLimit cannot hold a fingerprint range"
   return SeqStorage(
     elements: newSeqOfCap[SyncID](capacity),
     lengthThreshold: threshold,
     partitionCount: partitions,
+    frameSizeLimit: frameSizeLimit,
   )
 
 proc new*(
@@ -477,7 +628,10 @@ proc new*(
     pubsubTopics: seq[PubsubTopic],
     threshold = 100,
     partitions = 8,
+    frameSizeLimit = DefaultMaxPayloadSize,
 ): T =
+  doAssert frameSizeLimit >= minFrameSizeLimit(),
+    "frameSizeLimit cannot hold a fingerprint range"
   var idx = 0
   var uniquePubsubTopics = initOrderedTable[PubsubTopic, int]()
   for pubsub in pubsubTopics:
@@ -495,4 +649,5 @@ proc new*(
     pubsubTopicIndexes: pubsubTopicIndexes,
     lengthThreshold: threshold,
     partitionCount: partitions,
+    frameSizeLimit: frameSizeLimit,
   )

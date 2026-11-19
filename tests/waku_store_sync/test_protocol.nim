@@ -247,6 +247,52 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.containsPush(serverPeerInfo.peerId, hash2) == true
       remoteNeeds.containsPush(serverPeerInfo.peerId, hash3) == true
 
+  asyncTest "an empty client learns every message of a server that holds more than one frame":
+    # About 360 IDs fit in a frame of 12,000 bytes, so the server's
+    # 1,000 messages take several replies.
+    const
+      count = 1_000
+      frameSizeLimit = 12_000
+
+    server = await newTestWakuRecon(
+      serverSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      frameSizeLimit = frameSizeLimit,
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      DefaultSyncRange,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      frameSizeLimit = frameSizeLimit,
+    )
+
+    let start = now() - 60.seconds.nanos
+    var hashes: seq[WakuMessageHash]
+    for i in 0 ..< count:
+      let msg = fakeWakuMessage(
+        ts = start + Timestamp(i) * 1_000, contentTopic = DefaultContentTopic
+      )
+      let hash = computeMessageHash(DefaultPubsubTopic, msg)
+      server.messageIngress(hash, DefaultPubsubTopic, msg)
+      hashes.add(hash)
+
+    # When the server starts the session with the empty client
+    let res = await server.storeSynchronization(Opt.some(clientPeerInfo))
+    assert res.isOk(), res.error
+
+    # Then the client expects every message, and the server queued each for it
+    check:
+      hashes.allIt(client.isPending(it))
+      remoteNeeds.len == count
+      hashes.allIt(remoteNeeds.contains((clientPeerInfo.peerId, it)))
+
   asyncTest "a second round does not queue a message the first round already promised":
     # Given two servers holding one message and an empty client
     let

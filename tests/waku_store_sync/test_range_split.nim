@@ -1,7 +1,8 @@
 {.used.}
 
-import testutils/unittests, nimcrypto, std/sequtils, results
+import testutils/unittests, nimcrypto, std/[sequtils, sets], results
 import ../../logos_delivery/waku/waku_store_sync/common
+import ../../logos_delivery/waku/waku_store_sync/codec
 import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
 import ../../logos_delivery/waku/waku_core/message/digest
 import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
@@ -249,3 +250,78 @@ suite "Waku Sync: range splitting":
     check toSend2[0] == alteredHash
     check toRecv2.len == 1
     check toRecv2[0] == baseHash
+
+  test "an empty node gets every ID of a peer that holds more than one frame":
+    const
+      count = 5_000
+      # About 360 IDs per frame, so the peer needs about 14 replies.
+      frameSizeLimit = 12_000
+      maxRounds = 200
+
+    let
+      full = SeqStorage.new(@[], @[], frameSizeLimit = frameSizeLimit)
+      empty = SeqStorage.new(@[], @[], frameSizeLimit = frameSizeLimit)
+
+    var all: seq[SyncID]
+    # Pairs of IDs share a timestamp.
+    for i in 0 ..< count:
+      let id = SyncID(time: 1_000_000 + (i div 2) * 7, hash: toDigest("id" & $i))
+      full.insert(id, DefaultPubsubTopic).isOkOr:
+        assert false, "failed to insert hash: " & $error
+      all.add(id)
+
+    # The full node starts the session, as `initiate` does.
+    let bounds =
+      SyncID(time: 999_000, hash: EmptyFingerprint) ..
+      SyncID(time: 1_100_000, hash: FullFingerprint)
+    var payload = RangesData(
+      shards: @[DefaultShardId],
+      ranges: @[(bounds, RangeType.Fingerprint)],
+      fingerprints: @[full.computeFingerprint(bounds, @[DefaultPubsubTopic])],
+    )
+
+    var
+      fromFull = true
+      rounds = 0
+      # Replies of the full node that list some of its IDs.
+      listingReplies = 0
+      received: seq[SyncID]
+      pushed: seq[WakuMessageHash]
+
+    while payload.ranges.anyIt(it[1] != RangeType.Skip) and rounds < maxRounds:
+      rounds.inc()
+
+      var
+        hashToSend: seq[Fingerprint]
+        idsToRecv: seq[SyncID]
+
+      if fromFull:
+        payload = empty.processPayload(payload, hashToSend, idsToRecv)
+        check hashToSend.len == 0
+        # As `trackPromised` does, so that later rounds do not ask again.
+        for id in idsToRecv:
+          empty.insert(id, PendingPubsubTopic).isOkOr:
+            assert false, "failed to insert pending hash: " & $error
+        received.add(idsToRecv)
+      else:
+        payload = full.processPayload(payload, hashToSend, idsToRecv)
+        check idsToRecv.len == 0
+        pushed.add(hashToSend)
+        if payload.itemSets.anyIt(it.elements.len > 0):
+          listingReplies.inc()
+
+      payload.shards = @[DefaultShardId]
+      fromFull = not fromFull
+
+      # Every reply, in both directions, fits in the frame of the node that sends it.
+      let encoded = payload.deltaEncode()
+      check encoded.len <= frameSizeLimit
+      payload = RangesData.deltaDecode(encoded).get()
+
+    check:
+      rounds < maxRounds
+      listingReplies > 1
+      received.len == count
+      received.toHashSet() == all.toHashSet()
+      pushed.len == count
+      pushed.toHashSet() == all.mapIt(it.hash).toHashSet()
