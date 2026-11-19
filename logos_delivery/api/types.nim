@@ -27,7 +27,7 @@ type
     NotConnected ## The node has no connection to the network.
     NoShard ## The content topic maps to no shard of this node.
     Duplicate ## A message with the same hash is still in flight.
-    QueueFull ## The node has its maximum of 50 sends with no last event.
+    QueueFull ## The node has its maximum of 200 sends with no last event.
     RateLimited ## The rate-limit budget of the epoch is spent, see `retryAfter`.
     TooLarge ## The message, with its RLN proof, exceeds the maximum message size.
 

@@ -138,6 +138,14 @@ method process(self: ScriptedProc, task: DeliveryTask): Future[void] {.async.} =
     task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated
 
+type PropagateAllProc = ref object of BaseSendProcessor
+  ## Propagates each task at its first attempt.
+
+method process(self: PropagateAllProc, task: DeliveryTask): Future[void] {.async.} =
+  if task.firstPropagatedTime.isNone():
+    task.firstPropagatedTime = Opt.some(Moment.now())
+  task.state = DeliveryState.SuccessfullyPropagated
+
 const FastLoop = chronos.milliseconds(10)
   ## The loop interval of a test service. It keeps each wait for a loop short.
 
@@ -282,6 +290,22 @@ suite "SendService - Store validation window":
   asyncTeardown:
     await log.teardown()
     discard await waku.stop()
+
+  asyncTest "the default limit holds 200 sends that wait for a Store confirmation":
+    ## Each send propagates at once and then waits for a Store answer. It keeps
+    ## its place in the limit during that wait, so send 201 is refused.
+    let service = reliableService(waku, PropagateAllProc())
+    let tasks = (0 ..< 200).mapIt(newTask("waits-" & $it))
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    for task in tasks:
+      check (service.enqueue(task)).isOk()
+    checkUntilTimeout:
+      tasks.allIt(not it.storeAnswer.isNil())
+    check:
+      service.isFull()
+      (service.enqueue(newTask("over"))).error.kind == SendErrorKind.QueueFull
 
   asyncTest "the time while the service is stopped does not count against the window":
     ## The task propagates, then the service stops for longer than the window.

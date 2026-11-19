@@ -47,10 +47,12 @@ const StoreValidationQueryTimeout = chronos.seconds(15)
 
 const MaxStoreMissResends* = 3 ## The most resends of one message after a Store miss.
 
-const MaxSendsInFlight* = 50
+const MaxSendsInFlight* = 200
   ## The most sends with no last event. `send` refuses the next one with
   ## `QueueFull`. It bounds the memory and the open streams of the node, also
-  ## without a rate limit.
+  ## without a rate limit. A send with Store validation keeps its place until a
+  ## Store node confirms it, up to 1 min after it propagated, so the limit has
+  ## room for those sends.
 
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
