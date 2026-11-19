@@ -160,18 +160,18 @@ logosdelivery_ctx_start_node(ctx, on_reply, userData);
 
 For a typical successful message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_sent** → A store node or the mix exit confirms the message (only with the `reliability` option on)
 
 For a failed message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_error** → Delivery failed with error description
 
 For a send that no store node confirms (only with the `reliability` option on):
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_error** → No store node confirmed the message within the validation window
 
