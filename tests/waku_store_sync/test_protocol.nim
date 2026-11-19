@@ -1815,7 +1815,7 @@ proc newRecon(
     DefaultSyncRange,
     newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
     newAsyncQueue[PeerId](),
-    newAsyncQueue[(PeerId, WakuMessageHash)](),
+    newAsyncQueue[(PeerId, SyncID)](),
     peerManager = peerManager,
   )
 
