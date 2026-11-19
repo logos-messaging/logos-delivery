@@ -95,14 +95,6 @@ proc propagationAge*(self: DeliveryTask): timer.Duration =
   else:
     return ZeroDuration
 
-proc admissionAge*(self: DeliveryTask): timer.Duration =
-  ## Time since `send` charged the budget, or since the charge of a new RLN
-  ## proof; ZeroDuration while the task has no charge.
-  if self.firstAdmittedTime.isSome():
-    return timer.Moment.now() - self.firstAdmittedTime.get()
-  else:
-    return ZeroDuration
-
 proc isDeliveryTimedOut*(self: DeliveryTask, window: timer.Duration): bool =
   ## True when the task did not propagate within `window` of its message
   ## timestamp. Store and RLN validators refuse a message far off their clock, so

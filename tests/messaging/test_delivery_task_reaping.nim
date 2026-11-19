@@ -42,5 +42,5 @@ suite "DeliveryTask - delivery-timeout reaping":
     ## A charge just now does not give an old message a fresh window: Store and
     ## RLN validators judge the message by its timestamp.
     let task = taskWith(chronos.seconds(20), Opt.none(Moment))
-    check task.admissionAge() < Window
+    check task.firstAdmittedTime.isSome()
     check task.isDeliveryTimedOut(Window)

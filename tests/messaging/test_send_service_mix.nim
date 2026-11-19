@@ -62,14 +62,16 @@ proc testConf(): WakuConf =
     raiseAssert error
 
 proc buildTask(
-    id: string, admittedAgo: Duration, contentTopic = "/test/1/anonymity/proto"
+    id: string, age: Duration, contentTopic = "/test/1/anonymity/proto"
 ): DeliveryTask =
-  ## An admitted task with no RLN, so `sendUntilPropagated` does not call
-  ## `admitAndProve`. The id is the payload, so two tasks never have one hash.
+  ## A charged task with no RLN, so `sendUntilPropagated` does not call
+  ## `admitAndProve`. Its message is `age` old, and the mix window and the grace
+  ## run from its timestamp. The id is the payload, so two tasks never have one
+  ## hash.
   let msg = WakuMessage(
     contentTopic: contentTopic,
     payload: id.toBytes(),
-    timestamp: 1_700_000_000_000_000_000,
+    timestamp: getNowInNanosecondTime() - age.nanoseconds,
   )
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
@@ -77,8 +79,13 @@ proc buildTask(
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
     state: DeliveryState.Entry,
-    firstAdmittedTime: Opt.some(Moment.now() - admittedAgo),
+    firstAdmittedTime: Opt.some(Moment.now()),
   )
+
+proc stampAgo(task: DeliveryTask, age: Duration) =
+  ## Gives the message of `task` a timestamp `age` before now, with its new hash.
+  task.msg.timestamp = getNowInNanosecondTime() - age.nanoseconds
+  task.msgHash = computeMessageHash(task.pubsubTopic, task.msg)
 
 proc sizedTask(id: string, size: int): DeliveryTask =
   ## An admitted task whose lightpush request over mix has `size` bytes.
@@ -466,8 +473,7 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       task.state == DeliveryState.NextRoundRetry
       task.errorDesc == MixUnavailableReason # written while it waits
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     await mix.process(task)
     check:
       task.state == DeliveryState.FailedToDeliver
@@ -492,8 +498,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     addMixPeer(60210 + MinMixPoolSize - 1, lightpush = true)
     check waku.mixReady()
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     let fut = mix.process(task)
     check task.tryCount == 1 # mix attempts it
     await fut.cancelAndWait()
@@ -512,7 +517,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     # A message at the limit fits, so the short pool holds it within the grace.
     let fits = sizedTask("at-the-limit-short-pool", limit)
-    fits.firstAdmittedTime = Opt.some(Moment.now())
+    fits.stampAgo(ZeroDuration)
     check await mix.process(fits).withTimeout(FUTURE_TIMEOUT)
     check:
       fits.state == DeliveryState.NextRoundRetry
@@ -575,8 +580,7 @@ suite "SendService - anonymity level with a mounted mix":
     let task = buildTask("no-exit", ZeroDuration)
     await mix.process(task)
     check task.state == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     await mix.process(task)
     check:
       plain.calls == 0
@@ -705,10 +709,11 @@ suite "SendService - anonymity level with a mounted mix":
       task.state == DeliveryState.SuccessfullyPropagated
       task.tryCount == 0
 
-  asyncTest "an RLN proof refresh starts a new Preferred mix window":
+  asyncTest "an RLN proof refresh does not start a new Preferred mix window":
     ## `parkForRlnProofRefresh` clears `firstAdmittedTime`, so the new proof
-    ## draws a new nonce. The window runs from that field, so the refreshed task
-    ## gets a whole window again and mix attempts it.
+    ## takes a new charge. The window runs from the message timestamp, which a new
+    ## proof does not change. So a task that spent its window goes to the plain
+    ## path, which keeps the rest of the delivery window.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60145 + i, lightpush = true)
 
@@ -729,17 +734,17 @@ suite "SendService - anonymity level with a mounted mix":
     let task = buildTask("rln-park", chronos.minutes(2))
     task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
 
-    # The park clears the proof and `firstAdmittedTime`, which resets the window.
+    # The park clears the proof and `firstAdmittedTime`, and not the window.
     task.parkForRlnProofRefresh(waku, "rln proof rejected")
     check:
       task.state == DeliveryState.NextRoundRetry
       task.msg.proof.len == 0
 
-    let fut = mix.process(task)
+    check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
     check:
-      task.tryCount == 1 # a whole window again, so mix attempts it
-      plain.calls == 0 # no hand-over
-    await fut.cancelAndWait()
+      task.tryCount == 0 # no mix attempt
+      plain.calls == 1 # the hand-over
+      task.state == DeliveryState.SuccessfullyPropagated
 
   asyncTest "an RLN rejection fails the task when no backend can refresh":
     ## No RLN backend is mounted, so no refresh follows and a retry would be
@@ -753,9 +758,8 @@ suite "SendService - anonymity level with a mounted mix":
       task.state == DeliveryState.FailedToDeliver
       task.errorDesc == "rln proof rejected"
 
-  asyncTest "a task parked for budget does not spend its mix window":
-    ## The window runs from admission. A task that did not pass admission has
-    ## spent none of it, however old its message is, so mix attempts it.
+  asyncTest "the mix window runs from the message timestamp, not the charge":
+    ## A charge just now does not give an old message a new mix window.
     for i in 0 ..< MinMixPoolSize:
       addMixPeer(60150 + i, lightpush = true)
 
@@ -765,22 +769,22 @@ suite "SendService - anonymity level with a mounted mix":
     )
     mix.chain(plain)
 
-    let task = buildTask("late-admission", chronos.minutes(2))
-    task.firstAdmittedTime = Opt.none(Moment) # parked for epoch budget
-
-    let fut = mix.process(task)
+    let fresh = buildTask("fresh-message", chronos.seconds(5))
+    let fut = mix.process(fresh)
     check:
-      task.tryCount == 1 # the window is intact, so mix attempts it
+      fresh.tryCount == 1 # within the window, so mix attempts it
       plain.calls == 0
     await fut.cancelAndWait()
 
-    # The same processor hands over a task that has spent its window, so the
-    # case above cannot pass on a window that never elapses.
-    let spent = buildTask("late-admission-spent", chronos.minutes(2))
-    await mix.process(spent)
+    # The same processor hands over an old message that was charged just now,
+    # so the case above cannot pass on a window that never elapses.
+    let old = buildTask("old-message", chronos.minutes(2))
+    old.firstAdmittedTime = Opt.some(Moment.now())
+    check await mix.process(old).withTimeout(FUTURE_TIMEOUT)
     check:
+      old.tryCount == 0
       plain.calls == 1
-      spent.state == DeliveryState.SuccessfullyPropagated
+      old.state == DeliveryState.SuccessfullyPropagated
 
   asyncTest "a Required task waits during its grace when mix cannot encode its own hop, then fails":
     ## The pool is usable and the self hop is not, so no reply path can be built.
@@ -804,8 +808,7 @@ suite "SendService - anonymity level with a mounted mix":
     let task = buildTask("self-hop", ZeroDuration)
     await mix.process(task)
     check task.state == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     await mix.process(task)
     check:
       plain.calls == 0

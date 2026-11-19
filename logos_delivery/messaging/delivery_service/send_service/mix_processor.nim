@@ -23,8 +23,8 @@ const MixTooLargeReason* = "message too large for mix"
   ## One mix message carries much less than the plain path.
 
 const MixUnusableGrace* = chronos.seconds(3)
-  ## How long after its admission a `Required` task waits for a mounted mix that
-  ## cannot attempt it. Retries come `RetryInterval` apart.
+  ## How long after its message timestamp a `Required` task waits for a mounted
+  ## mix that cannot attempt it. Retries come `RetryInterval` apart.
 
 type
   MixUnusable* {.pure.} = enum
@@ -74,8 +74,9 @@ method isValidProcessor*(self: MixSendProcessor, task: DeliveryTask): bool {.gcs
 
 proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
   ## True once `task` has spent its whole mix window, which bounds failed mix
-  ## attempts at either level.
-  return task.admissionAge() > self.mixWindow
+  ## attempts at either level. The window runs from the message timestamp, as
+  ## the delivery window does, so a new RLN proof does not start it again.
+  return task.messageAge() > self.mixWindow
 
 proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
   ## Why mix cannot attempt `task` now, with no network call. It splits
@@ -93,10 +94,10 @@ proc decideWithoutMix(
     self: MixSendProcessor, task: DeliveryTask, unusable: MixUnusable
 ) =
   ## Hands a `Preferred` task to the plain path at once. Fails a `Required` task
-  ## with the reason, once its admission is older than `MixUnusableGrace` while
+  ## with the reason, once its message is older than `MixUnusableGrace` while
   ## mix is mounted.
   if not self.fallbackAllowed:
-    if self.waku.mixMounted() and task.admissionAge() <= MixUnusableGrace:
+    if self.waku.mixMounted() and task.messageAge() <= MixUnusableGrace:
       task.errorDesc = unusable.reason()
       task.state = DeliveryState.NextRoundRetry
       return
@@ -176,7 +177,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
 
   if self.fallbackAllowed and self.mixWindowElapsed(task):
     debug "Mix window elapsed, handing the task to the plain send path",
-      msgHash = task.msgHash.to0xHex(), admissionAge = task.admissionAge()
+      msgHash = task.msgHash.to0xHex(), messageAge = task.messageAge()
     task.errorDesc = ""
     task.state = DeliveryState.FallbackRetry
     return
