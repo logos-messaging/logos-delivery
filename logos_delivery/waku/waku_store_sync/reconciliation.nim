@@ -64,7 +64,7 @@ type SyncReconciliation* = ref object of LPProtocol
   # Send Hashes to transfer protocol for reception
   localWantsTx: AsyncQueue[(PeerId)]
 
-  # Send Hashes to transfer protocol for transmission
+  # Send SyncIDs to transfer protocol for transmission
   remoteNeedsTx: AsyncQueue[(PeerId, SyncID)]
 
   # params
