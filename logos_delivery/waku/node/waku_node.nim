@@ -309,7 +309,7 @@ proc updateMixSelfHop(node: WakuNode) =
   ## endpoint, a relay route known from outside, then the announced set.
   if node.wakuMix.isNil():
     return
-  let before = node.wakuMix.localMixPubInfo().multiAddr
+  let before = node.wakuMix.selfHop()
   let wasMissing = node.wakuMix.selfHopMissing()
   let outside = node.enrAddresses()
   var preferred = outside.filterIt(not it.isCircuitRelayMA())
@@ -331,8 +331,13 @@ proc updateMixSelfHop(node: WakuNode) =
         "Announce an IPv4 TCP or QUIC-v1 address that peers can reach",
         announced = $node.announcedAddresses
     return
-  if chosen.get() != before or wasMissing:
-    info "Mix self hop set", hop = $chosen.get(), before = $before
+  if before != chosen or wasMissing:
+    let previous =
+      if before.isSome():
+        $before.get()
+      else:
+        ""
+    info "Mix self hop set", hop = $chosen.get(), before = previous
 
 proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
   ## A dns4 name can answer differently at start, so the scalars follow that

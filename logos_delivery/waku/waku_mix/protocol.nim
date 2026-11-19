@@ -240,13 +240,21 @@ proc selfHopMissing*(mix: WakuMix): bool =
   ## True when the last derivation of this node's own hop found nothing to set.
   mix.hopMissing
 
+proc selfHop*(mix: WakuMix): Opt[MultiAddress] =
+  ## This node's own hop, or none while mix holds no key for this node's record.
+  let info = mix.localMixPubInfo().valueOr:
+    return Opt.none(MultiAddress)
+  return Opt.some(info.multiAddr)
+
 proc selfHopUsable*(mix: WakuMix): bool =
   ## True when the encoder accepts this node's own hop (IPv4 TCP or QUIC-v1, or
-  ## a circuit relay over one) and `hopMissing` is not set. Every reply path and
-  ## cover packet fails at build time on a hop that the encoder rejects.
+  ## a circuit relay over one), `hopMissing` is not set and mix holds a key for
+  ## this node's record. Every reply path and cover packet fails at build time
+  ## without them.
   if mix.hopMissing:
     return false
-  let info = mix.localMixPubInfo()
+  let info = mix.localMixPubInfo().valueOr:
+    return false
   return mix_multiaddr.multiAddrToBytes(info.peerId, info.multiAddr).isOk()
 
 proc updateSelfHop*(
