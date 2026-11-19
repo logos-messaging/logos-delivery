@@ -23,9 +23,9 @@ const ExampleBounds =
   SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
 
 proc exampleIds(rng: var Rand): seq[SyncID] =
-  ## The SyncIDs of the WAKU-SYNC split example, in order (two share timestamp
-  ## 1002), plus IDs at 1600 to 1800 so that the rest of a split is larger than
-  ## the fingerprint range that replaces it.
+  ## Sorted SyncIDs, two of which share timestamp 1002. The IDs at 1600 to 1800
+  ## make the rest of a split larger than the fingerprint range that replaces
+  ## it.
   @[1000'i64, 1002, 1002, 1003, 1500, 1600, 1700, 1800]
     .mapIt(SyncID(time: Timestamp(it), hash: randomHash(rng)))
     .sorted(
@@ -65,22 +65,15 @@ proc splitReply(
     storage: SeqStorage, theirs: seq[SyncID], frameBytesLeft: int, mustAnswer: bool
 ): (bool, RangesData, seq[SyncID], seq[SyncID]) =
   ## The reply to an unreconciled item set of `theirs` over ExampleBounds.
-  var
-    idsToSend: seq[SyncID]
-    idsToRecv: seq[SyncID]
-    output: RangesData
-    frameBytesLeft = frameBytesLeft
+  var answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
   let answered = storage.processItemSetRange(
     ExampleBounds,
     initPackedSet[int](),
     ItemSet(elements: theirs, reconciled: false),
-    idsToSend,
-    idsToRecv,
-    output,
-    frameBytesLeft,
+    answer,
     mustAnswer,
   )
-  (answered, output, idsToSend, idsToRecv)
+  (answered, answer.reply, answer.idsToSend, answer.idsToRecv)
 
 suite "Waku Sync Storage":
   test "process hash range":
@@ -130,7 +123,7 @@ suite "Waku Sync Storage":
     var emptySet = @[0].toPackedSet()
     emptySet.excl(0)
 
-    var diffs: seq[Fingerprint]
+    var diffs: seq[SyncID]
 
     for i in 0 ..< count:
       let id = SyncID(time: Timestamp(i), hash: randomHash(rng))
@@ -139,7 +132,7 @@ suite "Waku Sync Storage":
       if rng.rand(0 .. 9) == 0:
         elements2.add(id)
       else:
-        diffs.add(id.hash)
+        diffs.add(id)
 
       pubsub.add(DefaultPubsubTopic)
 
@@ -151,17 +144,13 @@ suite "Waku Sync Storage":
 
     let itemSet2 = ItemSet(elements: elements2, reconciled: true)
 
-    var
-      toSend: seq[Fingerprint]
-      toRecv: seq[Fingerprint]
-      outputPayload: RangesData
-
-    storage1.processItemSetRange(
-      bounds, emptySet, itemSet2, toSend, toRecv, outputPayload
-    )
+    var answer = RangeAnswer(frameBytesLeft: high(int))
 
     check:
-      toSend == diffs
+      storage1.processItemSetRange(
+        bounds, emptySet, itemSet2, answer, mustAnswer = true
+      )
+      answer.idsToSend == diffs
 
   test "processPayload returns the ids to receive":
     var rng = initRand()
@@ -327,7 +316,6 @@ suite "Waku Sync Storage":
       frame =
         frameLeaving(maxEncodedRangeSize(RangeType.Skip) + listingSize(inFirst) + 100)
       storage = exampleStorage(inFirst & inSecond & inThird, frame)
-      # The WAKU-SYNC stop example: Skip, three mismatching fingerprints, Skip.
       payload = RangesData(
         ranges: @[
           (span(0, 1000), RangeType.Skip),

@@ -10,8 +10,8 @@ const
   DefaultGossipSubJitter*: Duration = 20.seconds
 
 const DefaultMaxPayloadSize* = 64 * 1024 * 1024
-  ## WAKU-SYNC's MaxPayloadSize: the largest reconciliation payload that a
-  ## node reads, and the default frame size limit for what it sends.
+  ## The largest reconciliation payload that a node reads, and the default
+  ## frame size limit for what it sends.
 
 # Placeholder topic for SyncIDs a peer promised us whose messages haven't arrived yet.
 # Local only: never sent on the wire; the entry is replaced by the real topics on message arrival.
