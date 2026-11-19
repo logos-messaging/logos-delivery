@@ -40,7 +40,7 @@ Emitted when the node confirms the delivery of a message that is not ephemeral, 
 - `messageHash`: Hash of the message, as returned by the send operation
 
 ### 2. message_propagated
-Emitted when a message has been successfully propagated to neighboring nodes on the network, within 15 s of the send.
+Emitted when a message has been successfully propagated to neighboring nodes on the network, by an attempt that started within 15 s of the send.
 
 **JSON Structure:**
 ```json
@@ -57,7 +57,7 @@ Emitted when a message has been successfully propagated to neighboring nodes on 
 ### 3. message_error
 Emitted when a message that `send` accepted fails. `kind` tells the two cases apart:
 
-- `NotPropagated`: no peer took the message within 15 s of the send, or a peer rejected it for a reason that a retry cannot clear. Retries, the mix to plain fallback of `Preferred` and the resends after a Store miss all happen within these 15 s, because Store and RLN validators refuse a message more than 20 s off their clock.
+- `NotPropagated`: no peer took the message within 15 s of the send, or a peer rejected it for a reason that a retry cannot clear. Retries, the mix to plain fallback of `Preferred` and the resends after a Store miss all start within these 15 s, because Store and RLN validators refuse a message more than 20 s off their clock.
 - `NotStored`: the message propagated, but no store node reported it within the store validation window.
 
 **JSON Structure:**

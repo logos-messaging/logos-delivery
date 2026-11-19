@@ -218,7 +218,7 @@ proc quotaState*(self: RateLimitManager): QuotaState =
   ## Where the current epoch's budget stands: the tighter of the local count
   ## against the local cap and RLN's consumption against RLN's own limit.
   ## `Normal` while the manager does not limit sends.
-  ## Each call starts a `refresh` in the background.
+  ## Each call starts a `refresh` in the background when none runs.
   self.rollEpoch()
   self.requestRefresh()
   return self.currentState()
@@ -227,7 +227,7 @@ proc admit*(self: RateLimitManager): Result[void, RateLimitError] =
   ## Charges one message against the current epoch's limit, rolling the window
   ## first when the epoch has advanced.
   ## It admits everything while the manager does not limit sends.
-  ## Each call starts a `refresh` in the background.
+  ## Each call starts a `refresh` in the background when none runs.
   self.rollEpoch()
   self.requestRefresh()
   if not self.limited():

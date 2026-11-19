@@ -421,7 +421,7 @@ class TestChannelDelivery:
         A has a bystander peer that carries no message, so `send` accepts m1 and
         the send service tries again until B joins. Recovery here is the send
         service's relay retry, not SDS: A republishes
-        m1 while it is unacknowledged (within MaxTimeInCache) and it lands as
+        m1 until it propagates, within the 15 s delivery window, and it lands as
         soon as B joins the mesh. SDS-R is not exercised — a repair request only
         rides out after T_req, a hash in [repairTMin, repairTMax) = [30s, 300s)
         that logos-delivery does not expose, so it cannot be driven from an E2E
