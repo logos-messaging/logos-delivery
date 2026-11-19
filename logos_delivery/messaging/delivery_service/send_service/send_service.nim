@@ -477,6 +477,10 @@ proc sendUntilPropagated(
     if self.failExpired(task):
       return false
     if not self.needsAdmission(task) or await self.runAdmission(task):
+      # A slow RLN proof can use the rest of the window, and validators would
+      # refuse the message after it.
+      if self.failExpired(task):
+        return false
       try:
         await self.sendProcessor.process(task)
       except CancelledError as exc:

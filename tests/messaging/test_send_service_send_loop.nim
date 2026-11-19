@@ -444,6 +444,30 @@ suite "SendService - deliver":
       "late" notin processor.seen # no attempt
       late.errorDesc == "Unable to send within the delivery window"
 
+  asyncTest "a task whose window ends during its RLN proof is not sent":
+    ## The proof takes longer than the rest of the window, so the task fails
+    ## after the proof, with no attempt.
+    proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+      await sleepAsync(chronos.milliseconds(1500))
+      return ok(@[4'u8, 5, 6])
+
+    waku.node.rlnPlugin =
+      Opt.some(RlnPlugin(name: "fake", generateProof: generate, proofSize: Opt.some(3)))
+    let processor = newScripted()
+    let service = newService(processor, interval = chronos.minutes(10))
+    service.deliveryWindow = chronos.seconds(1)
+    let slow = buildTask("slow-proof")
+    check (service.enqueue(slow)).isOk()
+
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      slow.hex() in log.errors
+    check:
+      "slow-proof" notin processor.seen # no attempt
+      slow.errorDesc == "Unable to send within the delivery window"
+
   asyncTest "a send does not wait for a budget read":
     ## The quota read of the fake provider waits for its reply. `enqueue` reads
     ## the budget that the manager last got, so it returns at once while the read
