@@ -52,7 +52,7 @@ proc newLimitedReceiver(
     transfer = SyncTransfer.new(
       peerManager = PeerManager.new(switch),
       wakuArchive = archive,
-      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
       localWantsRx = newAsyncQueue[PeerId](),
       remoteNeedsRx = newAsyncQueue[(PeerId, SyncID)](),
       maxMessageSize = maxMessageSize,
@@ -64,7 +64,7 @@ proc newLimitedReceiver(
   return (switch, transfer, archive)
 
 proc newSecondServer(
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, SyncID)],
     pendingTimeout: Duration = DefaultSyncInterval,
@@ -86,16 +86,13 @@ proc newSecondServer(
   return (switch, server, switch.peerInfo.toRemotePeerInfo())
 
 proc deliver(
-    ids: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
-    msg: WakuMessage,
-    sender: PeerId,
+    ids: AsyncQueue[(SyncID, PubsubTopic, PeerId)], msg: WakuMessage, sender: PeerId
 ) {.async.} =
   ## Queues `msg` on `ids` as the transfer does when `sender` pushes it.
   await ids.put(
     (
       SyncID(time: msg.timestamp, hash: computeMessageHash(DefaultPubsubTopic, msg)),
       DefaultPubsubTopic,
-      DefaultContentTopic,
       sender,
     )
   )
@@ -128,7 +125,7 @@ suite "Waku Sync: reconciliation":
   var clientSwitch {.threadvar.}: Switch
 
   var
-    idsChannel {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+    idsChannel {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, PeerId)]
     localWants {.threadvar.}: AsyncQueue[PeerId]
     remoteNeeds {.threadvar.}: AsyncQueue[(PeerId, SyncID)]
 
@@ -144,7 +141,7 @@ suite "Waku Sync: reconciliation":
 
     await allFutures(serverSwitch.start(), clientSwitch.start())
 
-    idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    idsChannel = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
     localWants = newAsyncQueue[PeerId]()
     remoteNeeds = newAsyncQueue[(PeerId, SyncID)]()
 
@@ -324,7 +321,7 @@ suite "Waku Sync: reconciliation":
     let
       msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
       (switchB, serverB, serverBPeerInfo) =
         await newSecondServer(idsChannel, localWants, remoteNeeds)
     defer:
@@ -369,7 +366,7 @@ suite "Waku Sync: reconciliation":
     let
       msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
       (switchC, nodeC, _) = await newSecondServer(
         idsChannel,
         localWants,
@@ -415,7 +412,7 @@ suite "Waku Sync: reconciliation":
     let
       msg = fakeWakuMessage(ts = now(), contentTopic = DefaultContentTopic)
       hash = computeMessageHash(DefaultPubsubTopic, msg)
-      clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+      clientIds = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
       (switchC, nodeC, _) = await newSecondServer(idsChannel, localWants, remoteNeeds)
     defer:
       await nodeC.stop()
@@ -1741,7 +1738,7 @@ suite "Waku Sync: reconciliation":
     server.messageIngress(hash, DefaultPubsubTopic, msg)
     client.messageIngress(hash, DefaultPubsubTopic, msg)
 
-    let idsQ = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    let idsQ = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
     let wantsQ = newAsyncQueue[PeerId]()
     let needsQ = newAsyncQueue[(PeerId, SyncID)]()
 
@@ -1774,9 +1771,7 @@ suite "Waku Sync: reconciliation":
     var rng = initRand()
     for i in 0 ..< count:
       server.messageIngress(
-        SyncID(time: first + Timestamp(i), hash: randomHash(rng)),
-        DefaultPubsubTopic,
-        DefaultContentTopic,
+        SyncID(time: first + Timestamp(i), hash: randomHash(rng)), DefaultPubsubTopic
       )
 
     # When a peer with no items asks for them and reads the whole reply
@@ -1813,7 +1808,7 @@ proc newRecon(
     switch,
     shards,
     DefaultSyncRange,
-    newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+    newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
     newAsyncQueue[PeerId](),
     newAsyncQueue[(PeerId, SyncID)](),
     peerManager = peerManager,
@@ -1937,7 +1932,7 @@ suite "Waku Sync: reconciliation stop":
     # When a node syncs with it periodically and is stopped during a round
     let client = await newTestWakuRecon(
       clientSwitch,
-      idsRx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+      idsRx = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
       wantsTx = newAsyncQueue[PeerId](),
       needsTx = newAsyncQueue[(PeerId, SyncID)](),
       syncInterval = 100.milliseconds,
@@ -1962,7 +1957,7 @@ suite "Waku Sync: transfer handler cancellation":
       receiver = SyncTransfer.new(
         peerManager = PeerManager.new(newTestSwitch()),
         wakuArchive = newWakuArchive(driver),
-        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+        idsTx = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
         localWantsRx = newAsyncQueue[PeerId](),
         remoteNeedsRx = newAsyncQueue[(PeerId, SyncID)](),
         maxMessageSize = int(DefaultMaxWakuMessageSize),
@@ -1998,10 +1993,10 @@ suite "Waku Sync: transfer":
     clientArchive {.threadvar.}: WakuArchive
 
   var
-    serverIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+    serverIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, PeerId)]
     serverLocalWants {.threadvar.}: AsyncQueue[PeerId]
     serverRemoteNeeds {.threadvar.}: AsyncQueue[(PeerId, SyncID)]
-    clientIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+    clientIds {.threadvar.}: AsyncQueue[(SyncID, PubsubTopic, PeerId)]
     clientLocalWants {.threadvar.}: AsyncQueue[PeerId]
     clientRemoteNeeds {.threadvar.}: AsyncQueue[(PeerId, SyncID)]
 
@@ -2030,7 +2025,7 @@ suite "Waku Sync: transfer":
     serverPeerManager = PeerManager.new(serverSwitch)
     clientPeerManager = PeerManager.new(clientSwitch)
 
-    serverIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    serverIds = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
     serverLocalWants = newAsyncQueue[PeerId]()
     serverRemoteNeeds = newAsyncQueue[(PeerId, SyncID)]()
 
@@ -2044,7 +2039,7 @@ suite "Waku Sync: transfer":
       checkPush = checkPushInTest,
     )
 
-    clientIds = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    clientIds = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
     clientLocalWants = newAsyncQueue[PeerId]()
     clientRemoteNeeds = newAsyncQueue[(PeerId, SyncID)]()
 
@@ -2142,7 +2137,7 @@ suite "Waku Sync: transfer":
     # Then the client receives them in that order
     var received: seq[WakuMessageHash]
     for _ in 0 ..< msgs.len:
-      let (id, _, _, _) = await clientIds.get()
+      let (id, _, _) = await clientIds.get()
       received.add(id.hash)
     check received == msgs.mapIt(it.syncId().hash)
 
@@ -2313,7 +2308,7 @@ suite "Waku Sync: transfer":
       sender = SyncTransfer.new(
         peerManager = senderPeerManager,
         wakuArchive = newWakuArchive(senderDriver),
-        idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+        idsTx = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
         localWantsRx = newAsyncQueue[PeerId](),
         remoteNeedsRx = senderNeeds,
         maxMessageSize = int(DefaultMaxWakuMessageSize),
@@ -2549,7 +2544,7 @@ suite "Waku Sync: transfer request check":
     receiver = SyncTransfer.new(
       peerManager = PeerManager.new(receiverSwitch),
       wakuArchive = receiverArchive,
-      idsTx = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)](),
+      idsTx = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](),
       localWantsRx = newAsyncQueue[PeerId](),
       remoteNeedsRx = newAsyncQueue[(PeerId, SyncID)](),
       maxMessageSize = int(DefaultMaxWakuMessageSize),
@@ -2611,7 +2606,7 @@ proc newLateSender(
     sessions = newAsyncQueue[PeerId]()
     queued = newAsyncQueue[(PeerId, SyncID)]()
     released = newAsyncQueue[(PeerId, SyncID)]()
-    ids = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    ids = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
   await switch.start()
   let
     recon = await newTestWakuRecon(switch, @[], DefaultSyncRange, ids, sessions, queued)
@@ -2641,7 +2636,7 @@ proc newLateReceiver(
   ## A receiver wired as `mountStoreSync` wires a node, with the test clock.
   let
     archive = newWakuArchive(newSqliteArchiveDriver())
-    ids = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]()
+    ids = newAsyncQueue[(SyncID, PubsubTopic, PeerId)]()
     wants = newAsyncQueue[PeerId]()
     needs = newAsyncQueue[(PeerId, SyncID)]()
     recon = await newTestWakuRecon(

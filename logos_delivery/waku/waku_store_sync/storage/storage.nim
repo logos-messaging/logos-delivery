@@ -1,23 +1,16 @@
 import results
 
-import
-  ../../waku_core/time,
-  ../../waku_core/topics/content_topic,
-  ../../waku_core/topics/pubsub_topic,
-  ../common
+import ../../waku_core/time, ../../waku_core/topics/pubsub_topic, ../common
 
 type SyncStorage* = ref object of RootObj
 
 method insert*(
-    self: SyncStorage, element: SyncID, pubsubTopic: PubsubTopic, topic: ContentTopic
+    self: SyncStorage, element: SyncID, pubsubTopic: PubsubTopic
 ): Result[void, string] {.base, gcsafe, raises: [].} =
   return err("insert method not implemented for SyncStorage")
 
 method batchInsert*(
-    self: SyncStorage,
-    elements: seq[SyncID],
-    pubsubTopics: seq[PubsubTopic],
-    contentTopics: seq[ContentTopic],
+    self: SyncStorage, elements: seq[SyncID], pubsubTopics: seq[PubsubTopic]
 ): Result[void, string] {.base, gcsafe, raises: [].} =
   return err("batchInsert method not implemented for SyncStorage")
 
@@ -32,10 +25,7 @@ method prune*(
   -1
 
 method computeFingerprint*(
-    self: SyncStorage,
-    bounds: Slice[SyncID],
-    pubsubTopics: seq[PubsubTopic],
-    contentTopics: seq[ContentTopic],
+    self: SyncStorage, bounds: Slice[SyncID], pubsubTopics: seq[PubsubTopic]
 ): Fingerprint {.base, gcsafe, raises: [].} =
   return FullFingerprint
 

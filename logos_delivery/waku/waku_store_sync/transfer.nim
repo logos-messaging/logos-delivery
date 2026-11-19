@@ -17,7 +17,6 @@ import
   ../waku_enr,
   ../waku_core/codecs,
   ../waku_core/topics/pubsub_topic,
-  ../waku_core/topics/content_topic,
   ../waku_core/message/digest,
   ../waku_core/message/message,
   ../waku_core/message/default_values,
@@ -62,7 +61,7 @@ type SyncTransfer* = ref object of LPProtocol
   checkPush: PushChecker
 
   # Send IDs to reconciliation protocol for storage
-  idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+  idsTx: AsyncQueue[(SyncID, PubsubTopic, PeerId)]
 
   # Receive Hashes from reconciliation protocol for reception
   localWantsRx: AsyncQueue[PeerId]
@@ -408,7 +407,7 @@ proc initProtocolHandler(self: SyncTransfer) =
           remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
         continue
 
-      await self.idsTx.addLast((id, pubsub, msg.contentTopic, conn.peerId))
+      await self.idsTx.addLast((id, pubsub, conn.peerId))
 
       continue
 
@@ -428,7 +427,7 @@ proc new*(
     T: type SyncTransfer,
     peerManager: PeerManager,
     wakuArchive: WakuArchive,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     localWantsRx: AsyncQueue[PeerId],
     remoteNeedsRx: AsyncQueue[(PeerId, SyncID)],
     maxMessageSize: int,

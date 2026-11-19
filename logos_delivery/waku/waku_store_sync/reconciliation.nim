@@ -19,7 +19,6 @@ import
   ../waku_core/codecs,
   ../waku_core/time,
   ../waku_core/topics/pubsub_topic,
-  ../waku_core/topics/content_topic,
   ../waku_core/message/digest,
   ../waku_core/message/message,
   ../node/peer_manager/peer_manager,
@@ -59,7 +58,7 @@ type SyncReconciliation* = ref object of LPProtocol
   storage: SyncStorage
 
   # Receive IDs from transfer protocol for storage
-  idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)]
+  idsRx: AsyncQueue[(SyncID, PubsubTopic, PeerId)]
 
   # Send Hashes to transfer protocol for reception
   localWantsTx: AsyncQueue[(PeerId)]
@@ -99,11 +98,7 @@ proc queueTransfer(self: SyncReconciliation, peer: PeerId, id: SyncID) =
       msg_hash = byteutils.toHex(id.hash), peer_id = peer, error = exc.msg
 
 proc insertConfirmed(
-    self: SyncReconciliation,
-    id: SyncID,
-    pubsubTopic: PubsubTopic,
-    contentTopic: ContentTopic,
-    sender: Opt[PeerId],
+    self: SyncReconciliation, id: SyncID, pubsubTopic: PubsubTopic, sender: Opt[PeerId]
 ) =
   ## `sender` is the peer that transferred the element, none for other sources.
   let arrival = self.promises.arrive(id.hash, sender, self.pendingClock())
@@ -118,7 +113,7 @@ proc insertConfirmed(
       for peer in peers:
         self.queueTransfer(peer, id)
 
-  self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
+  self.storage.insert(id, pubsubTopic).isOkOr:
     error "failed to insert new message",
       msg_hash = byteutils.toHex(id.hash), error = $error
 
@@ -145,7 +140,7 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.insertConfirmed(id, pubsubTopic, msg.contentTopic, Opt.none(PeerId))
+  self.insertConfirmed(id, pubsubTopic, Opt.none(PeerId))
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -160,15 +155,10 @@ proc messageIngress*(
 
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
-  self.insertConfirmed(id, pubsubTopic, msg.contentTopic, Opt.none(PeerId))
+  self.insertConfirmed(id, pubsubTopic, Opt.none(PeerId))
 
-proc messageIngress*(
-    self: SyncReconciliation,
-    id: SyncID,
-    pubsubTopic: PubsubTopic,
-    contentTopic: ContentTopic,
-) =
-  self.insertConfirmed(id, pubsubTopic, contentTopic, Opt.none(PeerId))
+proc messageIngress*(self: SyncReconciliation, id: SyncID, pubsubTopic: PubsubTopic) =
+  self.insertConfirmed(id, pubsubTopic, Opt.none(PeerId))
 
 func matchesScope(self: SyncReconciliation, payload: RangesData): bool =
   ## The match of WAKU-SYNC: the same cluster and the same set of shards.
@@ -316,7 +306,7 @@ proc trackPromised(self: SyncReconciliation, peer: PeerId, idsToRecv: seq[SyncID
   ## Pending elements count as present from here on, so that a round that
   ## overlaps their transfer does not ask for them again.
   for id in self.promises.promise(peer, idsToRecv, self.pendingClock()):
-    self.storage.insert(id, PendingPubsubTopic, "").isOkOr:
+    self.storage.insert(id, PendingPubsubTopic).isOkOr:
       error "failed to insert pending message",
         msg_hash = byteutils.toHex(id.hash), error = $error
 
@@ -468,7 +458,7 @@ proc initiate(
     bounds = lower .. upper
     pubsubTopics = shards.mapIt($RelayShard(clusterId: self.cluster, shardId: it))
 
-    fingerprint = self.storage.computeFingerprint(bounds, pubsubTopics, @[])
+    fingerprint = self.storage.computeFingerprint(bounds, pubsubTopics)
 
     initPayload = RangesData(
       cluster: self.cluster,
@@ -561,7 +551,7 @@ proc initFillStorage(
       let pubsubTopic = response.topics[i]
 
       let id = SyncID(time: msg.timestamp, hash: hash)
-      discard storage.insert(id, pubsubTopic, msg.contentTopic)
+      discard storage.insert(id, pubsubTopic)
 
     if response.cursor.isNone():
       break
@@ -581,7 +571,7 @@ proc new*(
     syncRange: timer.Duration = DefaultSyncRange,
     syncInterval: timer.Duration = DefaultSyncInterval,
     relayJitter: timer.Duration = DefaultGossipSubJitter,
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     localWantsTx: AsyncQueue[PeerId],
     remoteNeedsTx: AsyncQueue[(PeerId, SyncID)],
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
@@ -685,9 +675,9 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
 
 proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
   while true: # infinite loop
-    let (id, pubsub, content, sender) = await self.idsRx.popfirst()
+    let (id, pubsub, sender) = await self.idsRx.popfirst()
 
-    self.insertConfirmed(id, pubsub, content, Opt.some(sender))
+    self.insertConfirmed(id, pubsub, Opt.some(sender))
 
 method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   if self.started:

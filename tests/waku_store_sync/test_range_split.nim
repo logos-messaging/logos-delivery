@@ -5,7 +5,6 @@ import ../../logos_delivery/waku/waku_store_sync/common
 import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
 import ../../logos_delivery/waku/waku_core/message/digest
 import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
-import ../../logos_delivery/waku/waku_core/topics/content_topic
 
 proc toDigest(s: string): WakuMessageHash =
   let d = nimcrypto.keccak256.digest((s & "").toOpenArrayByte(0, (s.len - 1)))
@@ -22,8 +21,8 @@ suite "Waku Sync: range splitting":
     const N = 2_048
     const mismatchI = 70
 
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var baseHashMismatch: WakuMessageHash
     var remoteHashMismatch: WakuMessageHash
@@ -32,9 +31,7 @@ suite "Waku Sync: range splitting":
       let ts = 1000 + i
       let hashLocal = toDigest("msg" & $i)
 
-      local.insert(
-        SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic, DefaultContentTopic
-      ).isOkOr:
+      local.insert(SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic).isOkOr:
         assert false, "failed to insert hash: " & $error
 
       var hashRemote = hashLocal
@@ -43,19 +40,16 @@ suite "Waku Sync: range splitting":
         remoteHashMismatch = toDigest("msg" & $i & "_x")
         hashRemote = remoteHashMismatch
 
-      remote.insert(
-        SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic, DefaultContentTopic
-      ).isOkOr:
+      remote.insert(SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic).isOkOr:
         assert false, "failed to insert hash: " & $error
 
     var z: WakuMessageHash
     let whole = SyncID(time: 1000, hash: z) .. SyncID(time: 1000 + N - 1, hash: z)
 
-    check local.computeFingerprint(whole, @[DefaultPubsubTopic], @[DefaultContentTopic]) !=
-      remote.computeFingerprint(whole, @[DefaultPubsubTopic], @[DefaultContentTopic])
+    check local.computeFingerprint(whole, @[DefaultPubsubTopic]) !=
+      remote.computeFingerprint(whole, @[DefaultPubsubTopic])
 
-    let remoteFp =
-      remote.computeFingerprint(whole, @[DefaultPubsubTopic], @[DefaultContentTopic])
+    let remoteFp = remote.computeFingerprint(whole, @[DefaultPubsubTopic])
     let payload = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(whole, RangeType.Fingerprint)],
@@ -86,10 +80,9 @@ suite "Waku Sync: range splitting":
     const threshold = 4
     const partitions = 2
 
-    let local =
-      SeqStorage.new(@[], @[], @[], threshold = threshold, partitions = partitions)
+    let local = SeqStorage.new(@[], @[], threshold = threshold, partitions = partitions)
     let remote =
-      SeqStorage.new(@[], @[], @[], threshold = threshold, partitions = partitions)
+      SeqStorage.new(@[], @[], threshold = threshold, partitions = partitions)
 
     var mismatchHash: WakuMessageHash
     for i in 0 ..< 8:
@@ -103,12 +96,8 @@ suite "Waku Sync: range splitting":
         mismatchHash = toDigest("msg" & $i & "_x")
         localHash = mismatchHash
 
-      discard local.insert(
-        SyncID(time: t, hash: localHash), DefaultPubsubTopic, DefaultContentTopic
-      )
-      discard remote.insert(
-        SyncID(time: t, hash: remoteHash), DefaultPubsubTopic, DefaultContentTopic
-      )
+      discard local.insert(SyncID(time: t, hash: localHash), DefaultPubsubTopic)
+      discard remote.insert(SyncID(time: t, hash: remoteHash), DefaultPubsubTopic)
 
     var zeroHash: WakuMessageHash
     let wholeRange =
@@ -119,11 +108,7 @@ suite "Waku Sync: range splitting":
     let payload = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(wholeRange, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(
-          wholeRange, @[DefaultPubsubTopic], @[DefaultContentTopic]
-        )
-      ],
+      fingerprints: @[remote.computeFingerprint(wholeRange, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
 
@@ -140,8 +125,8 @@ suite "Waku Sync: range splitting":
     const N = 2_048
     const mismatchI = 70
 
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var baseHashMismatch, remoteHashMismatch: WakuMessageHash
 
@@ -149,9 +134,7 @@ suite "Waku Sync: range splitting":
       let ts = 1000 + i
       let hashLocal = toDigest("msg" & $i)
 
-      local.insert(
-        SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic, DefaultContentTopic
-      ).isOkOr:
+      local.insert(SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic).isOkOr:
         assert false, "failed to insert hash: " & $error
 
       var hashRemote = hashLocal
@@ -160,29 +143,19 @@ suite "Waku Sync: range splitting":
         remoteHashMismatch = toDigest("msg" & $i & "_x")
         hashRemote = remoteHashMismatch
 
-        remote.insert(
-          SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic, DefaultContentTopic
-        ).isOkOr:
+        remote.insert(SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic).isOkOr:
           assert false, "failed to insert hash: " & $error
 
     var zero: WakuMessageHash
     let sliceWhole =
       SyncID(time: 1000, hash: zero) .. SyncID(time: 1000 + N - 1, hash: zero)
-    check local.computeFingerprint(
-      sliceWhole, @[DefaultPubsubTopic], @[DefaultContentTopic]
-    ) !=
-      remote.computeFingerprint(
-        sliceWhole, @[DefaultPubsubTopic], @[DefaultContentTopic]
-      )
+    check local.computeFingerprint(sliceWhole, @[DefaultPubsubTopic]) !=
+      remote.computeFingerprint(sliceWhole, @[DefaultPubsubTopic])
 
     let payload1 = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(sliceWhole, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(
-          sliceWhole, @[DefaultPubsubTopic], @[DefaultContentTopic]
-        )
-      ],
+      fingerprints: @[remote.computeFingerprint(sliceWhole, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
 
@@ -203,11 +176,7 @@ suite "Waku Sync: range splitting":
     let payload2 = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(subSlice, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(
-          subSlice, @[DefaultPubsubTopic], @[DefaultContentTopic]
-        )
-      ],
+      fingerprints: @[remote.computeFingerprint(subSlice, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
 
@@ -229,8 +198,8 @@ suite "Waku Sync: range splitting":
     check toRecv2.len == 0
 
   test "second-round payload remote":
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var baseHash: WakuMessageHash
     var alteredHash: WakuMessageHash
@@ -239,9 +208,7 @@ suite "Waku Sync: range splitting":
       let ts = 1000 + i
       let hashLocal = toDigest("msg" & $i)
 
-      local.insert(
-        SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic, DefaultContentTopic
-      ).isOkOr:
+      local.insert(SyncID(time: ts, hash: hashLocal), DefaultPubsubTopic).isOkOr:
         assert false, "failed to insert hash: " & $error
 
       var hashRemote = hashLocal
@@ -250,25 +217,21 @@ suite "Waku Sync: range splitting":
         alteredHash = toDigest("msg" & $i & "_x")
         hashRemote = alteredHash
 
-      remote.insert(
-        SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic, DefaultContentTopic
-      ).isOkOr:
+      remote.insert(SyncID(time: ts, hash: hashRemote), DefaultPubsubTopic).isOkOr:
         assert false, "failed to insert hash: " & $error
 
     var zero: WakuMessageHash
     let slice = SyncID(time: 1000, hash: zero) .. SyncID(time: 1007, hash: zero)
 
-    check local.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic]) !=
-      remote.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic])
+    check local.computeFingerprint(slice, @[DefaultPubsubTopic]) !=
+      remote.computeFingerprint(slice, @[DefaultPubsubTopic])
 
     var toSend1, toRecv1: seq[WakuMessageHash]
 
     let rangeData = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(slice, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic])
-      ],
+      fingerprints: @[remote.computeFingerprint(slice, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
 
