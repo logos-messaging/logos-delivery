@@ -436,11 +436,14 @@ func needsAdmission(self: SendService, task: DeliveryTask): bool =
 proc runAdmission(
     self: SendService, task: DeliveryTask
 ): Future[bool] {.async: (raises: [CancelledError]).} =
-  ## Runs `admitAndProve` with `admissionLock` held. The budget check reads the
-  ## RLN quota, which counts only the message ids that earlier proofs reserved,
-  ## so each task reserves its id before the next task checks the budget.
+  ## Runs `admitAndProve` with `admissionLock` held, so the tasks get their RLN
+  ## proofs one at a time, in queue order.
   await self.admissionLock.acquire()
   try:
+    # The wait for the lock can use the rest of the window. A task past its
+    # window gets no proof, so it draws no RLN message id.
+    if task.isDeliveryTimedOut(self.deliveryWindow):
+      return false
     return await self.admitAndProve(task)
   except CancelledError as exc:
     raise exc

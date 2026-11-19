@@ -409,6 +409,41 @@ suite "SendService - deliver":
       "fresh" notin processor.seen
       "fresh-2" notin processor.seen
 
+  asyncTest "a task whose window ends while it waits for an earlier proof gets no proof":
+    ## The proof of `first` waits for `reply`, and `late` waits for that
+    ## admission. The window of `late` ends in that wait.
+    let reply = newFuture[void]("proof-reply")
+    let proofCalls = new int
+    proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+      proofCalls[].inc()
+      await reply
+      return ok(@[4'u8, 5, 6])
+
+    waku.node.rlnPlugin =
+      Opt.some(RlnPlugin(name: "fake", generateProof: generate, proofSize: Opt.some(3)))
+    let processor = newScripted()
+    let service = newService(processor, interval = chronos.minutes(10))
+    service.deliveryWindow = chronos.seconds(1)
+    let late = buildTask("late")
+    check:
+      (service.enqueue(buildTask("first"))).isOk()
+      (service.enqueue(late)).isOk()
+
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      proofCalls[] == 1
+    await sleepAsync(service.deliveryWindow + chronos.milliseconds(100))
+    reply.complete()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      late.hex() in log.errors
+    check:
+      proofCalls[] == 1 # no proof for `late`
+      late.msg.proof.len == 0
+      "late" notin processor.seen # no attempt
+      late.errorDesc == "Unable to send within the delivery window"
+
   asyncTest "a send does not wait for a budget read":
     ## The quota read of the fake provider waits for its reply. `enqueue` reads
     ## the budget that the manager last got, so it returns at once while the read
