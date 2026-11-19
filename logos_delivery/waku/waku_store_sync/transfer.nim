@@ -69,7 +69,7 @@ type SyncTransfer* = ref object of LPProtocol
   localWantsRxFut: Future[void]
   inSessions: HashSet[PeerId]
 
-  # Receive Hashes from reconciliation protocol for transmission
+  # Receive SyncIDs from reconciliation protocol for transmission
   remoteNeedsRx: AsyncQueue[(PeerId, SyncID)]
   remoteNeedsRxFut: Future[void]
   outSessions: Table[PeerId, Connection]
