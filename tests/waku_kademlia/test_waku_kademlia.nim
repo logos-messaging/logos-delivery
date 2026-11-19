@@ -342,3 +342,92 @@ suite "Waku Kademlia advertises records this node signs":
     await switchB.stop()
     await switchA.stop()
     await switchR.stop()
+
+  asyncTest "a record advertised again takes the place of the old one":
+    ## A node that becomes ready to mix after it advertised itself advertises
+    ## again, now with its mix key. Same three nodes as above.
+    ##
+    ## A registrar does not know that a registration replaces the same peer's
+    ## ad: it makes it wait as it would a second node at that address. The
+    ## address term is off here, so the test checks the replacement and does not
+    ## sit out that wait.
+    var disco = ServiceDiscoveryConfig.new()
+    disco.ipSimCoefficient = 0
+    let switchR = newTestSwitch()
+    let wkR = kad_utils.newTestKademlia(switchR, discoConfig = disco)
+    await switchR.start()
+    await wkR.start()
+    let bootstrap = @[(switchR.peerInfo.peerId, switchR.peerInfo.addrs)]
+
+    let switchA = newTestSwitch()
+    let wkA = kad_utils.newTestKademlia(
+      switchA, bootstrapNodes = bootstrap, discoConfig = disco
+    )
+    await switchA.start()
+    await wkA.start()
+    let switchB = newTestSwitch()
+    let wkB = kad_utils.newTestKademlia(
+      switchB, bootstrapNodes = bootstrap, discoConfig = disco
+    )
+    await switchB.start()
+    await wkB.start()
+    await sleepAsync(1.seconds) # A's service tables must hold R first
+
+    let infoA = switchA.peerInfo
+    var mixKey = newSeq[byte](Curve25519KeySize)
+    for i in 0 ..< mixKey.len:
+      mixKey[i] = byte(i)
+
+    proc advertise(mix: bool) {.async.} =
+      let payload = cast[seq[byte]](base64.encode(
+        @[
+          AdvertFormatVersion,
+          0'u8,
+          0'u8,
+          byte(CapabilitiesBitfield.init(relay = true, mix = mix)),
+        ]
+      ))
+      let secondary =
+        if mix:
+          @[DiscoveredService(id: MixProtocolID, data: mixKey)]
+        else:
+          @[]
+      await wkA.replaceServiceToAdvertise(
+        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+        signedServiceRecord(
+          infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+        )
+          .expect("signs"),
+      )
+
+    proc foundMixKey(): Future[Opt[Opt[Curve25519Key]]] {.async.} =
+      ## The mix key B finds for A; the outer `none` when B does not find A.
+      let res = await wkB.lookupServicePeers(LogosDeliveryServiceId)
+      if res.isOk() and res.get().len > 0:
+        return Opt.some(res.get()[0].mixPubKey)
+      return Opt.none(Opt[Curve25519Key])
+
+    await advertise(mix = false)
+    var found = Opt.none(Opt[Curve25519Key])
+    for _ in 0 ..< 30:
+      await sleepAsync(500.milliseconds)
+      found = await foundMixKey()
+      if found.isSome():
+        break
+    require found.isSome()
+    check found.get().isNone()
+
+    await advertise(mix = true)
+    for _ in 0 ..< 60:
+      await sleepAsync(500.milliseconds)
+      found = await foundMixKey()
+      if found.isSome() and found.get().isSome():
+        break
+    check found == Opt.some(Opt.some(intoCurve25519Key(mixKey)))
+
+    await wkB.stop()
+    await wkA.stop()
+    await wkR.stop()
+    await switchB.stop()
+    await switchA.stop()
+    await switchR.stop()
