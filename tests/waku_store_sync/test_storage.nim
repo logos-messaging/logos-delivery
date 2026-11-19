@@ -48,13 +48,13 @@ proc exampleStorage(
     ids, newSeqWith(ids.len, DefaultPubsubTopic), frameSizeLimit = frameSizeLimit
   )
 
-proc answer(storage: SeqStorage, payload: RangesData): (RangesData, seq[Fingerprint]) =
-  ## The reply of `storage` to `payload`, and the hashes that it sends.
+proc answer(storage: SeqStorage, payload: RangesData): (RangesData, seq[SyncID]) =
+  ## The reply of `storage` to `payload`, and the SyncIDs that it sends.
   var
-    hashToSend: seq[Fingerprint]
+    idsToSend: seq[SyncID]
     idsToRecv: seq[SyncID]
-  let reply = storage.processPayload(payload, hashToSend, idsToRecv)
-  (reply, hashToSend)
+  let reply = storage.processPayload(payload, idsToSend, idsToRecv)
+  (reply, idsToSend)
 
 proc bytesLeftFor(ids: seq[SyncID], fitting: int): int =
   ## Bytes for the item set of the first `fitting` SyncIDs and the fingerprint
@@ -63,10 +63,10 @@ proc bytesLeftFor(ids: seq[SyncID], fitting: int): int =
 
 proc splitReply(
     storage: SeqStorage, theirs: seq[SyncID], frameBytesLeft: int, mustAnswer: bool
-): (bool, RangesData, seq[Fingerprint], seq[SyncID]) =
+): (bool, RangesData, seq[SyncID], seq[SyncID]) =
   ## The reply to an unreconciled item set of `theirs` over ExampleBounds.
   var
-    hashToSend: seq[Fingerprint]
+    idsToSend: seq[SyncID]
     idsToRecv: seq[SyncID]
     output: RangesData
     frameBytesLeft = frameBytesLeft
@@ -74,13 +74,13 @@ proc splitReply(
     ExampleBounds,
     initPackedSet[int](),
     ItemSet(elements: theirs, reconciled: false),
-    hashToSend,
+    idsToSend,
     idsToRecv,
     output,
     frameBytesLeft,
     mustAnswer,
   )
-  (answered, output, hashToSend, idsToRecv)
+  (answered, output, idsToSend, idsToRecv)
 
 suite "Waku Sync Storage":
   test "process hash range":
@@ -247,7 +247,7 @@ suite "Waku Sync Storage":
       ids = exampleIds(rng)
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
-      (answered, output, hashToSend, idsToRecv) =
+      (answered, output, idsToSend, idsToRecv) =
         storage.splitReply(@[], bytesLeftFor(ids, 3), mustAnswer = false)
 
     check:
@@ -259,7 +259,7 @@ suite "Waku Sync Storage":
         ]
       output.itemSets == @[ItemSet(elements: ids[0 ..< 3], reconciled: true)]
       output.fingerprints == @[storage.computeFingerprint(c .. ExampleBounds.b, @[])]
-      hashToSend == ids[0 ..< 3].mapIt(it.hash)
+      idsToSend == ids[0 ..< 3]
       idsToRecv.len == 0
 
   test "a cutoff inside one timestamp moves back to the start of that timestamp":
@@ -269,7 +269,7 @@ suite "Waku Sync Storage":
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
       # Two fit, but both SyncIDs at 1002 must be on the same side of the cutoff.
-      (answered, output, hashToSend, _) =
+      (answered, output, idsToSend, _) =
         storage.splitReply(@[], bytesLeftFor(ids, 2), mustAnswer = false)
 
     check:
@@ -280,7 +280,7 @@ suite "Waku Sync Storage":
           (c .. ExampleBounds.b, RangeType.Fingerprint),
         ]
       output.itemSets == @[ItemSet(elements: ids[0 ..< 1], reconciled: true)]
-      hashToSend == @[ids[0].hash]
+      idsToSend == @[ids[0]]
 
   test "a first timestamp that does not fit is listed only when the range must be answered":
     var rng = initRand()
@@ -309,12 +309,12 @@ suite "Waku Sync Storage":
       # The peer holds one SyncID below the cutoff (1003) and one above it.
       below = SyncID(time: Timestamp(1001), hash: randomHash(rng))
       above = SyncID(time: Timestamp(1600), hash: randomHash(rng))
-      (answered, _, hashToSend, idsToRecv) =
+      (answered, _, idsToSend, idsToRecv) =
         storage.splitReply(@[below, above], bytesLeftFor(ids, 3), mustAnswer = false)
 
     check:
       answered
-      hashToSend == ids[0 ..< 3].mapIt(it.hash)
+      idsToSend == ids[0 ..< 3]
       idsToRecv == @[below]
 
   test "a reply stops at the first range whose answer does not fit":
@@ -369,7 +369,7 @@ suite "Waku Sync Storage":
         fingerprints: @[randomHash(rng), randomHash(rng)],
         itemSets: @[ItemSet(elements: @[], reconciled: false)],
       )
-      (reply, hashToSend) = storage.answer(payload)
+      (reply, idsToSend) = storage.answer(payload)
       listed = reply.itemSets[1].elements
 
     check:
@@ -384,7 +384,7 @@ suite "Waku Sync Storage":
       reply.itemSets[1].reconciled
       listed.len > 0
       listed == inSecond[0 ..< listed.len]
-      hashToSend == listed.mapIt(it.hash)
+      idsToSend == listed
       reply.deltaEncode().len <= frame
 
   test "only the first range that is not Skip may go over the frame size limit":

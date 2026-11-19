@@ -286,27 +286,27 @@ suite "Waku Sync: range splitting":
       # Replies of the full node that list some of its IDs.
       listingReplies = 0
       received: seq[SyncID]
-      pushed: seq[WakuMessageHash]
+      pushed: seq[SyncID]
 
     while payload.ranges.anyIt(it[1] != RangeType.Skip) and rounds < maxRounds:
       rounds.inc()
 
       var
-        hashToSend: seq[Fingerprint]
+        idsToSend: seq[SyncID]
         idsToRecv: seq[SyncID]
 
       if fromFull:
-        payload = empty.processPayload(payload, hashToSend, idsToRecv)
-        check hashToSend.len == 0
+        payload = empty.processPayload(payload, idsToSend, idsToRecv)
+        check idsToSend.len == 0
         # As `trackPromised` does, so that later rounds do not ask again.
         for id in idsToRecv:
           empty.insert(id, PendingPubsubTopic).isOkOr:
             assert false, "failed to insert pending hash: " & $error
         received.add(idsToRecv)
       else:
-        payload = full.processPayload(payload, hashToSend, idsToRecv)
+        payload = full.processPayload(payload, idsToSend, idsToRecv)
         check idsToRecv.len == 0
-        pushed.add(hashToSend)
+        pushed.add(idsToSend)
         if payload.itemSets.anyIt(it.elements.len > 0):
           listingReplies.inc()
 
@@ -324,4 +324,4 @@ suite "Waku Sync: range splitting":
       received.len == count
       received.toHashSet() == all.toHashSet()
       pushed.len == count
-      pushed.toHashSet() == all.mapIt(it.hash).toHashSet()
+      pushed.toHashSet() == all.toHashSet()
