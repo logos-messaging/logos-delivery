@@ -1102,6 +1102,11 @@ suite "Messaging API - send refusals":
         refused.isErr()
         refused.error.kind == SendErrorKind.RateLimited
         refused.error.retryAfter > ZeroDuration
+        # The text has the seconds to wait, for a caller that gets only the text.
+        ($refused.error).endsWith(
+          ", retry after " & $max(1'i64, refused.error.retryAfter.seconds) &
+            " s (RateLimited)"
+        )
 
     # The broker gives the refusal as text, with its kind at the end.
     let viaBroker = await MessagingSend.request(
@@ -1109,7 +1114,8 @@ suite "Messaging API - send refusals":
     )
     check:
       viaBroker.isErr()
-      viaBroker.error.endsWith("(RateLimited)")
+      viaBroker.error.endsWith(" s (RateLimited)")
+      viaBroker.error.contains(", retry after ")
     check client.sendService.deliveryTasks.len == 0
 
   asyncTest "a message still in the send queue is refused as Duplicate, and a full queue as QueueFull":

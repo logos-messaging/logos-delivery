@@ -590,6 +590,15 @@ proc checkSize(self: SendService, task: DeliveryTask): Result[void, SendError] =
     )
   return ok()
 
+proc rateLimited(self: SendService, desc: string): SendError =
+  ## A `RateLimited` refusal. Its text has the seconds to wait, because an FFI
+  ## caller and a broker caller get only the text.
+  let retryAfter = self.rateLimitManager.retryAfter()
+  let seconds = max(1'i64, retryAfter.seconds)
+  return refuse(
+    SendErrorKind.RateLimited, desc & ", retry after " & $seconds & " s", retryAfter
+  )
+
 proc admitAtSend(self: SendService, task: DeliveryTask): Result[void, SendError] =
   ## Charges the budget of the epoch, or refuses the message. An ephemeral message
   ## is refused once the budget nears its end, so it cannot eat into the budget
@@ -599,20 +608,12 @@ proc admitAtSend(self: SendService, task: DeliveryTask): Result[void, SendError]
     let quotaState = self.rateLimitManager.quotaState()
     if quotaState != QuotaState.Normal:
       return err(
-        refuse(
-          SendErrorKind.RateLimited,
-          "ephemeral message refused, the rate-limit budget is: " & $quotaState,
-          self.rateLimitManager.retryAfter(),
+        self.rateLimited(
+          "ephemeral message refused, the rate-limit budget is: " & $quotaState
         )
       )
   self.rateLimitManager.admit().isOkOr:
-    return err(
-      refuse(
-        SendErrorKind.RateLimited,
-        "the rate-limit budget of the epoch is spent",
-        self.rateLimitManager.retryAfter(),
-      )
-    )
+    return err(self.rateLimited("the rate-limit budget of the epoch is spent"))
   task.firstAdmittedTime = Opt.some(Moment.now())
   return ok()
 
