@@ -58,8 +58,23 @@ class StepsMessaging(StepsCommon, StepsMetrics):
         message.update(kwargs)
         return message
 
-    def send_and_get_message_hash(self, node, text=None, **kwargs):
-        response = node.messaging_send(self.messaging_message(text, **kwargs))
+    def send_and_get_message_hash(self, node, text=None, timeout=10, **kwargs):
+        """Sends a message and returns its message hash.
+
+        A 429 with `QueueFull` means that the node has its maximum of sends with no last event.
+        The send is then made again, for `timeout` seconds at most.
+        """
+        deadline = time() + timeout
+        while True:
+            try:
+                response = node.messaging_send(self.messaging_message(text, **kwargs))
+                break
+            except Exception as ex:
+                error = str(ex)
+                queue_full = error.startswith("Error: 429 ") and "QueueFull" in error
+                if not queue_full or time() >= deadline:
+                    raise
+                sleep(0.2)
         message_hash = response.get("messageHash")
         assert MESSAGE_HASH_RE.fullmatch(message_hash or ""), f"no 0x hex messageHash in send response {response}"
         return message_hash
