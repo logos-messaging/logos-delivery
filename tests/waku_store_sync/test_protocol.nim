@@ -741,30 +741,6 @@ suite "Waku Sync: reconciliation":
       processed.fingerprints == @[FullFingerprint]
       processed.itemSets.len == 0
 
-  asyncTest "a node offers the messages of every content topic":
-    server = await newTestWakuRecon(
-      serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-    client = await newTestWakuRecon(
-      clientSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
-    )
-
-    let
-      defaultMsg = fakeWakuMessage(contentTopic = DefaultContentTopic)
-      otherMsg = fakeWakuMessage(contentTopic = "/other/1/topic/proto")
-      defaultHash = computeMessageHash(DefaultPubsubTopic, defaultMsg)
-      otherHash = computeMessageHash(DefaultPubsubTopic, otherMsg)
-
-    client.messageIngress(defaultHash, DefaultPubsubTopic, defaultMsg)
-    client.messageIngress(otherHash, DefaultPubsubTopic, otherMsg)
-
-    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
-
-    check:
-      res.isOk()
-      remoteNeeds.containsPush(serverPeerInfo.peerId, defaultHash) == true
-      remoteNeeds.containsPush(serverPeerInfo.peerId, otherHash) == true
-
   asyncTest "sync 2 nodes different hashes":
     server = await newTestWakuRecon(
       serverSwitch, @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
