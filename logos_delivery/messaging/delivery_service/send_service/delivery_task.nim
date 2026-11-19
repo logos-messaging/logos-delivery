@@ -28,6 +28,10 @@ type DeliveryTask* = ref object
   firstAdmittedTime*: Opt[Moment]
     ## Set when `send` charges the rate-limit budget. A rejected RLN proof clears
     ## it, so the new proof gets a new charge.
+  charge*: Opt[uint64] ## The result of `RateLimitManager.admit` for this task.
+  chargeUnused*: bool
+    ## True while the charge paid for no RLN message id and for no attempt. Such
+    ## a charge goes back to the budget when the task ends.
 
   propagatedEventEmitted*: bool
     ## Set when the task emits `MessagePropagatedEvent`. After a restart, the send

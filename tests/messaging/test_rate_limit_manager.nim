@@ -537,6 +537,31 @@ suite "RateLimitManager RLN budget":
       rl.admit().isErr()
       rl.quotaState() == QuotaState.Exhausted
 
+  asyncTest "release gives back only a charge of the epoch that the manager counts":
+    let now = new uint64
+    now[] = 10 * EpochPeriodSec
+    let rl = RateLimitManager
+      .new(
+        RateLimitConfig(
+          enabled: true, epochPeriodSec: EpochPeriodSec, messagesPerEpoch: 2
+        ),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          now[],
+      )
+      .expect("RateLimitManager.new")
+    let first = rl.admit().expect("first charge")
+    let second = rl.admit().expect("second charge")
+    check rl.admit().isErr()
+
+    rl.release(second)
+    check rl.admit().isOk() # the place of the charge that came back
+
+    # In the next epoch, a charge of the epoch before has nothing to give back.
+    now[] += EpochPeriodSec
+    check rl.admit().isOk()
+    rl.release(first)
+    check rl.sentInCurrentEpoch == 1
+
   asyncTest "retryAfter of the wall-clock window is the time to its end":
     let now = 10 * EpochPeriodSec + 590
     let rl = RateLimitManager

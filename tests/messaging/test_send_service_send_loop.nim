@@ -513,6 +513,48 @@ suite "SendService - deliver":
       fromError.len == 1
     check fromError[0].isOk()
 
+  asyncTest "a task that expires before its RLN proof gives its charge back":
+    ## Two sends fill a limit of two. `late` waits for the proof of `first` until
+    ## its window ends, so it draws no RLN message id, and its charge comes back.
+    let reply = newFuture[void]("proof-reply")
+    let proofCalls = new int
+    proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
+      proofCalls[].inc()
+      await reply
+      return ok(@[4'u8, 5, 6])
+
+    waku.node.rlnPlugin =
+      Opt.some(RlnPlugin(name: "fake", generateProof: generate, proofSize: Opt.some(3)))
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 2),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          600_000'u64,
+      )
+      .expect("RateLimitManager.new")
+    let processor = newScripted()
+    let service =
+      newService(processor, interval = chronos.minutes(10), manager = manager)
+    service.deliveryWindow = chronos.seconds(1)
+    let late = buildTask("late")
+    check:
+      (service.enqueue(buildTask("first"))).isOk()
+      (service.enqueue(late)).isOk()
+      (service.enqueue(buildTask("over"))).error.kind == SendErrorKind.RateLimited
+
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      proofCalls[] == 1
+    await sleepAsync(service.deliveryWindow + chronos.milliseconds(100))
+    reply.complete()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      late.hex() in log.errors
+    check:
+      manager.sentInCurrentEpoch == 1 # the charge of `late` came back
+      (service.enqueue(buildTask("after"))).isOk()
+
   asyncTest "a send does not wait for a budget read":
     ## The quota read of the fake provider waits for its reply. `enqueue` reads
     ## the budget that the manager last got, so it returns at once while the read

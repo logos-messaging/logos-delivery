@@ -354,9 +354,13 @@ func isQueued(self: SendService, task: DeliveryTask): bool =
   ## True when `task` itself is in the send queue.
   return self.deliveryTasks.getOrDefault(task.msgHash) == task
 
-func finish(self: SendService, task: DeliveryTask) =
-  ## Removes a task that got its last event.
+proc finish(self: SendService, task: DeliveryTask) =
+  ## Removes a task that got its last event, and gives back a charge that the
+  ## task did not use.
   if self.isQueued(task):
+    if task.chargeUnused:
+      self.rateLimitManager.release(task.charge)
+      task.chargeUnused = false
     self.deliveryTasks.del(task.msgHash)
 
 proc fail(
@@ -413,13 +417,16 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## so a new proof with no budget fails it. Returns false when the task waits
   ## for its next attempt or failed.
   if task.firstAdmittedTime.isNone():
-    self.rateLimitManager.admit().isOkOr:
+    task.charge = self.rateLimitManager.admit().valueOr:
       debug "No rate-limit budget for a new RLN proof", msgHash = task.loggedHash()
       task.state = DeliveryState.FailedToDeliver
       task.errorDesc = "no rate-limit budget for a new RLN proof"
       return false
+    task.chargeUnused = true
     task.firstAdmittedTime = Opt.some(Moment.now())
 
+  # A new proof draws an RLN message id, and that id uses the charge.
+  let drawsMessageId = self.waku.needsRlnProof(task.msg)
   # The message timestamp sets its epoch, so a backend past that epoch or out of
   # budget fails the task. Other errors wait for a retry.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
@@ -431,6 +438,8 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
       debug "Failed to attach RLN proof, the task waits for a retry",
         msgHash = task.msgHash.to0xHex(), error = $error
     return false
+  if drawsMessageId:
+    task.chargeUnused = false
 
   return true
 
@@ -485,6 +494,8 @@ proc sendUntilPropagated(
       # refuse the message after it.
       if self.failExpired(task):
         return false
+      # The attempt uses the charge.
+      task.chargeUnused = false
       try:
         await self.sendProcessor.process(task)
       except CancelledError as exc:
@@ -622,8 +633,9 @@ proc admitAtSend(self: SendService, task: DeliveryTask): Result[void, SendError]
           "ephemeral message refused, the rate-limit budget is: " & $quotaState
         )
       )
-  self.rateLimitManager.admit().isOkOr:
+  task.charge = self.rateLimitManager.admit().valueOr:
     return err(self.rateLimited("the rate-limit budget of the epoch is spent"))
+  task.chargeUnused = true
   task.firstAdmittedTime = Opt.some(Moment.now())
   return ok()
 

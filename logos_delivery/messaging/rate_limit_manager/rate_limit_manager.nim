@@ -53,6 +53,9 @@ type RateLimitManager* = ref object
   refreshHandle: Future[void].Raising([CancelledError])
   currentEpochIndex*: uint64
   sentInCurrentEpoch*: uint64
+  epochSerial: uint64
+    ## Counts the epochs that `sentInCurrentEpoch` counted. A charge names the
+    ## epoch that it was taken in, so `release` can tell an old charge.
 
 proc new*(
     T: type RateLimitManager,
@@ -82,6 +85,7 @@ proc new*(
 
 proc startEpochCount(self: RateLimitManager) =
   self.sentInCurrentEpoch = 0
+  self.epochSerial.inc()
 
 proc applyQuota(self: RateLimitManager, quota: EpochQuota) =
   ## A read of the epoch that the manager counts keeps the count of its admissions,
@@ -223,21 +227,28 @@ proc quotaState*(self: RateLimitManager): QuotaState =
   self.requestRefresh()
   return self.currentState()
 
-proc admit*(self: RateLimitManager): Result[void, RateLimitError] =
+proc admit*(self: RateLimitManager): Result[Opt[uint64], RateLimitError] =
   ## Charges one message against the current epoch's limit, rolling the window
-  ## first when the epoch has advanced.
-  ## It admits everything while the manager does not limit sends.
+  ## first when the epoch has advanced. The result names the charge for
+  ## `release`. It admits everything, with no charge, while the manager does not
+  ## limit sends.
   ## Each call starts a `refresh` in the background when none runs.
   self.rollEpoch()
   self.requestRefresh()
   if not self.limited():
-    return ok()
+    return ok(Opt.none(uint64))
 
   if self.currentState() == QuotaState.Exhausted:
     return err(RateLimitError.OverBudget)
 
   self.sentInCurrentEpoch.inc()
-  return ok()
+  return ok(Opt.some(self.epochSerial))
+
+proc release*(self: RateLimitManager, charge: Opt[uint64]) =
+  ## Gives back `charge`, a result of `admit` that paid for no RLN message id and
+  ## for no attempt. A charge of an earlier epoch has nothing to give back.
+  if charge == Opt.some(self.epochSerial) and self.sentInCurrentEpoch > 0:
+    self.sentInCurrentEpoch.dec()
 
 proc retryAfter*(self: RateLimitManager): Duration =
   ## The time until the budget refills, which is the end of the epoch.
