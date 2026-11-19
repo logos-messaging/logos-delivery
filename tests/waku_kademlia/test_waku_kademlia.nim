@@ -1,5 +1,5 @@
 import
-  std/strutils,
+  std/[base64, strutils],
   results,
   chronos,
   testutils/unittests,
@@ -12,6 +12,9 @@ import
 
 import
   logos_delivery/waku/discovery/waku_kademlia,
+  logos_delivery/waku/discovery/delivery_advert,
+  logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/waku_enr/capabilities,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/node/peer_manager/waku_peer_store
@@ -38,40 +41,77 @@ suite "Waku Kademlia service discovery":
     await wk.stop()
     await switch.stop()
 
-  suite "extractMixPubKey":
+  proc deliveryPayload(caps: CapabilitiesBitfield): seq[byte] =
+    ## A `/logos/delivery` payload of cluster 0 with no shards.
+    cast[seq[byte]](base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, byte(caps)]))
+
+  const MixNodeCaps = CapabilitiesBitfield.init(relay = true, mix = true)
+
+  suite "advertisedMixKey":
     proc validKeyBytes(): seq[byte] =
       var b = newSeq[byte](Curve25519KeySize)
       for i in 0 ..< Curve25519KeySize:
         b[i] = byte(i)
       b
 
-    test "non-mix service returns none":
-      let svc = ServiceInfo(id: "/foo/1.0.0", data: Opt.some(validKeyBytes()))
-      check:
-        extractMixPubKey(svc).isNone()
+    proc services(
+        caps: CapabilitiesBitfield, mixId: string, key: seq[byte]
+    ): seq[DiscoveredService] =
+      @[
+        DiscoveredService(id: LogosDeliveryServiceId, data: deliveryPayload(caps)),
+        DiscoveredService(id: mixId, data: key),
+      ]
 
-    test "mix service with wrong data length returns none":
-      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(@[0u8, 1u8, 2u8]))
-      check:
-        extractMixPubKey(svc).isNone()
-
-    test "mix service with correct length returns some":
+    test "a delivery record claiming relay and mix gives its key":
       let bytes = validKeyBytes()
-      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(bytes))
-      let res = extractMixPubKey(svc)
+      let res = advertisedMixKey(services(MixNodeCaps, MixProtocolID, bytes))
       require:
         res.isSome()
-      let key = res.get()
       check:
-        key.getBytes() == bytes
+        res.get().getBytes() == intoCurve25519Key(bytes).getBytes()
 
-    test "round-trip matches intoCurve25519Key on raw bytes":
-      let bytes = validKeyBytes()
-      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(bytes))
-      let extracted = extractMixPubKey(svc).get()
-      let direct = intoCurve25519Key(bytes)
-      check:
-        extracted.getBytes() == direct.getBytes()
+    test "a mix key with no delivery service gives none":
+      check advertisedMixKey(
+        @[DiscoveredService(id: MixProtocolID, data: validKeyBytes())]
+      )
+        .isNone()
+
+    test "a delivery record that does not claim mix gives none":
+      let caps = CapabilitiesBitfield.init(relay = true)
+      check advertisedMixKey(services(caps, MixProtocolID, validKeyBytes())).isNone()
+
+    test "a delivery record that claims mix without relay gives none":
+      let caps = CapabilitiesBitfield.init(filter = true, mix = true)
+      check advertisedMixKey(services(caps, MixProtocolID, validKeyBytes())).isNone()
+
+    test "a delivery payload of another format version gives none":
+      let payload = cast[seq[byte]](base64.encode(
+        @[AdvertFormatVersion + 1, 0'u8, 0'u8, byte(MixNodeCaps)]
+      ))
+      check advertisedMixKey(
+        @[
+          DiscoveredService(id: LogosDeliveryServiceId, data: payload),
+          DiscoveredService(id: MixProtocolID, data: validKeyBytes()),
+        ]
+      )
+        .isNone()
+
+    test "a delivery payload that is not base64 gives none":
+      check advertisedMixKey(
+        @[
+          DiscoveredService(id: LogosDeliveryServiceId, data: @[0xff'u8, 0x00, 0x01]),
+          DiscoveredService(id: MixProtocolID, data: validKeyBytes()),
+        ]
+      )
+        .isNone()
+
+    test "a key of the wrong length gives none":
+      check advertisedMixKey(services(MixNodeCaps, MixProtocolID, @[0u8, 1u8, 2u8]))
+        .isNone()
+
+    test "a key under another service id gives none":
+      check advertisedMixKey(services(MixNodeCaps, "/foo/1.0.0", validKeyBytes()))
+        .isNone()
 
   suite "remotePeerInfoFrom":
     proc randomPeerId(): PeerId =
@@ -82,6 +122,12 @@ suite "Waku Kademlia service discovery":
 
     proc mixService(data: seq[byte]): ServiceInfo =
       ServiceInfo(id: MixProtocolID, data: Opt.some(data))
+
+    proc deliveryService(): ServiceInfo =
+      ## What makes a record's mix key count: the delivery payload of a mix node.
+      ServiceInfo(
+        id: LogosDeliveryServiceId, data: Opt.some(deliveryPayload(MixNodeCaps))
+      )
 
     proc validMixService(): ServiceInfo =
       var b = newSeq[byte](Curve25519KeySize)
@@ -110,7 +156,8 @@ suite "Waku Kademlia service discovery":
       let
         pid = randomPeerId()
         svc = validMixService()
-        record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[svc])
+        record =
+          buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), svc])
         res = remotePeerInfoFrom(record)
       require:
         res.isSome()
@@ -118,6 +165,16 @@ suite "Waku Kademlia service discovery":
       check:
         peerInfo.mixPubKey.isSome()
         peerInfo.mixPubKey.get().getBytes() == svc.data.get(@[])
+
+    test "mixPubKey stays none for a mix service outside a delivery record":
+      let
+        pid = randomPeerId()
+        record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[validMixService()])
+        res = remotePeerInfoFrom(record)
+      require:
+        res.isSome()
+      check:
+        res.get().mixPubKey.isNone()
 
     test "mixPubKey stays none when no mix service present":
       let
@@ -157,7 +214,9 @@ suite "Waku Kademlia service discovery":
             b[i] = byte(i + 100)
           b
         record = buildExtendedPeerRecord(
-          pid, @[testAddr(61600)], @[mixService(firstBytes), mixService(secondBytes)]
+          pid,
+          @[testAddr(61600)],
+          @[deliveryService(), mixService(firstBytes), mixService(secondBytes)],
         )
         res = remotePeerInfoFrom(record)
       require:
@@ -169,7 +228,8 @@ suite "Waku Kademlia service discovery":
       let
         pid = randomPeerId()
         badSvc = mixService(@[0u8, 1u8, 2u8])
-        record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[badSvc])
+        record =
+          buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), badSvc])
         res = remotePeerInfoFrom(record)
       require:
         res.isSome()
@@ -205,20 +265,17 @@ suite "Waku Kademlia service discovery":
       await switch.stop()
 
 suite "Waku Kademlia advertises records this node signs":
-  asyncTest "each service is its own record, signed by the node":
-    ## The in-process host no longer leaves the record to libp2p: it signs one
-    ## per service, the same as the plugin host. A lookup for a service must
-    ## return this node's identity listing exactly that service.
+  asyncTest "a mix node is found under the delivery service, with its mix key":
+    ## The in-process host does not leave the record to libp2p: it signs it,
+    ## the same as the plugin host. A mix node registers the delivery service
+    ## alone and lists its mix key in that record, so a lookup for the delivery
+    ## service returns this node's identity and its key.
     ##
-    ## Three nodes: a registrar R, the advertiser A and a looker B. A node
-    ## registers only one of its services with its own registrar, so A's
-    ## adverts have to reach R and B has to ask R. Registrations are scheduled
-    ## when a service is added, towards the peers already in that service's
-    ## table, so A adds its services only once it knows R.
-    # a registrar makes a second registration from the same IP wait up to
-    # advertExpiry (15 min by default); shorten it so the second service is
-    # accepted within the test.
-    let disco = ServiceDiscoveryConfig.new(advertExpiry = 2.seconds)
+    ## Three nodes: a registrar R, the advertiser A and a looker B. A's advert
+    ## has to reach R and B has to ask R. Registrations are scheduled when a
+    ## service is added, towards the peers already in that service's table, so
+    ## A adds its service only once it knows R.
+    let disco = ServiceDiscoveryConfig.new()
     let switchR = newTestSwitch()
     let wkR = kad_utils.newTestKademlia(switchR, discoConfig = disco)
     await switchR.start()
@@ -240,41 +297,44 @@ suite "Waku Kademlia advertises records this node signs":
     await sleepAsync(1.seconds) # A's service tables must hold R first
 
     let infoA = switchA.peerInfo
-    proc signed(id: string, data: seq[byte]): seq[byte] =
-      signedServiceRecord(infoA, infoA.privateKey, id, data).expect("signs")
-
     var mixKey = newSeq[byte](Curve25519KeySize)
     for i in 0 ..< mixKey.len:
       mixKey[i] = byte(i)
+    let payload = cast[seq[byte]](base64.encode(
+      @[
+        AdvertFormatVersion,
+        0'u8,
+        0'u8,
+        byte(CapabilitiesBitfield.init(relay = true, mix = true)),
+      ]
+    ))
     wkA.addServiceToAdvertise(
-      ServiceInfo(id: "/logos/delivery", data: Opt.some(@[1'u8])),
-      signed("/logos/delivery", @[1'u8]),
-    )
-    wkA.addServiceToAdvertise(
-      ServiceInfo(id: MixProtocolID, data: Opt.some(mixKey)),
-      signed(MixProtocolID, mixKey),
+      ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+      signedServiceRecord(
+        infoA,
+        infoA.privateKey,
+        LogosDeliveryServiceId,
+        payload,
+        @[DiscoveredService(id: MixProtocolID, data: mixKey)],
+      )
+        .expect("signs"),
     )
 
-    # each registration is a ticket round; the second one waits advertExpiry
-    var mixPeers: seq[RemotePeerInfo]
+    var delivery: seq[RemotePeerInfo]
     for _ in 0 ..< 30:
       await sleepAsync(500.milliseconds)
-      let res = await wkB.lookupServicePeers(MixProtocolID)
+      let res = await wkB.lookupServicePeers(LogosDeliveryServiceId)
       if res.isOk() and res.get().len > 0:
-        mixPeers = res.get()
+        delivery = res.get()
         break
-    require mixPeers.len == 1
-    check:
-      mixPeers[0].peerId == infoA.peerId
-      mixPeers[0].protocols == @[MixProtocolID]
-      mixPeers[0].mixPubKey.isSome()
-
-    let delivery = (await wkB.lookupServicePeers("/logos/delivery")).expect("lookup")
     require delivery.len == 1
     check:
       delivery[0].peerId == infoA.peerId
-      delivery[0].protocols == @["/logos/delivery"]
-      delivery[0].mixPubKey.isNone()
+      delivery[0].protocols == @[LogosDeliveryServiceId, MixProtocolID]
+      delivery[0].mixPubKey == Opt.some(intoCurve25519Key(mixKey))
+
+    ## Mix is not a service of its own: nothing is filed under it.
+    check (await wkB.lookupServicePeers(MixProtocolID)).expect("lookup").len == 0
 
     await wkB.stop()
     await wkA.stop()

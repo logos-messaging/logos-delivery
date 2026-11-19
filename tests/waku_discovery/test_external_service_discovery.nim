@@ -282,7 +282,7 @@ suite "ExternalServiceDiscovery":
     ## Advertising publishes a record the node signs; without the node's
     ## identity the backend refuses rather than letting the plugin publish
     ## its own.
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isErr()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isErr()
     check fake.lastRecordLen.load() == 0
     let nodeKey = generateSecp256k1Key()
     let peerInfo = PeerInfo.new(nodeKey)
@@ -291,7 +291,7 @@ suite "ExternalServiceDiscovery":
       ok(peerInfo)
     discard GetNodeKey.reprovideIt(ctx):
       ok(nodeKey)
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check eventually(fake.advertTaken.load() == 1)
     check:
       lastKey() == "service:x"
@@ -308,7 +308,7 @@ suite "ExternalServiceDiscovery":
       record.data.services.len == 1
       record.data.services[0].id == "x"
       record.data.services[0].data == Opt.some(@[1'u8, 2])
-    check (await iface.startAdvertising("topic:/waku/2/rs/0/0", @[])).isErr()
+    check (await iface.startAdvertising("topic:/waku/2/rs/0/0", @[], @[])).isErr()
 
     check (await iface.registerInterest("service:y")).isOk()
     check eventually(fake.interestTaken.load() == 1)
@@ -570,7 +570,7 @@ suite "ExternalServiceDiscovery":
     fake.refuseVerbs.store(3)
 
     ## Taken on, not yet published: ok although the plugin refuses.
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check (await iface.registerInterest("service:y")).isOk()
 
     ## Taken once and left alone: with nothing pending the loop is parked, and
@@ -598,7 +598,7 @@ suite "ExternalServiceDiscovery":
     check (await iface.startDiscovery()).isOk()
     fake.advertDelayMs.store(2500) # past the fake's 2 s requestTimeoutMs
 
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
 
     ## Taken through "already advertised": no stop, no republish, and nothing
     ## left pending that could call again.
@@ -621,7 +621,7 @@ suite "ExternalServiceDiscovery":
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check eventually(fake.advertTaken.load() == 1)
     check fake.stopAdvertCalls.load() == 0
 
@@ -644,23 +644,35 @@ suite "ExternalServiceDiscovery":
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check eventually(fake.advertTaken.load() == 1)
 
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     ## The same data leaves the advert taken, so there is nothing to send.
     check:
       backend.pendingAnnouncements() == 0
       fake.advertTaken.load() == 1
       fake.stopAdvertCalls.load() == 0
 
-    check (await iface.startAdvertising("service:x", @[7'u8])).isOk()
+    check (await iface.startAdvertising("service:x", @[7'u8], @[])).isOk()
     check eventually(fake.advertTaken.load() == 2)
     check:
       fake.stopAdvertCalls.load() == 1
       fake.lastDataLen.load() == 1
       fake.lastData[0] == 7'u8
       fake.advertRefusedAsHeld.load() == 0
+
+    ## The secondary services are part of the record the plugin holds, so a
+    ## change in them alone is sent again too.
+    let secondary = @[DiscoveredService(id: "/y/1.0.0", data: @[9'u8])]
+    check (await iface.startAdvertising("service:x", @[7'u8], secondary)).isOk()
+    check eventually(fake.advertTaken.load() == 3)
+    check fake.stopAdvertCalls.load() == 2
+
+    check (await iface.startAdvertising("service:x", @[7'u8], secondary)).isOk()
+    check:
+      backend.pendingAnnouncements() == 0
+      fake.advertTaken.load() == 3
 
     check (await iface.stopDiscovery()).isOk()
 
@@ -674,7 +686,7 @@ suite "ExternalServiceDiscovery":
     check (await iface.startDiscovery()).isOk()
     fake.refuseVerbs.store(1000)
 
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     ## Once it has been tried, the plugin may hold it, so it gets withdrawn.
     check eventually(fake.refuseVerbs.load() < 1000)
     check (await iface.stopAdvertising("service:x")).isOk()
@@ -697,7 +709,7 @@ suite "ExternalServiceDiscovery":
     discard provideNodeIdentity(ctx)
 
     let iface: IPeerDiscovery = backend
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check (await iface.registerInterest("service:y")).isOk()
     check:
       fake.advertTaken.load() == 0
@@ -718,7 +730,7 @@ suite "ExternalServiceDiscovery":
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check eventually(fake.advertTaken.load() == 1)
 
     proc publishedAddrs(): seq[string] =
@@ -759,8 +771,8 @@ suite "ExternalServiceDiscovery":
 
     let iface: IPeerDiscovery = backend
     ## Both wanted before start, so the first pass has both in its snapshot.
-    check (await iface.startAdvertising("service:a", @[1'u8])).isOk()
-    check (await iface.startAdvertising("service:b", @[2'u8])).isOk()
+    check (await iface.startAdvertising("service:a", @[1'u8], @[])).isOk()
+    check (await iface.startAdvertising("service:b", @[2'u8], @[])).isOk()
     fake.advertDelayMs.store(500)
     check (await iface.startDiscovery()).isOk()
 
@@ -792,7 +804,7 @@ suite "ExternalServiceDiscovery":
 
     ## Occupy the worker: the advert call sits in the plugin for 1.5 s.
     fake.advertDelayMs.store(1500)
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2], @[])).isOk()
     check eventually(fake.advertDelayMs.load() == 0)
 
     ## Queued behind it, then cancelled while still queued. The yield only

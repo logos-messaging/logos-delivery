@@ -10,8 +10,7 @@ import libp2p/[peerid, multiaddress]
 # RemotePeerInfo.init defaults to `crypto.PublicKey()`, and a default
 # expression is expanded in the caller's scope, so `crypto` must resolve here.
 import libp2p/crypto/crypto
-import libp2p/crypto/curve25519
-import libp2p_mix/mix_protocol
+import logos_delivery/waku/discovery/delivery_advert
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku_enr
 
 proc toDiscoveredPeer*(rpi: RemotePeerInfo): DiscoveredPeer =
@@ -35,15 +34,6 @@ proc toDiscoveredPeer*(record: waku_enr.Record): Result[DiscoveredPeer, string] 
   peer.enr = record.toUri()
   ok(peer)
 
-proc mixPubKeyOf(peer: DiscoveredPeer): Opt[Curve25519Key] =
-  ## The mix key rides in the advertised payload of the mix service, the same
-  ## place the in-process backend reads it from.
-  for service in peer.services:
-    if service.id != MixProtocolID or service.data.len != Curve25519KeySize:
-      continue
-    return Opt.some(intoCurve25519Key(service.data))
-  Opt.none(Curve25519Key)
-
 proc toRemotePeerInfo*(peer: DiscoveredPeer): Result[RemotePeerInfo, string] =
   ## The DTO back into the node's own peer type, for a backend whose source
   ## speaks the DTO rather than an ENR or a peer record. Mirrors
@@ -66,6 +56,6 @@ proc toRemotePeerInfo*(peer: DiscoveredPeer): Result[RemotePeerInfo, string] =
       addrs = addrs,
       protocols = peer.services.mapIt(it.id),
       origin = PeerOrigin.Kademlia,
-      mixPubKey = mixPubKeyOf(peer),
+      mixPubKey = advertisedMixKey(peer.services),
     )
   )
