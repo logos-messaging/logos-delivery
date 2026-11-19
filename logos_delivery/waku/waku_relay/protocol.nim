@@ -187,7 +187,9 @@ type
       ## Called once per message id by `publish` with a message this node
       ## publishes, to serve it (store, filter push, sync). The `subscribe`
       ## handlers are not called: the message did not come from the network.
-    selfHandled: TimedCache[MessageId] ## Ids already handed to `ownMessageHandler`.
+    selfHandled: TimedCache[MessageId]
+      ## Ids `publish` already handed to `ownMessageHandler` or, for a message
+      ## published for a peer, to the `subscribe` handlers.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -752,8 +754,15 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHealthDirty.excl(pubsubTopic)
 
 proc publish*(
-    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
+    w: WakuRelay,
+    pubsubTopic: PubsubTopic,
+    wakuMessage: WakuMessage,
+    onBehalfOfPeer = false,
 ): Future[Result[int, PublishOutcome]] {.async.} =
+  ## `onBehalfOfPeer` says the message is another peer's, which this node only
+  ## publishes for it, as a lightpush server does. To this node it is then a
+  ## received message: it goes to the `subscribe` handlers, once per message id,
+  ## instead of `ownMessageHandler`.
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
@@ -796,9 +805,14 @@ proc publish*(
   # A lone node still serves its own message (store, filter push), so this does
   # not wait for a peer. The id is consumed only for a topic that has a handler,
   # and a retry after `NoPeersToPublish` is not handled twice.
-  if not w.ownMessageHandler.isNil() and fitsMaxSize and
+  if (onBehalfOfPeer or not w.ownMessageHandler.isNil()) and fitsMaxSize and
       w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(msgId):
-    await w.ownMessageHandler(pubsubTopic, message)
+    if onBehalfOfPeer:
+      # Gossipsub does not bring a message back to its publisher, so the
+      # `subscribe` handlers get it here. They serve it too.
+      await procCall PubSub(w).handleData(pubsubTopic, data)
+    else:
+      await w.ownMessageHandler(pubsubTopic, message)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)
