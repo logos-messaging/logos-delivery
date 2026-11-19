@@ -32,6 +32,12 @@ suite "DeliveryTask - delivery-timeout reaping":
     let task = taskWith(chronos.seconds(20), Opt.some(Moment.now()))
     check not task.isDeliveryTimedOut(Window)
 
+  test "a timestamp ahead of the clock also counts":
+    ## A step back of the wall clock puts the timestamp ahead of the clock.
+    check:
+      taskWith(chronos.seconds(-20), Opt.none(Moment)).isDeliveryTimedOut(Window)
+      not taskWith(chronos.seconds(-1), Opt.none(Moment)).isDeliveryTimedOut(Window)
+
   test "the window runs from the message timestamp, not the admission":
     ## A charge just now does not give an old message a fresh window: Store and
     ## RLN validators judge the message by its timestamp.

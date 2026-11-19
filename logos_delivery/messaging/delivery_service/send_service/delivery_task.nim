@@ -82,11 +82,10 @@ proc loggedHash*(task: DeliveryTask): string =
     task.msgHash.to0xHex()
 
 proc messageAge*(self: DeliveryTask): timer.Duration =
+  ## How far the message timestamp is from the clock of this node. A validator
+  ## compares the same two values, so a timestamp ahead of the clock also counts.
   let actual = getNanosecondTime(getTime().toUnixFloat())
-  if self.msg.timestamp >= 0 and self.msg.timestamp < actual:
-    return nanoseconds(actual - self.msg.timestamp)
-  else:
-    return ZeroDuration
+  return nanoseconds(abs(actual - self.msg.timestamp))
 
 proc propagationAge*(self: DeliveryTask): timer.Duration =
   ## Time elapsed since the message was first successfully propagated.
