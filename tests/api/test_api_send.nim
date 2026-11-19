@@ -637,6 +637,50 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "an edge that knows a lightpush peer only on another shard refuses a send as NotConnected":
+    ## The lightpush attempt selects a peer on the shard of the message, so a peer
+    ## on another shard gives that attempt nothing to dial.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+    let shard = RelayShard
+      .parse(
+        DeliveryTask
+          .new(envelope, node.waku.brokerCtx)
+          .expect("DeliveryTask.new").pubsubTopic
+      )
+      .expect("the shard of the message")
+
+    let other = await startBystander()
+    defer:
+      await other.stop()
+    let otherInfo = other.peerInfo.toRemotePeerInfo()
+    otherInfo.protocols = @[WakuLightPushCodec]
+    node.waku.node.peerManager.addPeer(otherInfo)
+    node.waku.node.peerManager.switch.peerStore.setShardInfo(
+      otherInfo.peerId, @[shard.shardId + 1'u16]
+    )
+
+    let refused = await node.messagingClient.send(envelope)
+    check:
+      refused.isErr()
+      refused.isErr() and refused.error.kind == SendErrorKind.NotConnected
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "S16 - sender with no lightpush peer recovers when one appears later":
     ## Edge sender starts with no lightpush peer; one appears mid-send and a
     ## later retry must deliver the queued message.

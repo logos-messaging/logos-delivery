@@ -11,16 +11,17 @@ import logos_delivery/waku/node/peer_manager
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
-proc canReachPeer(self: MessagingClient): bool =
-  ## True when the node has a connected peer, or knows a lightpush peer. A
-  ## lightpush attempt dials its peer, so an edge whose only peer is its
-  ## lightpush service peer gets its first connection from a send.
+proc canReachPeer(self: MessagingClient, shard: PubsubTopic): bool =
+  ## True when the node has a connected peer, or knows a lightpush peer that the
+  ## lightpush attempt can select for `shard`. That attempt dials its peer, so an
+  ## edge whose only peer is its lightpush service peer gets its first
+  ## connection from a send.
   let (inPeers, outPeers) = self.waku.node.peerManager.connectedPeers()
   if inPeers.len + outPeers.len > 0:
     return true
   return
     self.waku.hasLightpush() and
-    self.waku.node.peerManager.selectPeer(WakuLightPushCodec).isSome()
+    self.waku.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
 
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope
@@ -33,15 +34,15 @@ proc send*(
   self.checkApiAvailability().isOkOr:
     return err(SendError.init(SendErrorKind.NotStarted, error))
 
-  # Only a node that can reach no peer is refused: the health status needs more
-  # than a send does, such as a filter peer for an edge or relay peers for a node
-  # that falls back to lightpush.
-  if not self.canReachPeer():
-    return err(SendError.init(SendErrorKind.NotConnected, "node has no connected peer"))
-
   let deliveryTask = DeliveryTask.new(envelope, self.waku.brokerCtx).valueOr:
     debug "Failed to create delivery task", error
     return err(SendError.init(SendErrorKind.NoShard, error))
+
+  # Only a node that can reach no peer is refused: the health status needs more
+  # than a send does, such as a filter peer for an edge or relay peers for a node
+  # that falls back to lightpush.
+  if not self.canReachPeer(deliveryTask.pubsubTopic):
+    return err(SendError.init(SendErrorKind.NotConnected, "node has no connected peer"))
 
   let msgHash = self.sendService.enqueue(deliveryTask).valueOr:
     debug "Send refused", msgHash = deliveryTask.loggedHash(), error = $error
