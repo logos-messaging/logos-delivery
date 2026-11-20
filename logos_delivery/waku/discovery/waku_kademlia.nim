@@ -271,19 +271,13 @@ proc new*(
 
 proc advertiseServices(self: WakuKademlia) =
   ## Advertises the services not advertised yet. A failure keeps the service.
-  var added = false
+  ## libp2p republishes the self record for each service that it adds.
   for service, advert in self.servicesToAdvertise:
     if service in self.protocol.services:
       continue
     self.protocol.startAdvertising(service, advert).isOkOr:
       notice "Failed to advertise configured service",
         service = service.id, error = error
-      continue
-    added = true
-
-  ## Republish the self record: it listed no services at protocol start.
-  if added:
-    self.protocol.addressChanged.fire()
 
 proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
