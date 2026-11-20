@@ -25,6 +25,7 @@ import libp2p/peerinfo
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/discovery/delivery_advert,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
@@ -139,6 +140,8 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
       continue
 
     peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if disclaimsMix(peer.services):
+      peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via external service discovery",
       peerId = $peerInfo.peerId,

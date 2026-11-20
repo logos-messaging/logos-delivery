@@ -18,8 +18,7 @@ import
   ../../waku_enr/sharding,
   ../../waku_enr/capabilities,
   ../../common/utils/sequence,
-  ../../waku_core/peers,
-  ../../discovery/peer_discovery_interface
+  ../../waku_core/peers
 
 export peerstore, builders
 
@@ -109,6 +108,14 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
 
   return allKeys.mapIt(peerStore.getPeer(it))
 
+proc removeMixPubKey*(peerStore: PeerStore, peerId: PeerId) =
+  ## Takes the peer out of the mix pool. For a peer whose delivery record says
+  ## it is no mix node (any more): it lost its Mix RLN membership, or it stopped
+  ## relaying. See `disclaimsMix`.
+  if peerStore[MixPubKeyBook].del(peerId):
+    debug "removed the mix pub key of a peer that advertises none any more",
+      peer_id = $peerId
+
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new
   ## or updated.
@@ -125,15 +132,6 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
         peerStore[KeyBook][peer.peerId] = libp2pPubKey
 
   let effectiveOrigin = if origin != UnknownOrigin: origin else: peer.origin
-  # A delivery record without a mix key says that the peer is no mix node, or
-  # not any more: it lost its Mix RLN membership, or it stopped relaying. A
-  # stored key would keep it in the mix pool. Only a delivery record says so:
-  # a peer learned another way comes without a mix key whatever it is.
-  if peer.mixPubKey.isNone() and effectiveOrigin == PeerOrigin.Kademlia and
-      LogosDeliveryServiceId in peer.protocols:
-    if peerStore[MixPubKeyBook].del(peer.peerId):
-      debug "removed the mix pub key of a peer that advertises none any more",
-        peer_id = $peer.peerId
   if peer.enr.isSome() and effectiveOrigin.isDiscoveryOrigin():
     peerStore[ENRAliveBook][peer.peerId] = Moment.now()
 
