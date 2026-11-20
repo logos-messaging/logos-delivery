@@ -44,5 +44,9 @@ proc send*(
 
   let msgHash = self.sendService.enqueue(deliveryTask).valueOr:
     debug "Send refused", msgHash = deliveryTask.loggedHash(), error = $error
-    return err(error)
+    return err(
+      SendError.init(
+        error.kind, "failed to enqueue the message: " & error.desc, error.retryAfter
+      )
+    )
   return ok(msgHash)

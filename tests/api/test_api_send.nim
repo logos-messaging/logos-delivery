@@ -1255,6 +1255,9 @@ suite "Messaging API - send refusals":
         except ValueError:
           -1
       check:
+        viaBroker.error.startsWith(
+          "messaging send refused: failed to enqueue the message: "
+        )
         viaBroker.error.endsWith(" s (RateLimited)")
         seconds > 0
     check client.sendService.deliveryTasks.len == 0
@@ -1302,7 +1305,8 @@ suite "Messaging API - send refusals":
     check:
       full.isErr()
       full.error.kind == SendErrorKind.QueueFull
-      $full.error == "send queue full, retry later (QueueFull)"
+      $full.error ==
+        "failed to enqueue the message: send queue full, retry later (QueueFull)"
 
   asyncTest "send and the MessagingSend provider return a finished future":
     ## `send` does not suspend, so both futures are finished when the call returns.

@@ -41,7 +41,7 @@ proc start*(self: MessagingClient): Result[void, string] =
     self.brokerCtx,
     proc(envelope: MessageEnvelope): Future[Result[WakuMessageHash, string]] {.async.} =
       let msgHash = (await self.send(envelope)).valueOr:
-        return err($error)
+        return err("messaging send refused: " & $error)
       return ok(msgHash),
   )
 

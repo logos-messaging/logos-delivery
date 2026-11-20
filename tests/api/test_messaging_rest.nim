@@ -262,7 +262,8 @@ suite "Messaging REST API":
     check:
       fullResp.status == 429
       fullResp.headers.getString("Retry-After") == "1"
-      fullResp.data == "Send refused: send queue full, retry later (QueueFull)"
+      fullResp.data ==
+        "Send refused: failed to enqueue the message: send queue full, retry later (QueueFull)"
 
   asyncTest "a send with no rate-limit budget answers 429 with Retry-After to the next epoch":
     const epochSec = 600'u64
@@ -308,7 +309,9 @@ suite "Messaging REST API":
       await rest.postMessage(repeat('x', 2048), "/test/1/messaging-rest-big/proto")
     check:
       resp.status == 413
-      resp.data.startsWith("Send refused: message exceeds the maximum message size: ")
+      resp.data.startsWith(
+        "Send refused: failed to enqueue the message: message exceeds the maximum message size: "
+      )
       resp.data.endsWith("(TooLarge)")
 
   asyncTest "a send on a node with no connection answers 503":
