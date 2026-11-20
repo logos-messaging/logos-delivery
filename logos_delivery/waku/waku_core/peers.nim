@@ -170,18 +170,18 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
     # All protocols listed here: https://github.com/multiformats/multiaddr/blob/b746a7d014e825221cc3aea6e57a92d78419990f/protocols.csv
     of "p2p":
       p2pPart = ?addrPart.mapErr(
-        proc(err: string): string =
-          "Error getting p2pPart [" & err & "]"
+        proc(err: LPResultError): string =
+          "Error getting p2pPart [" & $err & "]"
       )
     of "ip4", "ip6", "dns", "dnsaddr", "dns4", "dns6", "tcp", "ws", "wss", "udp",
         "quic-v1", "tls":
       let val = ?addrPart.mapErr(
-        proc(err: string): string =
-          "Error getting addrPart [" & err & "]"
+        proc(err: LPResultError): string =
+          "Error getting addrPart [" & $err & "]"
       )
       ?wireAddr.append(val).mapErr(
-        proc(err: string): string =
-          "Error appending addrPart [" & err & "]"
+        proc(err: LPResultError): string =
+          "Error appending addrPart [" & $err & "]"
       )
 
   let p2pPartStr = p2pPart.toString().get()
@@ -216,8 +216,8 @@ proc parsePeerInfoFromCircuitRelayAddr(
 
   let relayPart = address[0 ..< idx]
   let relayMa = ?MultiAddress.init(relayPart).mapErr(
-    proc(err: string): string =
-      "could not create multiaddress from: " & relayPart & " [" & err & "]"
+    proc(err: LPResultError): string =
+      "could not create multiaddress from: " & relayPart & " [" & $err & "]"
   )
   discard ?parsePeerInfoFromRegularAddr(relayMa).mapErr(
     proc(e: string): string =
@@ -225,8 +225,15 @@ proc parsePeerInfoFromCircuitRelayAddr(
   )
   # The relay transport reads the relay peer id from the part before
   # /p2p-circuit. If the shape is different, the dial is not possible.
-  let relayLast = ?relayMa[^1]
-  if (?relayLast.protoName()) != "p2p":
+  let relayLast = ?relayMa[^1].mapErr(
+    proc(err: LPResultError): string =
+      $err
+  )
+  let relayLastProto = ?relayLast.protoName().mapErr(
+    proc(err: LPResultError): string =
+      $err
+  )
+  if relayLastProto != "p2p":
     return err("relay peer id must be the last part before /p2p-circuit in: " & address)
 
   let targetPeerId = ?PeerID.init(address[idx + circuit.len .. ^1]).mapErr(
@@ -236,8 +243,8 @@ proc parsePeerInfoFromCircuitRelayAddr(
 
   let adr = address[0 ..< idx + "/p2p-circuit".len]
   let wireAddr = ?MultiAddress.init(adr).mapErr(
-    proc(err: string): string =
-      "could not create multiaddress from: " & adr & " [" & err & "]"
+    proc(err: LPResultError): string =
+      "could not create multiaddress from: " & adr & " [" & $err & "]"
   )
 
   return ok(RemotePeerInfo.init(targetPeerId, @[wireAddr]))
@@ -266,8 +273,8 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
   var multiAddresses = newSeq[MultiAddress]()
   for maddr in maddrs:
     let multiAddr = ?MultiAddress.init(maddr).mapErr(
-      proc(err: string): string =
-        "MultiAddress.init [" & err & "]"
+      proc(err: LPResultError): string =
+        "MultiAddress.init [" & $err & "]"
     )
     multiAddresses.add(multiAddr)
 
