@@ -62,21 +62,18 @@ proc bytesLeftFor(ids: seq[SyncID], fitting: int): int =
   listingSize(ids[0 ..< fitting]) + maxEncodedRangeSize(RangeType.Fingerprint) + 10
 
 proc splitReply(
-    storage: SeqStorage,
-    theirSyncIDs: seq[SyncID],
-    frameBytesLeft: int,
-    mustAnswer: bool,
-): (bool, RangesData, seq[SyncID], seq[SyncID]) =
-  ## The reply to an unreconciled item set of `theirSyncIDs` over ExampleBounds.
+    storage: SeqStorage, theirSyncIDs: seq[SyncID], frameBytesLeft: int
+): (RangesData, seq[SyncID], seq[SyncID], int) =
+  ## The reply to an unreconciled item set of `theirSyncIDs` over ExampleBounds,
+  ## and the bytes left after it.
   var answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
-  let answered = storage.processItemSetRange(
+  storage.processItemSetRange(
     ExampleBounds,
     initPackedSet[int](),
     ItemSet(elements: theirSyncIDs, reconciled: false),
     answer,
-    mustAnswer,
   )
-  (answered, answer.reply, answer.idsToSend, answer.idsToRecv)
+  (answer.reply, answer.idsToSend, answer.idsToRecv, answer.frameBytesLeft)
 
 suite "Waku Sync Storage":
   test "process hash range":
@@ -148,11 +145,9 @@ suite "Waku Sync Storage":
     let itemSet2 = ItemSet(elements: elements2, reconciled: true)
 
     var answer = RangeAnswer(frameBytesLeft: high(int))
+    storage1.processItemSetRange(bounds, emptySet, itemSet2, answer)
 
     check:
-      storage1.processItemSetRange(
-        bounds, emptySet, itemSet2, answer, mustAnswer = true
-      )
       answer.idsToSend == diffs
 
   test "processPayload returns the ids to receive":
@@ -239,11 +234,9 @@ suite "Waku Sync Storage":
       ids = exampleIds(rng)
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1003), hash: EmptyFingerprint)
-      (answered, output, idsToSend, idsToRecv) =
-        storage.splitReply(@[], bytesLeftFor(ids, 3), mustAnswer = false)
+      (output, idsToSend, idsToRecv, _) = storage.splitReply(@[], bytesLeftFor(ids, 3))
 
     check:
-      answered
       output.ranges ==
         @[
           (ExampleBounds.a .. c, RangeType.ItemSet),
@@ -261,11 +254,9 @@ suite "Waku Sync Storage":
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
       # Two fit, but both SyncIDs at 1002 must be on the same side of the cutoff.
-      (answered, output, idsToSend, _) =
-        storage.splitReply(@[], bytesLeftFor(ids, 2), mustAnswer = false)
+      (output, idsToSend, _, _) = storage.splitReply(@[], bytesLeftFor(ids, 2))
 
     check:
-      answered
       output.ranges ==
         @[
           (ExampleBounds.a .. c, RangeType.ItemSet),
@@ -274,24 +265,20 @@ suite "Waku Sync Storage":
       output.itemSets == @[ItemSet(elements: ids[0 ..< 1], reconciled: true)]
       idsToSend == @[ids[0]]
 
-  test "a first timestamp that does not fit is listed only when the range must be answered":
+  test "a first timestamp that does not fit is listed and overruns the bytes left":
     var rng = initRand()
     let
       ids = exampleIds(rng)
       storage = exampleStorage(ids)
       c = SyncID(time: Timestamp(1002), hash: EmptyFingerprint)
       tooFewBytes = maxEncodedRangeSize(RangeType.Fingerprint) + 10
-      (skipped, skippedOutput, skippedSend, _) =
-        storage.splitReply(@[], tooFewBytes, mustAnswer = false)
-      (answered, output, _, _) = storage.splitReply(@[], tooFewBytes, mustAnswer = true)
+      (output, idsToSend, _, bytesLeft) = storage.splitReply(@[], tooFewBytes)
 
     check:
-      not skipped
-      skippedOutput.ranges.len == 0
-      skippedSend.len == 0
-      answered
       output.ranges[0] == (ExampleBounds.a .. c, RangeType.ItemSet)
       output.itemSets == @[ItemSet(elements: ids[0 ..< 1], reconciled: true)]
+      idsToSend == @[ids[0]]
+      bytesLeft < 0
 
   test "differences at or above the cutoff are left for a later round":
     var rng = initRand()
@@ -301,11 +288,10 @@ suite "Waku Sync Storage":
       # The peer holds one SyncID below the cutoff (1003) and one above it.
       below = SyncID(time: Timestamp(1001), hash: randomHash(rng))
       above = SyncID(time: Timestamp(1600), hash: randomHash(rng))
-      (answered, _, idsToSend, idsToRecv) =
-        storage.splitReply(@[below, above], bytesLeftFor(ids, 3), mustAnswer = false)
+      (_, idsToSend, idsToRecv, _) =
+        storage.splitReply(@[below, above], bytesLeftFor(ids, 3))
 
     check:
-      answered
       idsToSend == ids[0 ..< 3]
       idsToRecv == @[below]
 
@@ -402,6 +388,34 @@ suite "Waku Sync Storage":
         ]
       reply.itemSets == @[ItemSet(elements: inShort, reconciled: false)]
       reply.fingerprints == @[storage.computeFingerprint(span(1004, 2000), @[])]
+
+  test "a later item set whose first timestamp does not fit is not answered":
+    var rng = initRand()
+    let
+      inFirst = idsAt(toSeq(0 ..< 5).mapIt(1001 + 200 * it), rng)
+      inSecond = idsAt(toSeq(0 ..< 10).mapIt(2001 + 50 * it), rng)
+      # Room for the first answer, and too little for any listing after it.
+      frame = frameLeaving(listingSize(inFirst) + 10)
+      storage = exampleStorage(inFirst & inSecond, frame)
+      payload = RangesData(
+        ranges: @[
+          (span(1000, 2000), RangeType.Fingerprint),
+          (span(2000, 3000), RangeType.ItemSet),
+        ],
+        fingerprints: @[randomHash(rng)],
+        itemSets: @[ItemSet(elements: @[], reconciled: false)],
+      )
+      (reply, idsToSend) = storage.answer(payload)
+
+    check:
+      reply.ranges ==
+        @[
+          (span(1000, 2000), RangeType.ItemSet),
+          (span(2000, 3000), RangeType.Fingerprint),
+        ]
+      reply.itemSets == @[ItemSet(elements: inFirst, reconciled: false)]
+      idsToSend.len == 0
+      reply.deltaEncode().len <= frame
 
   test "a fingerprint over a pubsub topic with no local message is empty":
     var rng = initRand()

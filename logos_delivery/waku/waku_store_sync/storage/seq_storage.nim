@@ -383,12 +383,12 @@ proc processItemSetRange*(
     pubsubTopicSet: PackedSet[int],
     inputItemSet: ItemSet,
     answer: var RangeAnswer,
-    mustAnswer: bool,
-): bool {.raises: [].} =
+) {.raises: [].} =
   ## Compares item sets and adds the differences to `answer`. Subtracts the
   ## encoded size of the ranges that it adds from `answer.frameBytesLeft`. A
-  ## listing that does not fit is split at a cutoff. Returns false, and adds
-  ## nothing, when not even the first timestamp fits and `mustAnswer` is false.
+  ## listing that does not fit is split at a cutoff. The first timestamp of the
+  ## range is listed even when it does not fit, which leaves
+  ## `answer.frameBytesLeft` negative.
 
   let idxSlice = self.findIdxBounds(inputBounds)
   let ourSyncIDs =
@@ -402,7 +402,7 @@ proc processItemSetRange*(
     answer.addDifferences(ourOnly, theirOnly, Opt.none(SyncID))
     answer.reply.ranges.add((inputBounds, RangeType.Skip))
     answer.frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
-    return true
+    return
 
   let full = ItemSet(elements: ourSyncIDs, reconciled: true)
   let fullSize = maxEncodedRangeSize(RangeType.ItemSet, full)
@@ -417,11 +417,6 @@ proc processItemSetRange*(
     )
 
     if fitting == 0:
-      if not mustAnswer:
-        return false
-
-      # The first timestamp of the range is listed even when it does not fit,
-      # so that every round makes progress.
       fitting = firstTimestampCount(ourSyncIDs)
 
   if fitting == ourSyncIDs.len:
@@ -429,7 +424,7 @@ proc processItemSetRange*(
     answer.reply.ranges.add((inputBounds, RangeType.ItemSet))
     answer.reply.itemSets.add(full)
     answer.frameBytesLeft -= fullSize
-    return true
+    return
 
   let cutoff = SyncID(time: ourSyncIDs[fitting].time, hash: EmptyFingerprint)
   let listed = ItemSet(elements: ourSyncIDs[0 ..< fitting], reconciled: true)
@@ -448,7 +443,6 @@ proc processItemSetRange*(
   # The peer learns the rest of the range in a later round, and accepts over
   # transfer only what it has learned.
   answer.addDifferences(ourOnly, theirOnly, Opt.some(cutoff))
-  return true
 
 method processPayload*(
     self: SeqStorage,
@@ -487,9 +481,7 @@ method processPayload*(
     let (bounds, rangeType) = input.ranges[idx]
 
     # Each answer is built separately, so that one that does not fit is dropped.
-    var
-      answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
-      answered = true
+    var answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
 
     case rangeType
     of RangeType.Skip:
@@ -506,12 +498,10 @@ method processPayload*(
       let itemSet = input.itemsets[j]
       j.inc()
 
-      answered = self.processItemSetRange(
-        bounds, pubsubTopicSet, itemSet, answer, mustAnswer = not answeredOne
-      )
+      self.processItemSetRange(bounds, pubsubTopicSet, itemSet, answer)
 
     let mustKeep = rangeType != RangeType.Skip and not answeredOne
-    if not mustKeep and (not answered or answer.frameBytesLeft < 0):
+    if not mustKeep and answer.frameBytesLeft < 0:
       stopAt = idx
       break
 
