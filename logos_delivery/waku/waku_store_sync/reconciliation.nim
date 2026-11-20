@@ -551,7 +551,9 @@ proc initFillStorage(
       let pubsubTopic = response.topics[i]
 
       let id = SyncID(time: msg.timestamp, hash: hash)
-      discard storage.insert(id, pubsubTopic)
+      storage.insert(id, pubsubTopic).isOkOr:
+        error "failed to insert message while filling the initial storage",
+          msg_hash = byteutils.toHex(hash), error = $error
 
     if response.cursor.isNone():
       break
