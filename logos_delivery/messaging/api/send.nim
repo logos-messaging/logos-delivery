@@ -6,8 +6,7 @@ import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku
 import logos_delivery/waku/api/publish
-import logos_delivery/waku/waku_core/codecs
-import logos_delivery/waku/node/peer_manager
+import logos_delivery/waku/api/peer_manager
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
@@ -16,14 +15,9 @@ proc canReachPeer(self: MessagingClient, pubsubTopic: PubsubTopic): bool =
   ## lightpush attempt can select for `pubsubTopic`. That attempt dials its peer,
   ## so an edge whose only peer is its lightpush service peer gets its first
   ## connection from a send.
-  let (inPeers, outPeers) = self.waku.node.peerManager.connectedPeers()
-  if inPeers.len + outPeers.len > 0:
-    return true
   return
-    self.waku.hasLightpush() and
-    self.waku.node.peerManager
-    .selectPeer(WakuLightPushCodec, Opt.some(pubsubTopic))
-    .isSome()
+    self.waku.hasConnectedPeer() or
+    (self.waku.hasLightpush() and self.waku.lightpushPeerAvailable(pubsubTopic))
 
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope
