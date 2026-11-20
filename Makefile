@@ -93,7 +93,7 @@ ifeq ($(detected_OS),Windows)
   MINGW_PATH = /mingw64
   NIM_PARAMS += --passC:"-I$(MINGW_PATH)/include"
   NIM_PARAMS += --passL:"-L$(MINGW_PATH)/lib"
-  LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lpq
+  LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lsynchronization -lpq
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
   # GNU ld scans static archives left-to-right. librln is appended later by the
   # librln target, so repeat its Windows dependencies after that archive.
