@@ -44,9 +44,9 @@ if [ "$newer" -gt 0 ]; then
   exit 0
 fi
 
-# "<number> <createdAt>" of the open tracking issue, or empty.
+# Number of the open tracking issue, or empty.
 issue=$(gh issue list -R "$repo" --label "$label" --state open --limit 1 \
-  --json number,createdAt --jq '.[0] // empty | "\(.number) \(.createdAt)"')
+  --json number --jq '.[0] // empty | .number')
 
 issue_url() { echo "https://github.com/$repo/issues/$1"; }
 
@@ -77,7 +77,8 @@ post() {
     '{content: $content,
       embeds: [{title: $title, color: $color, url: $url,
                 description: (if ($desc | length) > 4000 then $desc[:4000] + "\n…" else $desc end)}]}' |
-    curl -fsS --retry 3 --retry-all-errors -H "Content-Type: application/json" \
+    # --fail-with-body: on a rejection, Discord's reason lands in the log.
+    curl -sS --fail-with-body --retry 3 --retry-all-errors -H "Content-Type: application/json" \
       -X POST --data-binary @- --config <(printf 'url = "%s"\n' "$DISCORD_WEBHOOK_URL")
 }
 
@@ -115,9 +116,14 @@ if [ -z "$issue" ]; then
   exit 0
 fi
 
-read -r number created <<<"$issue"
+read -r number _ <<<"$issue"
+# Count from the run that opened the issue, not from the issue itself: a nightly
+# can take a day to finish, so its issue opens a day after the run started.
 # Calendar days, so a run that starts a little early still counts as the next night.
-days=$((($(date -u -d "${run_created%%T*}" +%s) - $(date -u -d "${created%%T*}" +%s)) / 86400 + 1))
+first_run=$(gh issue view "$number" -R "$repo" --json body \
+  --jq '.body | capture("actions/runs/(?<id>[0-9]+)").id')
+first_created=$(gh api "repos/$repo/actions/runs/$first_run" --jq .created_at)
+days=$((($(date -u -d "${run_created%%T*}" +%s) - $(date -u -d "${first_created%%T*}" +%s)) / 86400 + 1))
 already=$(recorded "$number")
 if [ "$already" = true ]; then
   echo "run already recorded in $(issue_url "$number"), posting again only"
