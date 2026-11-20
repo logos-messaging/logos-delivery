@@ -37,41 +37,31 @@ method resendImpl*(
   try:
     let publish = self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
     if not await publish.withTimeout(ResendTimeout):
-      debug "Lightpush resend timed out",
-        requestId = task.requestId, msgHash = task.loggedHash()
+      debug "Lightpush resend timed out", msgHash = task.loggedHash()
       return
     publish.read().isOkOr:
       debug "Lightpush resend failed",
-        requestId = task.requestId,
-        msgHash = task.loggedHash(),
-        error = error.desc.get($error.code)
+        msgHash = task.loggedHash(), error = error.desc.get($error.code)
       return
     debug "Message resent via Lightpush after a Store miss",
-      requestId = task.requestId,
-      msgHash = task.loggedHash(),
-      resendCount = task.resendCount
+      msgHash = task.msgHash.to0xHex(), resendCount = task.resendCount
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
-    debug "Lightpush resend failed",
-      requestId = task.requestId, msgHash = task.loggedHash(), error = exc.msg
+    debug "Lightpush resend failed", msgHash = task.loggedHash(), error = exc.msg
 
 method sendImpl*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): Future[void] {.async.} =
   task.tryCount.inc()
   debug "Trying message delivery via Lightpush",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     error "LightpushSendProcessor.sendImpl failed",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      error = error.desc.get($error.code)
+      msgHash = task.msgHash.to0xHex(), error = error.desc.get($error.code)
 
     if error.isRlnRejection():
       task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))
@@ -89,8 +79,7 @@ method sendImpl*(
     return
 
   if numLightpushServers > 0:
-    debug "Message propagated via Lightpush",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Message propagated via Lightpush", msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
     if task.firstPropagatedTime.isNone():
       task.firstPropagatedTime = Opt.some(Moment.now())
@@ -98,7 +87,7 @@ method sendImpl*(
   else:
     # Controversial state, publish says ok but no peer. It should not happen.
     debug "Lightpush publish returned zero peers, the task waits for a retry",
-      requestId = task.requestId
+      msgHash = task.loggedHash()
     task.state = DeliveryState.NextRoundRetry
 
   return

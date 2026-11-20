@@ -51,6 +51,12 @@ proc rlnEpochQuota*(
   ## `timestamp` (Unix seconds). An error without a backend that keeps one.
   return await epochQuota(self.node.rlnPlugin, timestamp)
 
+proc rlnEpochSizeSec*(self: Waku): Opt[uint64] =
+  ## The epoch length of the mounted RLN backend, when it states one.
+  let plugin = self.node.rlnPlugin.valueOr:
+    return Opt.none(uint64)
+  return plugin.epochSizeSec
+
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
 ): Future[Result[WakuMessage, RlnError]] {.async.} =

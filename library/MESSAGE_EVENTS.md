@@ -2,7 +2,24 @@
 
 ## Overview
 
-The liblogosdelivery library emits four types of message delivery events and one message receipt event that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageQueued`, `onMessageSent`, `onMessagePropagated`, `onMessageError` and `onMessageReceived` (the JSON `eventType` inside each payload is `message_queued` / `message_sent` / `message_propagated` / `message_error` / `message_received`).
+The liblogosdelivery library emits three types of message delivery events and one message receipt event that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageSent`, `onMessagePropagated`, `onMessageError` and `onMessageReceived` (the JSON `eventType` inside each payload is `message_sent` / `message_propagated` / `message_error` / `message_received`).
+
+## The result of a send
+
+`logosdelivery_ctx_send` answers with the `0x` hex hash of the message. The hash is final: `send` stamps the message, so the hash never changes, and it keys every delivery event of the message.
+
+`send` refuses a message at once, with no event, when:
+
+| Kind | When |
+| --- | --- |
+| `NotStarted` | The node is not started. |
+| `NotConnected` | The node has no connected or dialable peer. |
+| `NoShardMapsContentTopic` | The content topic maps to no shard of the node. |
+| `QueueFull` | The node already has 50 sends with no last event. |
+| `RateLimited` | The rate-limit budget of the epoch is spent. The text gives the seconds until the next epoch, or 1 s when the RLN backend does not state the length of its epoch. |
+| `TooLarge` | The message, with its RLN proof, exceeds the maximum message size. |
+
+The text of a refusal ends with its kind in parentheses, for example `failed to enqueue the message: the rate-limit budget of the epoch is spent, retry after: 42 s (RateLimited)`. Nothing is queued for a refused message; the app decides whether to send it again.
 
 ## Event Types
 
@@ -13,70 +30,52 @@ Emitted when the node confirms the delivery of a message that is not ephemeral, 
 ```json
 {
   "eventType": "message_sent",
-  "requestId": "unique-request-id",
   "messageHash": "0x..."
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_sent"
-- `requestId`: Request ID returned from the send operation
-- `messageHash`: Hash of the message that was sent
+- `messageHash`: Hash of the message, as returned by the send operation
 
 ### 2. message_propagated
-Emitted when a message has been successfully propagated to neighboring nodes on the network.
+Emitted when a message has been successfully propagated to neighboring nodes on the network, by an attempt that started within 15 s of the send.
 
 **JSON Structure:**
 ```json
 {
   "eventType": "message_propagated",
-  "requestId": "unique-request-id",
   "messageHash": "0x..."
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_propagated"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that was propagated
+- `messageHash`: Hash of the message, as returned by the send operation
 
 ### 3. message_error
-Emitted when a send fails: rejected, retry window elapsed, parked too long, ephemeral dropped near the rate limit, or store validation timed out.
+Emitted when a message that `send` accepted fails. `kind` tells the two cases apart:
+
+- `NotPropagated`: no peer took the message within 15 s of the send, or a peer rejected it for a reason that a retry cannot clear. Retries, the mix to plain fallback of `Preferred` and the resends after a Store miss all start within these 15 s, because Store and RLN validators refuse a message more than 20 s off their clock.
+- `NotStored`: the message propagated, but no store node reported it within the store validation window.
 
 **JSON Structure:**
 ```json
 {
   "eventType": "message_error",
-  "requestId": "unique-request-id",
   "messageHash": "0x...",
+  "kind": "NotPropagated",
   "error": "error description"
 }
 ```
 
 **Fields:**
 - `eventType`: Always "message_error"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that failed
+- `messageHash`: Hash of the message, as returned by the send operation
+- `kind`: `NotPropagated` or `NotStored`
 - `error`: Description of what went wrong
 
-### 4. message_queued
-Emitted when a send is held back because the current epoch's rate-limit budget is spent. The message is not rejected: it stays queued and goes out once the budget refills. Emitted at most once per send, on the first time the message is held back.
-
-**JSON Structure:**
-```json
-{
-  "eventType": "message_queued",
-  "requestId": "unique-request-id",
-  "messageHash": "0x..."
-}
-```
-
-**Fields:**
-- `eventType`: Always "message_queued"
-- `requestId`: Request ID from the send operation
-- `messageHash`: Hash of the message that was held back
-
-### 5. message_received
+### 4. message_received
 Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.
 
 **JSON Structure:**
@@ -119,9 +118,7 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
     // Extract eventType field
     // Handle based on event type
 
-    if (eventType == "message_queued") {
-        // Handle message held back for rate-limit budget
-    } else if (eventType == "message_sent") {
+    if (eventType == "message_sent") {
         // Handle message sent
     } else if (eventType == "message_propagated") {
         // Handle message propagated
@@ -144,7 +141,6 @@ The event API takes the raw context, which is the `ptr` field of the
 ```c
 // ctx comes from the logosdelivery_ctx_create callback; see the README.
 void *rawCtx = ctx->ptr;
-logosdelivery_add_event_listener(rawCtx, "onMessageQueued", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessageSent", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessagePropagated", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessageError", event_callback, NULL);
@@ -163,22 +159,22 @@ logosdelivery_ctx_start_node(ctx, on_reply, userData);
 
 For a typical successful message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_sent** → A store node or the mix exit confirms the message (only with the `reliability` option on)
 
 For a failed message send:
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_error** → Delivery failed with error description
 
 For a send that no store node confirms (only with the `reliability` option on):
 
-1. **send** → Returns request ID
+1. **send** → Returns the message hash
 2. **message_propagated** → Message delivered to peers
 3. **message_error** → No store node confirmed the message within the validation window
 
-The `on_reply` callback of `logosdelivery_ctx_send` gets the request ID before the event thread gets an event of that request. When the send queue is full, `logosdelivery_ctx_send` returns an error and no request ID. A send of a message that the send queue already has gets the request ID of the queued send.
+The `on_reply` callback of `logosdelivery_ctx_send` gets the message hash before the event thread gets an event of that message. A refused send returns an error and no hash, and gets no event. Two sends in one clock step are two messages, because the second one takes the next nanosecond.
 
 ## Important Notes
 

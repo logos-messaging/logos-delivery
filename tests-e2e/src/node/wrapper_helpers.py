@@ -22,13 +22,26 @@ EVENT_TOPIC_HEALTH_CHANGE = "relay_topic_health_change"
 # Topic health a node reports once its relay mesh on the shard has at least one peer.
 MESH_TOPIC_HEALTH = ("MinimallyHealthy", "SufficientlyHealthy")
 
-# MaxTimeInCache from send_service.nim.
-MAX_TIME_IN_CACHE_S = 60.0
-# Extra slack to cover the background retry loop tick after the window expires.
-CACHE_EXPIRY_SLACK_S = 10.0
-ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
-RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
+# DeliveryWindow and StoreValidationWindow from send_service.nim.
+DELIVERY_WINDOW_S = 15.0
+STORE_VALIDATION_WINDOW_S = 30.0
+# Extra slack to cover the background retry loop tick after a window ends.
+WINDOW_SLACK_S = 10.0
+ERROR_AFTER_DELIVERY_WINDOW_TIMEOUT_S = DELIVERY_WINDOW_S + WINDOW_SLACK_S
+ERROR_AFTER_STORE_VALIDATION_TIMEOUT_S = STORE_VALIDATION_WINDOW_S + WINDOW_SLACK_S
+DELIVERY_WINDOW_EXPIRED_MSG = "Unable to send within the delivery window"
 STORE_VALIDATION_TIMEOUT_MSG = "Propagated but not confirmed by a store node within the store validation window"
+# MessageErrorKind values carried in message_error events.
+ERROR_KIND_NOT_PROPAGATED = "NotPropagated"
+ERROR_KIND_NOT_STORED = "NotStored"
+# SendErrorKind values: a refused send's error text ends with the kind in parentheses.
+SEND_REFUSED_NOT_STARTED = "NotStarted"
+SEND_REFUSED_NOT_CONNECTED = "NotConnected"
+SEND_REFUSED_NO_SHARD = "NoShardMapsContentTopic"
+SEND_REFUSED_QUEUE_FULL = "QueueFull"
+SEND_REFUSED_RATE_LIMITED = "RateLimited"
+SEND_REFUSED_TOO_LARGE = "TooLarge"
+MESSAGE_HASH_RE = re.compile(r"0x[0-9a-f]{64}")
 
 
 class EventCollector:
@@ -52,15 +65,19 @@ class EventCollector:
         with self._lock:
             self.events.append(payload)
 
-    def get_events_for_request(self, request_id: str) -> list[dict]:
+    def get_events_for_message(self, message_hash: str) -> list[dict]:
         with self._lock:
-            return [e for e in self.events if e.get("requestId") == request_id]
+            return [e for e in self.events if e.get("messageHash") == message_hash]
+
+    def get_events_for_channel_request(self, channel_req_id: str) -> list[dict]:
+        with self._lock:
+            return [e for e in self.events if e.get("requestId") == channel_req_id]
 
     def snapshot(self) -> list[dict]:
         """Return a thread-safe copy of all collected events.
 
         Use this whenever you need to iterate over every event (rather than
-        events for a single request_id). Iterating `self.events` directly is
+        events for a single message hash). Iterating `self.events` directly is
         unsafe because `event_callback` appends from the wrapper's event
         thread.
         """
@@ -86,18 +103,33 @@ def is_channel_error_event(event: dict) -> bool:
 
 def wait_for_event(
     collector: EventCollector,
-    request_id: str,
+    message_hash: str,
     predicate,
     timeout_s: float,
     poll_interval_s: float = 0.5,
 ) -> Optional[dict]:
-    """Poll until an event matching `predicate` arrives for `request_id`,
+    """Poll until an event matching `predicate` arrives for `message_hash`,
     or until `timeout_s` elapses.  Returns the matching event or None.
     """
+    return _wait_for(lambda: collector.get_events_for_message(message_hash), predicate, timeout_s, poll_interval_s)
+
+
+def wait_for_channel_event(
+    collector: EventCollector,
+    channel_req_id: str,
+    predicate,
+    timeout_s: float,
+    poll_interval_s: float = 0.5,
+) -> Optional[dict]:
+    """Like wait_for_event, for channel events, which carry the channel request id."""
+    return _wait_for(lambda: collector.get_events_for_channel_request(channel_req_id), predicate, timeout_s, poll_interval_s)
+
+
+def _wait_for(get_events, predicate, timeout_s: float, poll_interval_s: float) -> Optional[dict]:
     deadline = time.monotonic() + timeout_s
 
     while True:
-        for event in collector.get_events_for_request(request_id):
+        for event in get_events():
             if predicate(event):
                 return event
         if time.monotonic() >= deadline:
@@ -105,21 +137,21 @@ def wait_for_event(
         time.sleep(poll_interval_s)
 
 
-def wait_for_propagated(collector: EventCollector, request_id: str, timeout_s: float) -> Optional[dict]:
-    return wait_for_event(collector, request_id, is_propagated_event, timeout_s)
+def wait_for_propagated(collector: EventCollector, message_hash: str, timeout_s: float) -> Optional[dict]:
+    return wait_for_event(collector, message_hash, is_propagated_event, timeout_s)
 
 
-def wait_for_sent(collector: EventCollector, request_id: str, timeout_s: float) -> Optional[dict]:
-    return wait_for_event(collector, request_id, is_sent_event, timeout_s)
+def wait_for_sent(collector: EventCollector, message_hash: str, timeout_s: float) -> Optional[dict]:
+    return wait_for_event(collector, message_hash, is_sent_event, timeout_s)
 
 
-def wait_for_error(collector: EventCollector, request_id: str, timeout_s: float) -> Optional[dict]:
-    return wait_for_event(collector, request_id, is_error_event, timeout_s)
+def wait_for_error(collector: EventCollector, message_hash: str, timeout_s: float) -> Optional[dict]:
+    return wait_for_event(collector, message_hash, is_error_event, timeout_s)
 
 
-def assert_no_error(collector: EventCollector, request_id: str, context: str = "") -> None:
-    """Assert that no message_error event is currently buffered for `request_id`."""
-    event = wait_for_error(collector, request_id, timeout_s=0)
+def assert_no_error(collector: EventCollector, message_hash: str, context: str = "") -> None:
+    """Assert that no message_error event is currently buffered for `message_hash`."""
+    event = wait_for_error(collector, message_hash, timeout_s=0)
     suffix = f" ({context})" if context else ""
     assert event is None, f"Unexpected message_error event{suffix}: {event}"
 
@@ -160,20 +192,62 @@ def wait_for_mesh(
 TERMINAL_EVENT_TYPES = {EVENT_PROPAGATED, EVENT_SENT, EVENT_ERROR}
 
 
-def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
-    """Check per-request event invariants (issue #163):
-    - All events carry the correct requestId.
+def assert_message_hash(send_result) -> str:
+    """Assert that send() returned Ok with a 0x lowercase hex message hash, and return it."""
+    assert send_result.is_ok(), f"send() must return Ok(messageHash), got: {send_result.err()}"
+    message_hash = send_result.ok_value
+    assert MESSAGE_HASH_RE.fullmatch(message_hash or ""), f"send() returned a malformed message hash: {message_hash!r}"
+    return message_hash
+
+
+def assert_send_refused(send_result, kind: str) -> str:
+    """Assert that send() was refused with `kind`, the SendErrorKind at the end of the error text."""
+    assert send_result.is_err(), f"send() must be refused with {kind}, got Ok({send_result.ok_value!r})"
+    error = send_result.err()
+    # The binding prefixes the FFI text with its own "send_message: callback failed" context.
+    assert "Send failed: " in error, f"unexpected send() error text: {error!r}"
+    assert error.endswith(f"({kind})"), f"send() must be refused with {kind}, got: {error!r}"
+    return error
+
+
+def send_once_connected(node, message: dict, timeout_s: float = 10.0, poll_interval_s: float = 0.5):
+    """Send `message`, retrying while send() is refused with NotConnected (the node has no peer yet).
+
+    For a node whose connection status may stay Disconnected though it has a peer,
+    e.g. an edge without a filter peer, so wait_for_connected cannot gate the send.
+    Returns the result of the last send() call.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        send_result = node.send_message(message=message)
+        refused_not_connected = send_result.is_err() and send_result.err().endswith(f"({SEND_REFUSED_NOT_CONNECTED})")
+        if not refused_not_connected or time.monotonic() >= deadline:
+            return send_result
+        time.sleep(poll_interval_s)
+
+
+def assert_no_message_events(collector: EventCollector, observation_s: float = 0.0) -> None:
+    """Assert that no message_* event arrives within `observation_s`: a refused send gets no event."""
+    if observation_s > 0:
+        time.sleep(observation_s)
+    events = [e for e in collector.snapshot() if e.get("eventType") in TERMINAL_EVENT_TYPES]
+    assert not events, f"A refused send must get no message event, got: {events}"
+
+
+def assert_event_invariants(collector: EventCollector, message_hash: str) -> None:
+    """Check per-message event invariants (issue #163):
+    - All events carry the correct messageHash.
     - No duplicate terminal events (Propagated, Sent, Error).
     - Sent never appears before Propagated.
     """
-    events = collector.get_events_for_request(request_id)
-    assert events, f"No events found for request {request_id}"
+    events = collector.get_events_for_message(message_hash)
+    assert events, f"No events found for message {message_hash}"
 
     counts: dict[str, int] = {}
     first_index: dict[str, int] = {}
     for i, event in enumerate(events):
-        assert event.get("requestId") == request_id, (
-            f"Event at index {i} has wrong requestId: " f"expected {request_id!r}, got {event.get('requestId')!r}"
+        assert event.get("messageHash") == message_hash, (
+            f"Event at index {i} has wrong messageHash: " f"expected {message_hash!r}, got {event.get('messageHash')!r}"
         )
         event_type = event.get("eventType", "")
         if event_type in TERMINAL_EVENT_TYPES:
@@ -182,13 +256,13 @@ def assert_event_invariants(collector: EventCollector, request_id: str) -> None:
                 first_index[event_type] = i
 
     for event_type, count in counts.items():
-        assert count == 1, f"Duplicate {event_type} events for request {request_id}: " f"got {count}, expected 1. Events: {events}"
+        assert count == 1, f"Duplicate {event_type} events for message {message_hash}: " f"got {count}, expected 1. Events: {events}"
 
     if EVENT_SENT in first_index and EVENT_PROPAGATED in first_index:
         assert first_index[EVENT_PROPAGATED] < first_index[EVENT_SENT], (
             f"message_sent (index {first_index[EVENT_SENT]}) arrived before "
             f"message_propagated (index {first_index[EVENT_PROPAGATED]}) "
-            f"for request {request_id}. Events: {events}"
+            f"for message {message_hash}. Events: {events}"
         )
 
 

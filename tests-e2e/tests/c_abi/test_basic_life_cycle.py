@@ -1,24 +1,24 @@
-import re
 import socket
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    SEND_REFUSED_NOT_STARTED,
     EventCollector,
+    assert_send_refused,
     create_message_bindings,
     get_node_bound_ports,
     get_node_multiaddr,
     get_node_tcp_port,
     is_channel_error_event,
+    assert_no_message_events,
     unique_channel_id,
+    wait_for_channel_event,
     wait_for_connected,
-    wait_for_error,
-    wait_for_event,
     wait_for_mesh,
 )
 
 NODE_NOT_STARTED_MSG = "node is not started"
 STOPPED_SUBSCRIBE_CONTENT_TOPIC = "/test/1/stopped-subscribe/proto"
 
-MESSAGING_SEND_NO_PROVIDER_RE = re.compile(r"messaging send failed: RequestBroker\(MessagingSend\): no provider registered for broker context \w+")
 SEGMENTS_FAILED_MSG = "one or more segments failed"
 STOPPED_CHANNEL_PREFIX = "stopped-channel"
 STOPPED_CHANNEL_CONTENT_TOPIC = "/test/1/stopped-channel/proto"
@@ -57,8 +57,8 @@ class TestLogosDeliveryLifecycle:
         assert result.is_ok(), f"Failed to create node: {result.err()}"
         with result.ok_value as node:
             send_result = node.send_message(create_message_bindings())
-            assert send_result.is_err(), "send on a node never started succeeded"
-            assert f"Send failed: {NODE_NOT_STARTED_MSG}" in send_result.err(), send_result.err()
+            error = assert_send_refused(send_result, SEND_REFUSED_NOT_STARTED)
+            assert NODE_NOT_STARTED_MSG in error, error
 
     def test_subscribe_and_unsubscribe_on_node_never_started(self, node_config):
         node_config.update({"numShardsInNetwork": 1})
@@ -86,14 +86,15 @@ class TestLogosDeliveryLifecycle:
 
             send_result = node.channel_send(channel_id, create_message_bindings())
             assert send_result.is_ok(), f"channel_send on a node never started failed: {send_result.err()}"
-            request_id = send_result.ok_value
+            channel_req_id = send_result.ok_value
 
-            error_event = wait_for_error(node_collector, request_id, ERROR_TIMEOUT_S)
-            assert error_event is not None, f"no message_error for request {request_id}. Collected events: {node_collector.events}"
-            assert MESSAGING_SEND_NO_PROVIDER_RE.fullmatch(error_event["error"]), error_event["error"]
-
-            channel_error_event = wait_for_event(node_collector, request_id, is_channel_error_event, ERROR_TIMEOUT_S)
-            assert channel_error_event is not None, f"no channel_message_error for request {request_id}. Collected events: {node_collector.events}"
+            # The messaging send refuses the segment, which gets no message event:
+            # the channel counts it as failed and reports it in its own error event.
+            channel_error_event = wait_for_channel_event(node_collector, channel_req_id, is_channel_error_event, ERROR_TIMEOUT_S)
+            assert (
+                channel_error_event is not None
+            ), f"no channel_message_error for channel request {channel_req_id}. Collected events: {node_collector.events}"
+            assert_no_message_events(node_collector)
             assert channel_error_event["channelId"] == channel_id, channel_error_event
             assert channel_error_event["error"] == SEGMENTS_FAILED_MSG, channel_error_event
 

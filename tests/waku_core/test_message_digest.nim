@@ -149,3 +149,15 @@ suite "Waku Message - Deterministic hashing":
     check:
       decoded.isErr == true
       $decoded.error == "(kind: InvalidLengthField, field: \"meta\")"
+
+  test "hexToHash reads a hash of 32 bytes and refuses another length":
+    var hash: WakuMessageHash
+    for i in 0 ..< hash.len:
+      hash[i] = byte(i)
+    let hex = hash.to0xHex()
+    check:
+      hexToHash(hex).get() == hash
+      hexToHash(hex[2 ..^ 1]).get() == hash # with no `0x`
+      hexToHash(hex[0 ..^ 3]).isErr() # 31 bytes
+      hexToHash(hex & "00").isErr() # 33 bytes
+      hexToHash("not-a-message-hash").isErr()

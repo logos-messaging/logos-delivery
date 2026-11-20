@@ -32,7 +32,6 @@ import
     common/waku_protocol,
     waku_metadata,
     waku_filter_v2,
-    common/rate_limit/setting,
     common/system_resolver,
   ],
   logos_delivery/waku/node/subscription_manager,

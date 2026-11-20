@@ -1,12 +1,11 @@
 {.used.}
 
-import results, std/[importutils, os, sets, tempfiles]
+import results, std/[importutils, os, sets, strutils, tempfiles]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo], metrics
 import brokers/broker_context
 import
-  ../testlib/[
-    futures, wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service
-  ]
+  ../testlib/
+    [wakucore, wakunode, wakunodeconf, testasync, short_intervals, rest_service]
 import ../waku_archive/archive_utils
 import
   logos_delivery,
@@ -30,9 +29,11 @@ import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/delivery_service/send_service/send_service
 
 privateAccess(SendService) # the test reads `attempts`
+privateAccess(MessagingClient) # the tests set `sendTimeClock`
 import logos_delivery/api/messaging_client_api
 import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/send_service
+import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
 type SendEventOutcome {.pure.} = enum
   Sent
@@ -50,10 +51,11 @@ type SendEventListenerManager = ref object
   sentCount: int
   errorCount: int
   propagatedCount: int
-  sentRequestIds: seq[RequestId]
-  errorRequestIds: seq[RequestId]
+  sentHashes: seq[string]
+  errorHashes: seq[string]
   errorDescs: seq[string]
-  propagatedRequestIds: seq[RequestId]
+  errorKinds: seq[MessageErrorKind]
+  propagatedHashes: seq[string]
 
 proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerManager =
   let manager = SendEventListenerManager(brokerCtx: brokerCtx)
@@ -65,9 +67,9 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
     brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
       inc manager.sentCount
-      manager.sentRequestIds.add(event.requestId)
+      manager.sentHashes.add(event.messageHash)
       echo "SENT EVENT TRIGGERED (#",
-        manager.sentCount, "): requestId=", event.requestId
+        manager.sentCount, "): messageHash=", event.messageHash
       if not manager.sentFuture.finished():
         manager.sentFuture.complete()
     ,
@@ -78,8 +80,9 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
     brokerCtx,
     proc(event: MessageErrorEvent) {.async: (raises: []).} =
       inc manager.errorCount
-      manager.errorRequestIds.add(event.requestId)
+      manager.errorHashes.add(event.messageHash)
       manager.errorDescs.add(event.error)
+      manager.errorKinds.add(event.kind)
       echo "ERROR EVENT TRIGGERED (#", manager.errorCount, "): ", event.error
       if not manager.errorFuture.finished():
         manager.errorFuture.fail(
@@ -93,9 +96,9 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
     brokerCtx,
     proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
       inc manager.propagatedCount
-      manager.propagatedRequestIds.add(event.requestId)
+      manager.propagatedHashes.add(event.messageHash)
       echo "PROPAGATED EVENT TRIGGERED (#",
-        manager.propagatedCount, "): requestId=", event.requestId
+        manager.propagatedCount, "): messageHash=", event.messageHash
       if not manager.propagatedFuture.finished():
         manager.propagatedFuture.complete()
     ,
@@ -120,12 +123,14 @@ proc waitForEvents(
     .withTimeout(timeout)
 
 proc outcomes(manager: SendEventListenerManager): set[SendEventOutcome] =
+  var outcomes: set[SendEventOutcome]
   if manager.sentFuture.completed():
-    result.incl(SendEventOutcome.Sent)
+    outcomes.incl(SendEventOutcome.Sent)
   if manager.propagatedFuture.completed():
-    result.incl(SendEventOutcome.Propagated)
+    outcomes.incl(SendEventOutcome.Propagated)
   if manager.errorFuture.failed():
-    result.incl(SendEventOutcome.Error)
+    outcomes.incl(SendEventOutcome.Error)
+  return outcomes
 
 proc validate(manager: SendEventListenerManager, expected: set[SendEventOutcome]) =
   echo "EVENT COUNTS: sent=",
@@ -136,15 +141,37 @@ proc validate(manager: SendEventListenerManager, expected: set[SendEventOutcome]
 proc validate(
     manager: SendEventListenerManager,
     expected: set[SendEventOutcome],
-    expectedRequestId: RequestId,
+    expectedHash: WakuMessageHash,
 ) =
   manager.validate(expected)
-  for requestId in manager.sentRequestIds:
-    check requestId == expectedRequestId
-  for requestId in manager.propagatedRequestIds:
-    check requestId == expectedRequestId
-  for requestId in manager.errorRequestIds:
-    check requestId == expectedRequestId
+  let hash = expectedHash.to0xHex()
+  for eventHash in manager.sentHashes:
+    check eventHash == hash
+  for eventHash in manager.propagatedHashes:
+    check eventHash == hash
+  for eventHash in manager.errorHashes:
+    check eventHash == hash
+
+proc startBystander(): Future[WakuNode] {.async.} =
+  ## A started peer with no relay, lightpush, filter or store, so it cannot carry
+  ## a message. A node connected only to it is not refused as NotConnected.
+  var bystander: WakuNode
+  lockNewGlobalBrokerContext:
+    bystander = newTestWakuNode(generateSecp256k1Key())
+    bystander.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
+      raiseAssert "Failed to mount metadata: " & error
+    await bystander.mountLibp2pPing()
+    await bystander.start()
+  return bystander
+
+proc connectBystander(node: LogosDelivery, bystander: WakuNode) {.async.} =
+  await node.waku.node.connectToNodes(@[bystander.peerInfo.toRemotePeerInfo()])
+  for _ in 0 ..< 100:
+    let (inPeers, outPeers) = node.waku.node.peerManager.connectedPeers()
+    if inPeers.len + outPeers.len > 0:
+      return
+    await sleepAsync(100.milliseconds)
+  raiseAssert "the bystander never connected"
 
 suite "Waku API - Send":
   var
@@ -246,7 +273,7 @@ suite "Waku API - Send":
       relayNode1.stop(), relayNode2.stop(), lightpushNode.stop(), storeNode.stop()
     )
 
-  asyncTest "Check API availability (unhealthy node)":
+  asyncTest "A node with no peer refuses a send as NotConnected":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(defaultTestNodeConf())).valueOr:
@@ -256,15 +283,25 @@ suite "Waku API - Send":
         raiseAssert "Failed to start Waku node: " & error
       # node is not connected !
 
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
     let sendResult = await node.messagingClient.send(envelope)
+    check:
+      sendResult.isErr()
+      sendResult.error.kind == SendErrorKind.NotConnected
+      $sendResult.error == "node has no connected peer (NotConnected)"
 
-    # TODO: The API is not enforcing a health check before the send,
-    #       so currently this test cannot successfully fail to send.
-    check sendResult.isOk()
+    # A refused message gets no event.
+    await sleepAsync(1.seconds)
+    check:
+      eventManager.errorCount == 0
+      eventManager.propagatedCount == 0
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -286,6 +323,10 @@ suite "Waku API - Send":
         raiseAssert "Failed to start Waku node: " & error
     defer:
       (await node.stop()).expect("Failed to stop node")
+    let bystander = await startBystander()
+    defer:
+      await bystander.stop()
+    await node.connectBystander(bystander)
 
     let
       contentTopic = ContentTopic("/waku/2/default-content/proto")
@@ -337,16 +378,14 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
     check await eventManager.sentFuture.withTimeout(eventTimeout)
 
-    eventManager.validate(
-      {SendEventOutcome.Sent, SendEventOutcome.Propagated}, requestId
-    )
+    eventManager.validate({SendEventOutcome.Sent, SendEventOutcome.Propagated}, msgHash)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -380,20 +419,28 @@ suite "Waku API - Send":
     defer:
       await MessageSentEvent.dropListener(node.waku.brokerCtx, counter)
 
-    var requestIds: HashSet[RequestId]
+    var msgHashes: HashSet[string]
     for i in 0 ..< burst:
       let envelope = MessageEnvelope.init(
         ContentTopic("/waku/2/default-content/proto"), "burst payload " & $i
       )
-      let requestId = (await node.messagingClient.send(envelope)).valueOr:
-        raiseAssert "send failed: " & error
-      requestIds.incl(requestId)
-    check requestIds.len == burst
+      # The node takes at most `MaxSendsInFlight` sends with no last event, so
+      # the burst sends again while `send` answers `QueueFull`, as an app does.
+      var sent = await node.messagingClient.send(envelope)
+      let deadline = Moment.now() + 30.seconds
+      while sent.isErr() and sent.error.kind == SendErrorKind.QueueFull and
+          Moment.now() < deadline:
+        await sleepAsync(chronos.milliseconds(5))
+        sent = await node.messagingClient.send(envelope)
+      let msgHash = sent.valueOr:
+        raiseAssert "send failed: " & $error
+      msgHashes.incl(msgHash.to0xHex())
+    check msgHashes.len == burst
 
     # 120 messages require at least two validation batches.
     check:
       await allSent.wait().withTimeout(30.seconds)
-      eventManager.sentRequestIds.toHashSet() == requestIds
+      eventManager.sentHashes.toHashSet() == msgHashes
       eventManager.sentCount == burst
       eventManager.errorCount == 0
 
@@ -419,14 +466,14 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
     discard await eventManager.waitForEvents(eventTimeout)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate({SendEventOutcome.Propagated}, msgHash)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -450,14 +497,14 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
     discard await eventManager.waitForEvents(eventTimeout)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate({SendEventOutcome.Propagated}, msgHash)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -491,19 +538,152 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     const eventTimeout = 10.seconds
     discard await eventManager.waitForEvents(eventTimeout)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate({SendEventOutcome.Propagated}, msgHash)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
-  asyncTest "S16 - isolated sender recovers when lightpush peer appears later":
-    ## Edge sender starts with no peer; a lightpush peer appears mid-send and a
+  asyncTest "an edge whose only peer is a lightpush service peer sends, and its first attempt connects it":
+    ## `--lightpushnode` puts the peer in a service slot and does not dial it,
+    ## and an edge with no relay dials nothing by itself. `send` accepts the
+    ## message at once, and the lightpush attempt dials the peer.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+    node.waku.node.peerManager.addServicePeer(lightpushNodePeerInfo, WakuLightPushCodec)
+    let (inPeers, outPeers) = node.waku.node.peerManager.connectedPeers()
+    check inPeers.len + outPeers.len == 0
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let sending = node.messagingClient.send(
+      MessageEnvelope.init(
+        ContentTopic("/waku/2/default-content/proto"), "test payload"
+      )
+    )
+    # `send` does not wait for the dial.
+    check sending.finished()
+    let sent = await sending
+    check sent.isOk()
+    if sent.isOk():
+      discard await eventManager.waitForEvents(10.seconds)
+      eventManager.validate({SendEventOutcome.Propagated}, sent.get())
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "a send to a lightpush service peer that is down fails with NotPropagated":
+    ## The node knows a lightpush peer, so `send` accepts the message. No attempt
+    ## can dial that peer, so the message fails at the end of its window.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+    node.messagingClient.sendService.deliveryWindow = 2.seconds
+
+    # A peer that stopped, so nothing answers on its address.
+    let down = await startBystander()
+    let downInfo = down.peerInfo.toRemotePeerInfo()
+    await down.stop()
+    node.waku.node.peerManager.addServicePeer(downInfo, WakuLightPushCodec)
+
+    var errors: seq[MessageErrorEvent]
+    let listener = MessageErrorEvent
+      .listen(
+        node.waku.brokerCtx,
+        proc(event: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(event),
+      )
+      .expect("listen error")
+    defer:
+      await MessageErrorEvent.dropListener(node.waku.brokerCtx, listener)
+
+    let sent = await node.messagingClient.send(
+      MessageEnvelope.init(
+        ContentTopic("/waku/2/default-content/proto"), "test payload"
+      )
+    )
+    check sent.isOk()
+    if sent.isOk():
+      checkUntilTimeout:
+        errors.len == 1
+      check:
+        errors.len == 1 and errors[0].messageHash == sent.get().to0xHex()
+        errors.len == 1 and errors[0].kind == MessageErrorKind.NotPropagated
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "an edge that knows a lightpush peer only on another shard refuses a send as NotConnected":
+    ## The lightpush attempt selects a peer on the shard of the message, so a peer
+    ## on another shard gives that attempt nothing to dial.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
+        raiseAssert error
+      node.shortenIntervals()
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+    let shard = RelayShard
+      .parse(
+        DeliveryTask
+          .new(envelope, node.waku.brokerCtx, getNowInNanosecondTime())
+          .expect("DeliveryTask.new").pubsubTopic
+      )
+      .expect("the shard of the message")
+
+    let other = await startBystander()
+    defer:
+      await other.stop()
+    let otherInfo = other.peerInfo.toRemotePeerInfo()
+    otherInfo.protocols = @[WakuLightPushCodec]
+    node.waku.node.peerManager.addPeer(otherInfo)
+    node.waku.node.peerManager.switch.peerStore.setShardInfo(
+      otherInfo.peerId, @[shard.shardId + 1'u16]
+    )
+
+    let refused = await node.messagingClient.send(envelope)
+    check:
+      refused.isErr()
+      refused.isErr() and refused.error.kind == SendErrorKind.NotConnected
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "S16 - sender with no lightpush peer recovers when one appears later":
+    ## Edge sender starts with no lightpush peer; one appears mid-send and a
     ## later retry must deliver the queued message.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
@@ -516,9 +696,13 @@ suite "Waku API - Send":
       node.shortenIntervals()
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
-      # No connectToNodes: the sender has no reachable peer at T0.
+      # Only a bystander: the sender has no peer that can carry the message at T0.
 
     check node.waku.node.wakuRelay.isNil()
+    let bystander = await startBystander()
+    defer:
+      await bystander.stop()
+    await node.connectBystander(bystander)
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -528,9 +712,9 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    # send() with no peer must still succeed; the message is queued and retried.
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    # send() with no lightpush peer must still succeed; the message is queued and retried.
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     # Nothing should propagate while isolated (retry interval is 1s).
     await sleepAsync(5.seconds)
@@ -542,7 +726,7 @@ suite "Waku API - Send":
     const eventTimeout = 10.seconds
     discard await eventManager.waitForEvents(eventTimeout)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate({SendEventOutcome.Propagated}, msgHash)
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
@@ -566,16 +750,14 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     # Wait for events with timeout
     const eventTimeout = 10.seconds
     check await eventManager.sentFuture.withTimeout(eventTimeout)
 
-    eventManager.validate(
-      {SendEventOutcome.Propagated, SendEventOutcome.Sent}, requestId
-    )
+    eventManager.validate({SendEventOutcome.Propagated, SendEventOutcome.Sent}, msgHash)
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
@@ -616,7 +798,7 @@ suite "Waku API - Send":
 
       await node.waku.node.connectToNodes(@[fakeLightpushNodePeerInfo])
 
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    node.messagingClient.sendService.deliveryWindow = 5.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -626,15 +808,15 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
-    echo "Sent message with requestId=", requestId
+    echo "Sent message with messageHash=", msgHash.to0xHex()
     # Wait for events with timeout
     const eventTimeout = 30.seconds
     check await eventManager.errorFuture.withTimeout(eventTimeout)
 
-    eventManager.validate({SendEventOutcome.Error}, requestId)
+    eventManager.validate({SendEventOutcome.Error}, msgHash)
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
@@ -656,7 +838,7 @@ suite "Waku API - Send":
     defer:
       (await node.stop()).expect("Failed to stop node")
 
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    node.messagingClient.sendService.deliveryWindow = 5.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -674,8 +856,8 @@ suite "Waku API - Send":
       meta = newSeq[byte](MaxMetaAttrLength + 1),
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     check await eventManager.errorFuture.withTimeout(30.seconds)
 
@@ -686,7 +868,7 @@ suite "Waku API - Send":
       except KeyError:
         0.0
 
-    eventManager.validate({SendEventOutcome.Error}, requestId)
+    eventManager.validate({SendEventOutcome.Error}, msgHash)
     check:
       eventManager.errorDescs ==
         @["decode_rpc_failure: (kind: InvalidLengthField, field: \"meta\")"]
@@ -702,8 +884,12 @@ suite "Waku API - Send":
       node.shortenIntervals()
       rest = (await node.startWithRest()).valueOr:
         raiseAssert "Failed to start Waku node: " & error
+    let bystander = await startBystander()
+    defer:
+      await bystander.stop()
+    await node.connectBystander(bystander)
 
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    node.messagingClient.sendService.deliveryWindow = 5.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -715,7 +901,7 @@ suite "Waku API - Send":
       proc(event: MessageReceivedEvent) {.async: (raises: []).} =
         receivedHashes.add(event.messageHash),
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
     defer:
       await MessageReceivedEvent.dropListener(node.waku.brokerCtx, receivedListener)
 
@@ -727,14 +913,14 @@ suite "Waku API - Send":
     let handledBefore = nodeMessagesCount(["relay"])
 
     # When it sends a message
-    let requestId = (
+    let msgHash = (
       await node.messagingClient.send(MessageEnvelope.init(contentTopic, payload))
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
 
     # Then the send ends with an error event
     check await eventManager.errorFuture.withTimeout(30.seconds)
-    eventManager.validate({SendEventOutcome.Error}, requestId)
+    eventManager.validate({SendEventOutcome.Error}, msgHash)
 
     # And the node's own message reached neither its relay cache nor its receive path
     let cached = await client.relayGetAutoMessagesV1(contentTopic)
@@ -760,8 +946,12 @@ suite "Waku API - Send":
         raiseAssert "Failed to start Waku node: " & error
     defer:
       (await node.stop()).expect("Failed to stop node")
+    let bystander = await startBystander()
+    defer:
+      await bystander.stop()
+    await node.connectBystander(bystander)
 
-    node.messagingClient.sendService.maxDeliveryTime = 5.seconds
+    node.messagingClient.sendService.deliveryWindow = 5.seconds
 
     let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
@@ -773,22 +963,23 @@ suite "Waku API - Send":
       proc(event: MessageReceivedEvent) {.async: (raises: []).} =
         received.add(event),
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
     defer:
       await MessageReceivedEvent.dropListener(node.waku.brokerCtx, receivedListener)
 
     let payload = "test payload"
-    let requestId = (
+    let msgHash = (
       await node.messagingClient.send(
         MessageEnvelope.init(ContentTopic("/waku/2/default-content/proto"), payload)
       )
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
 
     check await eventManager.errorFuture.withTimeout(10.seconds)
-    eventManager.validate({SendEventOutcome.Error}, requestId)
+    eventManager.validate({SendEventOutcome.Error}, msgHash)
     check:
-      eventManager.errorDescs == @["Unable to send within retry time window"]
+      eventManager.errorDescs == @["Unable to send within the delivery window"]
+      eventManager.errorKinds == @[MessageErrorKind.NotPropagated]
       received.len == 0
 
   asyncTest "Store validation times out with an error event":
@@ -836,14 +1027,15 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.messagingClient.send(envelope)).valueOr:
-      raiseAssert error
+    let msgHash = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert $error
 
     check await eventManager.errorFuture.withTimeout(30.seconds)
 
     eventManager.validate(
-      {SendEventOutcome.Propagated, SendEventOutcome.Error}, requestId
+      {SendEventOutcome.Propagated, SendEventOutcome.Error}, msgHash
     )
+    check eventManager.errorKinds == @[MessageErrorKind.NotStored]
 
     await isolatedStoreNode.stop()
     (await node.stop()).isOkOr:
@@ -899,12 +1091,12 @@ suite "Waku API - Send":
 
     let contentTopic = ContentTopic("/waku/2/default-content/proto")
 
-    let requestId = (
+    let msgHash = (
       await node.messagingClient.send(
         MessageEnvelope.init(contentTopic, "test payload")
       )
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
 
     check await eventManager.propagatedFuture.withTimeout(10.seconds)
 
@@ -918,7 +1110,7 @@ suite "Waku API - Send":
     check await eventManager.errorFuture.withTimeout(30.seconds)
 
     eventManager.validate(
-      {SendEventOutcome.Propagated, SendEventOutcome.Error}, requestId
+      {SendEventOutcome.Propagated, SendEventOutcome.Error}, msgHash
     )
     check eventManager.errorDescs ==
       @[
@@ -937,17 +1129,17 @@ suite "Waku API - Send":
     defer:
       await laterEventManager.teardown()
 
-    let laterRequestId = (
+    let laterMsgHash = (
       await node.messagingClient.send(
         MessageEnvelope.init(contentTopic, "later test payload")
       )
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
 
     check await laterEventManager.sentFuture.withTimeout(10.seconds)
 
     laterEventManager.validate(
-      {SendEventOutcome.Propagated, SendEventOutcome.Sent}, laterRequestId
+      {SendEventOutcome.Propagated, SendEventOutcome.Sent}, laterMsgHash
     )
 
   asyncTest "Edge sender sends through a static node that was down at its start":
@@ -980,70 +1172,152 @@ suite "Waku API - Send":
     defer:
       await eventManager.teardown()
 
-    let requestId = (
+    let msgHash = (
       await node.messagingClient.send(
         MessageEnvelope.init(
           ContentTopic("/waku/2/default-content/proto"), "test payload"
         )
       )
     ).valueOr:
-      raiseAssert error
+      raiseAssert $error
 
     check await eventManager.propagatedFuture.withTimeout(10.seconds)
 
-    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+    eventManager.validate({SendEventOutcome.Propagated}, msgHash)
 
-## Checks that the caller gets the request id before any event of the send. The
-## node has a budget of 0, so each send emits an event with no network call. A
-## durable message gets `MessageQueuedEvent` and an ephemeral one gets
-## `MessageErrorEvent`.
+## Checks the refusals of `send` and that the caller gets the message hash
+## before any event of the send. Each node is connected only to a bystander, so
+## an accepted message stays in the send queue until its delivery window ends.
 
-const OrderTopic = ContentTopic("/test/1/send-order/proto")
+const RefusalTopic = ContentTopic("/test/1/send-refusal/proto")
 
-type OrderLog = ref object
-  ids: seq[RequestId] ## The ids that the callers got, in order.
-  events: seq[RequestId]
-  early: seq[RequestId] ## The events for an id that no caller had yet.
-
-proc record(log: OrderLog, id: RequestId) =
-  log.events.add(id)
-  if id notin log.ids:
-    log.early.add(id)
-
-proc keepId(log: OrderLog, res: Result[RequestId, string]) =
-  ## Records the id when the caller gets it. A refused send records an empty id.
-  log.ids.add(res.get(RequestId("")))
-
-proc noBudgetNode(capacity: uint): Future[LogosDelivery] {.async.} =
-  ## A started node whose rate limit admits no message.
+proc refusalNode(
+    conf: MessagingClientConf
+): Future[(LogosDelivery, WakuNode)] {.async.} =
+  ## A started node connected only to a bystander, and that bystander.
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
     node = (
       await LogosDelivery.new(
-        KernelConf(defaultTestNodeConf().kernel),
-        MessagingClientConf(
-          rateLimitEnabled: Opt.some(true),
-          rateLimitMessagesPerEpoch: Opt.some(0'u64),
-          sendQueueCapacity: Opt.some(capacity),
-        ),
-        ReliableChannelManagerConf(),
+        KernelConf(defaultTestNodeConf().kernel), conf, ReliableChannelManagerConf()
       )
     ).expect("LogosDelivery.new")
     (await node.start()).expect("start")
-  return node
+  let bystander = await startBystander()
+  await node.connectBystander(bystander)
+  return (node, bystander)
 
-suite "Messaging API - the request id comes before the events":
-  asyncTest "send and the MessagingSend provider return a finished future":
-    ## Both futures are finished when the call returns, and the task is in the
-    ## send queue.
-    let node = await noBudgetNode(capacity = 4)
+type OrderLog = ref object
+  hashes: HashSet[string] ## The hashes that the callers got.
+  events: int
+  early: seq[string] ## The events for a hash that no caller had yet.
+
+proc record(log: OrderLog, hash: string) =
+  inc log.events
+  if hash notin log.hashes:
+    log.early.add(hash)
+
+suite "Messaging API - send refusals":
+  asyncTest "a send with no rate-limit budget is refused as RateLimited, with retryAfter":
+    let (node, bystander) = await refusalNode(
+      MessagingClientConf(
+        rateLimitEnabled: Opt.some(true), rateLimitMessagesPerEpoch: Opt.some(0'u64)
+      )
+    )
     defer:
       (await node.stop()).expect("stop")
+      await bystander.stop()
     let client = node.messagingClient
 
-    let direct = client.send(MessageEnvelope.init(OrderTopic, "direct"))
+    for ephemeral in [false, true]:
+      let refused =
+        await client.send(MessageEnvelope.init(RefusalTopic, "payload", ephemeral))
+      check:
+        refused.isErr()
+        refused.error.kind == SendErrorKind.RateLimited
+        refused.error.retryAfter > ZeroDuration
+        # The text has the seconds to wait, for a caller that gets only the text.
+        ($refused.error).endsWith(
+          ", retry after: " & $max(1'i64, refused.error.retryAfter.seconds) &
+            " s (RateLimited)"
+        )
+
+    # The broker gives the refusal as text, with its kind at the end.
+    let viaBroker = await MessagingSend.request(
+      node.waku.brokerCtx, MessageEnvelope.init(RefusalTopic, "broker")
+    )
+    check viaBroker.isErr()
+    if viaBroker.isErr():
+      # The broker text has the seconds to wait as a number.
+      let seconds =
+        try:
+          viaBroker.error.split(", retry after: ")[^1].split(" s (")[0].parseInt()
+        except ValueError:
+          -1
+      check:
+        viaBroker.error.startsWith(
+          "messaging send refused: failed to enqueue the message: "
+        )
+        viaBroker.error.endsWith(" s (RateLimited)")
+        seconds > 0
+    check client.sendService.deliveryTasks.len == 0
+
+  asyncTest "a send in the clock step of the send before takes the next nanosecond":
+    ## A clock that moves, forward or back, gives the stamp again.
+    let (node, bystander) = await refusalNode(MessagingClientConf())
+    defer:
+      (await node.stop()).expect("stop")
+      await bystander.stop()
+    let client = node.messagingClient
+    let reading = new Timestamp
+    client.sendTimeClock = proc(): Timestamp {.gcsafe, raises: [].} =
+      reading[]
+    var stamps: seq[Timestamp]
+    for clockValue in [1_000'i64, 1_000, 1_000, 2_000, 2_000, 500]:
+      reading[] = clockValue
+      stamps.add(client.nextTimestamp())
+    check stamps == @[1_000'i64, 1_001, 1_002, 2_000, 2_001, 500]
+
+  asyncTest "two sends of one payload in one clock step are two messages, and a full queue refuses as QueueFull":
+    let (node, bystander) = await refusalNode(MessagingClientConf())
+    defer:
+      (await node.stop()).expect("stop")
+      await bystander.stop()
+    let client = node.messagingClient
+    client.sendService.maxSendsInFlight = 2
+
+    # A clock that does not move, so the two sends of one payload are in one
+    # clock step.
+    let now = getNowInNanosecondTime()
+    client.sendTimeClock = proc(): Timestamp {.gcsafe, raises: [].} =
+      now
+    let envelope = MessageEnvelope.init(RefusalTopic, "twice")
+    let first = (await client.send(envelope)).expect("the first send")
+    let second = (await client.send(envelope)).expect("the second send")
+    let firstTask = client.sendService.deliveryTasks.getOrDefault(first)
+    let secondTask = client.sendService.deliveryTasks.getOrDefault(second)
+    check:
+      first != second
+      not firstTask.isNil() and firstTask.msg.timestamp == now
+      not secondTask.isNil() and secondTask.msg.timestamp == now + 1
+
+    let full = await client.send(MessageEnvelope.init(RefusalTopic, "over"))
+    check:
+      full.isErr()
+      full.error.kind == SendErrorKind.QueueFull
+      $full.error ==
+        "failed to enqueue the message: send queue full, retry later (QueueFull)"
+
+  asyncTest "send and the MessagingSend provider return a finished future":
+    ## `send` does not suspend, so both futures are finished when the call returns.
+    let (node, bystander) = await refusalNode(MessagingClientConf())
+    defer:
+      (await node.stop()).expect("stop")
+      await bystander.stop()
+
+    let direct = node.messagingClient.send(MessageEnvelope.init(RefusalTopic, "direct"))
     let viaBroker = MessagingSend.request(
-      node.waku.brokerCtx, MessageEnvelope.init(OrderTopic, "broker")
+      node.waku.brokerCtx, MessageEnvelope.init(RefusalTopic, "broker")
     )
     check:
       direct.finished()
@@ -1053,60 +1327,51 @@ suite "Messaging API - the request id comes before the events":
         direct.read().isOk()
         viaBroker.read().isOk()
 
-    # The node has room for 4 tasks, the 2 sends above and 2 more.
-    for i in 0 ..< 2:
-      check (await client.send(MessageEnvelope.init(OrderTopic, "fill-" & $i))).isOk()
-    check:
-      client.sendService.isFull()
-      (await client.send(MessageEnvelope.init(OrderTopic, "over"))).errorOr("accepted") ==
-        "Send queue full, retry later"
-
-  asyncTest "no event comes before its request id, durable and ephemeral":
-    let node = await noBudgetNode(capacity = 100)
+  asyncTest "no event comes before its message hash, through the client and the broker":
+    let (node, bystander) = await refusalNode(MessagingClientConf())
     defer:
       (await node.stop()).expect("stop")
+      await bystander.stop()
     let client = node.messagingClient
     let brokerCtx = node.waku.brokerCtx
+    client.sendService.deliveryWindow = 1.seconds
 
     let log = OrderLog()
-    let queuedListener = MessageQueuedEvent
-      .listen(
-        brokerCtx,
-        proc(event: MessageQueuedEvent) {.async: (raises: []).} =
-          log.record(event.requestId),
-      )
-      .expect("listen queued")
     let errorListener = MessageErrorEvent
       .listen(
         brokerCtx,
         proc(event: MessageErrorEvent) {.async: (raises: []).} =
-          log.record(event.requestId),
+          log.record(event.messageHash),
       )
       .expect("listen error")
-    defer:
-      await MessageQueuedEvent.dropListener(brokerCtx, queuedListener)
-      await MessageErrorEvent.dropListener(brokerCtx, errorListener)
-
-    # Each batch sends two messages through the client and two through the
-    # broker. A durable task parks and an ephemeral task fails.
-    for batch in 0 ..< 3:
-      proc envelope(kind: string, ephemeral = false): MessageEnvelope =
-        MessageEnvelope.init(OrderTopic, kind & "-" & $batch, ephemeral = ephemeral)
-
-      log.keepId(await client.send(envelope("durable")))
-      log.keepId(await client.send(envelope("ephemeral", ephemeral = true)))
-      log.keepId(await MessagingSend.request(brokerCtx, envelope("broker-durable")))
-      log.keepId(
-        await MessagingSend.request(
-          brokerCtx, envelope("broker-ephemeral", ephemeral = true)
-        )
+    let propagatedListener = MessagePropagatedEvent
+      .listen(
+        brokerCtx,
+        proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
+          log.record(event.messageHash),
       )
-      checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, chronos.milliseconds(5)):
-        log.events.len == log.ids.len
+      .expect("listen propagated")
+    defer:
+      await MessageErrorEvent.dropListener(brokerCtx, errorListener)
+      await MessagePropagatedEvent.dropListener(brokerCtx, propagatedListener)
 
+    for i in 0 ..< 3:
+      let direct = (
+        await client.send(MessageEnvelope.init(RefusalTopic, "direct-" & $i))
+      ).expect("send")
+      log.hashes.incl(direct.to0xHex())
+      let viaBroker = (
+        await MessagingSend.request(
+          brokerCtx, MessageEnvelope.init(RefusalTopic, "broker-" & $i)
+        )
+      ).expect("MessagingSend")
+      log.hashes.incl(viaBroker.to0xHex())
+
+    # With no peer, each message fails once its delivery window ends.
+    checkUntilTimeout:
+      log.events == 6
     check:
-      log.ids.len == 12
-      RequestId("") notin log.ids # each send got an id
+      log.hashes.len == 6
       log.early.len == 0
 
 suite "Messaging API - a node that is not started":
@@ -1125,10 +1390,12 @@ suite "Messaging API - a node that is not started":
         if stopped:
           (await node.start()).expect("start")
           (await node.stop()).expect("stop")
+        let refused = await client.send(MessageEnvelope.init(SendTopic, "payload"))
         check:
-          (await client.send(MessageEnvelope.init(SendTopic, "payload"))).errorOr(
-            "accepted"
-          ) == "node is not started"
+          refused.isErr()
+          refused.error.kind == SendErrorKind.NotStarted
+          $refused.error ==
+            "messaging client unavailable: node is not started (NotStarted)"
           (await client.subscribe(SubscribeTopic)).errorOr("accepted") ==
             "node is not started"
           client.unsubscribe(UnsubscribeTopic).errorOr("accepted") ==
@@ -1148,10 +1415,10 @@ suite "Messaging API - a node that is not started":
 
       # `stop` runs up to its first wait before it returns its future.
       let stopping = client.stop()
+      let refused = await client.send(MessageEnvelope.init(StopTopic, "payload"))
       check:
-        (await client.send(MessageEnvelope.init(StopTopic, "payload"))).errorOr(
-          "accepted"
-        ) == "node is not started"
+        refused.isErr()
+        refused.error.kind == SendErrorKind.NotStarted
       await stopping
       (await node.stop()).expect("stop")
 

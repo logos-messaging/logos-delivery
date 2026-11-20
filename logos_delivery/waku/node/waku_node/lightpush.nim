@@ -416,7 +416,7 @@ proc lightpushPublish*(
     if size > limit:
       return lighpushErrorResult(
         LightPushErrorCode.INVALID_MESSAGE,
-        "message too large for mix: the request has " & $size & " bytes, the limit is " &
+        "message too large for mix: the request has: " & $size & " bytes, the limit is: " &
           $limit & " bytes",
       )
 

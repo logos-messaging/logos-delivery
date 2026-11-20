@@ -4,32 +4,27 @@ import logos_delivery/api/types as api_types
 
 export event_broker, api_types
 
+type MessageErrorKind* {.pure.} = enum
+  NotPropagated ## No peer took the message within the delivery window.
+  NotStored ## No Store node reported the propagated message within its window.
+
 EventBroker:
   # Event emitted when a store node, or the mix exit for a send over mix, confirms
   # a message. Only with the `reliability` option on, and never for an ephemeral
   # message.
   type MessageSentEvent* = object
-    requestId*: RequestId
     messageHash*: string
 
 EventBroker:
-  # Event emitted when a message send operation fails
+  # Event emitted when a message that `send` accepted fails.
   type MessageErrorEvent* = object
-    requestId*: RequestId
     messageHash*: string
+    kind*: MessageErrorKind
     error*: string
-
-EventBroker:
-  # Event emitted when a send is held back because the epoch's rate-limit budget
-  # is spent. The message stays queued and is sent once the budget refills.
-  type MessageQueuedEvent* = object
-    requestId*: RequestId
-    messageHash*: string
 
 EventBroker:
   # Confirmation that a message has been correctly delivered to some neighbouring nodes.
   type MessagePropagatedEvent* = object
-    requestId*: RequestId
     messageHash*: string
 
 EventBroker:

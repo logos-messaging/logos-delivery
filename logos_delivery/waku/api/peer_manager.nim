@@ -90,6 +90,11 @@ proc connectedPeersInfo*(
   except CatchableError as e:
     return err(e.msg)
 
+proc hasConnectedPeer*(self: Waku): bool =
+  ## True when the node has at least one connected peer.
+  let (inPeers, outPeers) = self.node.peerManager.connectedPeers()
+  return inPeers.len + outPeers.len > 0
+
 proc connectedPeers*(self: Waku): Future[Result[seq[string], string]] {.async.} =
   try:
     let (inPeerIds, outPeerIds) = self.node.peerManager.connectedPeers()

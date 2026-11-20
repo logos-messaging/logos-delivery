@@ -6,8 +6,12 @@ from src.steps.common import StepsCommon
 from src.libs.common import to_base64
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    SEND_REFUSED_NO_SHARD,
     EventCollector,
     assert_event_invariants,
+    assert_message_hash,
+    assert_no_message_events,
+    assert_send_refused,
     create_message_bindings,
     get_node_multiaddr,
     wait_for_connected,
@@ -28,7 +32,7 @@ SEND_AFTER_DESTROY_SUBPROCESS_TIMEOUT_S = 60
 S01_INVALID_HANDLE_HELPER = "tests.c_abi.helpers.send_invalid_handle"
 
 # S05: malformed content topics
-S05_EXPECTED_ERROR_FRAGMENT = "Failed to create delivery task"
+S05_EXPECTED_ERROR_FRAGMENT = "failed to create DeliveryTask"
 S05_MALFORMED_CONTENT_TOPICS = [
     # No leading slash — parser rejects with "must start with slash".
     ("s05-invalid-no-leading-slash", "no-leading-slash"),
@@ -141,7 +145,7 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 assert wait_for_connected(sender_collector) is not None, "Sender did not reach Connected/PartiallyConnected state"
 
                 # Explicit subscribe before send — this is what S03 is about.
-                # The send path must still return Ok(RequestId) and emit the
+                # The send path must still return Ok(messageHash) and emit the
                 # same events as the topology in S06.
                 subscribe_result = sender.subscribe_content_topic(content_topic)
                 assert subscribe_result.is_ok(), f"subscribe_content_topic failed: {subscribe_result.err()}"
@@ -152,28 +156,25 @@ class TestS03SendOnAlreadySubscribedTopic(StepsCommon):
                 )
 
                 send_result = sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                message_hash = assert_message_hash(send_result)
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id,
+                    message_hash=message_hash,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == message_hash
 
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
 
-                sent = wait_for_sent(sender_collector, request_id, timeout_s=0)
+                sent = wait_for_sent(sender_collector, message_hash, timeout_s=0)
                 assert sent is None, f"Unexpected message_sent event (store is disabled): {sent}"
 
-                assert_event_invariants(sender_collector, request_id)
+                assert_event_invariants(sender_collector, message_hash)
 
 
 class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
@@ -182,7 +183,7 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
     Sender subscribes to topic A, unsubscribes from A, then sends on A.
     The send path must deliver normally.
     Topology mirrors S06 (relay-only sender + relay peer, no store).
-    Expected: send() returns Ok(RequestId), Propagated arrives,
+    Expected: send() returns Ok(messageHash), Propagated arrives,
     no Sent (store disabled), no Error.
     Purpose: verifies send() delivers normally after local unsubscribe.
     """
@@ -234,39 +235,36 @@ class TestS04UnsubscribeThenSendSameTopic(StepsCommon):
                 )
 
                 send_result = sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed after unsubscribe: {send_result.err()}"
-
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                message_hash = assert_message_hash(send_result)
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id,
+                    message_hash=message_hash,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s "
                     f"after unsubscribe + send. Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == message_hash
 
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
 
-                sent = wait_for_sent(sender_collector, request_id, timeout_s=0)
+                sent = wait_for_sent(sender_collector, message_hash, timeout_s=0)
                 assert sent is None, f"Unexpected message_sent event (store is disabled): {sent}"
 
-                assert_event_invariants(sender_collector, request_id)
+                assert_event_invariants(sender_collector, message_hash)
 
 
 class TestS05MalformedContentTopic(StepsCommon):
     """
     S05 — Malformed content topic.
-    Sender is initialized but task creation is forced to fail by using a
-    malformed content topic that breaks shard resolution.
-    Expected: send() returns Err with a "delivery task" message, no events.
-    Purpose: covers the last synchronous error path before request ID creation,
-    across several distinct validator branches.
+    Sender is initialized and connected, but task creation is forced to fail
+    by using a malformed content topic that breaks shard resolution.
+    Expected: send() is refused with NoShardMapsContentTopic and a "DeliveryTask" message, no events.
+    Purpose: covers the synchronous refusal on task creation, across several
+    distinct validator branches.
     """
 
     @pytest.mark.parametrize(
@@ -291,25 +289,24 @@ class TestS05MalformedContentTopic(StepsCommon):
         assert sender_result.is_ok(), f"Failed to start sender: {sender_result.err()}"
 
         with sender_result.ok_value as sender:
-            # Malformed content topic — it does not resolve to a shard, so the
-            # task creation inside send() fails.
-            message = create_message_bindings(
-                payload=to_base64("S05 malformed content topic payload"),
-                contentTopic=content_topic,
-            )
+            # send() checks the connection before the content topic, so a relay peer joins first.
+            peer_result = WrapperManager.create_and_start(config={**node_config, "staticnodes": [get_node_multiaddr(sender)]})
+            assert peer_result.is_ok(), f"Failed to start relay peer: {peer_result.err()}"
 
-            send_result = sender.send_message(message=message)
+            with peer_result.ok_value:
+                assert wait_for_connected(sender_collector) is not None, "Sender did not reach Connected/PartiallyConnected state"
 
-            assert send_result.is_err(), (
-                f"send() must return Err when the task creation fails for " f"content_topic={content_topic!r}, got Ok({send_result.ok_value!r})"
-            )
+                # Malformed content topic — it does not resolve to a shard, so the
+                # task creation inside send() fails.
+                message = create_message_bindings(
+                    payload=to_base64("S05 malformed content topic payload"),
+                    contentTopic=content_topic,
+                )
 
-            error_message = send_result.err() or ""
-            assert S05_EXPECTED_ERROR_FRAGMENT in error_message, (
-                f"expected error to mention {S05_EXPECTED_ERROR_FRAGMENT!r} " f"for content_topic={content_topic!r}, got: {error_message!r}"
-            )
+                send_result = sender.send_message(message=message)
+                error_message = assert_send_refused(send_result, SEND_REFUSED_NO_SHARD)
+                assert S05_EXPECTED_ERROR_FRAGMENT in error_message, (
+                    f"expected error to mention {S05_EXPECTED_ERROR_FRAGMENT!r} " f"for content_topic={content_topic!r}, got: {error_message!r}"
+                )
 
-            # No request id was created, so no events should be emitted.
-            assert sender_collector.events == [] or all(
-                event.get("eventType") == "connection_status_change" for event in sender_collector.events
-            ), f"Unexpected events after a pre-task-creation failure: {sender_collector.events}"
+                assert_no_message_events(sender_collector)
