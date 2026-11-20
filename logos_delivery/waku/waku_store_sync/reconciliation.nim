@@ -36,10 +36,6 @@ logScope:
 
 const DefaultStorageCap = 50_000
 
-const DefaultMaxPayloadSize = 64 * 1024 * 1024
-  ## The largest reconciliation payload that a node reads. An item set entry
-  ## takes at most 41 bytes, so this is about 1.6 million entries in one round.
-
 const MaxPendingTimeouts = 6
   ## Caps the extension of a promise, in pending timeouts after its round,
   ## because no round asks another peer for an element while it is pending.
@@ -519,7 +515,10 @@ proc storeSynchronization*(
   return ok()
 
 proc initFillStorage(
-    syncRange: timer.Duration, wakuArchive: WakuArchive, now: Timestamp
+    syncRange: timer.Duration,
+    wakuArchive: WakuArchive,
+    now: Timestamp,
+    frameSizeLimit: int,
 ): Future[Result[SeqStorage, string]] {.async.} =
   if wakuArchive.isNil():
     return err("waku archive unavailable")
@@ -538,7 +537,7 @@ proc initFillStorage(
 
   debug "Initial storage filling started"
 
-  var storage = SeqStorage.new(DefaultStorageCap)
+  var storage = SeqStorage.new(DefaultStorageCap, frameSizeLimit = frameSizeLimit)
 
   while true:
     let response = (await wakuArchive.findMessages(query)).valueOr:
@@ -579,6 +578,7 @@ proc new*(
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
     pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
+    frameSizeLimit = DefaultMaxPayloadSize,
 ): Future[Result[T, string]] {.async.} =
   let timeRetention =
     if wakuArchive.isNil():
@@ -594,11 +594,11 @@ proc new*(
       effective_sync_range = effectiveRange,
       fix = "lower --store-sync-range or raise the time retention"
 
-  let res = await initFillStorage(effectiveRange, wakuArchive, clock())
+  let res = await initFillStorage(effectiveRange, wakuArchive, clock(), frameSizeLimit)
   let storage =
     if res.isErr():
       warn "will not sync messages before this point in time", error = res.error
-      SeqStorage.new(DefaultStorageCap)
+      SeqStorage.new(DefaultStorageCap, frameSizeLimit = frameSizeLimit)
     else:
       res.get()
 

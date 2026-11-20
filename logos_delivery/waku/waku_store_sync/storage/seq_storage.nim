@@ -1,11 +1,15 @@
 import
-  std/[algorithm, sequtils, tables, packedsets, sugar], results, chronos, stew/arrayops
+  std/[algorithm, sequtils, tables, packedsets, sugar],
+  results,
+  chronos,
+  stew/[arrayops, leb128]
 
 import
   ../../waku_core/time,
   ../../waku_core/message/digest,
   ../../waku_core/topics/pubsub_topic,
   ../common,
+  ../codec,
   ./range_processing,
   ./storage
 
@@ -23,6 +27,18 @@ type SeqStorage* = ref object of SyncStorage
 
   # Number of element in a range for which item sets are used instead of fingerprints.
   lengthThreshold: int
+
+  # Only the first range of a reply that is not Skip may take the reply over
+  # this limit.
+  frameSizeLimitBytes: int
+
+type RangeAnswer* = object
+  ## The answer to one received range: the ranges of the reply, the IDs that
+  ## each side transfers, and the bytes still free in the reply.
+  reply*: RangesData
+  idsToSend*: seq[SyncID]
+  idsToRecv*: seq[SyncID]
+  frameBytesLeft*: int
 
 method length*(self: SeqStorage): int {.raises: [].} =
   return self.elements.len
@@ -224,14 +240,18 @@ proc processFingerprintRange*(
     pubsubTopicSet: PackedSet[int],
     inputFingerprint: Fingerprint,
     output: var RangesData,
+    frameBytesLeft: var int,
 ) {.raises: [].} =
-  ## Compares fingerprints and partition new ranges.
+  ## Compares fingerprints and partition new ranges. Subtracts the encoded size
+  ## of each range that it adds from `frameBytesLeft`, the bytes still free in
+  ## the reply.
 
   let idxSlice = self.findIdxBounds(inputBounds)
   let ourFingerprint = self.computeFingerprintFromSlice(idxSlice, pubsubTopicSet)
 
   if ourFingerprint == inputFingerprint:
     output.ranges.add((inputBounds, RangeType.Skip))
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     return
 
   # An empty range is not marked reconciled: the peer then replies with its
@@ -240,18 +260,25 @@ proc processFingerprintRange*(
     output.ranges.add((inputBounds, RangeType.ItemSet))
     let state = ItemSet(elements: @[], reconciled: false)
     output.itemSets.add(state)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.ItemSet, state)
     return
 
   let slice = idxSlice.get()
+  let partitions = equalPartitioning(inputBounds, self.partitionCount)
 
   if slice.len <= self.lengthThreshold:
-    output.ranges.add((inputBounds, RangeType.ItemSet))
     let elements = self.getFilteredElements(slice, pubsubTopicSet)
     let state = ItemSet(elements: elements, reconciled: false)
-    output.itemSets.add(state)
-    return
+    let size = maxEncodedRangeSize(RangeType.ItemSet, state)
+    # An item set that does not fit makes the range too large, so it is
+    # divided. A range too short to divide is listed anyway, so that the
+    # session progresses.
+    if size <= frameBytesLeft or partitions.len == 0:
+      frameBytesLeft -= size
+      output.ranges.add((inputBounds, RangeType.ItemSet))
+      output.itemSets.add(state)
+      return
 
-  let partitions = equalPartitioning(inputBounds, self.partitionCount)
   for partitionBounds in partitions:
     let sliceOpt = self.findIdxBounds(partitionBounds)
 
@@ -259,116 +286,163 @@ proc processFingerprintRange*(
       output.ranges.add((partitionBounds, RangeType.ItemSet))
       let state = ItemSet(elements: @[], reconciled: false)
       output.itemSets.add(state)
+      frameBytesLeft -= maxEncodedRangeSize(RangeType.ItemSet, state)
       continue
 
     let slice = sliceOpt.get()
 
     if slice.len <= self.lengthThreshold:
-      output.ranges.add((partitionBounds, RangeType.ItemSet))
       let elements = self.getFilteredElements(slice, pubsubTopicSet)
       let state = ItemSet(elements: elements, reconciled: false)
-      output.itemSets.add(state)
-      continue
+      let size = maxEncodedRangeSize(RangeType.ItemSet, state)
+      # A partition whose item set does not fit is sent as a fingerprint.
+      if size <= frameBytesLeft:
+        frameBytesLeft -= size
+        output.ranges.add((partitionBounds, RangeType.ItemSet))
+        output.itemSets.add(state)
+        continue
 
     let fingerprint = self.computeFingerprintFromSlice(Opt.some(slice), pubsubTopicSet)
     output.ranges.add((partitionBounds, RangeType.Fingerprint))
     output.fingerprints.add(fingerprint)
+    frameBytesLeft -= maxEncodedRangeSize(RangeType.Fingerprint)
     continue
 
+func differences(
+    ourSyncIDs, theirSyncIDs: seq[SyncID]
+): tuple[ourOnly, theirOnly: seq[SyncID]] =
+  ## The IDs that only one side holds. Both inputs are sorted.
+  var
+    ourOnly: seq[SyncID]
+    theirOnly: seq[SyncID]
+    i = 0
+    j = 0
+
+  while i < theirSyncIDs.len and j < ourSyncIDs.len:
+    if theirSyncIDs[i] < ourSyncIDs[j]:
+      theirOnly.add(theirSyncIDs[i])
+      i.inc()
+    elif theirSyncIDs[i] > ourSyncIDs[j]:
+      ourOnly.add(ourSyncIDs[j])
+      j.inc()
+    else:
+      i.inc()
+      j.inc()
+
+  theirOnly.add(theirSyncIDs[i ..^ 1])
+  ourOnly.add(ourSyncIDs[j ..^ 1])
+  (ourOnly, theirOnly)
+
+func fittingCount(ourSyncIDs: seq[SyncID], available: int): int =
+  ## The number of leading IDs whose listing fits in `available` bytes, or 0.
+  ## The cutoff has a zero hash, so it falls before every element of its
+  ## timestamp: the listing can end only where the timestamp changes.
+  let emptyListing = maxEncodedRangeSize(RangeType.ItemSet, ItemSet())
+  var
+    fitting = 0
+    elementsSize = 0
+    previousTime = Timestamp(0)
+
+  for k in 0 ..< ourSyncIDs.len:
+    elementsSize += encodedElementSize(ourSyncIDs[k], previousTime)
+    previousTime = ourSyncIDs[k].time
+    # emptyListing counts one byte for an element count of zero.
+    let listing = emptyListing - 1 + int(Leb128.len(uint64(k + 1))) + elementsSize
+    if listing > available:
+      break
+    if k + 1 == ourSyncIDs.len or ourSyncIDs[k + 1].time != ourSyncIDs[k].time:
+      fitting = k + 1
+
+  fitting
+
+func firstTimestampCount(ourSyncIDs: seq[SyncID]): int =
+  ## The number of IDs that share the first timestamp.
+  var count = 0
+  while count < ourSyncIDs.len and ourSyncIDs[count].time == ourSyncIDs[0].time:
+    count.inc()
+  count
+
+func addDifferences(
+    answer: var RangeAnswer, ourOnly, theirOnly: seq[SyncID], cutoff: Opt[SyncID]
+) =
+  ## Appends the differences below `cutoff`, or all of them without one. The
+  ## cutoff is none when the answer covers the whole range: a Skip for a
+  ## reconciled item set, or a listing that fits. With a split, the peer learns
+  ## only the IDs below the cutoff in this round.
+  for id in ourOnly:
+    if cutoff.isNone() or id < cutoff.get():
+      answer.idsToSend.add(id)
+
+  for id in theirOnly:
+    if cutoff.isNone() or id < cutoff.get():
+      answer.idsToRecv.add(id)
+
 proc processItemSetRange*(
     self: SeqStorage,
     inputBounds: Slice[SyncID],
     pubsubTopicSet: PackedSet[int],
     inputItemSet: ItemSet,
-    idsToSend: var seq[SyncID],
-    idsToRecv: var seq[SyncID],
-    output: var RangesData,
+    answer: var RangeAnswer,
 ) {.raises: [].} =
-  ## Compares item sets and outputs differences
+  ## Compares item sets and adds the differences to `answer`. Subtracts the
+  ## encoded size of the ranges that it adds from `answer.frameBytesLeft`. A
+  ## listing that does not fit is split at a cutoff. The first timestamp of the
+  ## range is listed even when it does not fit, which leaves
+  ## `answer.frameBytesLeft` negative.
 
   let idxSlice = self.findIdxBounds(inputBounds)
-
-  if idxSlice.isNone():
-    for element in inputItemSet.elements:
-      idsToRecv.add(element)
-
-    if not inputItemSet.reconciled:
-      output.ranges.add((inputBounds, RangeType.ItemSet))
-      let state = ItemSet(elements: @[], reconciled: true)
-      output.itemSets.add(state)
+  let ourSyncIDs =
+    if idxSlice.isSome():
+      self.getFilteredElements(idxSlice.get(), pubsubTopicSet)
     else:
-      output.ranges.add((inputBounds, RangeType.Skip))
+      @[]
+  let (ourOnly, theirOnly) = differences(ourSyncIDs, inputItemSet.elements)
 
+  if inputItemSet.reconciled:
+    answer.addDifferences(ourOnly, theirOnly, Opt.none(SyncID))
+    answer.reply.ranges.add((inputBounds, RangeType.Skip))
+    answer.frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     return
 
-  let slice = idxSlice.get()
+  let full = ItemSet(elements: ourSyncIDs, reconciled: true)
+  let fullSize = maxEncodedRangeSize(RangeType.ItemSet, full)
 
-  var i = 0
-  let n = inputItemSet.elements.len
+  # Number of elements that the reply lists.
+  var fitting = ourSyncIDs.len
 
-  var j = slice.a
-  let m = slice.b + 1
+  if fullSize > answer.frameBytesLeft:
+    # Keeps back the size of the fingerprint of the rest.
+    fitting = fittingCount(
+      ourSyncIDs, answer.frameBytesLeft - maxEncodedRangeSize(RangeType.Fingerprint)
+    )
 
-  while (j < m):
-    let ourElement = self.elements[j]
-    let pubsub = self.pubsubTopicIndexes[j]
+    if fitting == 0:
+      fitting = firstTimestampCount(ourSyncIDs)
 
-    if pubsubTopicSet.len > 0 and pubsub notin pubsubTopicSet:
-      j.inc()
-      continue
+  if fitting == ourSyncIDs.len:
+    answer.addDifferences(ourOnly, theirOnly, Opt.none(SyncID))
+    answer.reply.ranges.add((inputBounds, RangeType.ItemSet))
+    answer.reply.itemSets.add(full)
+    answer.frameBytesLeft -= fullSize
+    return
 
-    if i >= n:
-      # in case we have more elements
-      idsToSend.add(ourElement)
-      j.inc()
-      continue
-
-    let theirElement = inputItemSet.elements[i]
-
-    if theirElement < ourElement:
-      idsToRecv.add(theirElement)
-      i.inc()
-    elif theirElement > ourElement:
-      idsToSend.add(ourElement)
-      j.inc()
-    else:
-      i.inc()
-      j.inc()
-
-  while (i < n):
-    # in case they have more elements
-    let theirElement = inputItemSet.elements[i]
-    i.inc()
-    idsToRecv.add(theirElement)
-
-  if not inputItemSet.reconciled:
-    output.ranges.add((inputBounds, RangeType.ItemSet))
-    let elements = self.getFilteredElements(slice, pubsubTopicSet)
-    let state = ItemSet(elements: elements, reconciled: true)
-    output.itemSets.add(state)
-  else:
-    output.ranges.add((inputBounds, RangeType.Skip))
-
-proc processItemSetRange*(
-    self: SeqStorage,
-    inputBounds: Slice[SyncID],
-    pubsubTopicSet: PackedSet[int],
-    inputItemSet: ItemSet,
-    hashToSend: var seq[Fingerprint],
-    hashToRecv: var seq[Fingerprint],
-    output: var RangesData,
-) {.raises: [].} =
-  ## Same as above, with only the hashes of the elements.
-  var
-    idsToSend: seq[SyncID]
-    idsToRecv: seq[SyncID]
-  self.processItemSetRange(
-    inputBounds, pubsubTopicSet, inputItemSet, idsToSend, idsToRecv, output
+  let cutoff = SyncID(time: ourSyncIDs[fitting].time, hash: EmptyFingerprint)
+  let listed = ItemSet(elements: ourSyncIDs[0 ..< fitting], reconciled: true)
+  let rest = self.computeFingerprintFromSlice(
+    self.findIdxBounds(cutoff .. inputBounds.b), pubsubTopicSet
   )
-  for id in idsToSend:
-    hashToSend.add(id.hash)
-  for id in idsToRecv:
-    hashToRecv.add(id.hash)
+
+  answer.reply.ranges.add((inputBounds.a .. cutoff, RangeType.ItemSet))
+  answer.reply.itemSets.add(listed)
+  answer.reply.ranges.add((cutoff .. inputBounds.b, RangeType.Fingerprint))
+  answer.reply.fingerprints.add(rest)
+  answer.frameBytesLeft -=
+    maxEncodedRangeSize(RangeType.ItemSet, listed) +
+    maxEncodedRangeSize(RangeType.Fingerprint)
+
+  # The peer learns the rest of the range in a later round, and accepts over
+  # transfer only what it has learned.
+  answer.addDifferences(ourOnly, theirOnly, Opt.some(cutoff))
 
 method processPayload*(
     self: SeqStorage,
@@ -380,38 +454,72 @@ method processPayload*(
   ## send back. Appends to `idsToSend` the local elements the peer
   ## lacks, and to `idsToRecv` the peer's elements missing here, with their
   ## timestamps, so the caller can index them before they arrive.
+  ##
+  ## The reply stays within the frame size limit, except for its first range
+  ## that is not Skip. From the first range whose answer does not fit, it
+  ## answers the remaining ranges with one fingerprint range.
   var output = RangesData()
 
   var
     i = 0
     j = 0
+    # Keeps back the size of the fingerprint range that ends a stopped reply.
+    frameBytesLeft =
+      self.frameSizeLimitBytes - maxEncodedHeaderSize(input.shards.len) -
+      maxEncodedRangeSize(RangeType.Fingerprint)
+    # Only the first answered range that is not Skip may go over the limit, so
+    # that every round makes progress.
+    answeredOne = false
+    # The first received range that the reply does not answer, if any.
+    stopAt = -1
 
   let pubsubTopicSet = self.pubsubScope(
     input.shards.mapIt($RelayShard(clusterId: input.cluster, shardId: it))
   )
 
-  for (bounds, rangeType) in input.ranges:
+  for idx in 0 ..< input.ranges.len:
+    let (bounds, rangeType) = input.ranges[idx]
+
+    # Each answer is built separately, so that one that does not fit is dropped.
+    var answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
+
     case rangeType
     of RangeType.Skip:
-      output.ranges.add((bounds, RangeType.Skip))
-
-      continue
+      answer.reply.ranges.add((bounds, RangeType.Skip))
+      answer.frameBytesLeft -= maxEncodedRangeSize(RangeType.Skip)
     of RangeType.Fingerprint:
       let fingerprint = input.fingerprints[i]
       i.inc()
 
-      self.processFingerprintRange(bounds, pubsubTopicSet, fingerprint, output)
-
-      continue
+      self.processFingerprintRange(
+        bounds, pubsubTopicSet, fingerprint, answer.reply, answer.frameBytesLeft
+      )
     of RangeType.ItemSet:
       let itemSet = input.itemsets[j]
       j.inc()
 
-      self.processItemSetRange(
-        bounds, pubsubTopicSet, itemSet, idsToSend, idsToRecv, output
-      )
+      self.processItemSetRange(bounds, pubsubTopicSet, itemSet, answer)
 
-      continue
+    let mustKeep = rangeType != RangeType.Skip and not answeredOne
+    if not mustKeep and answer.frameBytesLeft < 0:
+      stopAt = idx
+      break
+
+    output.ranges.add(answer.reply.ranges)
+    output.fingerprints.add(answer.reply.fingerprints)
+    output.itemSets.add(answer.reply.itemSets)
+    idsToSend.add(answer.idsToSend)
+    idsToRecv.add(answer.idsToRecv)
+    frameBytesLeft = answer.frameBytesLeft
+    if rangeType != RangeType.Skip:
+      answeredOne = true
+
+  if stopAt >= 0:
+    let rest = input.ranges[stopAt][0].a .. input.ranges[^1][0].b
+    output.ranges.add((rest, RangeType.Fingerprint))
+    output.fingerprints.add(
+      self.computeFingerprintFromSlice(self.findIdxBounds(rest), pubsubTopicSet)
+    )
 
   # merge consecutive skip ranges
   var allSkip = true
@@ -464,11 +572,26 @@ proc processPayload*(
 
   return output
 
-proc new*(T: type SeqStorage, capacity: int, threshold = 100, partitions = 8): T =
+func minFrameSizeLimit(): int =
+  ## The size of the smallest reply: no shards and one fingerprint range.
+  maxEncodedHeaderSize(0) + maxEncodedRangeSize(RangeType.Fingerprint)
+
+proc new*(
+    T: type SeqStorage,
+    capacity: int,
+    threshold = 100,
+    partitions = 8,
+    frameSizeLimit = DefaultMaxPayloadSize,
+): T =
+  doAssert frameSizeLimit >= minFrameSizeLimit(),
+    "frameSizeLimit cannot hold a fingerprint range"
+  doAssert frameSizeLimit <= DefaultMaxPayloadSize,
+    "frameSizeLimit exceeds what a peer reads: " & $frameSizeLimit
   return SeqStorage(
     elements: newSeqOfCap[SyncID](capacity),
     lengthThreshold: threshold,
     partitionCount: partitions,
+    frameSizeLimitBytes: frameSizeLimit,
   )
 
 proc new*(
@@ -477,7 +600,12 @@ proc new*(
     pubsubTopics: seq[PubsubTopic],
     threshold = 100,
     partitions = 8,
+    frameSizeLimit = DefaultMaxPayloadSize,
 ): T =
+  doAssert frameSizeLimit >= minFrameSizeLimit(),
+    "frameSizeLimit cannot hold a fingerprint range"
+  doAssert frameSizeLimit <= DefaultMaxPayloadSize,
+    "frameSizeLimit exceeds what a peer reads: " & $frameSizeLimit
   var idx = 0
   var uniquePubsubTopics = initOrderedTable[PubsubTopic, int]()
   for pubsub in pubsubTopics:
@@ -495,4 +623,5 @@ proc new*(
     pubsubTopicIndexes: pubsubTopicIndexes,
     lengthThreshold: threshold,
     partitionCount: partitions,
+    frameSizeLimitBytes: frameSizeLimit,
   )

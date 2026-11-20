@@ -92,6 +92,7 @@ proc newTestWakuRecon*(
     pendingTimeout: timer.Duration = DefaultSyncInterval,
     pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
     peerManager: PeerManager = nil,
+    frameSizeLimit = DefaultMaxPayloadSize,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager =
     if peerManager.isNil():
@@ -113,6 +114,7 @@ proc newTestWakuRecon*(
     clock = clock,
     pendingTimeout = pendingTimeout,
     pendingClock = pendingClock,
+    frameSizeLimit = frameSizeLimit,
   )
 
   let proto = res.get()
