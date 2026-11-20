@@ -36,6 +36,9 @@ type PushMessageHandler* = proc(
 
 const TooManyRequestsMessage* = "Request rejected due to too many requests"
 
+const DuplicateMessageDesc* = "Dropping already-seen message"
+  ## Send processors use this exact text to recognize a duplicate reply.
+
 ## requestId a service answers with when it rejects a request before reading it
 const UnknownRequestId* = "N/A"
 
@@ -84,9 +87,7 @@ func mapPubishingErrorToPushResult*(
       (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Empty topic, skipping publish"))
     )
   of DuplicateMessage:
-    return err(
-      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Dropping already-seen message"))
-    )
+    return err((LightPushErrorCode.INVALID_MESSAGE, Opt.some(DuplicateMessageDesc)))
   of NoPeersToPublish:
     return err(
       (

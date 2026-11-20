@@ -91,6 +91,13 @@ func isRlnRejection*(error: ErrorStatus): bool =
       error.desc.get("").contains(RlnValidatorErrorMsg)
     )
 
+func isDuplicateMessage*(error: ErrorStatus): bool =
+  ## A duplicate confirms that the message reached a relay. Other errors also
+  ## use `INVALID_MESSAGE`, so the description must match `DuplicateMessageDesc`.
+  return
+    error.code == LightPushErrorCode.INVALID_MESSAGE and
+    error.desc.get("") == DuplicateMessageDesc
+
 proc onRlnProofRejected*(self: Waku): bool =
   ## Tells the mounted RLN backend its proof was rejected. True when the
   ## backend will refresh what proofs are built against; see
