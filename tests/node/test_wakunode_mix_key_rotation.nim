@@ -5,11 +5,13 @@ import
   chronos,
   results,
   libp2p/[crypto/crypto, peerid],
-  libp2p_mix/[curve25519, key_rotation, mix_protocol]
+  libp2p_mix/[curve25519, key_rotation, mix_protocol],
+  mix_rln_spam_protection/module_api
 import
   logos_delivery/waku/[
     waku_core,
     node/waku_node,
+    node/waku_node/relay,
     waku_mix,
     waku_enr/capabilities,
     factory/waku_conf,
@@ -53,12 +55,14 @@ suite "Waku Mix - key rotation":
     let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
-    node.advertiseRecord = proc(
-        isCurrent: proc(): bool {.gcsafe, raises: [].}
-    ) {.async: (raises: []).} =
-      await advertiseSelf(
-        node.discoveries, conf, @[0'u16], node.advertisedMixKey(), isCurrent
-      )
+    node.provideAdvertPart(
+      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
+        return ok(deliveryAdvertPart(conf, @[0'u16]))
+    ).isOkOr:
+      raiseAssert "Failed to provide the delivery part: " & error
+    # A node provides its mix key only when it relays for others.
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
     await node.start()
     await node.startRecordAdvertising()
     return (node, backend)
@@ -154,6 +158,54 @@ suite "Waku Mix - key rotation":
 
     await node.stop()
     check backend.withdrawn == @[ServiceKeyPrefix & LogosDeliveryServiceId]
+
+  asyncTest "a node that cannot act as a mix node advertises without its mix key":
+    ## With Mix RLN, a node without a usable Mix membership cannot prove a hop.
+    ## The mix part leaves the record, and comes back with the membership.
+    let (node, backend) = await advertisingNode()
+    defer:
+      node.wakuMixRln = nil
+      await node.stop()
+    let key = node.wakuMix.currentMixPubKey().expect("mix key")
+    checkUntilTimeout:
+      backend.mixKeys() == @[@key]
+
+    node.wakuMixRln = ModuleRlnProtection()
+    node.mixAdvertChanged("test: the Mix membership ended")
+    checkUntilTimeout:
+      backend.advertisedSecondary.len == 2
+    check:
+      backend.advertisedSecondary[1].len == 0
+      not advertisedCapabilities(backend.advertisedData[1])
+        .expect("a delivery payload")
+        .supportsCapability(Capabilities.Mix)
+
+    node.mixMembershipUsable = true
+    node.mixAdvertChanged("test: the Mix membership is usable")
+    checkUntilTimeout:
+      backend.mixKeys() == @[@key, @key]
+    check backend.advertisedData[2] == backend.advertisedData[0]
+
+  asyncTest "a record with a part that fails is not advertised":
+    ## The advertised record stays; the node does not advertise half a record.
+    let (node, backend) = await advertisingNode()
+    defer:
+      await node.stop()
+    checkUntilTimeout:
+      backend.advertisedData.len == 1
+
+    node.provideAdvertPart(
+      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
+        return err("this part cannot be read")
+    ).isOkOr:
+      raiseAssert "Failed to provide the failing part: " & error
+    node.rotate()
+    # Nothing signals an advertisement that does not happen; one would start
+    # within a few event-loop turns.
+    await sleepAsync(chronos.milliseconds(100))
+    check:
+      backend.advertisedData.len == 1
+      backend.withdrawn.len == 0
 
   asyncTest "a key replaced during a stuck advert is never published":
     ## The first advert waits inside `startAdvertising`. Two rotations replace its
