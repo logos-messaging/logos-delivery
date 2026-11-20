@@ -493,8 +493,7 @@ proc sendUntilPropagated(
       # refuse the message after it.
       if self.failExpired(task):
         return false
-      # The attempt uses the admission.
-      task.admissionRefundable = false
+      let triesBefore = task.tryCount
       try:
         await self.sendProcessor.process(task)
       except CancelledError as exc:
@@ -504,6 +503,11 @@ proc sendUntilPropagated(
         # fault.
         error "Exception in a send attempt",
           msgHash = task.loggedHash(), error = exc.msg
+      finally:
+        # Each `sendImpl` counts its attempt in `tryCount` before it sends, and an
+        # attempt uses the admission. A task that no processor took keeps it.
+        if task.tryCount > triesBefore:
+          task.admissionRefundable = false
     self.attempts.inc()
     case task.state
     of DeliveryState.SuccessfullyPropagated:

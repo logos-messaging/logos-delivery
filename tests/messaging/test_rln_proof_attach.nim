@@ -80,6 +80,7 @@ method isValidProcessor(self: CountingProcessor, task: DeliveryTask): bool {.gcs
 
 method sendImpl(self: CountingProcessor, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
+  task.tryCount.inc()
   task.state = DeliveryState.SuccessfullyPropagated
 
 proc buildTask(): DeliveryTask =

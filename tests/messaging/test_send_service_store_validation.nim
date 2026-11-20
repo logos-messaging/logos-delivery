@@ -130,6 +130,7 @@ method resendImpl(
 
 method process(self: ScriptedProc, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
+  task.tryCount.inc()
   if self.calls in self.retryCalls:
     task.state = DeliveryState.NextRoundRetry
     return
@@ -142,6 +143,7 @@ type PropagateAllProc = ref object of BaseSendProcessor
   ## Propagates each task at its first attempt.
 
 method process(self: PropagateAllProc, task: DeliveryTask): Future[void] {.async.} =
+  task.tryCount.inc()
   if task.firstPropagatedTime.isNone():
     task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated

@@ -30,6 +30,7 @@ type FakeSendProcessor = ref object of BaseSendProcessor
 method process(self: FakeSendProcessor, task: DeliveryTask): Future[void] {.async.} =
   let outcome = self.script[min(self.calls, self.script.high)]
   inc self.calls
+  task.tryCount.inc()
   task.state = outcome
   if outcome == DeliveryState.SuccessfullyPropagated and
       task.firstPropagatedTime.isNone():

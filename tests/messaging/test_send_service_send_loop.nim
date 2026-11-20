@@ -60,6 +60,7 @@ method process(self: ScriptedProcessor, task: DeliveryTask): Future[void] {.asyn
     task.state = DeliveryState.NextRoundRetry
     return
 
+  task.tryCount.inc()
   inc self.running
   defer:
     dec self.running
@@ -101,6 +102,7 @@ method sendImpl(
     self: FakePropagatingProcessor, task: DeliveryTask
 ): Future[void] {.async.} =
   self.calls.inc()
+  task.tryCount.inc()
   if task.firstPropagatedTime.isNone():
     task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated
@@ -117,6 +119,7 @@ method process(self: OrderProcessor, task: DeliveryTask): Future[void] {.async.}
   if not propagated:
     task.state = DeliveryState.NextRoundRetry
     return
+  task.tryCount.inc()
   if task.firstPropagatedTime.isNone():
     task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated
@@ -144,6 +147,7 @@ method isValidProcessor(self: StallingProcessor, task: DeliveryTask): bool {.gcs
   return true
 
 method sendImpl(self: StallingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  task.tryCount.inc()
   let reply = newFuture[void]("stalling-reply")
   self.replies.add(reply)
   await reply
@@ -158,6 +162,7 @@ method isValidProcessor(self: FailingProcessor, task: DeliveryTask): bool {.gcsa
   return true
 
 method sendImpl(self: FailingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  task.tryCount.inc()
   task.state = DeliveryState.FailedToDeliver
   task.errorDesc = "scripted failure"
 
@@ -169,7 +174,16 @@ method isValidProcessor(self: RaisingProcessor, task: DeliveryTask): bool {.gcsa
 
 method sendImpl(self: RaisingProcessor, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
+  task.tryCount.inc()
   raise newException(ValueError, "scripted fallback failure")
+
+type NeverValidProcessor = ref object of BaseSendProcessor
+  ## Takes no task, as a processor with no usable peer does.
+
+method isValidProcessor(
+    self: NeverValidProcessor, task: DeliveryTask
+): bool {.gcsafe.} =
+  return false
 
 type OutcomeLog = ref object
   ## The message hashes of the propagation and error events, in order.
@@ -554,6 +568,58 @@ suite "SendService - deliver":
     check:
       manager.sentInCurrentEpoch == 1 # the charge of `late` came back
       (service.enqueue(buildTask("after"))).isOk()
+
+  asyncTest "a task that no processor takes gives its admission back":
+    ## No processor has a usable peer, so no attempt goes out before the window
+    ## ends, and the admission of the task comes back.
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 2),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          600_000'u64,
+      )
+      .expect("RateLimitManager.new")
+    let service = newService(NeverValidProcessor(), manager = manager)
+    service.deliveryWindow = chronos.milliseconds(300)
+    let untaken = buildTask("untaken")
+    check:
+      (service.enqueue(untaken)).isOk()
+      manager.sentInCurrentEpoch == 1
+
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      untaken.hex() in log.errors
+    check:
+      untaken.tryCount == 0
+      manager.sentInCurrentEpoch == 0 # the admission of `untaken` came back
+
+  asyncTest "a stop during an attempt leaves the admission used":
+    ## The attempt counts itself before it waits, so a stop that cancels it
+    ## leaves no admission to give back.
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 2),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          600_000'u64,
+      )
+      .expect("RateLimitManager.new")
+    let processor = StallingProcessor()
+    let service = newService(processor, manager = manager)
+    let stalled = buildTask("stalled")
+    check:
+      (service.enqueue(stalled)).isOk()
+      stalled.admissionRefundable
+
+    service.startSendService()
+    checkUntilTimeoutCustom(FUTURE_TIMEOUT_MEDIUM, PollInterval):
+      processor.replies.len == 1
+    await service.stopSendService()
+    check:
+      stalled.tryCount == 1
+      not stalled.admissionRefundable
+      manager.sentInCurrentEpoch == 1
 
   asyncTest "a send does not wait for a budget read":
     ## The quota read of the fake provider waits for its reply. `enqueue` reads

@@ -43,6 +43,7 @@ method isValidProcessor(self: PlainSendProcessor, task: DeliveryTask): bool {.gc
 
 method sendImpl(self: PlainSendProcessor, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
+  task.tryCount.inc()
   task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated
 
@@ -54,6 +55,7 @@ method isValidProcessor(self: RetryingProcessor, task: DeliveryTask): bool {.gcs
   return true
 
 method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  task.tryCount.inc()
   task.state = DeliveryState.NextRoundRetry
   task.errorDesc = self.reason
 
@@ -242,7 +244,7 @@ suite "SendService - mix size before admission":
       manager.sentInCurrentEpoch == 1
       task.msg.proof.len == 289
       not task.anonymized
-      task.tryCount == 0
+      task.tryCount == 1 # the plain attempt, and no mix attempt
 
   asyncTest "a supplied proof uses its actual length before admission":
     let draws = countingRln(waku, 400)
@@ -344,6 +346,44 @@ suite "SendService - anonymity level":
       plain.calls == 0 # `Required` never uses the plain path
       task.state == DeliveryState.FailedToDeliver
       task.errorDesc == MixUnavailableReason
+
+  asyncTest "a Required task that mix cannot attempt gives its admission back":
+    ## The mix processor fails the task with no attempt, so the send service
+    ## gives the admission of the task back.
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 2),
+        clock = proc(): uint64 {.gcsafe, raises: [].} =
+          600_000'u64,
+      )
+      .expect("RateLimitManager.new")
+    let chain = setupSendProcessorChain(waku, AnonymityLevel.Required).expect(
+        "send processor chain"
+      )
+    let service = SendService.new(false, waku, manager, chain).expect("SendService.new")
+    let errors = EventCounter()
+    let listener = MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(e: MessageErrorEvent) {.async: (raises: []).} =
+          errors.inc(),
+      )
+      .expect("listen")
+    defer:
+      await MessageErrorEvent.dropListener(waku.brokerCtx, listener)
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+
+    let task = buildTask("required-refund", chronos.seconds(1))
+    check:
+      (service.enqueue(task)).isOk()
+      manager.sentInCurrentEpoch == 1
+    check await errors.waitCount(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
+    check:
+      task.state == DeliveryState.FailedToDeliver
+      task.tryCount == 0
+      manager.sentInCurrentEpoch == 0 # the admission came back
 
   asyncTest "a Required task past its window still never reaches the plain path":
     ## With mix unusable, the reasons decide before the window, so a `Required`
@@ -557,7 +597,7 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
-      task.tryCount == 0
+      task.tryCount == 1 # the plain attempt, and no mix attempt
       not task.anonymized
       not task.propagatedAnonymously
       mix.fellBackFor() == MixUnusable.None # a size hand-over records no mix outage
@@ -707,7 +747,7 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
-      task.tryCount == 0
+      task.tryCount == 1 # the plain attempt, and no mix attempt
 
   asyncTest "an RLN proof refresh does not start a new Preferred mix window":
     ## `parkForRlnProofRefresh` clears `firstAdmittedTime`, so the new proof
@@ -742,7 +782,7 @@ suite "SendService - anonymity level with a mounted mix":
 
     check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
     check:
-      task.tryCount == 0 # no mix attempt
+      task.tryCount == 1 # the plain attempt, and no mix attempt
       plain.calls == 1 # the hand-over
       task.state == DeliveryState.SuccessfullyPropagated
 
@@ -782,7 +822,7 @@ suite "SendService - anonymity level with a mounted mix":
     old.firstAdmittedTime = Opt.some(Moment.now())
     check await mix.process(old).withTimeout(FUTURE_TIMEOUT)
     check:
-      old.tryCount == 0
+      old.tryCount == 1 # the plain attempt, and no mix attempt
       plain.calls == 1
       old.state == DeliveryState.SuccessfullyPropagated
 
