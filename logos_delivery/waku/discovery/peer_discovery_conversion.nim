@@ -55,7 +55,7 @@ proc toRemotePeerInfo*(peer: DiscoveredPeer): Result[RemotePeerInfo, string] =
   var addrs: seq[MultiAddress]
   for address in peer.addrs:
     let maddr = MultiAddress.init(address).valueOr:
-      return err("unparseable address " & address & ": " & error)
+      return err("unparseable address " & address & ": " & $error)
     addrs.add(maddr)
   if addrs.len == 0:
     return err("no dialable address for peer " & peer.peerId)

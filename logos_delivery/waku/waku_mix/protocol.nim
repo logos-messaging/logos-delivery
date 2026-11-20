@@ -179,7 +179,7 @@ proc new*(
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
-    return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
+    return err("failed to parse mix node address: " & $nodeAddr & ", error: " & $error)
   let localMixNodeInfo = initMixNodeInfo(
     peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,

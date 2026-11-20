@@ -18,10 +18,14 @@ proc isAdvertised(node: WakuNode, service: ServiceInfo): bool =
   service in disco.services and
     disco.advertiser.providedAdverts.hasKey(service.id.hashServiceId())
 
+proc selfRecordKey(node: WakuNode): RecordKey =
+  ## The table key of the node's self record.
+  RecordKey.init(node.switch.peerInfo.peerId.toKey()).get()
+
 proc publishedRecord(node: WakuNode): Opt[ExtendedPeerRecord] =
   ## The self record the protocol stored in its own table.
   let disco = node.wakuKademlia.protocol
-  let entry = disco.dataTable.get(node.switch.peerInfo.peerId.toKey()).valueOr:
+  let entry = disco.dataTable.get(node.selfRecordKey()).valueOr:
     return Opt.none(ExtendedPeerRecord)
   let record = SignedExtendedPeerRecord.decode(entry.value.toBytes()).valueOr:
     return Opt.none(ExtendedPeerRecord)
@@ -81,7 +85,7 @@ suite "Waku Kademlia node advertising":
     await node.stop()
     check not node.isAdvertised(service)
     ## The stored record survives the stop. Delete it so the restart must publish anew.
-    node.wakuKademlia.protocol.dataTable.del(node.switch.peerInfo.peerId.toKey())
+    node.wakuKademlia.protocol.dataTable.del(node.selfRecordKey())
 
     await node.start()
     check node.isAdvertised(service)
