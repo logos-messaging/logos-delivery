@@ -64,7 +64,7 @@ proc `==`*(a, b: RequestId): bool {.inline.} =
   string(a) == string(b)
 
 func init*(
-    T: type SendError, kind: SendErrorKind, desc: string, retryAfter = ZeroDuration
+    T: typedesc[SendError], kind: SendErrorKind, desc: string, retryAfter = ZeroDuration
 ): T =
   return T(kind: kind, desc: desc, retryAfter: retryAfter)
 
