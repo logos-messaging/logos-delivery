@@ -1238,7 +1238,7 @@ suite "Messaging API - send refusals":
         refused.error.retryAfter > ZeroDuration
         # The text has the seconds to wait, for a caller that gets only the text.
         ($refused.error).endsWith(
-          ", retry after " & $max(1'i64, refused.error.retryAfter.seconds) &
+          ", retry after: " & $max(1'i64, refused.error.retryAfter.seconds) &
             " s (RateLimited)"
         )
 
@@ -1251,7 +1251,7 @@ suite "Messaging API - send refusals":
       # The broker text has the seconds to wait as a number.
       let seconds =
         try:
-          viaBroker.error.split(", retry after ")[^1].split(" s (")[0].parseInt()
+          viaBroker.error.split(", retry after: ")[^1].split(" s (")[0].parseInt()
         except ValueError:
           -1
       check:

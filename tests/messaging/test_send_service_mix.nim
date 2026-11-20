@@ -212,7 +212,7 @@ suite "SendService - mix size before admission":
     check refused.isErr()
     check:
       refused.error.kind == SendErrorKind.TooLarge
-      refused.error.desc.contains("the request has " & $(mixLimit() + 1) & " bytes")
+      refused.error.desc.contains("the request has: " & $(mixLimit() + 1) & " bytes")
       task.state == DeliveryState.Entry
       draws[] == 0
       manager.sentInCurrentEpoch == 0
@@ -528,8 +528,8 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       early.state == DeliveryState.FailedToDeliver
       early.errorDesc ==
-        MixTooLargeReason & ": the request has " & $(limit + 1) & " bytes, the limit is " &
-        $limit & " bytes"
+        MixTooLargeReason & ": the request has: " & $(limit + 1) &
+        " bytes, the limit is: " & $limit & " bytes"
 
     addMixPeer(60400 + MinMixPoolSize - 1, lightpush = true)
     check waku.mixReady()

@@ -616,7 +616,7 @@ proc rateLimited(self: SendService, desc: string): SendError =
   let retryAfter = self.rateLimitManager.retryAfter()
   let seconds = max(1'i64, retryAfter.seconds)
   return refuse(
-    SendErrorKind.RateLimited, desc & ", retry after " & $seconds & " s", retryAfter
+    SendErrorKind.RateLimited, desc & ", retry after: " & $seconds & " s", retryAfter
   )
 
 proc admitAtSend(self: SendService, task: DeliveryTask): Result[void, SendError] =

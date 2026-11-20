@@ -19,7 +19,7 @@ The liblogosdelivery library emits three types of message delivery events and on
 | `RateLimited` | The rate-limit budget of the epoch is spent. The text gives the seconds until the next epoch, or 1 s when the RLN backend does not state the length of its epoch. |
 | `TooLarge` | The message, with its RLN proof, exceeds the maximum message size. |
 
-The text of a refusal ends with its kind in parentheses, for example `the rate-limit budget of the epoch is spent, retry after 42 s (RateLimited)`. Nothing is queued for a refused message; the app decides whether to send it again.
+The text of a refusal ends with its kind in parentheses, for example `the rate-limit budget of the epoch is spent, retry after: 42 s (RateLimited)`. Nothing is queued for a refused message; the app decides whether to send it again.
 
 ## Event Types
 

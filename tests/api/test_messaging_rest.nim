@@ -293,7 +293,7 @@ suite "Messaging REST API":
       retryAfter in 1 .. int(epochSec)
       resp.data.startsWith("Send refused: ")
       # The body gives the same seconds as the header.
-      resp.data.endsWith(", retry after " & $retryAfter & " s (RateLimited)")
+      resp.data.endsWith(", retry after: " & $retryAfter & " s (RateLimited)")
 
   asyncTest "a send over the maximum message size answers 413":
     var conf = restNodeConf()
