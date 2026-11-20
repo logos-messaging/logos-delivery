@@ -238,6 +238,61 @@ suite "Waku Kademlia service discovery":
         peerInfo.peerId == pid
         peerInfo.mixPubKey.isNone()
 
+    proc storedMixKey(peerStore: PeerStore, pid: PeerId): Opt[Curve25519Key] =
+      if pid in peerStore[MixPubKeyBook]:
+        Opt.some(peerStore[MixPubKeyBook][pid])
+      else:
+        Opt.none(Curve25519Key)
+
+    proc mixNodeRecord(pid: PeerId): ExtendedPeerRecord =
+      buildExtendedPeerRecord(
+        pid, @[testAddr(61600)], @[deliveryService(), validMixService()]
+      )
+
+    test "a delivery record without a mix key removes the stored key":
+      ## The peer lost its Mix RLN membership and advertises as a delivery node.
+      let
+        peerStore = PeerStore.new(nil, capacity = 50)
+        pid = randomPeerId()
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+      require peerStore.storedMixKey(pid).isSome()
+
+      let plain = ServiceInfo(
+        id: LogosDeliveryServiceId,
+        data: Opt.some(deliveryPayload(CapabilitiesBitfield.init(relay = true))),
+      )
+      peerStore.addPeer(
+        remotePeerInfoFrom(buildExtendedPeerRecord(pid, @[testAddr(61600)], @[plain]))
+          .get()
+      )
+      check peerStore.storedMixKey(pid).isNone()
+
+    test "a record that is not a delivery record keeps the stored key":
+      ## A random lookup returns a peer's own record, which lists no service.
+      let
+        peerStore = PeerStore.new(nil, capacity = 50)
+        pid = randomPeerId()
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+
+      peerStore.addPeer(
+        remotePeerInfoFrom(buildExtendedPeerRecord(pid, @[testAddr(61600)])).get()
+      )
+      check peerStore.storedMixKey(pid).isSome()
+
+    test "a peer learned another way keeps the stored key":
+      let
+        peerStore = PeerStore.new(nil, capacity = 50)
+        pid = randomPeerId()
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+
+      peerStore.addPeer(
+        RemotePeerInfo.init(
+          pid, @[testAddr(61600)], protocols = @[LogosDeliveryServiceId]
+        ),
+        origin = PeerOrigin.Discv5,
+      )
+      check peerStore.storedMixKey(pid).isSome()
+
   suite "lookupServicePeers":
     asyncTest "returns err when protocol is nil":
       let
