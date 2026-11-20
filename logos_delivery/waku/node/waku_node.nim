@@ -21,7 +21,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
