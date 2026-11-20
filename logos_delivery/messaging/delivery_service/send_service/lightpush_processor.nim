@@ -44,7 +44,7 @@ method resendImpl*(
         msgHash = task.loggedHash(), error = error.desc.get($error.code)
       return
     debug "Message resent via Lightpush after a Store miss",
-      msgHash = task.loggedHash(), resendCount = task.resendCount
+      msgHash = task.msgHash.to0xHex(), resendCount = task.resendCount
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
