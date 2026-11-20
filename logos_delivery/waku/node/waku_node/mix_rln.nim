@@ -62,11 +62,6 @@ proc publishMetadata(
     return err("Mix coordination publish failed: " & exc.msg)
   return ok()
 
-func mixAdvertReady*(node: WakuNode): bool =
-  ## False while this node mounts mix but cannot act as a mix node: with Mix
-  ## RLN, while it holds no usable Mix membership.
-  node.wakuMixRln.isNil() or node.mixMembershipUsable
-
 const MixMembershipPollInterval* = 30.seconds
   ## How often the node re-reads its Mix membership. A membership granted by an
   ## allocator arrives after the node asked for it, and an active one expires.
