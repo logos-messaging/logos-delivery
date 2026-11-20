@@ -82,7 +82,7 @@ proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
   let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
   ## `changes` counts the reports that this node's record changed. A report
   ## reaches a listener on a later turn of the event loop, so a test waits.
-  let listening = AdvertChangedEvent.listenIt(node.brokerCtx):
+  let listening = AdvertChangedEvent.listenIt(node.advertCtx):
     inc changes[]
   discard listening.expect("listens")
   return node

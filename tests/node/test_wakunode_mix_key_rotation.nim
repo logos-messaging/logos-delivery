@@ -55,7 +55,7 @@ suite "Waku Mix - key rotation":
     let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
-    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
       return ok(deliveryAdvertPart(conf, @[0'u16]))
     node.keepAdvertProvider(provided.expect("provides the delivery part"))
     # A node provides its mix key only when it relays for others.
@@ -192,7 +192,7 @@ suite "Waku Mix - key rotation":
     checkUntilTimeout:
       backend.advertisedData.len == 1
 
-    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
       return err("this part cannot be read")
     node.keepAdvertProvider(provided.expect("provides the failing part"))
     node.rotate()

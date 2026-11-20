@@ -179,7 +179,7 @@ suite "Waku Kademlia node advertising":
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
     let shards = @[0'u16]
-    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
       return ok(deliveryAdvertPart(conf, shards))
     node.keepAdvertProvider(provided.expect("provides the delivery part"))
     (await node.mountRelay()).isOkOr:
@@ -218,7 +218,7 @@ suite "Waku Kademlia node advertising":
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
     let shards = @[0'u16]
-    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
       return ok(deliveryAdvertPart(conf, shards))
     node.keepAdvertProvider(provided.expect("provides the delivery part"))
     (await node.mountRelay()).isOkOr:
@@ -258,7 +258,7 @@ suite "Waku Kademlia node advertising":
     let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
     let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
     let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
-    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
       return ok(deliveryAdvertPart(conf, @[0'u16]))
     node.keepAdvertProvider(provided.expect("provides the delivery part"))
     await node.start()
@@ -276,3 +276,28 @@ suite "Waku Kademlia node advertising":
     check node.announcedAddresses == moved
     checkUntilTimeout:
       node.advertisedAddresses(LogosDeliveryServiceId) == moved
+
+  asyncTest "a node collects only the parts of its own record":
+    ## Every node of a thread shares `brokerCtx` unless a host sets another, so
+    ## a part provided there, as by another node, must not reach this node's
+    ## record. A record with two delivery parts is not advertised at all.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    let foreign = GetSelfAdvert.provideIt(node.brokerCtx):
+      return ok(deliveryAdvertPart(conf, @[7'u16]))
+    defer:
+      GetSelfAdvert.removeProvider(node.brokerCtx, foreign.expect("provides"))
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, @[0'u16]))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    await node.start()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    check node.isAdvertised(
+      ServiceInfo(
+        id: LogosDeliveryServiceId,
+        data: Opt.some(selfAdvertisementData(conf, @[0'u16])),
+      )
+    )
