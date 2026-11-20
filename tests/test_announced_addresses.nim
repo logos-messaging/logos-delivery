@@ -37,13 +37,13 @@ type RecordingMapper = ref object of PortMapper
 
 method map(
     self: RecordingMapper, internalPort: Port, externalPort: Port, proto: MapProto
-): Future[Result[MappedPort, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+): Future[LPResult[MappedPort]] {.async: (raises: [CancelledError]), gcsafe.} =
   self.mappedInternal.add(internalPort)
   return ok(MappedPort(externalIp: self.grantIp, externalPort: self.grantPort))
 
 method unmap(
     self: RecordingMapper, externalPort: Port, proto: MapProto
-): Future[Result[void, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+): Future[LPResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   return ok()
 
 method close(self: RecordingMapper) {.async: (raises: []), gcsafe.} =
@@ -53,12 +53,9 @@ type UpdateBeforeBind = ref object of Service
   ## Calls peerInfo.update() before the transports bind, as libp2p's AutonatService
   ## does in production. The base mapper must drop port-0 entries in that update.
 
-method setup(self: UpdateBeforeBind, switch: Switch) {.raises: [ServiceSetupError].} =
-  discard
-
 method start(
     self: UpdateBeforeBind, switch: Switch
-) {.async: (raises: [CancelledError]).} =
+) {.async: (raises: [CancelledError, LPError]).} =
   await switch.peerInfo.update()
 
 method stop(
