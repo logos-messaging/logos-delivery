@@ -29,7 +29,7 @@ const MixWindow* = chronos.seconds(10)
   ## The part of `DeliveryWindow` that a `Preferred` task spends on mix before it
   ## takes the plain path, which keeps the rest of the window.
 
-const StoreValidationWindow* = chronos.minutes(1)
+const StoreValidationWindow* = chronos.seconds(30)
   ## The default wait for a Store node to report a propagated message. The
   ## delivery window does not bound it.
 
@@ -51,7 +51,7 @@ const MaxSendsInFlight* = 50
   ## The most sends with no last event. `send` refuses the next one with
   ## `QueueFull`. It bounds the memory and the open streams of the node, also
   ## without a rate limit. A send with Store validation keeps its place until a
-  ## Store node confirms it, up to 1 min after it propagated.
+  ## Store node confirms it, up to 30 s after it propagated.
 
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext

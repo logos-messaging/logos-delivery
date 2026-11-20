@@ -24,7 +24,7 @@ MESH_TOPIC_HEALTH = ("MinimallyHealthy", "SufficientlyHealthy")
 
 # DeliveryWindow and StoreValidationWindow from send_service.nim.
 DELIVERY_WINDOW_S = 15.0
-STORE_VALIDATION_WINDOW_S = 60.0
+STORE_VALIDATION_WINDOW_S = 30.0
 # Extra slack to cover the background retry loop tick after a window ends.
 WINDOW_SLACK_S = 10.0
 ERROR_AFTER_DELIVERY_WINDOW_TIMEOUT_S = DELIVERY_WINDOW_S + WINDOW_SLACK_S
