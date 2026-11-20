@@ -186,6 +186,9 @@ type
       ## The parts of this node's record given with `keepAdvertProvider`.
     mixAdvertProvider: Opt[GetSelfAdvertProviderHandle]
       ## Provides the mix key while this node can act as a mix node.
+    advertHold: Future[void].Raising([])
+      ## Runs while a mix node holds its first advert back for its Mix RLN
+      ## membership; `nil` otherwise. See `startRecordAdvertising`.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
       ## The background lookup of the `dns4` mix node names; `nil` when none.
@@ -794,15 +797,52 @@ proc mixAdvertChanged*(node: WakuNode, reason: string) =
   node.syncMixAdvertProvider()
   AdvertChangedEvent.emit(node.advertCtx, AdvertChangedEvent(reason: reason))
 
-proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
+const MixMembershipAdvertHold* = 2.minutes
+  ## How long a mix node holds its first advert back for its Mix RLN membership.
+
+proc holdsFirstAdvert(node: WakuNode): bool =
+  ## Whether the first advert still waits for the Mix RLN membership. The hold
+  ## ends here once the node can act as a mix node.
+  if node.advertHold.isNil():
+    return false
+  if not node.mixAdvertReady():
+    return true
+  node.advertHold.cancelSoon()
+  node.advertHold = nil
+  return false
+
+proc endAdvertHoldAfter(node: WakuNode, hold: Duration) {.async: (raises: []).} =
+  try:
+    await sleepAsync(hold)
+  except CancelledError:
+    return
+  notice "No usable Mix RLN membership in time; advertising this node without mix",
+    waited = hold
+  node.advertHold = nil
+  node.readvertise()
+
+proc startRecordAdvertising*(
+    node: WakuNode, mixMembershipHold = MixMembershipAdvertHold
+) {.async: (raises: []).} =
   ## Advertises this node's record and returns once it is advertised. From then
   ## until `stop`, the record is advertised again in the background each time a
   ## part of it changed, in place of the advertisement in progress.
   ##
   ## With mix key rotation it returns at once, and the first advertisement runs
   ## in the background too.
+  ##
+  ## A mix node whose Mix RLN membership is not usable yet holds its first
+  ## advert back until it is, for `mixMembershipHold` at most, and this returns
+  ## at once. A registrar makes a second advert from the same address wait for
+  ## up to the advert expiry, so a first advert without the mix key keeps the
+  ## node out of the mix pools for that long. The node registers its interest
+  ## in the delivery network meanwhile, so it finds peers.
   if node.advertListener.isNone():
     let listening = AdvertChangedEvent.listenIt(node.advertCtx):
+      if node.holdsFirstAdvert():
+        debug "Holding this node's first advert for its Mix RLN membership",
+          reason = it.reason
+        return
       debug "Advertising this node's record again", reason = it.reason
       node.readvertise()
     let listener = listening.valueOr:
@@ -811,14 +851,24 @@ proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
     node.advertListener = Opt.some(listener)
   node.syncMixAdvertProvider()
 
+  if not node.wakuMix.isNil() and not node.wakuRelay.isNil() and
+      not node.mixAdvertReady():
+    info "Holding this node's first advert for its Mix RLN membership",
+      atMost = mixMembershipHold
+    node.advertHold = node.endAdvertHoldAfter(mixMembershipHold)
+    node.recordVersion.inc()
+    node.recordAdvertisement = advertiseSelf(node.discoveries, SelfAdvert())
+
   if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
     # The handler receives the current key at once, if mix holds one.
     node.wakuMix.keyRing().get().setKeyHandler(
       proc(key: Curve25519Key) {.gcsafe, raises: [].} =
         node.mixAdvertChanged("mix key")
     )
-    if node.wakuMix.currentMixPubKey().isNone():
+    if node.wakuMix.currentMixPubKey().isNone() and node.advertHold.isNil():
       node.readvertise()
+    return
+  if not node.advertHold.isNil():
     return
   node.readvertise()
   await node.recordAdvertisement
@@ -833,6 +883,9 @@ proc stopRecordAdvertising(node: WakuNode) {.async: (raises: []).} =
     node.wakuMix.keyRing().get().setKeyHandler(nil)
   await AdvertChangedEvent.dropListener(node.advertCtx, node.advertListener.get())
   node.advertListener = Opt.none(AdvertChangedEventListener)
+  if not node.advertHold.isNil():
+    await node.advertHold.cancelAndWait()
+    node.advertHold = nil
   node.syncMixAdvertProvider()
   for provider in node.advertProviders:
     GetSelfAdvert.removeProvider(node.advertCtx, provider)
