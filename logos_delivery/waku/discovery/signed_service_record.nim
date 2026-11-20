@@ -8,16 +8,24 @@
 ## libp2p_module's peer id and could not be dialled as this node. This is the
 ## record the plugin publishes instead, signed with this node's key.
 ##
-## One serviceId per record, by decision: registrars file a record only under
-## the service key it was REGISTERed with, and lookups read one shelf, so a
-## record listing other service_ids gains nothing (`delivery_record_plan.md`).
-## Like mixing `/logos/delivery` with `/mix/1.0.0` in a sindle XPR.
+## Registrars file a record only under the service key it was REGISTERed with,
+## and lookups read one shelf: the record is found under `serviceId` alone.
+## `secondary` services are listed in the same record for whoever reads it
+## there, as the mix key of a delivery node is. They cost no registration of
+## their own, and a second registration is what a registrar makes a node wait
+## for.
 
+import std/sequtils
 import results
 import libp2p/[peerinfo, crypto/crypto, extended_peer_record, signed_envelope]
+import logos_delivery/waku/discovery/peer_discovery_interface
 
 proc signedServiceRecord*(
-    peerInfo: PeerInfo, key: crypto.PrivateKey, serviceId: string, data: seq[byte]
+    peerInfo: PeerInfo,
+    key: crypto.PrivateKey,
+    serviceId: string,
+    data: seq[byte],
+    secondary: seq[DiscoveredService] = @[],
 ): Result[seq[byte], string] =
   if peerInfo.isNil():
     return err("signed record: node has no peer info")
@@ -27,7 +35,9 @@ proc signedServiceRecord*(
   let record = ExtendedPeerRecord.init(
     peerInfo.peerId,
     peerInfo.addrs,
-    services = @[ServiceInfo(id: serviceId, data: Opt.some(data))],
+    services =
+      @[ServiceInfo(id: serviceId, data: Opt.some(data))] &
+      secondary.mapIt(ServiceInfo(id: it.id, data: Opt.some(it.data))),
   )
   let signed = SignedExtendedPeerRecord.init(key, record).valueOr:
     return err("signed record: cannot sign: " & $error)

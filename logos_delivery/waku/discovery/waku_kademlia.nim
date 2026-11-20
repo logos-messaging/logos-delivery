@@ -20,6 +20,8 @@ import
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/discovery/delivery_advert,
+  logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/api/events/discovery_events
 
 # `WakuKademlia.new` is generic, so `ServiceDiscovery.new` instantiates in the
@@ -60,20 +62,6 @@ type KademliaDiscoveryConf* = object
   clientMode*: bool
   xprPublishing*: bool
 
-proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
-  if service.id != MixProtocolID:
-    return Opt.none(Curve25519Key)
-
-  let data = service.data.get(@[])
-  if data.len != Curve25519KeySize:
-    trace "Invalid mix pub key length",
-      expected = Curve25519KeySize, actual = data.len, dataHex = byteutils.toHex(data)
-    return Opt.none(Curve25519Key)
-
-  let key = intoCurve25519Key(data)
-
-  return Opt.some(key)
-
 proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
   if record.addresses.len == 0:
     trace "Missing addresses", peerId = record.peerId
@@ -86,16 +74,12 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
 
   let protocols = record.services.mapIt(it.id)
 
-  var mixPubKey: Opt[Curve25519Key] = Opt.none(Curve25519Key)
-  for service in record.services:
-    let key = extractMixPubKey(service).valueOr:
-      continue
-    mixPubKey = Opt.some(key)
-
+  let mixPubKey = advertisedMixKey(
+    record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
+  )
+  if mixPubKey.isSome():
     trace "Successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
-
-    break
 
   return Opt.some(
     RemotePeerInfo.init(
