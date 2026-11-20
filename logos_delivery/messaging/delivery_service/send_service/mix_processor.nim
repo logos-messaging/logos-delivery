@@ -10,7 +10,8 @@ logScope:
   topics = "send service mix processor"
 
 const MixUnavailableReason* =
-  "mix is not mounted or knows fewer than " & $MinMixPoolSize & " usable mix nodes"
+  "mix is not mounted or knows fewer than " & $MinMixPoolSize &
+  " usable mix nodes (a mix node at a private, a loopback or a circuit relay address needs --mix-allow-all-addresses)"
   ## The pool counts only members with an address that mix routes.
 
 const MixSelfHopReason* = "this node has no address that mix can use for replies"
