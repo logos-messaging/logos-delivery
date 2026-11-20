@@ -291,11 +291,12 @@ suite "SendService - Store validation window":
     await log.teardown()
     discard await waku.stop()
 
-  asyncTest "the default limit holds 200 sends that wait for a Store confirmation":
+  asyncTest "the default limit holds MaxSendsInFlight sends that wait for a Store confirmation":
     ## Each send propagates at once and then waits for a Store answer. It keeps
-    ## its place in the limit during that wait, so send 201 is refused.
+    ## its place in the limit during that wait, so the next send is refused.
+    check MaxSendsInFlight == 50 # the memory guard of a mobile node
     let service = reliableService(waku, PropagateAllProc())
-    let tasks = (0 ..< 200).mapIt(newTask("waits-" & $it))
+    let tasks = (0 ..< MaxSendsInFlight).mapIt(newTask("waits-" & $it))
     service.startSendService()
     defer:
       await service.stopSendService()

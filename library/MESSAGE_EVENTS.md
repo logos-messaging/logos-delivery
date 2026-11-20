@@ -16,7 +16,7 @@ The liblogosdelivery library emits three types of message delivery events and on
 | `NotConnected` | The node has no connected peer, and knows no lightpush peer for the shard of the message. |
 | `NoShard` | The content topic maps to no shard of the node. |
 | `Duplicate` | A message with the same hash is still in flight. |
-| `QueueFull` | The node already has 200 sends with no last event. |
+| `QueueFull` | The node already has 50 sends with no last event. |
 | `RateLimited` | The rate-limit budget of the epoch is spent. The text gives the seconds until the next epoch, or 1 s when the RLN backend does not state the length of its epoch. |
 | `TooLarge` | The message, with its RLN proof, exceeds the maximum message size. |
 
