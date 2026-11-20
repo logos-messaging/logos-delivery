@@ -66,14 +66,41 @@ method process(self: PassCounter, task: DeliveryTask): Future[void] {.async.} =
 type RetryingProcessor = ref object of BaseSendProcessor
   ## Leaves every task for a retry, with `reason` as the outcome's `desc`.
   reason: string
+  calls: int
 
 method isValidProcessor(self: RetryingProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
 method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  inc self.calls
   task.tryCount.inc()
   task.state = DeliveryState.NextRoundRetry
   task.errorDesc = self.reason
+
+type NeverValidProcessor = ref object of BaseSendProcessor
+  ## Takes no task, as a processor with no usable peer does.
+
+method isValidProcessor(
+    self: NeverValidProcessor, task: DeliveryTask
+): bool {.gcsafe.} =
+  return false
+
+type StallingProcessor = ref object of BaseSendProcessor
+  ## Overrides `sendImpl`, which the chain calls on each link. Each call waits on
+  ## a new reply in `replies`, then propagates the task.
+  replies: seq[Future[void]]
+
+method isValidProcessor(self: StallingProcessor, task: DeliveryTask): bool {.gcsafe.} =
+  return true
+
+method sendImpl(self: StallingProcessor, task: DeliveryTask): Future[void] {.async.} =
+  task.tryCount.inc()
+  let reply = newFuture[void]("stalling-reply")
+  self.replies.add(reply)
+  await reply
+  if task.firstPropagatedTime.isNone():
+    task.firstPropagatedTime = Opt.some(Moment.now())
+  task.state = DeliveryState.SuccessfullyPropagated
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -700,6 +727,71 @@ suite "SendService - anonymity level with a mounted mix":
       back.tryCount == 1 # mix attempts it
       mix.fellBackFor() == MixUnusable.None # ... and the recovery was logged
     await fut.cancelAndWait()
+
+  asyncTest "a Preferred task stays on the plain path after a plain attempt":
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60220 + i, lightpush = false)
+    check waku.mixReady()
+
+    let plain = RetryingProcessor(reason: "no plain peer accepted it")
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
+    )
+    mix.chain(plain)
+
+    let task = buildTask("plain-then-exit", chronos.seconds(5))
+    await mix.process(task)
+    check:
+      plain.calls == 1
+      task.deanonymized
+
+    addMixPeer(60224, lightpush = true)
+    check waku.selectMixLightpushPeer(shard).isSome()
+    let fut = mix.process(task)
+    check:
+      fut.completed()
+      plain.calls == 2
+      not task.anonymized
+      mix.fellBackFor() == MixUnusable.None
+    await fut.cancelAndWait()
+
+  asyncTest "a Preferred task without a plain attempt retries over mix when an exit returns":
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60230 + i, lightpush = false)
+    check waku.mixReady()
+
+    let plain = NeverValidProcessor()
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
+    )
+    mix.chain(plain)
+
+    let task = buildTask("no-plain-then-exit", chronos.seconds(5))
+    await mix.process(task)
+    check not task.deanonymized
+
+    addMixPeer(60234, lightpush = true)
+    check waku.selectMixLightpushPeer(shard).isSome()
+    let fut = mix.process(task)
+    check task.anonymized
+    await fut.cancelAndWait()
+
+  asyncTest "a cancelled plain attempt deanonymizes the task":
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60240 + i, lightpush = false)
+    check waku.mixReady()
+
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
+    )
+    let plain = StallingProcessor()
+    mix.chain(plain)
+
+    let task = buildTask("cancelled-plain", chronos.seconds(5))
+    let attempt = mix.process(task)
+    check plain.replies.len == 1
+    await attempt.cancelAndWait()
+    check task.deanonymized
 
   asyncTest "an expired task reports the reason a processor left on it":
     ## A processor that leaves a task for a retry can write why in `errorDesc`.

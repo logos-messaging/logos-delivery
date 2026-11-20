@@ -50,6 +50,9 @@ proc new*(
     mixWindow: mixWindow,
   )
 
+method deanonymizes*(self: MixSendProcessor): bool {.gcsafe.} =
+  return false
+
 method isValidProcessor*(self: MixSendProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
@@ -160,6 +163,14 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
   if self.fellBackReason != MixUnusable.None:
     self.fellBackReason = MixUnusable.None
     info "Mix can carry messages again"
+
+  # The plain attempt may already have linked this message to the sender's address.
+  if self.fallbackAllowed and task.deanonymized:
+    debug "The task had a plain attempt, so it stays on the plain send path",
+      msgHash = task.msgHash.to0xHex()
+    task.errorDesc = ""
+    task.state = DeliveryState.FallbackRetry
+    return
 
   if self.fallbackAllowed and self.mixWindowElapsed(task):
     debug "Mix window elapsed, handing the task to the plain send path",
