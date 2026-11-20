@@ -83,10 +83,9 @@ proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
   let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
   ## `changes` counts the reports that this node's record changed. A report
   ## reaches a listener on a later turn of the event loop, so a test waits.
-  proc onChanged(event: SelfAdvertChangedEvent): Future[void] {.async: (raises: []).} =
+  let listening = AdvertChangedEvent.listenIt(node.brokerCtx):
     inc changes[]
-
-  discard SelfAdvertChangedEvent.listen(node.brokerCtx, onChanged).expect("listens")
+  discard listening.expect("listens")
   return node
 
 suite "Waku Mix RLN - membership changes":
