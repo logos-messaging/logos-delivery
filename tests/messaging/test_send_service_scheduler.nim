@@ -436,23 +436,6 @@ suite "SendService - rate-limit scheduling":
       manager.sentInCurrentEpoch == 2'u64 # a refused send spends no budget
       processor.calls == 2
 
-  asyncTest "a send of a message already in the send queue is refused as Duplicate":
-    let manager =
-      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
-    let processor = FakeSendProcessor(script: @[DeliveryState.NextRoundRetry])
-    let service = SendService
-      .new(false, waku, manager, processor, retryInterval = chronos.minutes(10))
-      .expect("SendService.new")
-
-    let task = buildTask("one")
-    await service.sendNow(task)
-    let again = buildTask("one", task.msg.timestamp)
-    check again.msgHash == task.msgHash
-    let refusal = await service.refusedSend(again)
-    check:
-      refusal.kind == SendErrorKind.Duplicate
-      service.isQueued(task)
-
   asyncTest "a propagated task past the validation window fails; a fresh one stays":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")

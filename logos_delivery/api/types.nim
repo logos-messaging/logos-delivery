@@ -28,7 +28,6 @@ type
       ## The node has no connected peer and knows no lightpush peer for the shard
       ## of the message.
     NoShard ## The content topic maps to no shard of this node.
-    Duplicate ## A message with the same hash is still in flight.
     QueueFull ## The node has its maximum of 50 sends with no last event.
     RateLimited ## The rate-limit budget of the epoch is spent, see `retryAfter`.
     TooLarge ## The message, with its RLN proof, exceeds the maximum message size.
@@ -92,14 +91,14 @@ proc init*(
       meta: meta,
     )
 
-proc toWakuMessage*(envelope: MessageEnvelope): WakuMessage =
-  ## Convert a MessageEnvelope to a WakuMessage.
+proc toWakuMessage*(envelope: MessageEnvelope, timestamp: Timestamp): WakuMessage =
+  ## Convert a MessageEnvelope to a WakuMessage with `timestamp`.
   var wm = WakuMessage(
     contentTopic: envelope.contentTopic,
     payload: envelope.payload,
     ephemeral: envelope.ephemeral,
     meta: envelope.meta,
-    timestamp: getNowInNanosecondTime(),
+    timestamp: timestamp,
   )
 
   ## The send path (attachRlnProof) attaches the proof; its epoch derives from this timestamp.

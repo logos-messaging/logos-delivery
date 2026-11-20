@@ -15,7 +15,6 @@ The liblogosdelivery library emits three types of message delivery events and on
 | `NotStarted` | The node is not started. |
 | `NotConnected` | The node has no connected peer, and knows no lightpush peer for the shard of the message. |
 | `NoShard` | The content topic maps to no shard of the node. |
-| `Duplicate` | A message with the same hash is still in flight. |
 | `QueueFull` | The node already has 50 sends with no last event. |
 | `RateLimited` | The rate-limit budget of the epoch is spent. The text gives the seconds until the next epoch, or 1 s when the RLN backend does not state the length of its epoch. |
 | `TooLarge` | The message, with its RLN proof, exceeds the maximum message size. |
@@ -175,7 +174,7 @@ For a send that no store node confirms (only with the `reliability` option on):
 2. **message_propagated** → Message delivered to peers
 3. **message_error** → No store node confirmed the message within the validation window
 
-The `on_reply` callback of `logosdelivery_ctx_send` gets the message hash before the event thread gets an event of that message. A refused send returns an error and no hash, and gets no event. A send of a message that is still in flight is refused as `Duplicate`.
+The `on_reply` callback of `logosdelivery_ctx_send` gets the message hash before the event thread gets an event of that message. A refused send returns an error and no hash, and gets no event. Two sends in one clock step are two messages, because the second one takes the next nanosecond.
 
 ## Important Notes
 

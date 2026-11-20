@@ -646,9 +646,12 @@ proc enqueue*(
   ## gets the hash first. A refused message gets no event, and the charge comes
   ## last, so a refused message takes none.
   assert(not task.isNil(), "task for enqueue must not be nil")
+  # A caller that queues one task twice gets here. So can a send right after the
+  # clock steps back, when its stamp and its content match a queued message. It
+  # gets the hash of the queued task, as on master.
   if not self.deliveryTasks.getOrDefault(task.msgHash).isNil():
     debug "Message already in the send queue", msgHash = task.loggedHash()
-    return err(refuse(SendErrorKind.Duplicate, "message already in flight"))
+    return ok(task.msgHash)
   ?self.checkSize(task)
   ?self.sendProcessor.checkBeforeSend(task)
   if self.isFull():

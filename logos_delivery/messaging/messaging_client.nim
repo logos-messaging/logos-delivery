@@ -6,6 +6,7 @@ import
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
+  logos_delivery/waku/waku_core/time,
   logos_delivery/waku/api/[publish, health],
   logos_delivery/waku/node/health_monitor,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
@@ -25,6 +26,26 @@ type MessagingClient* = ref object
   started*: bool
     ## `start` sets it last and `stop` clears it first. `checkApiAvailability` reads it.
   stopping*: bool ## True while `stop` runs.
+  sendTimeClock: proc(): Timestamp {.gcsafe, raises: [].}
+    ## The clock that `nextTimestamp` reads. A test can set a clock that does not
+    ## move.
+  lastSendTimeClock: Timestamp ## The reading of `sendTimeClock` at the last send.
+  lastSendTimeStampDelta: int64
+    ## What the last send added to `lastSendTimeClock` for its stamp: 0 for the
+    ## first send of a clock step, then 1, 2, and so on.
+
+proc nextTimestamp*(self: MessagingClient): Timestamp =
+  ## A timestamp for a new message. When the clock gives the reading of the last
+  ## send again, the stamp takes 1 ns more than the last one, so two sends in one
+  ## clock step are two messages. When the clock moves, forward or back, the stamp
+  ## is the clock again. `send` does not suspend, so this needs no lock.
+  let now = self.sendTimeClock()
+  if now == self.lastSendTimeClock:
+    self.lastSendTimeStampDelta.inc()
+  else:
+    self.lastSendTimeClock = now
+    self.lastSendTimeStampDelta = 0
+  return now + self.lastSendTimeStampDelta
 
 proc rlnQuotaProvider(waku: Waku): QuotaProvider =
   ## Sources the rate limit manager's epoch budget from RLN. The closure
@@ -92,6 +113,7 @@ proc new*(
       rateLimitManager: rateLimitManager,
       recvService: recvService,
       brokerCtx: waku.brokerCtx,
+      sendTimeClock: getNowInNanosecondTime,
     )
   )
 

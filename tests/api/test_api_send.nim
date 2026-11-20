@@ -29,6 +29,7 @@ import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/delivery_service/send_service/send_service
 
 privateAccess(SendService) # the test reads `attempts`
+privateAccess(MessagingClient) # the tests set `sendTimeClock`
 import logos_delivery/api/messaging_client_api
 import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/send_service
@@ -658,7 +659,7 @@ suite "Waku API - Send":
     let shard = RelayShard
       .parse(
         DeliveryTask
-          .new(envelope, node.waku.brokerCtx)
+          .new(envelope, node.waku.brokerCtx, getNowInNanosecondTime())
           .expect("DeliveryTask.new").pubsubTopic
       )
       .expect("the shard of the message")
@@ -1258,7 +1259,23 @@ suite "Messaging API - send refusals":
         seconds > 0
     check client.sendService.deliveryTasks.len == 0
 
-  asyncTest "a message still in the send queue is refused as Duplicate, and a full queue as QueueFull":
+  asyncTest "a send in the clock step of the send before takes the next nanosecond":
+    ## A clock that moves, forward or back, gives the stamp again.
+    let (node, bystander) = await refusalNode(MessagingClientConf())
+    defer:
+      (await node.stop()).expect("stop")
+      await bystander.stop()
+    let client = node.messagingClient
+    let reading = new Timestamp
+    client.sendTimeClock = proc(): Timestamp {.gcsafe, raises: [].} =
+      reading[]
+    var stamps: seq[Timestamp]
+    for clockValue in [1_000'i64, 1_000, 1_000, 2_000, 2_000, 500]:
+      reading[] = clockValue
+      stamps.add(client.nextTimestamp())
+    check stamps == @[1_000'i64, 1_001, 1_002, 2_000, 2_001, 500]
+
+  asyncTest "two sends of one payload in one clock step are two messages, and a full queue refuses as QueueFull":
     let (node, bystander) = await refusalNode(MessagingClientConf())
     defer:
       (await node.stop()).expect("stop")
@@ -1266,20 +1283,20 @@ suite "Messaging API - send refusals":
     let client = node.messagingClient
     client.sendService.maxSendsInFlight = 2
 
-    check (await client.send(MessageEnvelope.init(RefusalTopic, "first"))).isOk()
-
-    # `send` stamps each message, so the same task is enqueued twice.
-    let task = DeliveryTask
-      .new(MessageEnvelope.init(RefusalTopic, "twice"), node.waku.brokerCtx)
-      .expect("DeliveryTask.new")
-    let accepted = client.sendService.enqueue(task)
+    # A clock that does not move, so the two sends of one payload are in one
+    # clock step.
+    let now = getNowInNanosecondTime()
+    client.sendTimeClock = proc(): Timestamp {.gcsafe, raises: [].} =
+      now
+    let envelope = MessageEnvelope.init(RefusalTopic, "twice")
+    let first = (await client.send(envelope)).expect("the first send")
+    let second = (await client.send(envelope)).expect("the second send")
+    let firstTask = client.sendService.deliveryTasks.getOrDefault(first)
+    let secondTask = client.sendService.deliveryTasks.getOrDefault(second)
     check:
-      accepted.isOk()
-      accepted.get() == task.msgHash
-    let duplicate = client.sendService.enqueue(task)
-    check:
-      duplicate.isErr()
-      duplicate.error.kind == SendErrorKind.Duplicate
+      first != second
+      not firstTask.isNil() and firstTask.msg.timestamp == now
+      not secondTask.isNil() and secondTask.msg.timestamp == now + 1
 
     let full = await client.send(MessageEnvelope.init(RefusalTopic, "over"))
     check:

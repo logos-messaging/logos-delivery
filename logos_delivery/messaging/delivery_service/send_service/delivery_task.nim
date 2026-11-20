@@ -61,11 +61,14 @@ type DeliveryTask* = ref object
   errorDesc*: string
 
 proc new*(
-    T: typedesc[DeliveryTask], envelop: MessageEnvelope, brokerCtx: BrokerContext
+    T: typedesc[DeliveryTask],
+    envelop: MessageEnvelope,
+    brokerCtx: BrokerContext,
+    timestamp: Timestamp,
 ): Result[T, string] =
-  ## Stamps the message with the time of `send`. The timestamp, and so the hash,
-  ## never changes after this.
-  let msg = envelop.toWakuMessage()
+  ## Stamps the message with `timestamp`. The timestamp, and so the hash, never
+  ## changes after this.
+  let msg = envelop.toWakuMessage(timestamp)
   # TODO: use sync request for such as soon as available
   let relayShardRes = (
     RequestRelayShard.request(brokerCtx, Opt.none(PubsubTopic), envelop.contentTopic)

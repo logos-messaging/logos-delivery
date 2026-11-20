@@ -34,7 +34,9 @@ proc send*(
   self.checkApiAvailability().isOkOr:
     return err(SendError.init(SendErrorKind.NotStarted, error))
 
-  let deliveryTask = DeliveryTask.new(envelope, self.waku.brokerCtx).valueOr:
+  let deliveryTask = DeliveryTask.new(
+    envelope, self.waku.brokerCtx, self.nextTimestamp()
+  ).valueOr:
     debug "Failed to create delivery task", error
     return err(SendError.init(SendErrorKind.NoShard, error))
 

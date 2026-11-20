@@ -859,7 +859,7 @@ suite "SendService - deliver":
       await service.stopSendService()
     check await log.waitPropagated(1).withTimeout(FUTURE_TIMEOUT_MEDIUM)
 
-  asyncTest "enqueue returns the message hash, refuses a duplicate and a full send queue, and waits while stopped":
+  asyncTest "enqueue returns the message hash, gives a queued hash back, refuses a full send queue, and waits while stopped":
     let processor = FakePropagatingProcessor()
     let service = newService(processor, maxSendsInFlight = 2)
     let first = buildTask("first")
@@ -872,23 +872,23 @@ suite "SendService - deliver":
     )
 
     let accepted = service.enqueue(first)
-    let duplicate = service.enqueue(copy)
+    let again = service.enqueue(copy)
     check:
       accepted.isOk()
       accepted.get() == first.msgHash
-      duplicate.isErr()
-      duplicate.error.kind == SendErrorKind.Duplicate
+      again.isOk()
+      again.isOk() and again.get() == first.msgHash
+      service.isQueued(first)
+      not service.isQueued(copy) # the queued task stays
       (service.enqueue(second)).isOk()
       service.isFull()
 
     let full = service.enqueue(buildTask("third"))
-    let duplicateWhenFull = service.enqueue(copy)
+    let againWhenFull = service.enqueue(copy)
     check:
       full.isErr()
       full.error.kind == SendErrorKind.QueueFull
-      duplicateWhenFull.isErr()
-      duplicateWhenFull.error.kind == SendErrorKind.Duplicate
-        # the duplicate check comes before the capacity check
+      againWhenFull.isOk() # the queued hash comes before the capacity check
 
     service.startSendService()
     check await log.waitPropagated(2).withTimeout(FUTURE_TIMEOUT_MEDIUM)

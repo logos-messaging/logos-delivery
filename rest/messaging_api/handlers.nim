@@ -51,8 +51,6 @@ proc refusedSendResponse(error: SendError): RestApiResponse =
     return RestApiResponse.serviceUnavailable(text)
   of SendErrorKind.NoShard:
     return RestApiResponse.badRequest(text)
-  of SendErrorKind.Duplicate:
-    return RestApiResponse.error(Http409, text, $MIMETYPE_TEXT)
   of SendErrorKind.TooLarge:
     return RestApiResponse.error(Http413, text, $MIMETYPE_TEXT)
   of SendErrorKind.QueueFull:
