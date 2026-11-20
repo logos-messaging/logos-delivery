@@ -37,7 +37,7 @@ ERROR_KIND_NOT_STORED = "NotStored"
 # SendErrorKind values: a refused send's error text ends with the kind in parentheses.
 SEND_REFUSED_NOT_STARTED = "NotStarted"
 SEND_REFUSED_NOT_CONNECTED = "NotConnected"
-SEND_REFUSED_NO_SHARD = "NoShard"
+SEND_REFUSED_NO_SHARD = "NoShardMapsContentTopic"
 SEND_REFUSED_QUEUE_FULL = "QueueFull"
 SEND_REFUSED_RATE_LIMITED = "RateLimited"
 SEND_REFUSED_TOO_LARGE = "TooLarge"

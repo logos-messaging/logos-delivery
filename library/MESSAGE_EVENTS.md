@@ -14,7 +14,7 @@ The liblogosdelivery library emits three types of message delivery events and on
 | --- | --- |
 | `NotStarted` | The node is not started. |
 | `NotConnected` | The node has no connected or dialable peer. |
-| `NoShard` | The content topic maps to no shard of the node. |
+| `NoShardMapsContentTopic` | The content topic maps to no shard of the node. |
 | `QueueFull` | The node already has 50 sends with no last event. |
 | `RateLimited` | The rate-limit budget of the epoch is spent. The text gives the seconds until the next epoch, or 1 s when the RLN backend does not state the length of its epoch. |
 | `TooLarge` | The message, with its RLN proof, exceeds the maximum message size. |

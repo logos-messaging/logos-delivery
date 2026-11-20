@@ -262,7 +262,7 @@ class TestS05MalformedContentTopic(StepsCommon):
     S05 — Malformed content topic.
     Sender is initialized and connected, but task creation is forced to fail
     by using a malformed content topic that breaks shard resolution.
-    Expected: send() is refused with NoShard and a "DeliveryTask" message, no events.
+    Expected: send() is refused with NoShardMapsContentTopic and a "DeliveryTask" message, no events.
     Purpose: covers the synchronous refusal on task creation, across several
     distinct validator branches.
     """

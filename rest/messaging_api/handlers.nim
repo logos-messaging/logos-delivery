@@ -49,7 +49,7 @@ proc refusedSendResponse(error: SendError): RestApiResponse =
   case error.kind
   of SendErrorKind.NotStarted, SendErrorKind.NotConnected:
     return RestApiResponse.serviceUnavailable(text)
-  of SendErrorKind.NoShard:
+  of SendErrorKind.NoShardMapsContentTopic:
     return RestApiResponse.badRequest(text)
   of SendErrorKind.TooLarge:
     return RestApiResponse.error(Http413, text, $MIMETYPE_TEXT)
