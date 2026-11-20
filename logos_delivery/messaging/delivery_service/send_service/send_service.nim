@@ -354,12 +354,12 @@ func isQueued(self: SendService, task: DeliveryTask): bool =
   return self.deliveryTasks.getOrDefault(task.msgHash) == task
 
 proc finish(self: SendService, task: DeliveryTask) =
-  ## Removes a task that got its last event, and gives back a charge that the
-  ## task did not use.
+  ## Removes a task that got its last event, and gives back an admission that
+  ## the task did not use.
   if self.isQueued(task):
-    if task.chargeUnused:
-      self.rateLimitManager.release(task.charge)
-      task.chargeUnused = false
+    if task.admissionRefundable:
+      self.rateLimitManager.release(task.admittedInEpoch)
+      task.admissionRefundable = false
     self.deliveryTasks.del(task.msgHash)
 
 proc fail(
@@ -412,19 +412,19 @@ proc reportPropagated(self: SendService, task: DeliveryTask) =
 
 proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
   ## Attaches the RLN proof. `send` charged the budget, and only a new proof after
-  ## a rejected one takes a new charge. A task has no queue to wait in for budget,
+  ## a rejected one takes a new admission. A task has no queue to wait in for budget,
   ## so a new proof with no budget fails it. Returns false when the task waits
   ## for its next attempt or failed.
   if task.firstAdmittedTime.isNone():
-    task.charge = self.rateLimitManager.admit().valueOr:
+    task.admittedInEpoch = self.rateLimitManager.admit().valueOr:
       debug "No rate-limit budget for a new RLN proof", msgHash = task.loggedHash()
       task.state = DeliveryState.FailedToDeliver
       task.errorDesc = "no rate-limit budget for a new RLN proof"
       return false
-    task.chargeUnused = true
+    task.admissionRefundable = task.admittedInEpoch.isSome()
     task.firstAdmittedTime = Opt.some(Moment.now())
 
-  # A new proof draws an RLN message id, and that id uses the charge.
+  # A new proof draws an RLN message id, and that id uses the admission.
   let drawsMessageId = self.waku.needsRlnProof(task.msg)
   # The message timestamp sets its epoch, so a backend past that epoch or out of
   # budget fails the task. Other errors wait for a retry.
@@ -438,7 +438,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
         msgHash = task.msgHash.to0xHex(), error = $error
     return false
   if drawsMessageId:
-    task.chargeUnused = false
+    task.admissionRefundable = false
 
   return true
 
@@ -493,8 +493,8 @@ proc sendUntilPropagated(
       # refuse the message after it.
       if self.failExpired(task):
         return false
-      # The attempt uses the charge.
-      task.chargeUnused = false
+      # The attempt uses the admission.
+      task.admissionRefundable = false
       try:
         await self.sendProcessor.process(task)
       except CancelledError as exc:
@@ -632,9 +632,9 @@ proc admitAtSend(self: SendService, task: DeliveryTask): Result[void, SendError]
           "ephemeral message refused, the rate-limit budget is: " & $quotaState
         )
       )
-  task.charge = self.rateLimitManager.admit().valueOr:
+  task.admittedInEpoch = self.rateLimitManager.admit().valueOr:
     return err(self.rateLimited("the rate-limit budget of the epoch is spent"))
-  task.chargeUnused = true
+  task.admissionRefundable = task.admittedInEpoch.isSome()
   task.firstAdmittedTime = Opt.some(Moment.now())
   return ok()
 
@@ -643,7 +643,7 @@ proc enqueue*(
 ): Result[WakuMessageHash, SendError] =
   ## Charges the budget, puts `task` in the send queue and returns its message
   ## hash. It does not suspend, makes no attempt and emits no event, so the caller
-  ## gets the hash first. A refused message gets no event, and the charge comes
+  ## gets the hash first. A refused message gets no event, and the admission comes
   ## last, so a refused message takes none.
   assert(not task.isNil(), "task for enqueue must not be nil")
   # A caller that queues one task twice gets here. So can a send right after the

@@ -54,8 +54,8 @@ type RateLimitManager* = ref object
   currentEpochIndex*: uint64
   sentInCurrentEpoch*: uint64
   epochSerial: uint64
-    ## Counts the epochs that `sentInCurrentEpoch` counted. A charge names the
-    ## epoch that it was taken in, so `release` can tell an old charge.
+    ## Counts the epochs that `sentInCurrentEpoch` counted. An admission names
+    ## the epoch that it was taken in, so `release` can tell an old one.
 
 proc new*(
     T: type RateLimitManager,
@@ -229,9 +229,9 @@ proc quotaState*(self: RateLimitManager): QuotaState =
 
 proc admit*(self: RateLimitManager): Result[Opt[uint64], RateLimitError] =
   ## Charges one message against the current epoch's limit, rolling the window
-  ## first when the epoch has advanced. The result names the charge for
-  ## `release`. It admits everything, with no charge, while the manager does not
-  ## limit sends.
+  ## first when the epoch has advanced. The result is the epoch serial of the
+  ## admission, for `release`. It admits everything, and returns none, while the
+  ## manager does not limit sends.
   ## Each call starts a `refresh` in the background when none runs.
   self.rollEpoch()
   self.requestRefresh()
@@ -244,10 +244,11 @@ proc admit*(self: RateLimitManager): Result[Opt[uint64], RateLimitError] =
   self.sentInCurrentEpoch.inc()
   return ok(Opt.some(self.epochSerial))
 
-proc release*(self: RateLimitManager, charge: Opt[uint64]) =
-  ## Gives back `charge`, a result of `admit` that paid for no RLN message id and
-  ## for no attempt. A charge of an earlier epoch has nothing to give back.
-  if charge == Opt.some(self.epochSerial) and self.sentInCurrentEpoch > 0:
+proc release*(self: RateLimitManager, admittedInEpoch: Opt[uint64]) =
+  ## Gives back the admission of `admittedInEpoch`, a result of `admit` that no
+  ## RLN message id and no attempt used. An admission of an earlier epoch has
+  ## nothing to give back.
+  if admittedInEpoch == Opt.some(self.epochSerial) and self.sentInCurrentEpoch > 0:
     self.sentInCurrentEpoch.dec()
 
 proc retryAfter*(self: RateLimitManager): Duration =

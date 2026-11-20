@@ -27,11 +27,18 @@ type DeliveryTask* = ref object
     ## `nextStoreValidationBatch`).
   firstAdmittedTime*: Opt[Moment]
     ## Set when `send` charges the rate-limit budget. A rejected RLN proof clears
-    ## it, so the new proof gets a new charge.
-  charge*: Opt[uint64] ## The result of `RateLimitManager.admit` for this task.
-  chargeUnused*: bool
-    ## True while the charge paid for no RLN message id and for no attempt. Such
-    ## a charge goes back to the budget when the task ends.
+    ## it, so the new proof gets a new admission.
+  admittedInEpoch*: Opt[uint64]
+    ## The epoch, as `RateLimitManager` counts them, that `send` admitted the
+    ## message in. It is the manager's own epoch serial (1, 2, 3…), not the RLN
+    ## epoch index. `none` when the manager does not limit sends: the message was
+    ## admitted and nothing was counted. A new RLN proof after a rejected one takes
+    ## a new admission and replaces it.
+  admissionRefundable*: bool
+    ## True when `send` took one unit of the epoch budget for this message and
+    ## the message has not used it yet: no RLN proof drew a message id for it,
+    ## and no send attempt went out. If the task ends while this is true,
+    ## `finish` returns the unit to the budget with `RateLimitManager.release`.
 
   propagatedEventEmitted*: bool
     ## Set when the task emits `MessagePropagatedEvent`. After a restart, the send
