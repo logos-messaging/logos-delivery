@@ -395,8 +395,10 @@ proc copyCommittedAddresses*(node: WakuNode) =
   ## Copy the committed peerInfo addresses into announcedAddresses, update mix's
   ## own hop, and refresh the ENR, once the base mapper has resolved the addresses.
   ## A `Waku` installs its own refresh, which also keeps the live discv5 record.
+  ## Changed addresses change this node's advertised record too.
   if node.baseAnnounced.isNone():
     return
+  let changed = node.announcedAddresses != node.switch.peerInfo.addrs
   node.announcedAddresses = node.switch.peerInfo.addrs
   node.updateMixSelfHop()
   if not node.onCommittedAddresses.isNil():
@@ -406,6 +408,8 @@ proc copyCommittedAddresses*(node: WakuNode) =
       node.switch.peerInfo.privateKey, node.enrAddresses(), node.enrBaseline()
     ).isOkOr:
       error "failed to refresh the ENR addresses", error = error
+  if changed:
+    AdvertChangedEvent.emit(node.brokerCtx, AdvertChangedEvent(reason: "addresses"))
 
 proc new*(
     T: type WakuNode,

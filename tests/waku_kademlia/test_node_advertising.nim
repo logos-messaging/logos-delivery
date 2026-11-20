@@ -41,6 +41,15 @@ proc publishedAddresses(node: WakuNode): seq[MultiAddress] =
     return @[]
   record.addresses.mapIt(it.address)
 
+proc advertisedAddresses(node: WakuNode, serviceId: string): seq[MultiAddress] =
+  ## The addresses in the record this node signed and handed to libp2p for
+  ## `serviceId`.
+  let disco = node.wakuKademlia.protocol
+  let advert = disco.advertiser.providedAdverts.getOrDefault(serviceId.hashServiceId())
+  let record = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+    return @[]
+  record.data.addresses.mapIt(it.address)
+
 proc newAdvertisingNode(
     bindIp: IpAddress, service: ServiceInfo, extMultiAddrs: seq[MultiAddress] = @[]
 ): WakuNode =
@@ -184,3 +193,28 @@ suite "Waku Kademlia node advertising":
     await node.start()
     check not node.isAdvertised(delivery)
     await node.stop()
+
+  asyncTest "a node advertises its record again when its addresses change":
+    ## libp2p refreshes no record the node signed itself, so the node signs
+    ## one with the new addresses.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+      return ok(deliveryAdvertPart(conf, @[0'u16]))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    await node.start()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    check:
+      node.advertisedAddresses(LogosDeliveryServiceId).len > 0
+      node.advertisedAddresses(LogosDeliveryServiceId) == node.announcedAddresses
+
+    ## What PeerInfo.update does once the address mappers give other addresses.
+    let moved = @[MultiAddress.init("/ip4/10.1.2.3/tcp/60123").get()]
+    node.switch.peerInfo.addrs = moved
+    node.switch.peerInfo.notifyObservers()
+    check node.announcedAddresses == moved
+    checkUntilTimeout:
+      node.advertisedAddresses(LogosDeliveryServiceId) == moved
