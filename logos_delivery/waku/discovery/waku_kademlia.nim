@@ -142,7 +142,7 @@ proc lookupServicePeers*(
     return err("service peer lookup failed: " & error.msg)
 
   let advertisements = lookupResult.valueOr:
-    return err("service peer lookup failed: " & lookupResult.error)
+    return err("service peer lookup failed: " & $lookupResult.error)
 
   let records = advertisements.mapIt(it.data)
 

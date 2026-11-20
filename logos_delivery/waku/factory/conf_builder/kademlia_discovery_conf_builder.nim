@@ -58,7 +58,7 @@ proc build*(
   var parsedNodes: seq[(PeerId, seq[MultiAddress])]
   for nodeStr in b.bootstrapNodes:
     let (peerId, ma) = parseFullAddress(nodeStr).valueOr:
-      return err("Failed to parse kademlia bootstrap node: " & error)
+      return err("Failed to parse kademlia bootstrap node: " & $error)
     parsedNodes.add((peerId, @[ma]))
 
   return ok(
