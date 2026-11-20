@@ -43,7 +43,7 @@ proc send*(
     return err(SendError.init(SendErrorKind.NotConnected, "node has no connected peer"))
 
   let msgHash = self.sendService.enqueue(deliveryTask).valueOr:
-    debug "Send refused", msgHash = deliveryTask.loggedHash(), error = $error
+    debug "Send refused", msg_hash = deliveryTask.loggedHash(), error = $error
     return err(
       SendError.init(
         error.kind, "failed to enqueue the message: " & error.desc, error.retryAfter
