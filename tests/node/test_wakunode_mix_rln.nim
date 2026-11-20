@@ -1,7 +1,7 @@
 {.used.}
 
 import std/json
-import chronos, results, stew/byteutils, testutils/unittests, libp2p_mix/curve25519
+import chronos, results, testutils/unittests, libp2p_mix/curve25519
 import mix_rln_spam_protection/module_api
 import
   logos_delivery/waku/[
@@ -10,7 +10,6 @@ import
     net/bound_ports,
     node/waku_node,
     node/waku_node/mix_rln,
-    waku_mix,
     discovery/self_advert_brokers,
   ],
   ../testlib/[wakucore, wakunode]

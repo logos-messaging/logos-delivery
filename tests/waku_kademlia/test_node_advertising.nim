@@ -7,7 +7,7 @@ import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/protocols/kademlia/types
 import libp2p_mix, libp2p_mix/curve25519
 import
-  logos_delivery/waku/[waku_core, waku_mix],
+  logos_delivery/waku/waku_core,
   logos_delivery/waku/node/[waku_node, waku_node/relay],
   logos_delivery/waku/discovery/[
     waku_kademlia, service_discovery, self_advertisement, delivery_advert,
