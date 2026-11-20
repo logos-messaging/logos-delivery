@@ -11,6 +11,7 @@ type FakeBackend* = ref object of IPeerDiscovery
   advertised*: seq[string]
   advertisedData*: seq[seq[byte]]
   advertisedSecondary*: seq[seq[DiscoveredService]]
+  withdrawn*: seq[string]
   interests*: seq[string]
   pauseNextAdvert*: Future[void].Raising([CancelledError])
     ## When set, the next `startAdvertising` records its call, then waits on it.
@@ -65,6 +66,7 @@ BrokerImplement FakeBackend of IPeerDiscovery:
   method stopAdvertising(
       self: FakeBackend, key: string
   ): Future[Result[void, string]] {.async.} =
+    self.withdrawn.add(key)
     ok()
 
   method unregisterInterest(

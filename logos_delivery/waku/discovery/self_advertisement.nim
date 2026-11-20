@@ -183,3 +183,17 @@ proc advertiseSelf*(
 
     info "advertising this node on the delivery network",
       backend = info.id, protocols = conf.wakuFlags.toCodecs(), mixNode = mixNode
+
+proc withdrawSelf*(discoveries: seq[IPeerDiscovery]) {.async: (raises: []).} =
+  ## Stops advertising this node on every service-capable backend. A backend
+  ## keeps the record it was given and publishes it again at the next start,
+  ## when the mix key in it may be gone.
+  for discovery in discoveries:
+    let info = (await discovery.backendInfo()).valueOr:
+      debug "skipping backend with unreadable info", reason = error
+      continue
+    if ServiceKind notin info.keyKinds:
+      continue
+    (await discovery.stopAdvertising(SvcKey)).isOkOr:
+      warn "could not withdraw this node's advertisement",
+        backend = info.id, reason = error

@@ -65,6 +65,7 @@ import
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./delivery_dialer,
@@ -754,13 +755,17 @@ proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
   await node.recordAdvertisement
 
 proc stopRecordAdvertising(node: WakuNode) {.async: (raises: []).} =
-  ## Ends the advertisement in progress, and advertises no new mix key.
+  ## Ends the advertisement in progress, advertises no new mix key, and
+  ## withdraws the record: with key rotation the stop destroys the mix key in
+  ## it, and a backend would publish the record again at the next start.
   if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
     node.wakuMix.keyRing().get().setKeyHandler(nil)
   node.recordVersion.inc()
-  if not node.recordAdvertisement.isNil():
-    await node.recordAdvertisement.cancelAndWait()
-    node.recordAdvertisement = nil
+  if node.recordAdvertisement.isNil():
+    return
+  await node.recordAdvertisement.cancelAndWait()
+  node.recordAdvertisement = nil
+  await withdrawSelf(node.discoveries)
 
 proc mountKademlia*(
     node: WakuNode, config: KademliaDiscoveryConf
