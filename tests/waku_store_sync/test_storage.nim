@@ -14,7 +14,6 @@ suite "Waku Sync Storage":
     let count = 10_000
     var elements = newSeqOfCap[SyncID](count)
     var pubsub = newSeqOfCap[PubsubTopic](count)
-    var content = newSeqOfCap[ContentTopic](count)
 
     var emptySet = @[0].toPackedSet()
     emptySet.excl(0)
@@ -24,21 +23,18 @@ suite "Waku Sync Storage":
 
       elements.add(id)
       pubsub.add(DefaultPubsubTopic)
-      content.add(DefaultContentTopic)
 
-    var storage1 = SeqStorage.new(elements, pubsub, content)
-    var storage2 = SeqStorage.new(elements, pubsub, content)
+    var storage1 = SeqStorage.new(elements, pubsub)
+    var storage2 = SeqStorage.new(elements, pubsub)
 
     let lb = elements[0]
     let ub = elements[count - 1]
     let bounds = lb .. ub
-    let fingerprint1 = storage1.computeFingerprint(bounds, @[], @[])
+    let fingerprint1 = storage1.computeFingerprint(bounds, @[])
 
     var outputPayload: RangesData
 
-    storage2.processFingerprintRange(
-      bounds, emptySet, emptySet, fingerprint1, outputPayload
-    )
+    storage2.processFingerprintRange(bounds, emptySet, fingerprint1, outputPayload)
 
     let expected =
       RangesData(ranges: @[(bounds, RangeType.Skip)], fingerprints: @[], itemSets: @[])
@@ -52,7 +48,6 @@ suite "Waku Sync Storage":
     var elements1 = newSeqOfCap[SyncID](count)
     var elements2 = newSeqOfCap[SyncID](count)
     var pubsub = newSeqOfCap[PubsubTopic](count)
-    var content = newSeqOfCap[ContentTopic](count)
 
     var emptySet = @[0].toPackedSet()
     emptySet.excl(0)
@@ -69,9 +64,8 @@ suite "Waku Sync Storage":
         diffs.add(id.hash)
 
       pubsub.add(DefaultPubsubTopic)
-      content.add(DefaultContentTopic)
 
-    var storage1 = SeqStorage.new(elements1, pubsub, content)
+    var storage1 = SeqStorage.new(elements1, pubsub)
 
     let lb = elements1[0]
     let ub = elements1[count - 1]
@@ -85,7 +79,7 @@ suite "Waku Sync Storage":
       outputPayload: RangesData
 
     storage1.processItemSetRange(
-      bounds, emptySet, emptySet, itemSet2, toSend, toRecv, outputPayload
+      bounds, emptySet, itemSet2, toSend, toRecv, outputPayload
     )
 
     check:
@@ -96,7 +90,7 @@ suite "Waku Sync Storage":
     let
       held = SyncID(time: Timestamp(1000), hash: randomHash(rng))
       promised = SyncID(time: Timestamp(2000), hash: randomHash(rng))
-      storage = SeqStorage.new(@[held], @[DefaultPubsubTopic], @[DefaultContentTopic])
+      storage = SeqStorage.new(@[held], @[DefaultPubsubTopic])
       bounds =
         SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
         SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
@@ -149,33 +143,29 @@ suite "Waku Sync Storage":
     var rng = initRand()
     let
       element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
-      storage = SeqStorage.new(@[element], @["/waku/2/rs/0/1"], @[DefaultContentTopic])
+      storage = SeqStorage.new(@[element], @["/waku/2/rs/0/1"])
       bounds =
         SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
         SyncID(time: Timestamp(2000), hash: EmptyFingerprint)
 
-    check storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"], @[]) ==
-      EmptyFingerprint
+    check storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"]) == EmptyFingerprint
 
   test "a pending element is in the fingerprint of every pubsub scope":
     var rng = initRand()
     let
       onShard1 = SyncID(time: Timestamp(1000), hash: randomHash(rng))
       pending = SyncID(time: Timestamp(2000), hash: randomHash(rng))
-      storage = SeqStorage.new(
-        @[onShard1, pending],
-        @["/waku/2/rs/0/1", PendingPubsubTopic],
-        @[DefaultContentTopic, ""],
-      )
+      storage =
+        SeqStorage.new(@[onShard1, pending], @["/waku/2/rs/0/1", PendingPubsubTopic])
       bounds =
         SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
         SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
-      allTopics = storage.computeFingerprint(bounds, @[], @[])
+      allTopics = storage.computeFingerprint(bounds, @[])
 
     check:
       allTopics != pending.hash
-      storage.computeFingerprint(bounds, @["/waku/2/rs/0/1"], @[]) == allTopics
-      storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"], @[]) == pending.hash
+      storage.computeFingerprint(bounds, @["/waku/2/rs/0/1"]) == allTopics
+      storage.computeFingerprint(bounds, @["/waku/2/rs/0/2"]) == pending.hash
 
   test "insert new element":
     var rng = initRand()
@@ -185,11 +175,11 @@ suite "Waku Sync Storage":
     let element1 = SyncID(time: Timestamp(1000), hash: randomHash(rng))
     let element2 = SyncID(time: Timestamp(2000), hash: randomHash(rng))
 
-    let res1 = storage.insert(element1, DefaultPubsubTopic, DefaultContentTopic)
+    let res1 = storage.insert(element1, DefaultPubsubTopic)
     assert res1.isOk(), $res1.error
     let count1 = storage.length()
 
-    let res2 = storage.insert(element2, DefaultPubsubTopic, DefaultContentTopic)
+    let res2 = storage.insert(element2, DefaultPubsubTopic)
     assert res2.isOk(), $res2.error
     let count2 = storage.length()
 
@@ -202,10 +192,9 @@ suite "Waku Sync Storage":
 
     let element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
 
-    let storage =
-      SeqStorage.new(@[element], @[DefaultPubsubTopic], @[DefaultContentTopic])
+    let storage = SeqStorage.new(@[element], @[DefaultPubsubTopic])
 
-    let res = storage.insert(element, DefaultPubsubTopic, DefaultContentTopic)
+    let res = storage.insert(element, DefaultPubsubTopic)
 
     check:
       res.isErr() == false
@@ -216,11 +205,8 @@ suite "Waku Sync Storage":
     let
       element1 = SyncID(time: Timestamp(1000), hash: randomHash(rng))
       element2 = SyncID(time: Timestamp(2000), hash: randomHash(rng))
-      storage = SeqStorage.new(
-        @[element1, element2],
-        @[DefaultPubsubTopic, DefaultPubsubTopic],
-        @[DefaultContentTopic, DefaultContentTopic],
-      )
+      storage =
+        SeqStorage.new(@[element1, element2], @[DefaultPubsubTopic, DefaultPubsubTopic])
       bounds =
         SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
         SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
@@ -230,15 +216,14 @@ suite "Waku Sync Storage":
 
     check:
       storage.length() == 1
-      storage.computeFingerprint(bounds, @[], @[]) == element2.hash
+      storage.computeFingerprint(bounds, @[]) == element2.hash
 
   test "removing an absent element changes nothing":
     var rng = initRand()
     let
       element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
       absent = SyncID(time: Timestamp(2000), hash: randomHash(rng))
-      storage =
-        SeqStorage.new(@[element], @[DefaultPubsubTopic], @[DefaultContentTopic])
+      storage = SeqStorage.new(@[element], @[DefaultPubsubTopic])
       bounds =
         SyncID(time: Timestamp(0), hash: EmptyFingerprint) ..
         SyncID(time: Timestamp(3000), hash: EmptyFingerprint)
@@ -248,14 +233,13 @@ suite "Waku Sync Storage":
 
     check:
       storage.length() == 1
-      storage.computeFingerprint(bounds, @[], @[]) == element.hash
+      storage.computeFingerprint(bounds, @[]) == element.hash
 
   test "contains finds only an element with the same time and hash":
     var rng = initRand()
     let
       element = SyncID(time: Timestamp(1000), hash: randomHash(rng))
-      storage =
-        SeqStorage.new(@[element], @[DefaultPubsubTopic], @[DefaultContentTopic])
+      storage = SeqStorage.new(@[element], @[DefaultPubsubTopic])
 
     check:
       storage.contains(element)
@@ -268,7 +252,6 @@ suite "Waku Sync Storage":
     let count = 1000
     var elements = newSeqOfCap[SyncID](count)
     var pubsub = newSeqOfCap[PubsubTopic](count)
-    var content = newSeqOfCap[ContentTopic](count)
 
     var emptySet = @[0].toPackedSet()
     emptySet.excl(0)
@@ -278,9 +261,8 @@ suite "Waku Sync Storage":
 
       elements.add(id)
       pubsub.add(DefaultPubsubTopic)
-      content.add(DefaultContentTopic)
 
-    let storage = SeqStorage.new(elements, pubsub, content)
+    let storage = SeqStorage.new(elements, pubsub)
 
     let beforeCount = storage.length()
 
@@ -298,32 +280,26 @@ suite "Waku Sync Storage":
     let count = 1000
     var elements = newSeqOfCap[SyncID](count)
     var pubsub = newSeqOfCap[PubsubTopic](count)
-    var content = newSeqOfCap[ContentTopic](count)
-
-    var emptySet = @[0].toPackedSet()
-    emptySet.excl(0)
 
     for i in 0 ..< (count div 2):
       let id = SyncID(time: Timestamp(i), hash: randomHash(rng))
 
       elements.add(id)
-      pubsub.add(DefaultPubsubTopic)
-      content.add("my/custom/topic")
+      pubsub.add("/waku/2/rs/0/1")
 
     for i in (count div 2) ..< count:
       let id = SyncID(time: Timestamp(i), hash: randomHash(rng))
 
       elements.add(id)
       pubsub.add(DefaultPubsubTopic)
-      content.add(DefaultContentTopic)
 
-    let storage = SeqStorage.new(elements, pubsub, content)
+    let storage = SeqStorage.new(elements, pubsub)
 
-    let beforeCount = storage.unusedContentTopicsLen()
+    let beforeCount = storage.unusedPubsubTopicsLen()
 
     let pruned = storage.prune(Timestamp(500))
 
-    let afterCount = storage.unusedContentTopicsLen()
+    let afterCount = storage.unusedPubsubTopicsLen()
 
     check:
       beforeCount == 0
@@ -331,13 +307,12 @@ suite "Waku Sync Storage":
       afterCount == 1
 
     let id = SyncID(time: Timestamp(1001), hash: randomHash(rng))
-    let res = storage.insert(id, DefaultPubsubTopic, "my/other/topic")
+    let res = storage.insert(id, "/waku/2/rs/0/2")
     assert res.isOk(), $res.error
 
-    let reuseCount = storage.unusedContentTopicsLen()
-
     check:
-      reuseCount == 0
+      storage.unusedPubsubTopicsLen() == 0
+      storage.pubsubTopicsLen() == 2
 
   ## disabled tests are rough benchmark 
   #[ test "10M fingerprint":

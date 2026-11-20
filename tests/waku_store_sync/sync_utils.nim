@@ -82,7 +82,7 @@ proc newTestWakuRecon*(
     switch: Switch,
     shards: seq[uint16] = @[],
     syncRange: timer.Duration = DefaultSyncRange,
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, SyncID)],
     relayJitter: timer.Duration = 0.seconds,
@@ -124,7 +124,7 @@ proc newTestWakuRecon*(
 
 proc newTestWakuTransfer*(
     switch: Switch,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic, PeerId)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     wantsRx: AsyncQueue[PeerId],
     needsRx: AsyncQueue[(PeerId, SyncID)],
 ): Future[SyncTransfer] {.async.} =

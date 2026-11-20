@@ -5,7 +5,6 @@ import ../../logos_delivery/waku/waku_store_sync/common
 import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
 import ../../logos_delivery/waku/waku_core/message/digest
 import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
-import ../../logos_delivery/waku/waku_core/topics/content_topic
 
 proc toDigest(s: string): WakuMessageHash =
   let d = nimcrypto.keccak256.digest((s & "").toOpenArrayByte(0, s.high))
@@ -20,23 +19,20 @@ suite "Waku Sync: state transition":
     const N = 2_000
     const idx = 137
 
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var baseH, altH: WakuMessageHash
     for i in 0 ..< N:
       let ts = 1000 + i
       let h = toDigest("msg" & $i)
-      discard
-        local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic, DefaultContentTopic)
+      discard local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic)
       var hr = h
       if i == idx:
         baseH = h
         altH = toDigest("msg" & $i & "x")
         hr = altH
-      discard remote.insert(
-        SyncID(time: ts, hash: hr), DefaultPubsubTopic, DefaultContentTopic
-      )
+      discard remote.insert(SyncID(time: ts, hash: hr), DefaultPubsubTopic)
 
     var z: WakuMessageHash
     let whole = SyncID(time: 1000, hash: z) .. SyncID(time: 1000 + N - 1, hash: z)
@@ -45,9 +41,7 @@ suite "Waku Sync: state transition":
     let p1 = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(whole, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(whole, @[DefaultPubsubTopic], @[DefaultContentTopic])
-      ],
+      fingerprints: @[remote.computeFingerprint(whole, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
     let rep1 = local.processPayload(p1, s1, r1)
@@ -62,8 +56,7 @@ suite "Waku Sync: state transition":
     let p2 = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(sub, RangeType.Fingerprint)],
-      fingerprints:
-        @[remote.computeFingerprint(sub, @[DefaultPubsubTopic], @[DefaultContentTopic])],
+      fingerprints: @[remote.computeFingerprint(sub, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
     let rep2 = local.processPayload(p2, s2, r2)
@@ -75,19 +68,14 @@ suite "Waku Sync: state transition":
     check s3.len == 1 and s3[0] == altH
     check r3.len == 1 and r3[0] == baseH
 
-    discard local.insert(
-      SyncID(time: mismT, hash: altH), DefaultPubsubTopic, DefaultContentTopic
-    )
-    discard remote.insert(
-      SyncID(time: mismT, hash: baseH), DefaultPubsubTopic, DefaultContentTopic
-    )
+    discard local.insert(SyncID(time: mismT, hash: altH), DefaultPubsubTopic)
+    discard remote.insert(SyncID(time: mismT, hash: baseH), DefaultPubsubTopic)
 
     var s4, r4: seq[WakuMessageHash]
     let p3 = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(sub, RangeType.Fingerprint)],
-      fingerprints:
-        @[remote.computeFingerprint(sub, @[DefaultPubsubTopic], @[DefaultContentTopic])],
+      fingerprints: @[remote.computeFingerprint(sub, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
     let rep3 = local.processPayload(p3, s4, r4)
@@ -98,15 +86,14 @@ suite "Waku Sync: state transition":
     const N = 120
     const pivot = 60
 
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var diffHash: WakuMessageHash
     for i in 0 ..< N:
       let ts = 1000 + i
       let h = toDigest("msg" & $i)
-      discard
-        local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic, DefaultContentTopic)
+      discard local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic)
       var hr: WakuMessageHash
       if i >= pivot:
         diffHash = toDigest("msg" & $i & "_x")
@@ -114,9 +101,7 @@ suite "Waku Sync: state transition":
       else:
         hr = h
 
-      discard remote.insert(
-        SyncID(time: ts, hash: hr), DefaultPubsubTopic, DefaultContentTopic
-      )
+      discard remote.insert(SyncID(time: ts, hash: hr), DefaultPubsubTopic)
 
     var z: WakuMessageHash
     let sliceA = SyncID(time: 1000, hash: z) .. SyncID(time: 1059, hash: z)
@@ -127,8 +112,8 @@ suite "Waku Sync: state transition":
       shards: @[DefaultShardId],
       ranges: @[(sliceA, RangeType.Fingerprint), (sliceB, RangeType.Fingerprint)],
       fingerprints: @[
-        remote.computeFingerprint(sliceA, @[DefaultPubsubTopic], @[DefaultContentTopic]),
-        remote.computeFingerprint(sliceB, @[DefaultPubsubTopic], @[DefaultContentTopic]),
+        remote.computeFingerprint(sliceA, @[DefaultPubsubTopic]),
+        remote.computeFingerprint(sliceB, @[DefaultPubsubTopic]),
       ],
       itemSets: @[],
     )
@@ -151,16 +136,13 @@ suite "Waku Sync: state transition":
     for i in 0 ..< N:
       let ts = 1000 + i
       let h = toDigest("msg" & $i)
-      discard
-        local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic, DefaultContentTopic)
+      discard local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic)
       var hr = h
       if i == idx:
         baseH = h
         altH = toDigest("msg" & $i & "_x")
         hr = altH
-      discard remote.insert(
-        SyncID(time: ts, hash: hr), DefaultPubsubTopic, DefaultContentTopic
-      )
+      discard remote.insert(SyncID(time: ts, hash: hr), DefaultPubsubTopic)
 
     var z: WakuMessageHash
     let slice = SyncID(time: 1000, hash: z) .. SyncID(time: 1000 + N - 1, hash: z)
@@ -169,9 +151,7 @@ suite "Waku Sync: state transition":
     let p = RangesData(
       shards: @[DefaultShardId],
       ranges: @[(slice, RangeType.Fingerprint)],
-      fingerprints: @[
-        remote.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic])
-      ],
+      fingerprints: @[remote.computeFingerprint(slice, @[DefaultPubsubTopic])],
       itemSets: @[],
     )
     let reply = local.processPayload(p, toS, toR)
@@ -191,15 +171,14 @@ suite "Waku Sync: state transition":
     const N = 80_000
     const bad = N - 10
 
-    let local = SeqStorage.new(@[], @[], @[])
-    let remote = SeqStorage.new(@[], @[], @[])
+    let local = SeqStorage.new(@[], @[])
+    let remote = SeqStorage.new(@[], @[])
 
     var baseH, altH: WakuMessageHash
     for i in 0 ..< N:
       let ts = 1000 + i
       let h = toDigest("msg" & $i)
-      discard
-        local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic, DefaultContentTopic)
+      discard local.insert(SyncID(time: ts, hash: h), DefaultPubsubTopic)
 
       let hr =
         if i == bad:
@@ -208,9 +187,7 @@ suite "Waku Sync: state transition":
           altH
         else:
           h
-      discard remote.insert(
-        SyncID(time: ts, hash: hr), DefaultPubsubTopic, DefaultContentTopic
-      )
+      discard remote.insert(SyncID(time: ts, hash: hr), DefaultPubsubTopic)
 
     var slice =
       SyncID(time: 1000, hash: EmptyFingerprint) ..
@@ -221,9 +198,7 @@ suite "Waku Sync: state transition":
         RangesData(
           shards: @[DefaultShardId],
           ranges: @[(s, RangeType.Fingerprint)],
-          fingerprints: @[
-            remote.computeFingerprint(s, @[DefaultPubsubTopic], @[DefaultContentTopic])
-          ],
+          fingerprints: @[remote.computeFingerprint(s, @[DefaultPubsubTopic])],
           itemSets: @[],
         ),
         sendQ,
@@ -237,8 +212,8 @@ suite "Waku Sync: state transition":
       check rep.ranges.len == 8
       check rep.ranges.allIt(it[1] == RangeType.Fingerprint)
       for (sl, _) in rep.ranges:
-        if local.computeFingerprint(sl, @[DefaultPubsubTopic], @[DefaultContentTopic]) !=
-            remote.computeFingerprint(sl, @[DefaultPubsubTopic], @[DefaultContentTopic]):
+        if local.computeFingerprint(sl, @[DefaultPubsubTopic]) !=
+            remote.computeFingerprint(sl, @[DefaultPubsubTopic]):
           slice = sl
           break
 
@@ -260,12 +235,8 @@ suite "Waku Sync: state transition":
     check qSend.len == 1 and qSend[0] == altH
     check qRecv.len == 1 and qRecv[0] == baseH
 
-    discard local.insert(
-      SyncID(time: slice.a.time, hash: altH), DefaultPubsubTopic, DefaultContentTopic
-    )
-    discard remote.insert(
-      SyncID(time: slice.a.time, hash: baseH), DefaultPubsubTopic, DefaultContentTopic
-    )
+    discard local.insert(SyncID(time: slice.a.time, hash: altH), DefaultPubsubTopic)
+    discard remote.insert(SyncID(time: slice.a.time, hash: baseH), DefaultPubsubTopic)
 
     var send6, recv6: seq[WakuMessageHash]
     let rep6 = fpReply(slice, send6, recv6)
