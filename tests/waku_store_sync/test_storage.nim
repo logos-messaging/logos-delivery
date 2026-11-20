@@ -62,14 +62,17 @@ proc bytesLeftFor(ids: seq[SyncID], fitting: int): int =
   listingSize(ids[0 ..< fitting]) + maxEncodedRangeSize(RangeType.Fingerprint) + 10
 
 proc splitReply(
-    storage: SeqStorage, theirs: seq[SyncID], frameBytesLeft: int, mustAnswer: bool
+    storage: SeqStorage,
+    theirSyncIDs: seq[SyncID],
+    frameBytesLeft: int,
+    mustAnswer: bool,
 ): (bool, RangesData, seq[SyncID], seq[SyncID]) =
-  ## The reply to an unreconciled item set of `theirs` over ExampleBounds.
+  ## The reply to an unreconciled item set of `theirSyncIDs` over ExampleBounds.
   var answer = RangeAnswer(frameBytesLeft: frameBytesLeft)
   let answered = storage.processItemSetRange(
     ExampleBounds,
     initPackedSet[int](),
-    ItemSet(elements: theirs, reconciled: false),
+    ItemSet(elements: theirSyncIDs, reconciled: false),
     answer,
     mustAnswer,
   )
