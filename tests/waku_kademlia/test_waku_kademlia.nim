@@ -113,6 +113,49 @@ suite "Waku Kademlia service discovery":
       check advertisedMixKey(services(MixNodeCaps, "/foo/1.0.0", validKeyBytes()))
         .isNone()
 
+  suite "disclaimsMix":
+    proc delivery(caps: CapabilitiesBitfield): DiscoveredService =
+      DiscoveredService(id: LogosDeliveryServiceId, data: deliveryPayload(caps))
+
+    proc mixKey(): DiscoveredService =
+      DiscoveredService(id: MixProtocolID, data: newSeq[byte](Curve25519KeySize))
+
+    test "a delivery record that claims no mix disclaims":
+      check disclaimsMix(@[delivery(CapabilitiesBitfield.init(relay = true))])
+
+    test "a delivery record that claims mix without relay disclaims":
+      check disclaimsMix(
+        @[delivery(CapabilitiesBitfield.init(filter = true, mix = true))]
+      )
+
+    test "a delivery record claiming relay and mix with its key does not":
+      check not disclaimsMix(@[delivery(MixNodeCaps), mixKey()])
+
+    test "a delivery record claiming relay and mix without a key does not":
+      ## libp2p's own record of a mix node, as a random lookup returns it.
+      check not disclaimsMix(@[delivery(MixNodeCaps)])
+
+    test "a record with no delivery service does not":
+      check:
+        not disclaimsMix(@[])
+        not disclaimsMix(@[DiscoveredService(id: "/other/1.0.0", data: @[1'u8])])
+
+    test "a delivery payload it cannot read does not":
+      check:
+        not disclaimsMix(
+          @[DiscoveredService(id: LogosDeliveryServiceId, data: @[0xff'u8, 0x00])]
+        )
+        not disclaimsMix(
+          @[
+            DiscoveredService(
+              id: LogosDeliveryServiceId,
+              data: cast[seq[byte]](base64.encode(
+                @[AdvertFormatVersion + 1, 0'u8, 0'u8, 0'u8]
+              )),
+            )
+          ]
+        )
+
   suite "remotePeerInfoFrom":
     proc randomPeerId(): PeerId =
       PeerId.init(generateSecp256k1Key()).tryGet()
@@ -237,6 +280,73 @@ suite "Waku Kademlia service discovery":
       check:
         peerInfo.peerId == pid
         peerInfo.mixPubKey.isNone()
+
+    proc storedMixKey(peerStore: PeerStore, pid: PeerId): Opt[Curve25519Key] =
+      if pid in peerStore[MixPubKeyBook]:
+        Opt.some(peerStore[MixPubKeyBook][pid])
+      else:
+        Opt.none(Curve25519Key)
+
+    proc mixNodeRecord(pid: PeerId): ExtendedPeerRecord =
+      buildExtendedPeerRecord(
+        pid, @[testAddr(61600)], @[deliveryService(), validMixService()]
+      )
+
+    proc kademliaWithMixPeer(pid: PeerId): WakuKademlia =
+      ## A backend whose peer store holds `pid` as a mix node, learned from
+      ## its delivery record.
+      let wk = kad_utils.newTestKademlia(newTestSwitch())
+      discard wk.processRecords(@[mixNodeRecord(pid)], "test")
+      doAssert wk.protocol.switch.peerStore.storedMixKey(pid).isSome()
+      wk
+
+    test "a delivery record that claims no mix removes the stored key":
+      ## The peer lost its Mix RLN membership and advertises as a delivery node.
+      let
+        pid = randomPeerId()
+        wk = kademliaWithMixPeer(pid)
+        plain = ServiceInfo(
+          id: LogosDeliveryServiceId,
+          data: Opt.some(deliveryPayload(CapabilitiesBitfield.init(relay = true))),
+        )
+      discard wk.processRecords(
+        @[buildExtendedPeerRecord(pid, @[testAddr(61600)], @[plain])], "test"
+      )
+      check wk.protocol.switch.peerStore.storedMixKey(pid).isNone()
+
+    test "a delivery record that claims mix without a key keeps the stored key":
+      ## libp2p's own record of a mix node, which a random lookup returns: it
+      ## lists the delivery service but not the `/mix/1.0.0` entry.
+      let
+        pid = randomPeerId()
+        wk = kademliaWithMixPeer(pid)
+      discard wk.processRecords(
+        @[buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService()])],
+        "test",
+      )
+      check wk.protocol.switch.peerStore.storedMixKey(pid).isSome()
+
+    test "a record with no delivery service keeps the stored key":
+      let
+        pid = randomPeerId()
+        wk = kademliaWithMixPeer(pid)
+      discard
+        wk.processRecords(@[buildExtendedPeerRecord(pid, @[testAddr(61600)])], "test")
+      check wk.protocol.switch.peerStore.storedMixKey(pid).isSome()
+
+    test "a peer learned another way keeps the stored key":
+      let
+        peerStore = PeerStore.new(nil, capacity = 50)
+        pid = randomPeerId()
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+
+      peerStore.addPeer(
+        RemotePeerInfo.init(
+          pid, @[testAddr(61600)], protocols = @[LogosDeliveryServiceId]
+        ),
+        origin = PeerOrigin.Discv5,
+      )
+      check peerStore.storedMixKey(pid).isSome()
 
   suite "lookupServicePeers":
     asyncTest "returns err when protocol is nil":
@@ -378,7 +488,7 @@ suite "Waku Kademlia advertises records this node signs":
     for i in 0 ..< mixKey.len:
       mixKey[i] = byte(i)
 
-    proc advertise(mix: bool) {.async.} =
+    proc advertise(mix: bool, key = mixKey) {.async.} =
       let payload = cast[seq[byte]](base64.encode(
         @[
           AdvertFormatVersion,
@@ -389,7 +499,7 @@ suite "Waku Kademlia advertises records this node signs":
       ))
       let secondary =
         if mix:
-          @[DiscoveredService(id: MixProtocolID, data: mixKey)]
+          @[DiscoveredService(id: MixProtocolID, data: key)]
         else:
           @[]
       await wkA.replaceServiceToAdvertise(
@@ -424,6 +534,18 @@ suite "Waku Kademlia advertises records this node signs":
       if found.isSome() and found.get().isSome():
         break
     check found == Opt.some(Opt.some(intoCurve25519Key(mixKey)))
+
+    ## A rotated mix key changes the record and leaves the delivery payload as
+    ## it is, so the service that libp2p holds is the same one.
+    var rotatedKey = mixKey
+    rotatedKey[0] = 0xff'u8
+    await advertise(mix = true, key = rotatedKey)
+    for _ in 0 ..< 60:
+      await sleepAsync(500.milliseconds)
+      found = await foundMixKey()
+      if found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey))):
+        break
+    check found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
 
     await wkB.stop()
     await wkA.stop()

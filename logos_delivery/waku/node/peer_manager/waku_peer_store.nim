@@ -108,6 +108,14 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
 
   return allKeys.mapIt(peerStore.getPeer(it))
 
+proc removeMixPubKey*(peerStore: PeerStore, peerId: PeerId) =
+  ## Takes the peer out of the mix pool. For a peer whose delivery record says
+  ## it is no mix node (any more): it lost its Mix RLN membership, or it stopped
+  ## relaying. See `disclaimsMix`.
+  if peerStore[MixPubKeyBook].del(peerId):
+    debug "removed the mix pub key of a peer that advertises none any more",
+      peer_id = $peerId
+
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new
   ## or updated.

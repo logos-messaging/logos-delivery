@@ -640,18 +640,19 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Announce ourselves on the delivery network. After the shard subscriptions,
   ## not before: an advertisement is only useful if the shards it claims are
   ## the ones we are actually on.
-  proc advertise() {.async: (raises: []).} =
-    await advertiseSelf(
-      waku.node.discoveries,
-      waku.conf,
-      waku.node.getShardsGetter(waku.conf.subscribeShards)(),
-      mixReady = waku.node.mixAdvertReady(),
-    )
-
-  await advertise()
-  ## A Mix membership that arrives or ends later changes what this node
-  ## advertises. Set after the first advertisement, which reads the state itself.
-  waku.node.onMixMembershipChanged = advertise
+  ## The node advertises again when its record changes: a new mix key, or a Mix
+  ## membership that arrives or ends later.
+  if waku.conf.wakuFlags.isServiceNode():
+    let provided = GetSelfAdvert.provideIt(waku.node.brokerCtx):
+      return ok(
+        deliveryAdvertPart(
+          waku.conf, waku.node.getShardsGetter(waku.conf.subscribeShards)()
+        )
+      )
+    let provider = provided.valueOr:
+      return err("failed to provide the delivery advertisement: " & error)
+    waku.node.keepAdvertProvider(provider)
+  await waku.node.startRecordAdvertising()
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:

@@ -15,6 +15,8 @@ A node started with `--entry-layer=messaging` runs the Messaging API. With `--re
 
 By default, a mix path uses a mix node only at a public address. On a local simulation or a private network, set `--mix-allow-all-addresses` on each node.
 
+To rotate the mix key on a timer, set `--mix-key-rotation` on every node of the network. Mix keys then come from discovery only.
+
 ## Store nodes
 
 The `sent` event of a send confirms that a Store node has the message. Run Store nodes with `--store=true`.
