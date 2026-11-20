@@ -5,9 +5,9 @@
 ##
 ## Shape-wise this is the twin of the internal `ServicePeerDiscovery` backend:
 ## fully async verbs plus periodic lookup loops. The difference is only where
-## the work happens — every plugin call is dispatched to the discovery worker
-## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
-## thread and never the node's event loop.
+## the work happens — every plugin call is a request on `IServiceDiscoveryHost`,
+## which the host answers asynchronously, so a 30 s DHT bootstrap never blocks
+## the node's event loop.
 ##
 ## The one thing this backend does that the internal one does not: it signs
 ## this node's own peer record before advertising, because the provider's
@@ -27,12 +27,11 @@ import
   logos_delivery/waku/discovery/peer_discovery_conversion,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
-  logos_delivery/waku/discovery/plugin/service_discovery_accessor,
-  logos_delivery/waku/discovery/plugin/service_discovery_worker,
+  logos_delivery/waku/discovery/service_discovery_host,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager/peer_manager
 
-export peer_discovery_interface, service_discovery_accessor
+export peer_discovery_interface, service_discovery_host
 
 logScope:
   topics = "waku discovery external"
@@ -41,26 +40,14 @@ const
   ExternalBackendId* = "service-ext"
   DefaultServiceLookupInterval* = chronos.seconds(60)
   DefaultRandomLookupInterval* = chronos.seconds(60)
-  PluginStartTimeout* = chronos.seconds(20)
-    ## How long the node waits for the plugin's `start`, on both the (mt) lane
-    ## and the call wrapper. Sized for a bring-up rather than a verb: the
-    ## plugin contacts its provider there, and libp2p's own calls are capped
-    ## at a fixed 10 s that the kademlia bootstrap inside its switch start
-    ## regularly reaches. Roughly twice the worst bring-up measured on a
-    ## 37-node fleet, so a slower host or a future provider has room.
-  WorkerStopGraceMargin = chronos.seconds(5)
-    ## Added to the plugin's own declared request timeout when waiting for the
-    ## worker to come back on stop. The declared timeout bounds how long a verb
-    ## may run; this margin covers the hand-back after it returns. A worker
-    ## still inside a call past the sum is abandoned, not waited on further.
   AnnounceBackoffMin = chronos.seconds(1)
   AnnounceBackoffMax = chronos.seconds(60)
     ## Retry schedule for what the plugin has not taken yet. The provider is
     ## local to this node, so there is no herd to spread and no jitter.
   AlreadyAdvertised = "already advertised"
     ## libp2p's refusal of a service it already advertises
-    ## (`addProvidedService`), passed through verbatim by the plugin. The ABI
-    ## has no error codes, so this text is the only signal that the plugin
+    ## (`addProvidedService`), passed through verbatim by the plugin. Host
+    ## errors are plain text, so this text is the only signal that the plugin
     ## holds the key -- for instance after a call that timed out on our side
     ## but completed there. Should libp2p reword it, the key is retried and
     ## warned about, never silently left stale.
@@ -76,18 +63,9 @@ type Advert = object
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
-  plugin: Opt[ServiceDiscoveryPlugin]
-    ## Instance state, not a global: registration is served on this node's own
-    ## thread, and the worker gets its own copy at spawn.
-  worker: ServiceDiscoveryWorker
-  workerCtx: BrokerContext
-    ## The context the plugin (mt) brokers live on for the current worker.
-    ## Fresh per worker generation: an abandoned worker keeps its buckets,
-    ## and a bucket owned by another thread cannot be re-registered.
-  abandonedWorkers: seq[ServiceDiscoveryWorker]
-    ## Workers whose thread never came back from a plugin call. Kept alive on
-    ## purpose: the thread still owns the Thread object inside.
   nodeCtx: BrokerContext
+    ## The node's context: its state getters and the `IServiceDiscoveryHost`
+    ## the library installs live there.
   adverts: Table[string, Advert]
   interests: Table[string, bool] ## key -> taken by the plugin
   announceWanted: AsyncEvent
@@ -100,18 +78,6 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   randomLookupInterval: Duration
   serviceLookupLoop: Future[void]
   randomLookupLoop: Future[void]
-
-proc readyPlugin(
-    self: ExternalServiceDiscovery
-): Result[ServiceDiscoveryPlugin, string] =
-  ## External discovery needs both halves: the node configured for it (which
-  ## is what created this backend) and a registered, fully populated plugin.
-  ## No re-validation: the vtable was validated when it was registered and is
-  ## immutable afterwards, so there is no later moment for it to go partial.
-  let plugin = self.plugin.valueOr:
-    return
-      err("external backend: configured but no service discovery plugin registered")
-  ok(plugin)
 
 proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
   ## Hands discovered peers to the PeerManager, which decides what to dial.
@@ -142,12 +108,6 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
       addresses = peerInfo.addrs.mapIt($it),
       protocols = peerInfo.protocols
 
-proc abandonedWorkerCount*(self: ExternalServiceDiscovery): int =
-  ## Threads a previous `stopDiscovery` gave up on that have not been joined
-  ## yet. Zero in every ordinary life cycle; non-zero says a plugin call
-  ## outran its own declared timeout.
-  self.abandonedWorkers.len
-
 proc pendingAnnouncements*(self: ExternalServiceDiscovery): int =
   ## Adverts and interests the plugin has not taken yet. Zero means the
   ## announce loop is parked: it calls the plugin again only when a verb or an
@@ -160,31 +120,6 @@ proc pendingAnnouncements*(self: ExternalServiceDiscovery): int =
     if not taken:
       inc pending
   pending
-
-proc reapAbandoned(self: ExternalServiceDiscovery) =
-  ## Joins abandoned threads that have since left the plugin, and forgets them.
-  ##
-  ## Not a gate. An abandoned thread takes no further work and exits as soon as
-  ## its call returns, and the ABI documents that such a call may overlap a
-  ## later `start`; our own plugin is unaffected, since `ensureBackend`
-  ## short-circuits on a bool that is already set by the time a worker can be
-  ## abandoned at all, and logos-core makes the libp2p client safe to share.
-  ## So a restart is allowed to proceed past one -- this only stops the list
-  ## growing, and releases the thread handle and flags `stop` had to leave
-  ## behind.
-  if self.abandonedWorkers.len == 0:
-    return
-  var stillRunning: seq[ServiceDiscoveryWorker]
-  for worker in self.abandonedWorkers:
-    if worker.hasExited():
-      worker.reap()
-    else:
-      stillRunning.add(worker)
-  let reaped = self.abandonedWorkers.len - stillRunning.len
-  if reaped > 0:
-    debug "reaped abandoned discovery workers",
-      reaped = reaped, stillRunning = stillRunning.len
-  self.abandonedWorkers = stillRunning
 
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
@@ -305,14 +240,10 @@ proc sendAdvert(
   if advert.resign:
     ## Its failure is not fatal: the start below says whether the plugin
     ## still holds an older record.
-    (await PluginStopAdvertising.requestCancellable(self.workerCtx, key).respFut).isOkOr:
+    (await HostStopAdvertising.request(self.nodeCtx, key)).isOkOr:
       debug "external discovery could not stop the advert before re-sending it",
         key = key, reason = error
-  let res = (
-    await PluginStartAdvertising.requestCancellable(
-      self.workerCtx, key, advert.data, record
-    ).respFut
-  )
+  let res = await HostStartAdvertising.request(self.nodeCtx, key, advert.data, record)
   if res.isErr() and not advert.resign and AlreadyAdvertised in res.error:
     return ok()
   res
@@ -353,8 +284,7 @@ proc announcePending(
       return false
     if key notin self.interests or self.interests.getOrDefault(key):
       continue
-    let res =
-      (await PluginRegisterInterest.requestCancellable(self.workerCtx, key).respFut)
+    let res = await HostRegisterInterest.request(self.nodeCtx, key)
     if key notin self.interests:
       continue
     if res.isOk():
@@ -399,48 +329,12 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       serviceLookupInterval = DefaultServiceLookupInterval,
       randomLookupInterval = DefaultRandomLookupInterval,
   ): ExternalServiceDiscovery =
-    let self = ExternalServiceDiscovery(
+    ExternalServiceDiscovery(
       nodeCtx: globalBrokerContext(),
-      worker: ServiceDiscoveryWorker.new(),
-      workerCtx: NewBrokerContext(),
       announceWanted: newAsyncEvent(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
-
-    # Registration stays on the single-thread lane: the vtable is full of
-    # pointer/proc fields, which the (mt) codec rejects, so it is handed to
-    # the worker through the guarded global instead of a broker payload.
-    #
-    # Both verbs are only legal while discovery is stopped. A running backend
-    # has a worker thread calling into the vtable, so swapping or removing it
-    # underneath would change which plugin serves calls already in flight. A
-    # registration outlives stop/start: install once, then start and stop as
-    # often as you like.
-    let nodeCtx = self.nodeCtx
-    discard SetServiceDiscoveryPlugin.reprovideIt(nodeCtx):
-      if self.running:
-        return err(
-          "service discovery plugin: cannot be registered while discovery is " &
-            "running; stop the node first"
-        )
-      ?plugin.validate()
-      self.plugin = Opt.some(plugin)
-      info "service discovery plugin installed",
-        abiVersion = plugin.abiVersion, ctx = $nodeCtx
-      ok()
-
-    discard ClearServiceDiscoveryPlugin.reprovideIt(nodeCtx):
-      if self.running:
-        return err(
-          "service discovery plugin: cannot be cleared while discovery is " &
-            "running; stop the node first"
-        )
-      self.plugin = Opt.none(ServiceDiscoveryPlugin)
-      info "service discovery plugin cleared", ctx = $nodeCtx
-      ok()
-
-    self
 
   method backendInfo(
       self: ExternalServiceDiscovery
@@ -460,51 +354,18 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
 
-    self.reapAbandoned()
+    ## A host that implements the whole interface is a hard requirement,
+    ## checked before anything is called: external discovery that is
+    ## configured but has no usable host is not a degraded node, it is a node
+    ## with no discovery at all, so it must fail loudly rather than come up
+    ## quietly. No host installed fails the same way, as "no provider".
+    (await HostCheck.request(self.nodeCtx)).isOkOr:
+      return err("external backend: " & error)
 
-    ## A valid plugin is a hard requirement, checked before anything is
-    ## spawned: external discovery that is configured but has no usable plugin
-    ## is not a degraded node, it is a node with no discovery at all, so it
-    ## must fail loudly rather than come up quietly.
-    let plugin = readyPlugin(self).valueOr:
-      return err(error)
-
-    ## The worker gets the vtable by value, so nothing is shared and there is
-    ## nothing to look up on the far side.
-    (await self.worker.start(self.workerCtx, plugin)).isOkOr:
-      ## A worker that gave up still has a thread, and it is holding this
-      ## context's (mt) registrations. Park it for `reapAbandoned` and move to
-      ## a fresh context, exactly as a failed stop does -- otherwise nothing
-      ## ever signals that thread, and the next `startDiscovery` gets ok() from
-      ## a worker that never became ready.
-      self.abandonedWorkers.add(self.worker)
-      self.worker = ServiceDiscoveryWorker.new()
-      self.workerCtx = NewBrokerContext()
-      return err(error)
-
-    ## Every plugin call is a cancellable (mt) request, awaited as is: the
-    ## broker bounds it by the timeout set here, answers a timeout or a
-    ## cancellation itself, and releases the response slot. Cancelling the
-    ## caller -- a loop stopped with `cancelAndWait` -- cancels the request;
-    ## one already inside the plugin runs to completion there, since the entry
-    ## point is a blocking C call. Errors name what failed: the worker's the
-    ## plugin verb, the broker's the request type.
-    ##
-    ## Every verb gets the timeout the plugin declared; `start`, which brings a
-    ## whole backend up, gets its own budget, so a wedged lookup is still
-    ## noticed quickly. The timeout is per request type, so per process: this
-    ## backend lives on the global broker context, so there is one plugin to
-    ## take it from.
-    let verbTimeout = plugin.requestTimeout()
-    PluginStart.setRequestTimeout(PluginStartTimeout)
-    PluginStop.setRequestTimeout(verbTimeout)
-    PluginLookup.setRequestTimeout(verbTimeout)
-    PluginRandomLookup.setRequestTimeout(verbTimeout)
-    PluginStartAdvertising.setRequestTimeout(verbTimeout)
-    PluginStopAdvertising.setRequestTimeout(verbTimeout)
-    PluginRegisterInterest.setRequestTimeout(verbTimeout)
-    PluginUnregisterInterest.setRequestTimeout(verbTimeout)
-    ?(await PluginStart.requestCancellable(self.workerCtx).respFut)
+    ## Each host verb carries its own deadline (the library's reverse-call
+    ## timeout), and a call that outlives it is dropped there, so nothing here
+    ## waits on a host that went quiet.
+    ?(await HostStart.request(self.nodeCtx))
 
     self.running = true
 
@@ -541,7 +402,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     self.running = false
 
     self.unobserveAddresses()
-    ## First, so none of its calls races the worker going away.
+    ## First, so none of their calls lands after the host's stop.
     if not self.announceLoop.isNil():
       await self.announceLoop.cancelAndWait()
       self.announceLoop = nil
@@ -552,35 +413,14 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       await self.randomLookupLoop.cancelAndWait()
       self.randomLookupLoop = nil
 
-    ## The plugin is still there: `startDiscovery` required one, and clearing
-    ## is refused while discovery runs, so there is nothing to guard against.
-    let stopRes = (await PluginStop.requestCancellable(self.workerCtx).respFut)
-
-    ## The worker exists to serve this discovery session, so it goes with it.
-    ## Its thread hands the (mt) buckets back on the way out, which is what
-    ## lets a later `startDiscovery` spawn a fresh one on the same context.
-    ## The wait is bounded by what the plugin itself declared a verb may take;
-    ## a thread still inside one after that is abandoned and replaced.
-    let grace = block:
-      let p = readyPlugin(self)
-      (if p.isOk(): p.get().requestTimeout() else: DefaultPluginRequestTimeout) +
-        WorkerStopGraceMargin
-    let workerRes = await self.worker.stop(grace)
-    if workerRes.isErr():
-      ## Same handling as a failed start: the thread outlives the object, so
-      ## park it for `reapAbandoned` and leave it the old context.
-      self.abandonedWorkers.add(self.worker)
-      self.worker = ServiceDiscoveryWorker.new()
-      self.workerCtx = NewBrokerContext()
-    if stopRes.isErr(): stopRes else: workerRes
+    return await HostStop.request(self.nodeCtx)
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let peers =
-      ?(await PluginLookup.requestCancellable(self.workerCtx, key, limit).respFut)
+    let peers = ?(await HostLookup.request(self.nodeCtx, key, limit))
     self.admitPeers(peers)
     ok(peers)
 
@@ -589,7 +429,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let peers = ?(await PluginRandomLookup.requestCancellable(self.workerCtx).respFut)
+    let peers = ?(await HostRandomLookup.request(self.nodeCtx))
     self.admitPeers(peers)
     ok(peers)
 
@@ -623,7 +463,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort: a plugin that is not up yet cannot hold the advert either.
     self.adverts.del(key)
     if self.running:
-      (await PluginStopAdvertising.requestCancellable(self.workerCtx, key).respFut).isOkOr:
+      (await HostStopAdvertising.request(self.nodeCtx, key)).isOkOr:
         debug "external discovery could not stop the advert", key = key, reason = error
     ok()
 
@@ -642,7 +482,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## Best effort, like `stopAdvertising`.
     self.interests.del(key)
     if self.running:
-      (await PluginUnregisterInterest.requestCancellable(self.workerCtx, key).respFut).isOkOr:
+      (await HostUnregisterInterest.request(self.nodeCtx, key)).isOkOr:
         debug "external discovery could not unregister the interest",
           key = key, reason = error
     ok()

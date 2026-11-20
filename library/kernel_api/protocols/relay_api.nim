@@ -6,6 +6,7 @@ import
   logos_delivery/waku/waku_core/message,
   logos_delivery/waku/waku_relay/protocol,
   library/events/json_message_event,
+  library/events/ffi_events,
   library/declare_lib
 
 proc waku_relay_get_peers_in_mesh(
@@ -55,8 +56,8 @@ proc waku_relay_subscribe(
 ): Future[Result[string, string]] {.ffi.} =
   proc onReceivedMessage(): WakuRelayHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      emitEvent("onReceivedMessage"):
-        $JsonMessageEvent.new(pubsubTopic, msg)
+      fireEvent:
+        onReceivedMessage(receivedMessage(pubsubTopic, msg))
 
   (
     await self.waku.relaySubscribe(

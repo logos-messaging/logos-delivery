@@ -56,7 +56,7 @@
   {
     "path": "vendor/nim-ffi",
     "url": "https://github.com/logos-messaging/nim-ffi",
-    "rev": "07ee8e1d6500762bab290465457a8d23559de546"
+    "rev": "d0ec470adeeb653ad1b3e78d50ba103ec46821e7"
   }
   ,
   {

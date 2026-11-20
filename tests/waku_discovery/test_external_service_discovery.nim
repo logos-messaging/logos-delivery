@@ -1,8 +1,8 @@
 {.used.}
 
-import std/[atomics, os, sequtils, strutils]
-import chronos, chronos/threadsync, results, testutils/unittests
-import brokers/broker_context
+import std/[sequtils, strutils]
+import chronos, results, testutils/unittests
+import brokers/[broker_context, broker_implement]
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
 import
   logos_delivery/waku/discovery/external_service_discovery,
@@ -11,214 +11,130 @@ import
   logos_delivery/waku/waku_core,
   ../testlib/wakucore
 
-## A fake plugin written the way a real one would be: plain C entry points
-## over shared state. The entry points run on the discovery worker thread, so
-## the state must live in shared memory (no Nim GC types) for the assertions
-## on the test thread to see it.
-
-type FakeState = object
-  started: Atomic[bool]
-  failNext: Atomic[bool]
-  blockLookup: Atomic[bool] ## lookup spins until cleared, like a wedged provider
-  startDelayMs: Atomic[int] ## start sleeps this long, like a real bring-up
-  freed: Atomic[int]
-  lastLimit: Atomic[int64]
-  lastDataLen: Atomic[int]
-  lastRecordLen: Atomic[int]
-  lastKeyLen: Atomic[int]
-  refuseVerbs: Atomic[int]
-    ## The next this many startAdvertising/registerInterest calls are refused,
-    ## the way libp2p refuses them before its switch has started.
-  advertDelayMs: Atomic[int] ## the next startAdvertising sleeps this long, once
-  advertLive: Atomic[bool]
-    ## Whether the plugin holds the advert. Like libp2p, it refuses to
-    ## advertise a key it already holds.
-  advertCalls: Atomic[int] ## every startAdvertising call, taken or not
-  advertTaken: Atomic[int]
-  advertRefusedAsHeld: Atomic[int]
-  stopAdvertCalls: Atomic[int]
-  interestTaken: Atomic[int]
-  lookupStuck: ThreadSignalPtr ## fired when a lookup starts to block
-  stuckThreadExited: ThreadSignalPtr ## fired after the thread stuck in lookup exits
-  lastKey: array[128, char]
-  lastData: array[32, uint8]
-  lastRecord: array[512, uint8]
-
-var fake: ptr FakeState
-
-proc setKey(s: cstring) =
-  var n = 0
-  while n < fake.lastKey.high and s[n] != '\0':
-    fake.lastKey[n] = s[n]
-    inc n
-  fake.lastKeyLen.store(n)
-
-proc lastKey(): string =
-  let n = fake.lastKeyLen.load()
-  result = newString(n)
-  for i in 0 ..< n:
-    result[i] = fake.lastKey[i]
-
-proc setErr(errBuf: cstring, errBufLen: csize_t, msg: string) =
-  let buf = cast[ptr UncheckedArray[char]](errBuf)
-  let n = min(msg.len, errBufLen.int - 1)
-  for i in 0 ..< n:
-    buf[i] = msg[i]
-  buf[n] = '\0'
-
-proc refused(errBuf: cstring, errBufLen: csize_t): bool =
-  if fake.refuseVerbs.load() <= 0:
-    return false
-  discard fake.refuseVerbs.fetchSub(1)
-  setErr(errBuf, errBufLen, "switch not started; call libp2p_ctx_start first")
-  true
-
-proc fakeStart(
-    ctx: pointer, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  if fake.failNext.load():
-    setErr(errBuf, errBufLen, "plugin refused to start")
-    return LdDiscoError
-  let delay = fake.startDelayMs.load()
-  if delay > 0:
-    sleep(delay)
-  fake.started.store(true)
-  LdDiscoOk
-
-proc fakeStop(
-    ctx: pointer, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  fake.started.store(false)
-  LdDiscoOk
+## A fake host, the Nim stand-in for the library's reverse-FFI one: it
+## implements `IServiceDiscoveryHost` on the node's broker context and records
+## what the backend asked of it. Everything runs on the test's own loop.
 
 const FakePeerId = "16Uiu2HAm4gVVMqAzg2gT5cBii3qfaXykUJoB7jyHgAu71RuiELmz"
 
-const FakePeersJson =
-  """[{"peerId":"""" & FakePeerId & """","seqNo":7,""" &
-  """"addrs":["/ip4/1.2.3.4/tcp/60000"],""" &
-  """"services":[{"id":"/mix/1.0.0","data":"AQID"}]}]"""
+type FakeHost* = ref object of IServiceDiscoveryHost
+  missing: string ## non-empty: `hostCheck` reports these verbs unimplemented
+  started: bool
+  failStart: bool
+  refuseVerbs: int
+    ## The next this many startAdvertising/registerInterest calls are refused,
+    ## the way libp2p refuses them before its switch has started.
+  advertDelay: Duration ## the next startAdvertising waits this long, once
+  advertLive: bool
+    ## Whether the host holds the advert. Like libp2p, it refuses to advertise
+    ## a key it already holds.
+  advertCalls: int ## every startAdvertising call, taken or not
+  advertTaken: int
+  advertRefusedAsHeld: int
+  stopAdvertCalls: int
+  interestTaken: int
+  lookups: int
+  lastKey: string
+  lastLimit: int
+  lastData: seq[byte]
+  lastRecord: seq[byte]
 
-proc emitJson(outJson: ptr cstring) =
-  ## Hands out a heap copy the way a real plugin would; freed via freeString.
-  let n = FakePeersJson.len
-  let buf = cast[cstring](allocShared0(n + 1))
-  copyMem(buf, FakePeersJson.cstring, n)
-  outJson[] = buf
-
-proc fakeLookup(
-    ctx: pointer,
-    key: cstring,
-    limit: int64,
-    outJson: ptr cstring,
-    errBuf: cstring,
-    errBufLen: csize_t,
-): cint {.cdecl, gcsafe, raises: [].} =
-  if fake.failNext.load():
-    setErr(errBuf, errBufLen, "lookup exploded")
-    return LdDiscoError
-  if fake.blockLookup.load():
-    ## Fire on thread exit, after `workerMain` returns and sets `done`.
-    let exited = fake.stuckThreadExited
-    onThreadDestruction(
-      proc() {.closure, gcsafe, raises: [].} =
-        discard exited.fireSync()
+proc fakePeers(): seq[DiscoveredPeer] =
+  @[
+    DiscoveredPeer(
+      peerId: FakePeerId,
+      seqNo: 7,
+      addrs: @["/ip4/1.2.3.4/tcp/60000"],
+      services: @[DiscoveredService(id: "/mix/1.0.0", data: @[1'u8, 2, 3])],
     )
-    ## Tell the test that this lookup is inside the plugin.
-    discard fake.lookupStuck.fireSync()
-  while fake.blockLookup.load():
-    sleep(10)
-  setKey(key)
-  fake.lastLimit.store(limit)
-  emitJson(outJson)
-  LdDiscoOk
+  ]
 
-proc fakeRandomLookup(
-    ctx: pointer, outJson: ptr cstring, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  emitJson(outJson)
-  LdDiscoOk
+proc refused(self: FakeHost): bool =
+  if self.refuseVerbs <= 0:
+    return false
+  dec self.refuseVerbs
+  true
 
-proc fakeFreeString(ctx: pointer, s: cstring) {.cdecl, gcsafe, raises: [].} =
-  if not s.isNil():
-    deallocShared(s)
-  fake.freed.atomicInc()
+BrokerImplement FakeHost of IServiceDiscoveryHost:
+  method hostCheck(self: FakeHost): Future[Result[void, string]] {.async.} =
+    if self.missing.len > 0:
+      return err("the host has not implemented " & self.missing)
+    ok()
 
-proc fakeStartAdvertising(
-    ctx: pointer,
-    key: cstring,
-    data: ptr UncheckedArray[uint8],
-    dataLen: csize_t,
-    record: ptr UncheckedArray[uint8],
-    recordLen: csize_t,
-    errBuf: cstring,
-    errBufLen: csize_t,
-): cint {.cdecl, gcsafe, raises: [].} =
-  ## Recorded on entry, so a test can tell which advert a call in flight is for.
-  setKey(key)
-  discard fake.advertCalls.fetchAdd(1)
-  if refused(errBuf, errBufLen):
-    return LdDiscoError
-  if fake.advertLive.load():
-    discard fake.advertRefusedAsHeld.fetchAdd(1)
-    ## libp2p's own wording (`addProvidedService`), which the backend relies on.
-    setErr(errBuf, errBufLen, "service 'x' is already advertised, stop it first")
-    return LdDiscoError
-  let delay = fake.advertDelayMs.exchange(0)
-  if delay > 0:
-    sleep(delay)
-  let dn = min(dataLen.int, fake.lastData.len)
-  for i in 0 ..< dn:
-    fake.lastData[i] = data[i]
-  fake.lastDataLen.store(dn)
-  let rn = min(recordLen.int, fake.lastRecord.len)
-  for i in 0 ..< rn:
-    fake.lastRecord[i] = record[i]
-  fake.lastRecordLen.store(rn)
-  fake.advertLive.store(true)
-  discard fake.advertTaken.fetchAdd(1)
-  LdDiscoOk
+  method hostStart(self: FakeHost): Future[Result[void, string]] {.async.} =
+    if self.failStart:
+      return err("host refused to start")
+    self.started = true
+    ok()
 
-proc fakeStopAdvertising(
-    ctx: pointer, key: cstring, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  setKey(key)
-  fake.advertLive.store(false)
-  discard fake.stopAdvertCalls.fetchAdd(1)
-  LdDiscoOk
+  method hostStop(self: FakeHost): Future[Result[void, string]] {.async.} =
+    self.started = false
+    ok()
 
-proc fakeRegisterInterest(
-    ctx: pointer, key: cstring, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  if refused(errBuf, errBufLen):
-    return LdDiscoError
-  setKey(key)
-  discard fake.interestTaken.fetchAdd(1)
-  LdDiscoOk
+  method hostLookup(
+      self: FakeHost, key: string, limit: int
+  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
+    inc self.lookups
+    self.lastKey = key
+    self.lastLimit = limit
+    ok(fakePeers())
 
-proc fakeKeyOp(
-    ctx: pointer, key: cstring, errBuf: cstring, errBufLen: csize_t
-): cint {.cdecl, gcsafe, raises: [].} =
-  setKey(key)
-  LdDiscoOk
+  method hostRandomLookup(
+      self: FakeHost
+  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
+    inc self.lookups
+    ok(fakePeers())
 
-proc fakePlugin(): ServiceDiscoveryPlugin =
-  ServiceDiscoveryPlugin(
-    abiVersion: LdDiscoAbiVersion,
-    pluginCtx: nil,
-    requestTimeoutMs: 2000,
-    start: fakeStart,
-    stop: fakeStop,
-    lookup: fakeLookup,
-    randomLookup: fakeRandomLookup,
-    freeString: fakeFreeString,
-    startAdvertising: fakeStartAdvertising,
-    stopAdvertising: fakeStopAdvertising,
-    registerInterest: fakeRegisterInterest,
-    unregisterInterest: fakeKeyOp,
-  )
+  method hostStartAdvertising(
+      self: FakeHost, key: string, data: seq[byte], record: seq[byte]
+  ): Future[Result[void, string]] {.async.} =
+    ## Recorded on entry, so a test can tell which advert a call in flight is for.
+    self.lastKey = key
+    inc self.advertCalls
+    if self.refused():
+      return err("switch not started; call libp2p_ctx_start first")
+    if self.advertLive:
+      inc self.advertRefusedAsHeld
+      ## libp2p's own wording (`addProvidedService`), which the backend relies on.
+      return err("service 'x' is already advertised, stop it first")
+    let delay = self.advertDelay
+    self.advertDelay = ZeroDuration
+    if delay > ZeroDuration:
+      try:
+        await sleepAsync(delay)
+      except CancelledError:
+        return err("cancelled")
+    self.lastData = data
+    self.lastRecord = record
+    self.advertLive = true
+    inc self.advertTaken
+    ok()
+
+  method hostStopAdvertising(
+      self: FakeHost, key: string
+  ): Future[Result[void, string]] {.async.} =
+    self.lastKey = key
+    self.advertLive = false
+    inc self.stopAdvertCalls
+    ok()
+
+  method hostRegisterInterest(
+      self: FakeHost, key: string
+  ): Future[Result[void, string]] {.async.} =
+    if self.refused():
+      return err("switch not started; call libp2p_ctx_start first")
+    self.lastKey = key
+    inc self.interestTaken
+    ok()
+
+  method hostUnregisterInterest(
+      self: FakeHost, key: string
+  ): Future[Result[void, string]] {.async.} =
+    self.lastKey = key
+    ok()
 
 template eventually(cond: untyped, timeout = chronos.seconds(15)): bool =
-  ## Adverts and interests reach the plugin from the reconciler, not from the
+  ## Adverts and interests reach the host from the announce loop, not from the
   ## verb call, so a test waits for their effect instead of reading it at once.
   block:
     let deadline = Moment.now() + timeout
@@ -238,21 +154,29 @@ proc provideNodeIdentity(ctx: BrokerContext): PeerInfo =
   peerInfo
 
 suite "ExternalServiceDiscovery":
+  var fake {.threadvar.}: FakeHost
+
   setup:
-    fake = cast[ptr FakeState](allocShared0(sizeof(FakeState)))
+    ## A context per test, as the library gives each node its own: `close`
+    ## leaves the default context alone, so a fake installed there would
+    ## outlive its test and answer the next one. The host goes on the context
+    ## the backend resolves the node through, as the library installs it on
+    ## the node's.
+    setThreadBrokerContext(NewBrokerContext())
+    fake = FakeHost.createUnderContext(globalBrokerContext())
 
   teardown:
-    deallocShared(fake)
+    fake.close()
     fake = nil
+    setThreadBrokerContext(DefaultBrokerContext)
 
-  asyncTest "verbs reach the plugin on the worker thread":
+  asyncTest "verbs reach the host":
     let backend = ExternalServiceDiscovery.create()
     let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    check fake.started.load()
+    check fake.started
 
     let info = (await iface.backendInfo()).valueOr:
       raiseAssert error
@@ -260,8 +184,6 @@ suite "ExternalServiceDiscovery":
       info.id == "service-ext"
       info.running
 
-    ## JSON from the plugin is parsed on the worker and returned as typed
-    ## peers, including the base64 service payload.
     let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 5)).valueOr:
       raiseAssert error
     check:
@@ -272,35 +194,27 @@ suite "ExternalServiceDiscovery":
       peers[0].services.len == 1
       peers[0].services[0].id == "/mix/1.0.0"
       peers[0].services[0].data == @[1'u8, 2, 3]
-      lastKey() == "service:/mix/1.0.0"
-      fake.lastLimit.load() == 5
-      fake.freed.load() == 1 # the plugin-owned JSON was handed back
+      fake.lastKey == "service:/mix/1.0.0"
+      fake.lastLimit == 5
 
     check (await iface.lookupRandom()).isOk()
-    check fake.freed.load() == 2
+    check fake.lookups == 2
 
     ## Advertising publishes a record the node signs; without the node's
-    ## identity the backend refuses rather than letting the plugin publish
-    ## its own.
+    ## identity the backend refuses rather than letting the host publish its
+    ## own.
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isErr()
-    check fake.lastRecordLen.load() == 0
-    let nodeKey = generateSecp256k1Key()
-    let peerInfo = PeerInfo.new(nodeKey)
-    peerInfo.addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/44002").get()]
-    discard GetNodePeerInfo.reprovideIt(ctx):
-      ok(peerInfo)
-    discard GetNodeKey.reprovideIt(ctx):
-      ok(nodeKey)
+    check fake.lastRecord.len == 0
+    let peerInfo = provideNodeIdentity(ctx)
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    check eventually(fake.advertTaken.load() == 1)
+    check eventually(fake.advertTaken == 1)
     check:
-      lastKey() == "service:x"
-      fake.lastDataLen.load() == 2
-      fake.lastRecordLen.load() > 0
-    ## What the plugin got is this node's record, listing exactly this
-    ## service (service: prefix stripped) with the advertised payload.
-    let recordBytes = @(fake.lastRecord)[0 ..< fake.lastRecordLen.load()]
-    let record = SignedExtendedPeerRecord.decode(recordBytes).expect("decodes")
+      fake.lastKey == "service:x"
+      fake.lastData == @[1'u8, 2]
+      fake.lastRecord.len > 0
+    ## What the host got is this node's record, listing exactly this service
+    ## (service: prefix stripped) with the advertised payload.
+    let record = SignedExtendedPeerRecord.decode(fake.lastRecord).expect("decodes")
     record.checkValid().expect("signed by the node")
     check:
       record.data.peerId == peerInfo.peerId
@@ -311,188 +225,58 @@ suite "ExternalServiceDiscovery":
     check (await iface.startAdvertising("topic:/waku/2/rs/0/0", @[])).isErr()
 
     check (await iface.registerInterest("service:y")).isOk()
-    check eventually(fake.interestTaken.load() == 1)
-    check lastKey() == "service:y"
+    check eventually(fake.interestTaken == 1)
+    check fake.lastKey == "service:y"
 
     ## A no-op that still succeeds: the provider took its bootstrap entries at
     ## init and exposes no call to add more.
     check (await iface.addBootstrapEntries(@["/ip4/1.2.3.4/tcp/1/p2p/16Uxx"])).isOk()
 
     check (await iface.stopDiscovery()).isOk()
-    check not fake.started.load()
+    check not fake.started
 
   asyncTest "discovery can be restarted on the same node":
-    ## The worker is joined when discovery stops, so a restart has to spawn a
-    ## fresh one on the same broker context. That only works because the
-    ## exiting thread hands its (mt) buckets back.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-
-    check (await backend.startDiscovery()).isOk()
-    check fake.started.load()
-    check (await backend.stopDiscovery()).isOk()
-    check not fake.started.load()
-
-    ## Second session: a new worker, same context.
-    check (await backend.startDiscovery()).isOk()
-    check fake.started.load()
-
-    let peers = (await backend.lookupServicePeers("service:/mix/1.0.0", 3)).valueOr:
-      raiseAssert error
-    check peers.len == 1
-
-    check (await backend.stopDiscovery()).isOk()
-
-  asyncTest "configured but unregistered: verbs refuse to run":
-    ## Config alone is not enough — the plugin half must be there too.
-    let backend = ExternalServiceDiscovery.create()
-    check (await ClearServiceDiscoveryPlugin.request(globalBrokerContext())).isOk()
-
-    let res = await backend.startDiscovery()
-    check:
-      res.isErr()
-      "no service discovery plugin registered" in res.error
-
-  asyncTest "plugin error text is surfaced":
-    let backend = ExternalServiceDiscovery.create()
-    check (await SetServiceDiscoveryPlugin.request(globalBrokerContext(), fakePlugin())).isOk()
-
-    fake.failNext.store(true)
-    let res = await backend.startDiscovery()
-    check:
-      res.isErr()
-      "plugin refused to start" in res.error
-
-  asyncTest "a plugin with a bad ABI version is rejected":
-    let backend = ExternalServiceDiscovery.create()
-    var bad = fakePlugin()
-    bad.abiVersion = 999
-    let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
-    check:
-      res.isErr()
-      "ABI version mismatch" in res.error
-
-  asyncTest "a plugin with a missing entry point is rejected":
-    let backend = ExternalServiceDiscovery.create()
-    var bad = fakePlugin()
-    bad.lookup = nil
-    let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
-    check:
-      res.isErr()
-      "missing entry point" in res.error
-
-  asyncTest "registration is refused while discovery is running":
-    ## The worker is calling into the vtable, so swapping or removing it now
-    ## would change which plugin serves calls already in flight.
-    let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    check (await backend.startDiscovery()).isOk()
-
-    let setRes = await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())
-    check:
-      setRes.isErr()
-      "while discovery is running" in setRes.error
-
-    let clearRes = await ClearServiceDiscoveryPlugin.request(ctx)
-    check:
-      clearRes.isErr()
-      "while discovery is running" in clearRes.error
-
-    ## Both become legal again once stopped.
-    check (await backend.stopDiscovery()).isOk()
-    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
-
-  asyncTest "one registration serves many start/stop cycles":
-    ## The plugin is registered once and must survive every cycle; only the
-    ## worker thread comes and goes with it.
-    let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
     for _ in 0 .. 2:
       check (await backend.startDiscovery()).isOk()
-      check fake.started.load()
-      check (await backend.lookupRandom()).isOk()
+      check fake.started
+      let peers = (await backend.lookupServicePeers("service:/mix/1.0.0", 3)).valueOr:
+        raiseAssert error
+      check peers.len == 1
       check (await backend.stopDiscovery()).isOk()
-      check not fake.started.load()
+      check not fake.started
 
-    ## Observable proof the registration survived every cycle: once it is
-    ## finally cleared, starting is refused again.
-    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
+  asyncTest "configured but no host installed: start refuses to run":
+    ## Config alone is not enough — the host half must be there too.
+    fake.close()
+    let backend = ExternalServiceDiscovery.create()
+    let res = await backend.startDiscovery()
+    check res.isErr()
+
+  asyncTest "a host missing verbs fails start and names them":
+    fake.missing = "sd_lookup, sd_stop"
+    let backend = ExternalServiceDiscovery.create()
     let res = await backend.startDiscovery()
     check:
       res.isErr()
-      "no service discovery plugin registered" in res.error
+      "sd_lookup, sd_stop" in res.error
+      not fake.started
 
-  asyncTest "stop gives up on a worker stuck in a plugin call; a restart works":
-    ## The fake fires this when the lookup below starts to block.
-    fake.lookupStuck = ThreadSignalPtr.new().expect("thread signal")
-    ## The fake fires this when the thread stuck in that lookup exits.
-    fake.stuckThreadExited = ThreadSignalPtr.new().expect("thread signal")
+  asyncTest "host error text is surfaced":
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    let iface: IPeerDiscovery = backend
-    check (await iface.startDiscovery()).isOk()
-
-    ## The verb never returns, so the caller times out (requestTimeoutMs)...
-    fake.blockLookup.store(true)
-    let stuck = iface.lookupServicePeers("service:/mix/1.0.0", 1)
-    ## Stop only after the lookup is inside the plugin.
-    check await fake.lookupStuck.wait().withTimeout(chronos.seconds(30))
-    ## ...and stop must not hang the loop behind the join: it reports the
-    ## abandoned worker after the grace period instead.
-    let t0 = Moment.now()
-    let stopped = await iface.stopDiscovery()
+    fake.failStart = true
+    let res = await backend.startDiscovery()
     check:
-      stopped.isErr()
-      Moment.now() - t0 < chronos.seconds(60)
-      (await stuck).isErr()
-
-    ## The restart happens while the old thread is STILL inside the plugin --
-    ## which is the case that matters, and the one this test used to skip by
-    ## releasing the lookup first. It is allowed: the abandoned thread takes no
-    ## further work, and the ABI documents that its call may overlap a later
-    ## `start`. The successor registers on a fresh context, so it does not
-    ## inherit the old registrations.
-    check backend.abandonedWorkerCount() == 1
-    check (await iface.startDiscovery()).isOk()
-
-    ## Only now release the old thread -- the fake blocks every lookup, so a
-    ## verb issued before this would wedge the new worker too.
-    fake.blockLookup.store(false)
-    let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
-      raiseAssert error
-    check peers.len == 1
-    ## Restart only after the stuck thread exits, so `reapAbandoned` can join it.
-    let stuckThreadGone =
-      await fake.stuckThreadExited.wait().withTimeout(chronos.seconds(30))
-    check stuckThreadGone
-
-    ## The old thread has left the plugin by now, so the next restart joins it
-    ## and forgets it rather than leaking its handle and flags.
-    check (await iface.stopDiscovery()).isOk()
-    check (await iface.startDiscovery()).isOk()
-    check backend.abandonedWorkerCount() == 0
-    check (await iface.stopDiscovery()).isOk()
-
-    ## Close the signals only after the stuck thread exits, because its exit
-    ## handler uses one.
-    if stuckThreadGone:
-      discard fake.lookupStuck.close()
-      discard fake.stuckThreadExited.close()
+      res.isErr()
+      "host refused to start" in res.error
 
   asyncTest "discovered peers are handed to the PeerManager":
-    ## The plugin discovers on its own switch, so nothing else in the node
-    ## sees what it found: the backend has to put the peers in the peer store
+    ## The host discovers on its own switch, so nothing else in the node sees
+    ## what it found: the backend has to put the peers in the peer store
     ## itself, the way the in-process backend does in `processRecords`.
-    ## Without this the lookups would succeed and the node would still never
-    ## dial anyone.
     let backend = ExternalServiceDiscovery.create()
     let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
     let peerManager = PeerManager.new(switch = newTestSwitch(), storage = nil)
     discard GetNodePeerManager.reprovideIt(ctx):
@@ -520,83 +304,54 @@ suite "ExternalServiceDiscovery":
     ## within a few seconds can only have come from the eager phase.
     let backend =
       ExternalServiceDiscovery.create(serviceLookupInterval = chronos.minutes(10))
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
     check (await iface.registerInterest("service:/logos/delivery")).isOk()
-
-    ## `freed` counts the plugin-owned JSON handed back, so it rises once per
-    ## lookup and not at all for registering an interest.
-    check fake.freed.load() == 0
+    check fake.lookups == 0
 
     await sleepAsync(chronos.seconds(4))
-    check fake.freed.load() >= 1
+    check fake.lookups >= 1
 
     check (await iface.stopDiscovery()).isOk()
 
-  asyncTest "a bring-up slower than the per-verb contract still starts":
-    ## `start` brings a whole backend up, so it gets `PluginStartTimeout`
-    ## rather than the plugin's per-verb timeout -- and, more to the point,
-    ## rather than nim-brokers' 5 s default for the (mt) lane, which is what
-    ## the node would otherwise be held to. A plugin that takes 7 s here is
-    ## standing in for libp2p's own bring-up, which reaches its fixed 10 s
-    ## call budget whenever kademlia bootstraps inside the switch start.
-    let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-
-    fake.startDelayMs.store(7000)
-
-    let iface: IPeerDiscovery = backend
-    check (await iface.startDiscovery()).isOk()
-    check fake.started.load()
-
-    fake.startDelayMs.store(0)
-    check (await iface.stopDiscovery()).isOk()
-
-  asyncTest "refused adverts and interests are retried until the plugin takes them":
-    ## The plugin is up but its libp2p switch is not: it refuses the verbs the
+  asyncTest "refused adverts and interests are retried until the host takes them":
+    ## The host is up but its libp2p switch is not: it refuses the verbs the
     ## node sends at start. They must not be lost -- the node has no other
     ## moment to send them.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    fake.refuseVerbs.store(3)
+    fake.refuseVerbs = 3
 
-    ## Taken on, not yet published: ok although the plugin refuses.
+    ## Taken on, not yet published: ok although the host refuses.
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
     check (await iface.registerInterest("service:y")).isOk()
 
     ## Taken once and left alone: with nothing pending the loop is parked, and
-    ## calls the plugin again only when something wakes it.
+    ## calls the host again only when something wakes it.
     check eventually(backend.pendingAnnouncements() == 0)
     check:
-      fake.refuseVerbs.load() == 0
-      fake.advertTaken.load() == 1
-      fake.interestTaken.load() == 1
-      fake.advertLive.load()
-      fake.advertRefusedAsHeld.load() == 0
+      fake.refuseVerbs == 0
+      fake.advertTaken == 1
+      fake.interestTaken == 1
+      fake.advertLive
+      fake.advertRefusedAsHeld == 0
 
     check (await iface.stopDiscovery()).isOk()
 
-  asyncTest "a call that timed out on our side but completed counts as taken":
-    ## The worker is not interrupted on timeout: the plugin may complete a call
-    ## the node already gave up on. The retry is then refused as already
-    ## advertised, which says the plugin holds it.
+  asyncTest "an advert the host already holds counts as taken":
+    ## A call can time out on the node's side and still complete on the host's
+    ## (the reverse call is abandoned, not interrupted). The retry is then
+    ## refused as already advertised, which says the host holds it.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    fake.advertDelayMs.store(2500) # past the fake's 2 s requestTimeoutMs
+    fake.advertLive = true
 
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
 
@@ -604,126 +359,114 @@ suite "ExternalServiceDiscovery":
     ## left pending that could call again.
     check eventually(backend.pendingAnnouncements() == 0)
     check:
-      fake.advertTaken.load() == 1
-      fake.advertRefusedAsHeld.load() == 1
-      fake.stopAdvertCalls.load() == 0
-      fake.advertLive.load()
+      fake.advertTaken == 0
+      fake.advertRefusedAsHeld == 1
+      fake.stopAdvertCalls == 0
+      fake.advertLive
 
     check (await iface.stopDiscovery()).isOk()
 
-  asyncTest "a new session replaces the record the plugin still holds":
+  asyncTest "a new session replaces the record the host still holds":
     ## libp2p outlives the node's discovery session, so after a restart it may
     ## hold the last session's record, with the addresses of that time.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    check eventually(fake.advertTaken.load() == 1)
-    check fake.stopAdvertCalls.load() == 0
+    check eventually(fake.advertTaken == 1)
+    check fake.stopAdvertCalls == 0
 
     check (await iface.stopDiscovery()).isOk()
-    check fake.advertLive.load() # the fake's plugin stop keeps it, as libp2p does
+    check fake.advertLive # the fake's host stop keeps it, as libp2p does
     check (await iface.startDiscovery()).isOk()
 
-    check eventually(fake.advertTaken.load() == 2)
+    check eventually(fake.advertTaken == 2)
     check:
-      fake.stopAdvertCalls.load() == 1
-      fake.advertRefusedAsHeld.load() == 0
+      fake.stopAdvertCalls == 1
+      fake.advertRefusedAsHeld == 0
 
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "new data replaces the advert; the same data sends nothing":
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    check eventually(fake.advertTaken.load() == 1)
+    check eventually(fake.advertTaken == 1)
 
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
     ## The same data leaves the advert taken, so there is nothing to send.
     check:
       backend.pendingAnnouncements() == 0
-      fake.advertTaken.load() == 1
-      fake.stopAdvertCalls.load() == 0
+      fake.advertTaken == 1
+      fake.stopAdvertCalls == 0
 
     check (await iface.startAdvertising("service:x", @[7'u8])).isOk()
-    check eventually(fake.advertTaken.load() == 2)
+    check eventually(fake.advertTaken == 2)
     check:
-      fake.stopAdvertCalls.load() == 1
-      fake.lastDataLen.load() == 1
-      fake.lastData[0] == 7'u8
-      fake.advertRefusedAsHeld.load() == 0
+      fake.stopAdvertCalls == 1
+      fake.lastData == @[7'u8]
+      fake.advertRefusedAsHeld == 0
 
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "an advert given up while still refused is never published":
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    fake.refuseVerbs.store(1000)
+    fake.refuseVerbs = 1000
 
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    ## Once it has been tried, the plugin may hold it, so it gets withdrawn.
-    check eventually(fake.refuseVerbs.load() < 1000)
+    ## Once it has been tried, the host may hold it, so it gets withdrawn.
+    check eventually(fake.refuseVerbs < 1000)
     check (await iface.stopAdvertising("service:x")).isOk()
     ## Gone from what the node wants, so nothing can send it any more.
     check:
       backend.pendingAnnouncements() == 0
-      fake.stopAdvertCalls.load() == 1 # the best-effort stop
+      fake.stopAdvertCalls == 1 # the best-effort stop
 
-    fake.refuseVerbs.store(0)
+    fake.refuseVerbs = 0
     check:
-      fake.advertTaken.load() == 0
-      not fake.advertLive.load()
+      fake.advertTaken == 0
+      not fake.advertLive
 
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "verbs before start are handed over once discovery starts":
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
     check (await iface.registerInterest("service:y")).isOk()
     check:
-      fake.advertTaken.load() == 0
-      fake.interestTaken.load() == 0
+      fake.advertTaken == 0
+      fake.interestTaken == 0
 
     check (await iface.startDiscovery()).isOk()
-    check eventually(fake.advertTaken.load() == 1 and fake.interestTaken.load() == 1)
+    check eventually(fake.advertTaken == 1 and fake.interestTaken == 1)
 
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "an advert is re-signed when the node's addresses change":
-    ## The plugin publishes the record it was handed and never refreshes it,
-    ## so a record signed at start would advertise stale addresses for good.
+    ## The host publishes the record it was handed and never refreshes it, so
+    ## a record signed at start would advertise stale addresses for good.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    let peerInfo = provideNodeIdentity(ctx)
+    let peerInfo = provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
     check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    check eventually(fake.advertTaken.load() == 1)
+    check eventually(fake.advertTaken == 1)
 
     proc publishedAddrs(): seq[string] =
-      let bytes = @(fake.lastRecord)[0 ..< fake.lastRecordLen.load()]
-      let record = SignedExtendedPeerRecord.decode(bytes).expect("decodes")
+      let record = SignedExtendedPeerRecord.decode(fake.lastRecord).expect("decodes")
       record.data.addresses.mapIt($it.address)
 
     check publishedAddrs() == @["/ip4/127.0.0.1/tcp/44002"]
@@ -733,11 +476,11 @@ suite "ExternalServiceDiscovery":
     peerInfo.notifyObservers()
 
     ## Taken back and published again, with the new address.
-    check eventually(fake.advertTaken.load() == 2)
+    check eventually(fake.advertTaken == 2)
     check:
       publishedAddrs() == @["/ip4/203.0.113.7/tcp/44002"]
-      fake.stopAdvertCalls.load() == 1
-      fake.advertRefusedAsHeld.load() == 0
+      fake.stopAdvertCalls == 1
+      fake.advertRefusedAsHeld == 0
 
     ## Once stopped, the node no longer follows its addresses. Observers run
     ## synchronously, so one still attached would have marked the advert
@@ -747,86 +490,48 @@ suite "ExternalServiceDiscovery":
     peerInfo.notifyObservers()
     check:
       backend.pendingAnnouncements() == 0
-      fake.advertTaken.load() == 2
+      fake.advertTaken == 2
 
   asyncTest "a key removed while a pass is out is not sent":
     ## A pass walks a snapshot of the keys. One removed during an earlier call
     ## of the same pass must be skipped, not sent as an empty default entry.
     let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
+    discard provideNodeIdentity(globalBrokerContext())
 
     let iface: IPeerDiscovery = backend
     ## Both wanted before start, so the first pass has both in its snapshot.
     check (await iface.startAdvertising("service:a", @[1'u8])).isOk()
     check (await iface.startAdvertising("service:b", @[2'u8])).isOk()
-    fake.advertDelayMs.store(500)
+    fake.advertDelay = chronos.milliseconds(500)
     check (await iface.startDiscovery()).isOk()
 
-    ## The first advert's call is inside the plugin (it consumed the delay);
+    ## The first advert's call is inside the host (it consumed the delay);
     ## stop the other one meanwhile.
-    check eventually(fake.advertDelayMs.load() == 0)
-    let other = if lastKey() == "service:a": "service:b" else: "service:a"
+    check eventually(fake.advertDelay == ZeroDuration)
+    let other = if fake.lastKey == "service:a": "service:b" else: "service:a"
     check (await iface.stopAdvertising(other)).isOk()
 
     check eventually(backend.pendingAnnouncements() == 0)
     check:
-      fake.advertCalls.load() == 1
-      fake.advertTaken.load() == 1
-      fake.advertRefusedAsHeld.load() == 0
+      fake.advertCalls == 1
+      fake.advertTaken == 1
+      fake.advertRefusedAsHeld == 0
 
     check (await iface.stopDiscovery()).isOk()
 
-  asyncTest "a cancelled caller's queued plugin call never reaches the plugin":
-    ## Plugin calls go out as cancellable (mt) requests: cancelling the caller
-    ## tombstones a request still queued for the worker, so the provider is
-    ## never invoked for it.
-    let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    discard provideNodeIdentity(ctx)
-
-    let iface: IPeerDiscovery = backend
-    check (await iface.startDiscovery()).isOk()
-
-    ## Occupy the worker: the advert call sits in the plugin for 1.5 s.
-    fake.advertDelayMs.store(1500)
-    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
-    check eventually(fake.advertDelayMs.load() == 0)
-
-    ## Queued behind it, then cancelled while still queued. The yield only
-    ## makes sure the request is in the worker's queue before the cancel.
-    let lookup = iface.lookupServicePeers("service:y", 1)
-    await sleepAsync(chronos.milliseconds(50))
-    await lookup.cancelAndWait()
-
-    ## The worker serves its queue in order, so once a later call answers,
-    ## the cancelled lookup has been passed over: only this one handed back
-    ## plugin JSON.
-    check (await iface.lookupRandom()).isOk()
-    check:
-      fake.lastLimit.load() == 0 # set by a lookup the plugin ran
-      fake.freed.load() == 1
-      fake.advertTaken.load() == 1
-
-    check (await iface.stopDiscovery()).isOk()
-
-  asyncTest "an interest the plugin refuses is still looked up":
+  asyncTest "an interest the host refuses is still looked up":
     ## A lookup does not depend on the interest, which only pre-warms the
     ## provider's table; a refused interest used to drop the key from the
     ## lookup loop for good.
     let backend =
       ExternalServiceDiscovery.create(serviceLookupInterval = chronos.minutes(10))
-    let ctx = globalBrokerContext()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
     let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    fake.refuseVerbs.store(1000)
+    fake.refuseVerbs = 1000
     check (await iface.registerInterest("service:/logos/delivery")).isOk()
 
-    check eventually(fake.freed.load() >= 1)
-    check fake.interestTaken.load() == 0
+    check eventually(fake.lookups >= 1)
+    check fake.interestTaken == 0
 
     check (await iface.stopDiscovery()).isOk()

@@ -15,7 +15,7 @@ switch("nimMainPrefix", "liblogosdelivery")
 # `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
 # `relativePath`, which needs `getcwd` at compile time and fails to build.
 switch("define", "ffiGenBindings")
-switch("define", "targetLang=c")
+switch("define", "targetLang=c,cpp")
 switch("define", "ffiSrcPath=../liblogosdelivery.nim")
 when not defined(ffiOutputDir):
   switch("define", "ffiOutputDir=" & nimcacheDir() & "/generated")

@@ -1,11 +1,9 @@
 import system, results, std/json
-import stew/byteutils
 import
   ../../logos_delivery/waku/common/base64,
   ../../logos_delivery/waku/waku_core/message,
   ../../logos_delivery/waku/waku_core/message/message,
-  ../utils,
-  ./json_base_event
+  ../utils
 
 type JsonMessage* = ref object # https://rfc.vac.dev/spec/36/#jsonmessage-type
   payload*: Base64String
@@ -79,24 +77,3 @@ proc `%`*(value: Base64String): JsonNode =
 proc `%`*(msg: WakuMessage): JsonNode =
   ## Serializes a WakuMessage in the RFC 36 shape, with byte fields base64-encoded.
   %JsonMessage.new(msg)
-
-type JsonMessageEvent* = ref object of JsonEvent
-  pubsubTopic*: string
-  messageHash*: string
-  wakuMessage*: JsonMessage
-
-proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
-  # Returns a WakuMessage event as indicated in
-  # https://github.com/vacp2p/rfc/blob/master/content/docs/rfcs/36/README.md#jsonmessageevent-type
-
-  let msgHash = computeMessageHash(pubSubTopic, msg)
-
-  return JsonMessageEvent(
-    eventType: "message",
-    pubSubTopic: pubSubTopic,
-    messageHash: msgHash.to0xHex(),
-    wakuMessage: JsonMessage.new(msg),
-  )
-
-method `$`*(jsonMessage: JsonMessageEvent): string =
-  $(%*jsonMessage)

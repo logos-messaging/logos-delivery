@@ -46,9 +46,10 @@ extern "C"
 
   // Events are delivered through a per-event listener registry. Register one
   // callback per event name of interest; see the README for the full list.
-  // Channel lifecycle events are "onChannelMessageReceived" (payload
-  // base64-encoded), "onChannelMessageSent", "onChannelMessageError" and
-  // "onChannelMessageLost" (payloadHash hex-encoded).
+  // Each payload is the CBOR encoding of its typed struct (generated
+  // logosdelivery.h: MessageReceivedPayload, ChannelMessageLostPayload, ...);
+  // byte fields are CBOR byte strings and hashes hex text. The C++ binding
+  // (liblogosdelivery.hpp) decodes them for you: addOn<Event>Listener.
 
   // Registers a callback for the named event and returns a non-zero listener id
   // (0 on an invalid context). `ctx` is the context handle returned by
