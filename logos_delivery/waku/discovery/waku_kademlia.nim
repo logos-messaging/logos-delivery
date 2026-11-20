@@ -100,8 +100,17 @@ proc processRecords*(
     let peerInfo = remotePeerInfoFrom(record).valueOr:
       continue
 
+    # An older record than the one that last told this peer's mix key neither
+    # sets nor removes it.
+    let disclaims = disclaimsMix(record.discoveredServices())
+    let admitted =
+      (peerInfo.mixPubKey.isSome() or disclaims) and
+      self.peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, record.seqNo)
+    if not admitted:
+      reset(peerInfo.mixPubKey)
+
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
-    if disclaimsMix(record.discoveredServices()):
+    if admitted and disclaims:
       self.peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via service discovery",

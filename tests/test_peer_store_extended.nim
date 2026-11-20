@@ -401,6 +401,22 @@ suite "Extended nim-libp2p Peer Store":
       peerStore[SourceBook][p1] == default(PeerOrigin)
       peerStore[DirectionBook][p1] == default(PeerDirection)
 
+  test "admitMixRecord() refuses a record older than the newest one admitted":
+    let peerStore = PeerStore.new(nil, capacity = 5)
+    var p1: PeerId
+    require p1.init("QmeuZJbXrszW2jdT7GdduSjQskPU3S7vvGWKtKgDfkDvW1")
+
+    check:
+      peerStore.admitMixRecord(p1, 10)
+      not peerStore.admitMixRecord(p1, 9)
+      peerStore.admitMixRecord(p1, 10)
+      peerStore.admitMixRecord(p1, 11)
+      not peerStore.admitMixRecord(p1, 10)
+
+    # A deleted peer starts again: nothing is known about its records.
+    peerStore.delete(p1)
+    check peerStore.admitMixRecord(p1, 1)
+
   test "pruneStaleEnrs() only drops stale, non-connected, discovered ENRs":
     let peerStore = PeerStore.new(nil, capacity = 5)
     let enrRecord =
