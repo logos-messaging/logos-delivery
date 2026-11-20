@@ -82,8 +82,7 @@ proc refreshMixMembership*(node: WakuNode) {.async: (raises: [CancelledError]).}
   else:
     notice "Mix RLN membership is no longer usable; this node cannot prove a Mix hop",
       status = $status
-  if not node.onMixMembershipChanged.isNil():
-    await node.onMixMembershipChanged()
+  node.readvertise()
 
 proc watchMixMembership(node: WakuNode) {.async: (raises: [CancelledError]).} =
   while true:

@@ -91,10 +91,12 @@ type StoreSyncConf* {.requiresInit.} = object
 
 type MixConf* = ref object
   mixKey*: Curve25519Key
-  mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
   allowAllAddresses*: bool
     ## Lets mix paths use a mix node at a private, a loopback or a circuit relay address.
+  keyRotation*: bool
+    ## Rotates the mix key on a timer. `mixKey` and `mixnodes` are then unused.
+    ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html
   mixRlnConfig*: Opt[ModuleRlnConfig]
 
 type StoreServiceConf* = object

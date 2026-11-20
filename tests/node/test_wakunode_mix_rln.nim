@@ -1,11 +1,18 @@
 {.used.}
 
 import std/json
-import chronos, results, stew/byteutils, testutils/unittests, libp2p/crypto/curve25519
+import chronos, results, stew/byteutils, testutils/unittests, libp2p_mix/curve25519
 import mix_rln_spam_protection/module_api
 import
-  logos_delivery/waku/
-    [rln/types, net/bound_ports, node/waku_node, node/waku_node/mix_rln, waku_mix]
+  logos_delivery/waku/[
+    waku_core,
+    rln/types,
+    net/bound_ports,
+    node/waku_node,
+    node/waku_node/mix_rln,
+    waku_mix,
+  ],
+  ../testlib/[wakucore, wakunode]
 
 const
   MixRegistry = "logos:local:mix"
@@ -73,7 +80,9 @@ suite "Waku Mix RLN - membership":
 
 proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
   let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
-  node.onMixMembershipChanged = proc() {.async: (raises: []).} =
+  node.advertiseRecord = proc(
+      isCurrent: proc(): bool {.gcsafe, raises: [].}
+  ) {.async: (raises: []).} =
     inc changes[]
   return node
 
@@ -137,18 +146,27 @@ suite "Waku Mix RLN - readiness to advertise":
     node.mixMembershipUsable = true
     check node.mixAdvertReady()
 
-  test "the Rendezvous record carries the mix key only when the node is ready":
-    let node = WakuNode(
-      ports: BoundPorts.init(), wakuMixRln: FakeRlnModule(state: "active").mixRln()
-    )
-    check node.rendezvousMixKey().len == 0
+  asyncTest "the Rendezvous record carries the mix key only when the node is ready":
+    check WakuNode(ports: BoundPorts.init()).rendezvousMixKey().len == 0
 
-    node.wakuMix = WakuMix(pubKey: intoCurve25519Key(newSeq[byte](Curve25519KeySize)))
-    check node.rendezvousMixKey().len == 0
+    let node = newTestWakuNode(generateSecp256k1Key())
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    node.wakuMixRln = FakeRlnModule(state: "active").mixRln()
+    check:
+      node.advertisedMixKey().isNone()
+      node.rendezvousMixKey().len == 0
 
     node.mixMembershipUsable = true
-    check node.rendezvousMixKey() == node.wakuMix.pubKey.to0xHex()
+    check:
+      node.advertisedMixKey() == Opt.some(mixKeys.publicKey)
+      node.rendezvousMixKey() == mixKeys.publicKey.to0xHex()
 
     node.wakuMixRln = nil
     node.mixMembershipUsable = false
-    check node.rendezvousMixKey() == node.wakuMix.pubKey.to0xHex()
+    check node.rendezvousMixKey() == mixKeys.publicKey.to0xHex()

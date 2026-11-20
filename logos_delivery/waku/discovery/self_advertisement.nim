@@ -16,6 +16,7 @@
 
 import std/base64
 import chronos, chronicles, results
+import libp2p/crypto/curve25519
 import libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
@@ -109,7 +110,8 @@ proc advertiseSelf*(
     discoveries: seq[IPeerDiscovery],
     conf: WakuConf,
     shards: seq[uint16],
-    mixReady = true,
+    mixKey = Opt.none(Curve25519Key),
+    isCurrent: proc(): bool {.gcsafe, raises: [].} = nil,
 ): Future[void] {.async: (raises: []).} =
   ## Registers interest in `/logos/delivery` on every service-capable backend,
   ## and advertises this node there when it serves something. `shards` is what
@@ -121,25 +123,37 @@ proc advertiseSelf*(
   ## registrar makes a node wait for a second registration, and other nodes
   ## find mix nodes among the delivery nodes they look up anyway.
   ##
-  ## `mixReady` is false while the node cannot act as a mix node although it
-  ## mounts mix: with Mix RLN, while it holds no usable Mix membership and so
-  ## cannot prove a hop. It then advertises as a delivery node without the key.
+  ## `mixKey` is this node's current mix key. It is none while the node cannot
+  ## act as a mix node although it mounts mix: while mix holds no key, or with
+  ## Mix RLN while the node holds no usable Mix membership and so cannot prove a
+  ## hop. It then advertises as a delivery node without the key.
+  ##
+  ## Once `isCurrent` returns false (the record changed again, or the node is
+  ## stopping), the advertisement stops after its current step, so a record that
+  ## is no longer current is not published.
+  ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#4-key-publication
   ##
   ## Best-effort per backend: a node whose discovery could not announce it is
   ## degraded, not broken, and the other backends should still get their turn.
+  template current(): bool =
+    isCurrent.isNil() or isCurrent()
+
   let serves = conf.wakuFlags.isServiceNode()
+  let mixNode = conf.advertisesMix() and mixKey.isSome()
   let data =
     if serves:
-      selfAdvertisementData(conf, shards, mixReady)
+      selfAdvertisementData(conf, shards, mixNode)
     else:
       @[]
   let secondary =
-    if conf.advertisesMix() and mixReady:
-      @[DiscoveredService(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))]
+    if mixNode:
+      @[DiscoveredService(id: MixProtocolID, data: @(mixKey.get()))]
     else:
       @[]
 
   for discovery in discoveries:
+    if not current():
+      return
     let info = (await discovery.backendInfo()).valueOr:
       debug "skipping backend with unreadable info", reason = error
       continue
@@ -147,19 +161,25 @@ proc advertiseSelf*(
     if ServiceKind notin info.keyKinds:
       continue
 
-    (await discovery.registerInterest(SvcKey)).isOkOr:
+    # The record can change while a step runs, and a cancelled step returns an
+    # error, so each result is read only while the record is current.
+    let registered = await discovery.registerInterest(SvcKey)
+    if not current():
+      return
+    registered.isOkOr:
       warn "could not register interest in the delivery network",
         backend = info.id, reason = error
 
     if not serves:
       continue
 
-    (await discovery.startAdvertising(SvcKey, data, secondary)).isOkOr:
+    let advertised = await discovery.startAdvertising(SvcKey, data, secondary)
+    if not current():
+      return
+    advertised.isOkOr:
       warn "could not advertise this node on the delivery network",
         backend = info.id, reason = error
       continue
 
     info "advertising this node on the delivery network",
-      backend = info.id,
-      protocols = conf.wakuFlags.toCodecs(),
-      mixNode = secondary.len > 0
+      backend = info.id, protocols = conf.wakuFlags.toCodecs(), mixNode = mixNode

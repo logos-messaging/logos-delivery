@@ -732,6 +732,13 @@ hence would have reachability issues.""",
     name: "mix-allow-all-addresses"
   .}: bool
 
+  mixKeyRotation* {.
+    desc:
+      "Rotate the mix key on a timer, as the Mix Key Rotation spec describes. The node then ignores --mixkey and --mixnode, and takes mix keys from discovery only. Set it on every node of a network, or on none. (requires --mix)",
+    defaultValue: false,
+    name: "mix-key-rotation"
+  .}: bool
+
   mixRlnRegistryId* {.
     desc:
       "Shared RLN module registry for Mix per-hop proofs; empty disables the adapter.",
@@ -1255,6 +1262,7 @@ func ignoredFlagWarnings*(
     ("mixkey", "mix", mix, changed(mixkey)),
     ("mixnode", "mix", mix, n.mixnodes.len > 0),
     ("mix-allow-all-addresses", "mix", mix, changed(mixAllowAllAddresses)),
+    ("mix-key-rotation", "mix", mix, changed(mixKeyRotation)),
     ("kad-bootstrap-node", kadParent, kad, changed(kadBootstrapNodes)),
     ("kad-random-lookup-interval", kadParent, kad, changed(kadRandomLookupIntervalSec)),
     (
@@ -1465,6 +1473,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
   b.mixConf.withAllowAllAddresses(n.mixAllowAllAddresses)
+  b.mixConf.withKeyRotation(n.mixKeyRotation)
 
   if n.filter.isSome():
     b.filterServiceConf.withEnabled(n.filter.get())
