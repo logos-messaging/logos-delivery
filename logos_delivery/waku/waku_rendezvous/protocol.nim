@@ -8,7 +8,6 @@ import
   stew/byteutils,
   libp2p/protocols/rendezvous,
   libp2p/protocols/rendezvous/protobuf,
-  libp2p/utils/offsettedseq,
   libp2p/crypto/curve25519,
   libp2p/switch
 
@@ -152,7 +151,6 @@ proc new*(
   let wrv = T(
     rng: rng,
     salt: string.fromBytes(generateBytes(rng, 8)),
-    registered: initOffsettedSeq[RegisteredData](),
     expiredDT: Moment.now() - 1.days,
     sema: newAsyncSemaphore(SemaphoreDefaultSize),
     config: RendezVousConfig(
