@@ -1394,7 +1394,8 @@ suite "Messaging API - a node that is not started":
         check:
           refused.isErr()
           refused.error.kind == SendErrorKind.NotStarted
-          $refused.error == "node is not started (NotStarted)"
+          $refused.error ==
+            "messaging client unavailable: node is not started (NotStarted)"
           (await client.subscribe(SubscribeTopic)).errorOr("accepted") ==
             "node is not started"
           client.unsubscribe(UnsubscribeTopic).errorOr("accepted") ==

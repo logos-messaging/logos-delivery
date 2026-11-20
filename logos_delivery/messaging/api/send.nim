@@ -28,13 +28,19 @@ proc send*(
   ## an accepted message carry its hash and come after `send` returns, also over
   ## the FFI.
   self.checkApiAvailability().isOkOr:
-    return err(SendError.init(SendErrorKind.NotStarted, error))
+    return err(
+      SendError.init(SendErrorKind.NotStarted, "messaging client unavailable: " & error)
+    )
 
   let deliveryTask = DeliveryTask.new(
     envelope, self.waku.brokerCtx, self.nextTimestamp()
   ).valueOr:
     debug "Failed to create delivery task", error
-    return err(SendError.init(SendErrorKind.NoShardMapsContentTopic, error))
+    return err(
+      SendError.init(
+        SendErrorKind.NoShardMapsContentTopic, "failed to prepare the message: " & error
+      )
+    )
 
   # Only a node that can reach no peer is refused: the health status needs more
   # than a send does, such as a filter peer for an edge or relay peers for a node
