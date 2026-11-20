@@ -548,15 +548,18 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
 
   # The preset's mix nodes seed the pool after the mount, so a preset node can
   # build a path before discovery finds `MinMixPoolSize` peers with a mix key.
-  var presetMixNodes: seq[MixNodePubInfo]
-  for entry in networkPresetConf.mixnodes:
-    let mixNode = parseMixNode(entry).valueOr:
-      # A preset entry is compiled in: a malformed one is the node's own fault.
-      error "Skipping a malformed mix node in the network conf",
-        entry = entry, error = error
-      continue
-    presetMixNodes.add(mixNode)
-  builder.mixConf.withMixNodes(presetMixNodes)
+  # A node that rotates its mix key takes mix keys from discovery only, and the
+  # preset's keys are not the keys rotating nodes hold, so it takes none.
+  if not builder.mixConf.keyRotation():
+    var presetMixNodes: seq[MixNodePubInfo]
+    for entry in networkPresetConf.mixnodes:
+      let mixNode = parseMixNode(entry).valueOr:
+        # A preset entry is compiled in: a malformed one is the node's own fault.
+        error "Skipping a malformed mix node in the network conf",
+          entry = entry, error = error
+        continue
+      presetMixNodes.add(mixNode)
+    builder.mixConf.withMixNodes(presetMixNodes)
 
   # Process entry nodes from network config - classify and distribute
   if networkPresetConf.entryNodes.len > 0:

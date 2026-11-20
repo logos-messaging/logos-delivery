@@ -189,6 +189,7 @@ proc setupProtocols(
         mixConf.mixnodes,
         protection,
         allowAllAddresses = mixConf.allowAllAddresses,
+        keyRotation = mixConf.keyRotation,
       )
     ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)

@@ -14,7 +14,7 @@ import
   libp2p/crypto/crypto,
   libp2p/peerid,
   libp2p/multiaddress,
-  libp2p_mix/[curve25519, mix_protocol, mix_metrics]
+  libp2p_mix/[curve25519, key_rotation, mix_protocol, mix_metrics]
 
 import
   logos_delivery/waku/
@@ -67,6 +67,11 @@ proc surbBuildErrors(): float64 {.gcsafe.} =
   {.cast(gcsafe).}:
     counterValue(mix_messages_error, ["Entry/SURB", "INVALID_MIX_INFO"])
 
+proc noKeyMatched(): float64 {.gcsafe.} =
+  ## Packets a node dropped because none of its mix keys matched.
+  {.cast(gcsafe).}:
+    counterValue(mix_messages_error, ["Intermediate/Exit", "INVALID_MAC"])
+
 proc hopCounts(): HopCounts {.gcsafe.} =
   {.cast(gcsafe).}:
     HopCounts(
@@ -85,12 +90,50 @@ proc subscribeCores(mixnet: MixNet, shard: PubsubTopic) =
     mixnet.nodes[i].subscribe((kind: PubsubSub, topic: shard), coreHandler).isOkOr:
       raiseAssert "subscribe core " & $i & ": " & $error
 
+proc shareMixKeys(mixnet: MixNet) =
+  ## Writes each node's current mix key into the other nodes' peer stores, as a
+  ## discovery lookup does.
+  for i, node in mixnet.nodes:
+    let peer = RemotePeerInfo.init(
+      node.peerInfo.peerId,
+      node.peerInfo.addrs,
+      mixPubKey = Opt.some(node.wakuMix.currentMixPubKey().expect("mix key")),
+    )
+    for j, other in mixnet.nodes:
+      if j != i:
+        other.peerManager.addPeer(peer)
+
+proc rotateMixKey(node: WakuNode, after: Duration) =
+  ## Runs the node's key ring update as if `after` had passed.
+  node.wakuMix.keyRing().get().update(Moment.now() + after)
+
+proc mixedSendExits(mixnet: MixNet, label: string): Future[bool] {.async.} =
+  ## True when a mixed lightpush from the sender to core 0 succeeds and an exit
+  ## received it. A plain publish also returns ok, so the exit counter shows the
+  ## path was mixed. Core 0 is the exit, so its key is on every path.
+  let msg = WakuMessage(
+    payload: toBytes("mix-e2e-rotation " & label),
+    contentTopic: "/mix-e2e/1/probe/proto",
+    version: 2,
+    timestamp: getNowInNanosecondTime(),
+  )
+  let before = hopCounts()
+  let res = await mixnet.sender().lightpushPublish(
+    Opt.some(DefaultPubsubTopic),
+    msg,
+    Opt.some(mixnet.nodes[0].peerInfo.toRemotePeerInfo()),
+    mixify = true,
+  )
+  return res.isOk() and hopCounts().exited - before.exited >= 1.0
+
 proc setupMixNet(
-    basePort: int, senderAnnounce: string = "", senderDns4 = false
+    basePort: int, senderAnnounce: string = "", senderDns4 = false, keyRotation = false
 ): Future[MixNet] {.async.} =
   ## Builds and starts the 5-node mixnet on fixed local ports. `senderAnnounce`
   ## replaces the sender's announced address, as NAT does. `senderDns4` makes the
   ## sender announce only a dns4 name, with its external IP set as the factory does.
+  ## With `keyRotation` every node rotates its mix key and ignores its mix nodes,
+  ## and each node's pool holds the keys the other nodes hold at start.
   var mixnet = MixNet()
   var mixPrivs: seq[FieldElement] = @[]
 
@@ -143,7 +186,11 @@ proc setupMixNet(
       raiseAssert "mountMetadata " & $i & ": " & $error
     (
       await mixnet.nodes[i].mountMix(
-        DefaultClusterId, mixPrivs[i], others, allowAllAddresses = true
+        DefaultClusterId,
+        mixPrivs[i],
+        others,
+        allowAllAddresses = true,
+        keyRotation = keyRotation,
       )
     ).isOkOr:
       raiseAssert "mountMix " & $i & ": " & $error
@@ -157,6 +204,8 @@ proc setupMixNet(
       )
     await mixnet.nodes[i].connectToNodes(peers)
 
+  if keyRotation:
+    mixnet.shareMixKeys()
   return mixnet
 
 proc teardownMixNet(mixnet: MixNet) {.async.} =
@@ -313,7 +362,7 @@ suite "Waku Mix - end to end transport":
 
     check:
       mixnet.sender().announcedAddresses.allIt("/dns4/" in $it)
-      $mixnet.sender().wakuMix.localMixPubInfo().multiAddr ==
+      $mixnet.sender().wakuMix.selfHop().expect("self hop") ==
         "/ip4/127.0.0.1/tcp/" & $(23890 + NumCore)
 
     let shard = DefaultPubsubTopic
@@ -422,3 +471,121 @@ suite "Waku Mix - end to end transport":
       task.propagatedAnonymously # no store query for this task
       task.anonymized # set at the attempt
       after.exited - before.exited >= 1.0
+
+suite "Waku Mix - end to end key rotation":
+  ## Every node rotates its mix key. A sender's pool holds the keys it was last
+  ## given, as a discovery lookup would leave them, so it can hold a node's
+  ## previous key.
+
+  const MaxSends = 8
+    ## Sends a test makes while waiting for a send to take the path or timing it
+    ## needs: a path through a given middle core (probability 2/3 each), or a
+    ## reply that lands after a rotation.
+
+  proc rotationNet(basePort: int): Future[MixNet] {.async.} =
+    let mixnet = await setupMixNet(basePort, keyRotation = true)
+    mixnet.subscribeCores(DefaultPubsubTopic)
+    await sleepAsync(chronos.seconds(2)) # gossipsub mesh
+    return mixnet
+
+  asyncTest "messages cross the mixnet while nodes rotate their keys one at a time":
+    ## Each core rotates in turn, and the sender keeps that core's previous key
+    ## until a packet has used it. A node accepts its previous key during the grace
+    ## window. Core 0 rotates first and is on every path, so later paths mix its
+    ## current key with another core's previous one.
+    let mixnet = await rotationNet(23920)
+    defer:
+      await teardownMixNet(mixnet)
+    check await mixnet.mixedSendExits("initial")
+
+    let exitRing = mixnet.nodes[0].wakuMix.keyRing().get()
+    for i in 0 ..< NumCore:
+      let ring = mixnet.nodes[i].wakuMix.keyRing().get()
+      mixnet.nodes[i].rotateMixKey(ring.config.rotationInterval)
+      let previous = ring.candidates()[1]
+      let accepted = previous.tagCount
+      let exitCurrent = exitRing.candidates()[0]
+      let exitAccepted = exitCurrent.tagCount
+      # The middle hops are drawn at random, so a rotated middle core can take a
+      # few sends before a path goes through it.
+      var sends = 0
+      while previous.tagCount == accepted and sends < MaxSends:
+        check await mixnet.mixedSendExits("core " & $i & " rotated")
+        sends.inc()
+      check previous.tagCount > accepted
+      if i > 0:
+        check exitCurrent.tagCount > exitAccepted
+      mixnet.shareMixKeys()
+
+  asyncTest "a restarted node is reached again once the sender obtains its new key":
+    ## A restart destroys the node's keys and generates a new one, so a sender
+    ## that still holds the previous key fails until it obtains the new one.
+    let mixnet = await rotationNet(23930)
+    defer:
+      await teardownMixNet(mixnet)
+    check await mixnet.mixedSendExits("before the restart")
+
+    let exit = mixnet.nodes[0]
+    let previous = exit.wakuMix.currentMixPubKey().expect("mix key")
+    await exit.stop()
+    await exit.start()
+    await exit.connectToNodes(
+      mixnet.nodes[1 .. ^1].mapIt(it.peerInfo.toRemotePeerInfo())
+    )
+    await sleepAsync(chronos.seconds(2)) # gossipsub mesh
+    let dropped = noKeyMatched()
+    check:
+      exit.wakuMix.currentMixPubKey().get() != previous
+      not await mixnet.mixedSendExits("previous key")
+      noKeyMatched() > dropped
+
+    mixnet.shareMixKeys()
+    check await mixnet.mixedSendExits("new key")
+
+  asyncTest "a rotated node's previous key stops working when its grace window ends":
+    let mixnet = await rotationNet(23940)
+    defer:
+      await teardownMixNet(mixnet)
+    let exit = mixnet.nodes[0]
+    let config = exit.wakuMix.keyRing().get().config
+
+    exit.rotateMixKey(config.rotationInterval)
+    check await mixnet.mixedSendExits("previous key, in the grace window")
+
+    # The previous key's grace window starts at the rotation and lasts
+    # `graceWindow`; an update past its end destroys the key.
+    exit.rotateMixKey(config.rotationInterval + config.graceWindow)
+    let dropped = noKeyMatched()
+    check:
+      not await mixnet.mixedSendExits("previous key, after the grace window")
+      noKeyMatched() > dropped
+
+    mixnet.shareMixKeys()
+    check await mixnet.mixedSendExits("current key")
+
+  asyncTest "a reply arrives when the sender rotates while its request is in flight":
+    ## A reply's last hop is the sender, under the key it held when it built the
+    ## reply. Rotating the sender in flight leaves that key previous, which the
+    ## sender accepts during the grace window.
+    let mixnet = await rotationNet(23950)
+    defer:
+      await teardownMixNet(mixnet)
+    let ring = mixnet.sender().wakuMix.keyRing().get()
+
+    # A reply that lands before the rotation counts under the key while it is
+    # still current, so a send retries until one lands after.
+    var landedAfter = false
+    var sends = 0
+    while not landedAfter and sends < MaxSends:
+      let key = ring.candidates()[0]
+      let exited = hopCounts().exited
+      let send = mixnet.mixedSendExits("sender rotates in flight " & $sends)
+      checkUntilTimeout:
+        hopCounts().exited > exited
+      mixnet.sender().rotateMixKey(ring.config.rotationInterval * (sends + 1))
+      check ring.candidates()[0] != key
+      let accepted = key.tagCount
+      check await send
+      landedAfter = key.tagCount > accepted
+      sends.inc()
+    check landedAfter

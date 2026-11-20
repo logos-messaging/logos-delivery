@@ -122,11 +122,21 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     ## one service per record, and libp2p publishes it verbatim. The switch is
     ## ours here, so identity and key are read from it directly.
     let serviceId = ?serviceIdOf(key)
+    let service = ServiceInfo(id: serviceId, data: Opt.some(data))
     let peerInfo = self.inner.protocol.switch.peerInfo
-    let record = ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data)
-    self.inner.addServiceToAdvertise(
-      ServiceInfo(id: serviceId, data: Opt.some(data)), record
-    )
+    let record = signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data).valueOr:
+      # The advertisement with other data is outdated, so it stops even though
+      # this one cannot be signed.
+      let signError = error
+      let removed = catch:
+        await self.inner.removeReplacedService(service)
+      removed.isOkOr:
+        return err("service backend: stop advertising failed: " & error.msg)
+      return err(signError)
+    let res = catch:
+      await self.inner.addServiceToAdvertise(service, record)
+    res.isOkOr:
+      return err("service backend: start advertising failed: " & error.msg)
     ok()
 
   method stopAdvertising(

@@ -16,6 +16,7 @@
 
 import std/base64
 import chronos, chronicles, results
+import libp2p/crypto/curve25519
 import libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
@@ -26,6 +27,7 @@ logScope:
   topics = "waku discovery advertise"
 
 const SvcKey = ServiceKeyPrefix & LogosDeliveryServiceId
+const MixSvcKey = ServiceKeyPrefix & MixProtocolID
 
 const
   AdvertFormatVersion* = 1'u8
@@ -134,42 +136,68 @@ proc advertiseSelf*(
     info "advertising this node on the delivery network",
       backend = info.id, protocols = conf.wakuFlags.toCodecs()
 
+proc serviceBackend(
+    discovery: IPeerDiscovery
+): Future[Opt[DiscoveryBackendInfo]] {.async: (raises: []).} =
+  ## The backend's info when it takes `service:` keys, or none.
+  let info = (await discovery.backendInfo()).valueOr:
+    debug "skipping backend with unreadable info", reason = error
+    return Opt.none(DiscoveryBackendInfo)
+  if ServiceKind notin info.keyKinds:
+    return Opt.none(DiscoveryBackendInfo)
+  return Opt.some(info)
+
 proc advertiseMix*(
-    discoveries: seq[IPeerDiscovery], conf: WakuConf
+    discoveries: seq[IPeerDiscovery],
+    mixPubKey: Curve25519Key,
+    isCurrent: proc(): bool {.gcsafe, raises: [].},
 ): Future[void] {.async: (raises: []).} =
-  ## Advertises this node's mix public key, and registers interest in other mix
-  ## nodes, on every service-capable backend.
+  ## Advertises `mixPubKey` as this node's mix public key, and registers interest
+  ## in other mix nodes, on every service-capable backend.
+  ##
+  ## Once `isCurrent` returns false (the key was replaced, or the node is
+  ## stopping), the advert stops after its current step, so a key that is no
+  ## longer current is not published.
+  ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#4-key-publication
   ##
   ## This goes through the interface rather than through
-  ## `KademliaDiscoveryConf.servicesToAdvertise`, which is where it used to be
-  ## injected at conf time. That reached only the in-process backend -- the conf
-  ## object belongs to it, and the two kademlia hosts are mutually exclusive --
-  ## so a node running mix with plugin-hosted discovery advertised nothing and
-  ## found no mix peers. Same route as `advertiseSelf`, so both hosts get it.
+  ## `KademliaDiscoveryConf.servicesToAdvertise`, which reaches only the
+  ## in-process backend -- the conf object belongs to it, and the two kademlia
+  ## hosts are mutually exclusive. Same route as `advertiseSelf`, so both hosts
+  ## get it.
   ##
-  ## Only the service id and the key bytes travel: whether a record is signed
-  ## here or by libp2p is each backend's business (see `startAdvertising` on
-  ## the interface).
-  if conf.mixConf.isNone():
-    return
-
-  let key = ServiceKeyPrefix & MixProtocolID
-  let data = @(conf.mixConf.get().mixPubKey)
+  ## Only the service id and the key bytes travel: each backend signs its own
+  ## record (see `startAdvertising` on the interface).
+  let data = @mixPubKey
 
   for discovery in discoveries:
-    let info = (await discovery.backendInfo()).valueOr:
-      debug "skipping backend with unreadable info", reason = error
+    if not isCurrent():
+      return
+    let info = (await discovery.serviceBackend()).valueOr:
       continue
 
-    if ServiceKind notin info.keyKinds:
-      continue
-
-    (await discovery.registerInterest(key)).isOkOr:
+    # The key can be replaced while a step runs, and a cancelled step returns
+    # an error, so each result is read only while the key is current.
+    let registered = await discovery.registerInterest(MixSvcKey)
+    if not isCurrent():
+      return
+    registered.isOkOr:
       warn "could not register interest in mix peers", backend = info.id, reason = error
 
-    (await discovery.startAdvertising(key, data)).isOkOr:
+    let advertised = await discovery.startAdvertising(MixSvcKey, data)
+    if not isCurrent():
+      return
+    advertised.isOkOr:
       warn "could not advertise this node as a mix node",
         backend = info.id, reason = error
       continue
 
     info "advertising this node as a mix node", backend = info.id
+
+proc withdrawMix*(discoveries: seq[IPeerDiscovery]) {.async: (raises: []).} =
+  ## Stops advertising this node's mix key on every service-capable backend.
+  for discovery in discoveries:
+    let info = (await discovery.serviceBackend()).valueOr:
+      continue
+    (await discovery.stopAdvertising(MixSvcKey)).isOkOr:
+      warn "Failed to withdraw this node's mix advert", backend = info.id, error = error

@@ -205,6 +205,27 @@ suite "Waku Kademlia service discovery":
       await switch.stop()
 
 suite "Waku Kademlia advertises records this node signs":
+  asyncTest "advertising a service again with other data replaces its advertisement":
+    ## libp2p holds one advertisement per service id, so the record with the
+    ## old data stops being published.
+    let switch = newTestSwitch()
+    let wk = kad_utils.newTestKademlia(switch)
+    await switch.start()
+    await wk.start()
+    defer:
+      await wk.stop()
+      await switch.stop()
+
+    let info = switch.peerInfo
+    for data in [@[1'u8], @[2'u8]]:
+      await wk.addServiceToAdvertise(
+        ServiceInfo(id: MixProtocolID, data: Opt.some(data)),
+        signedServiceRecord(info, info.privateKey, MixProtocolID, data).expect("signs"),
+      )
+    check:
+      ServiceInfo(id: MixProtocolID, data: Opt.some(@[2'u8])) in wk.protocol.services
+      ServiceInfo(id: MixProtocolID, data: Opt.some(@[1'u8])) notin wk.protocol.services
+
   asyncTest "each service is its own record, signed by the node":
     ## The in-process host no longer leaves the record to libp2p: it signs one
     ## per service, the same as the plugin host. A lookup for a service must
@@ -246,11 +267,11 @@ suite "Waku Kademlia advertises records this node signs":
     var mixKey = newSeq[byte](Curve25519KeySize)
     for i in 0 ..< mixKey.len:
       mixKey[i] = byte(i)
-    wkA.addServiceToAdvertise(
+    await wkA.addServiceToAdvertise(
       ServiceInfo(id: "/logos/delivery", data: Opt.some(@[1'u8])),
       signed("/logos/delivery", @[1'u8]),
     )
-    wkA.addServiceToAdvertise(
+    await wkA.addServiceToAdvertise(
       ServiceInfo(id: MixProtocolID, data: Opt.some(mixKey)),
       signed(MixProtocolID, mixKey),
     )
