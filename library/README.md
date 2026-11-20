@@ -170,7 +170,7 @@ The buffer belongs to the calling thread and stays valid until that thread calls
 
 ### Messaging
 
-`logosdelivery_ctx_subscribe`, `logosdelivery_ctx_unsubscribe` and `logosdelivery_ctx_send` answer `RET_ERR` until the reply of `logosdelivery_ctx_start_node` gives `RET_OK`, and again from `logosdelivery_ctx_stop_node` on. The error message ends with `node is not started`.
+`logosdelivery_ctx_subscribe`, `logosdelivery_ctx_unsubscribe`, `logosdelivery_ctx_send` and `logosdelivery_ctx_query_history` answer `RET_ERR` until the reply of `logosdelivery_ctx_start_node` gives `RET_OK`, and again from `logosdelivery_ctx_stop_node` on. The error message ends with `node is not started`.
 
 #### `logosdelivery_ctx_subscribe`
 Subscribe to a content topic to receive messages.
@@ -230,6 +230,40 @@ Note: The `payload` field should be base64-encoded.
 
 **Returns:** Request ID in the callback message that can be used to track message delivery.
 
+#### `logosdelivery_ctx_query_history`
+Query the messages of one content topic in a time range.
+
+```c
+int logosdelivery_ctx_query_history(
+    const LogosDeliveryCtx *ctx,
+    const char *queryJson,
+    LogosDeliveryQueryHistoryReplyFn onReply,
+    void *userData
+);
+```
+
+**Parameters:**
+- `queryJson`: JSON string that contains the query
+
+**Example query JSON:**
+```json
+{
+  "contentTopic": "/myapp/1/chat/proto",
+  "startTime": 1700000000000000000,
+  "endTime": 1700000060000000000
+}
+```
+
+The query gives the messages with a timestamp from `startTime` up to, but not including, `endTime`, in nanoseconds from the Unix epoch. A time is a JSON integer, or a string that holds one. `endTime` can be absent or `null`, and then it is 20 s after the call, because a sender's clock can be up to 20 s ahead. `endTime` can't be later than that, and `startTime` can't be more than 30 days before the end of the range.
+
+The node selects the history sources, which are Store nodes at this time. Store nodes don't keep ephemeral messages, so a query never gives one. When a Store node doesn't give a page of the query, the node tries the page again, also with other Store nodes. When the node can't get the history, for example with no Store node right after the start, the query fails with a `history_query_error` event. With many active queries, the messages and the end of each query can come later. While 100 queries are active, the call returns an error that contains `too many history queries`, and no request ID.
+
+You don't need to subscribe to the content topic. To get the history and the live messages of a new content topic, subscribe to it first, and then call `logosdelivery_ctx_query_history` with no `endTime`, so that the range also covers message timestamps up to 20 s after the call. The messages that the Store nodes have at the call come first. A Store node can get a message late, so the node gets the last part of the range again later, and the query can complete some time after its last message. A message can come in both a `message_received` event and a `history_query_message` event, so ignore a message whose `messageHash` you already have. A reliable channel doesn't get the messages of a history query.
+
+A stop of the node cancels its queries, and they emit no more events. The next start doesn't run them again, so call `logosdelivery_ctx_query_history` again after that start.
+
+**Returns:** Request ID in the callback message. The `onHistoryQueryMessage`, `onHistoryQueryCompleted` and `onHistoryQueryError` events carry the results of the query with this request ID (see [MESSAGE_EVENTS.md](MESSAGE_EVENTS.md)).
+
 ### Events
 
 Events are delivered through a per-event listener registry: register one callback
@@ -250,10 +284,7 @@ uint64_t logosdelivery_add_event_listener(
 );
 ```
 
-Event names: `onMessageQueued`, `onMessageSent`, `onMessageError`,
-`onMessagePropagated`, `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
-`onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
-`onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.
+Event names: `onMessageQueued`, `onMessageSent`, `onMessageError`, `onMessagePropagated`, `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`, `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`, `onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`, `onHistoryQueryMessage`, `onHistoryQueryCompleted`, `onHistoryQueryError`.
 
 #### `logosdelivery_remove_event_listener`
 Removes a previously registered listener. Returns `0` on success, `1` if the

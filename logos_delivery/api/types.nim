@@ -1,11 +1,11 @@
 {.push raises: [].}
 
-import libp2p/crypto/crypto, chronos
+import libp2p/crypto/crypto, chronos, results
 import stew/byteutils
 import logos_delivery/waku/utils/requests as request_utils
 import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]
 
-export content_topic, message
+export content_topic, message, time
 
 type
   MessageEnvelope* = object
@@ -32,6 +32,18 @@ type
     peerId*: string
     protocols*: seq[string]
     addresses*: seq[string]
+
+  HistoryQuery* = object
+    ## A query for the messages of one content topic in a time range.
+    ## The times are nanoseconds from the Unix epoch.
+    contentTopic*: ContentTopic
+    startTime*: Timestamp
+      ## The range starts at this timestamp.
+      ## It is at most `MaxHistoryQueryRange` before the end.
+    endTime*: Opt[Timestamp]
+      ## The range ends before this timestamp.
+      ## It is at most `MaxMessageTimestampVariance` after the call.
+      ## None is that latest end, because a sender's clock can be up to that far ahead.
 
 proc new*(T: typedesc[RequestId], rng: crypto.Rng): T =
   ## Generate a new RequestId using the provided RNG.
@@ -61,6 +73,14 @@ proc init*(
       ephemeral: ephemeral,
       meta: meta,
     )
+
+func init*(
+    T: type HistoryQuery,
+    contentTopic: ContentTopic,
+    startTime: Timestamp,
+    endTime = Opt.none(Timestamp),
+): HistoryQuery =
+  HistoryQuery(contentTopic: contentTopic, startTime: startTime, endTime: endTime)
 
 proc toWakuMessage*(envelope: MessageEnvelope): WakuMessage =
   ## Convert a MessageEnvelope to a WakuMessage.

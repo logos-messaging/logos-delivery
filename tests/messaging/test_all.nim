@@ -2,6 +2,7 @@
 
 import
   ./test_recv_backfill,
+  ./test_history_query_service,
   ./test_rate_limit_manager,
   ./test_rln_proof_attach,
   ./test_delivery_task_reaping,

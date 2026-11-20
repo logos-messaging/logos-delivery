@@ -4,7 +4,7 @@ import results
 proc getProtoInt64*(node: JsonNode, key: string): Result[Opt[int64], string] =
   try:
     let (value, ok) =
-      if node.hasKey(key):
+      if node.hasKey(key) and node[key].kind != JNull:
         if node[key].kind == JString:
           (parseBiggestInt(node[key].getStr()), true)
         else:

@@ -71,6 +71,33 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
 
+  HistoryQueryMessageEvent.listen(
+    self.waku.brokerCtx,
+    proc(event: HistoryQueryMessageEvent) {.async: (raises: []).} =
+      emitEvent("onHistoryQueryMessage"):
+        $newJsonEvent("history_query_message", event),
+  ).isOkOr:
+    chronicles.error "HistoryQueryMessageEvent.listen failed", err = $error
+    return err("HistoryQueryMessageEvent.listen failed: " & $error)
+
+  HistoryQueryCompletedEvent.listen(
+    self.waku.brokerCtx,
+    proc(event: HistoryQueryCompletedEvent) {.async: (raises: []).} =
+      emitEvent("onHistoryQueryCompleted"):
+        $newJsonEvent("history_query_completed", event),
+  ).isOkOr:
+    chronicles.error "HistoryQueryCompletedEvent.listen failed", err = $error
+    return err("HistoryQueryCompletedEvent.listen failed: " & $error)
+
+  HistoryQueryErrorEvent.listen(
+    self.waku.brokerCtx,
+    proc(event: HistoryQueryErrorEvent) {.async: (raises: []).} =
+      emitEvent("onHistoryQueryError"):
+        $newJsonEvent("history_query_error", event),
+  ).isOkOr:
+    chronicles.error "HistoryQueryErrorEvent.listen failed", err = $error
+    return err("HistoryQueryErrorEvent.listen failed: " & $error)
+
   EventConnectionStatusChange.listen(
     self.waku.brokerCtx,
     proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
@@ -171,6 +198,9 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await MessageQueuedEvent.dropAllListeners(self.waku.brokerCtx)
   await MessagePropagatedEvent.dropAllListeners(self.waku.brokerCtx)
   await MessageReceivedEvent.dropAllListeners(self.waku.brokerCtx)
+  await HistoryQueryMessageEvent.dropAllListeners(self.waku.brokerCtx)
+  await HistoryQueryCompletedEvent.dropAllListeners(self.waku.brokerCtx)
+  await HistoryQueryErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await EventConnectionStatusChange.dropAllListeners(self.waku.brokerCtx)
   await EventShardTopicHealthChange.dropAllListeners(self.waku.brokerCtx)
   await WakuPeerEvent.dropAllListeners(self.waku.brokerCtx)

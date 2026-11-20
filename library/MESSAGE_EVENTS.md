@@ -2,7 +2,7 @@
 
 ## Overview
 
-The liblogosdelivery library emits four types of message delivery events and one message receipt event that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageQueued`, `onMessageSent`, `onMessagePropagated`, `onMessageError` and `onMessageReceived` (the JSON `eventType` inside each payload is `message_queued` / `message_sent` / `message_propagated` / `message_error` / `message_received`).
+The liblogosdelivery library emits four types of message delivery events, one message receipt event and three history query events that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageQueued`, `onMessageSent`, `onMessagePropagated`, `onMessageError`, `onMessageReceived`, `onHistoryQueryMessage`, `onHistoryQueryCompleted` and `onHistoryQueryError` (the JSON `eventType` inside each payload is `message_queued` / `message_sent` / `message_propagated` / `message_error` / `message_received` / `history_query_message` / `history_query_completed` / `history_query_error`).
 
 ## Event Types
 
@@ -105,6 +105,69 @@ Emitted once for every message accepted on a subscribed content topic, whether i
 
 Duplicate suppression is best effort. The node remembers the hashes it has delivered for a few minutes, in memory only, so a live message that a Store check returns within that window is not reported again. After a restart, or when a Store recovery returns a message later than that, the same message can be reported a second time as `history`. Consumers that need exactly-once delivery should deduplicate by `messageHash`.
 
+### 6. history_query_message
+Emitted once for each message that a history query finds. A history query starts with `logosdelivery_ctx_query_history`, and its content topic doesn't need a subscription. The messages can come out of timestamp order.
+
+**JSON Structure:**
+```json
+{
+  "eventType": "history_query_message",
+  "requestId": "unique-request-id",
+  "messageHash": "0x...",
+  "message": {
+    "payload": "base64...",
+    "contentTopic": "/myapp/1/chat/proto",
+    "version": 0,
+    "timestamp": 1700000000000000000,
+    "ephemeral": false,
+    "meta": "",
+    "proof": ""
+  }
+}
+```
+
+**Fields:**
+- `eventType`: Always "history_query_message"
+- `requestId`: Request ID from `logosdelivery_ctx_query_history`
+- `messageHash`: Hash of the message
+- `message`: The message, with `payload`, `meta` and `proof` base64-encoded
+
+The node doesn't check these messages against the `message_received` events, so the same message can come in both events, and in two queries. Use `messageHash` to find a message that you already have.
+
+### 7. history_query_completed
+Emitted when a history query completes, after its last `history_query_message` event.
+
+**JSON Structure:**
+```json
+{
+  "eventType": "history_query_completed",
+  "requestId": "unique-request-id",
+  "messageCount": 3
+}
+```
+
+**Fields:**
+- `eventType`: Always "history_query_completed"
+- `requestId`: Request ID from `logosdelivery_ctx_query_history`
+- `messageCount`: The number of messages that the query found
+
+### 8. history_query_error
+Emitted when a history query fails, for example when no Store node gives a page after the last try. It is the last event of the query.
+
+**JSON Structure:**
+```json
+{
+  "eventType": "history_query_error",
+  "requestId": "unique-request-id",
+  "error": "error description"
+}
+```
+
+**Fields:**
+- `eventType`: Always "history_query_error"
+- `requestId`: Request ID from `logosdelivery_ctx_query_history`
+- `error`: Description of what went wrong
+
 ## Usage
 
 ### 1. Define an Event Callback
@@ -129,6 +192,12 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         // Handle message error
     } else if (eventType == "message_received") {
         // Handle message received; check "source" for "live" or "history"
+    } else if (eventType == "history_query_message") {
+        // Handle a message that a history query found
+    } else if (eventType == "history_query_completed") {
+        // Handle the end of a history query
+    } else if (eventType == "history_query_error") {
+        // Handle a history query that stopped with an error
     }
 }
 ```
@@ -149,6 +218,9 @@ logosdelivery_add_event_listener(rawCtx, "onMessageSent", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessagePropagated", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessageError", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessageReceived", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onHistoryQueryMessage", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onHistoryQueryCompleted", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onHistoryQueryError", event_callback, NULL);
 ```
 
 ### 3. Start the Node
@@ -178,7 +250,23 @@ For a send that no store node confirms (only with the `reliability` option on):
 2. **message_propagated** → Message delivered to peers
 3. **message_error** → No store node confirmed the message within the validation window
 
-The `on_reply` callback of `logosdelivery_ctx_send` gets the request ID before the event thread gets an event of that request. When the send queue is full, `logosdelivery_ctx_send` returns an error and no request ID. A send of a message that the send queue already has gets the request ID of the queued send.
+For a history query:
+
+1. **query_history** → Returns request ID
+2. **history_query_message** → Once for each message that the query finds
+3. **history_query_completed** → The query completed
+
+For a failed history query:
+
+1. **query_history** → Returns request ID
+2. **history_query_message** → Once for each message that the query found before the error
+3. **history_query_error** → The query stopped with an error
+
+At this time, the node gets the history from Store nodes. Each page comes from one Store node, so a page can miss a message that only another Store node has. A Store node can get a message late, so when the range of a query ends after the call or a short time before it, the node gets the last part of the range again later. Such a query completes some time after the call, and later when many queries are active.
+
+A stop of the node cancels its queries, and they emit no more events. The next start doesn't run them again.
+
+The `on_reply` callback of `logosdelivery_ctx_send` or of `logosdelivery_ctx_query_history` gets the request ID before the event thread gets an event of that request. When the send queue is full, `logosdelivery_ctx_send` returns an error and no request ID. A send of a message that the send queue already has gets the request ID of the queued send.
 
 ## Important Notes
 
@@ -194,6 +282,8 @@ The `on_reply` callback of `logosdelivery_ctx_send` gets the request ID before t
 4. **Memory Management**: The message buffer is owned by the library. Copy any data you need to retain.
 
 5. **Event Order**: Events are delivered in the order they occur, but timing depends on network conditions.
+
+6. **Event Queue**: The library keeps a limited number of events for the callback in a queue. When the queue is full, the library drops every new event of any type, also a `message_received` event and the last event of a history query. After the first dropped event, the library rejects every new request, also `logosdelivery_ctx_stop_node`. Only `logosdelivery_ctx_destroy` can still stop the node, so destroy the context and create a new one. A history query can give many events in a short time, so copy each event in the callback and return at once.
 
 ## Example Implementation
 
