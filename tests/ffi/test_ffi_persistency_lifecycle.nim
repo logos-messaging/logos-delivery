@@ -207,12 +207,10 @@ proc nodeConfig(storagePath: string, tcpPort, discv5Port: int): string =
     %*{
       "mode": "Core",
       "preset": "logos.dev",
-      "messagingOverrides": {
-        "log-level": "INFO",
-        "local-storage-path": storagePath,
-        "tcp-port": $tcpPort,
-        "discv5-udp-port": $discv5Port,
-      },
+      "log-level": "INFO",
+      "local-storage-path": storagePath,
+      "tcp-port": $tcpPort,
+      "discv5-udp-port": $discv5Port,
     }
   )
 

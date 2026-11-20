@@ -475,14 +475,10 @@ suite "Receive backfill":
     ]:
       check BackfillState.init(bad).isErr()
     let parsed = parseLogosDeliveryConf(
-      """{"messagingOverrides": {"backfill-enabled": false,
-           "backfillRequestTimeoutSeconds": 7}}"""
+      """{"backfill-enabled": false, "backfillRequestTimeoutSeconds": 7}"""
     ).valueOr:
       raiseAssert error
     let messagingConf = parsed.messagingConf.get()
     check messagingConf.backfillEnabled == Opt.some(false)
     check messagingConf.backfillRequestTimeoutSeconds == Opt.some(7'i64)
-    check parseLogosDeliveryConf(
-      """{"messagingOverrides": {"backfillRequestTimeoutSeconds": "many"}}"""
-    )
-      .isErr()
+    check parseLogosDeliveryConf("""{"backfillRequestTimeoutSeconds": "many"}""").isErr()

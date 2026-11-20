@@ -380,13 +380,11 @@ int main(int argc, char **argv)
   snprintf(jsonConfig, 5000, "{ \
                                     \"mode\": \"Core\", \
                                     \"preset\": \"status.prod\", \
-                                    \"messagingOverrides\": { \
-                                        \"listen-address\": \"%s\",    \
-                                        \"tcp-port\": %d,        \
-                                        \"store\": %s,       \
-                                        \"log-level\": \"DEBUG\", \
-                                        \"discv5-udp-port\": %d \
-                                    } \
+                                    \"listen-address\": \"%s\",    \
+                                    \"tcp-port\": %d,        \
+                                    \"store\": %s,       \
+                                    \"log-level\": \"DEBUG\", \
+                                    \"discv5-udp-port\": %d \
                                 }",
            cfgNode.host,
            cfgNode.port,

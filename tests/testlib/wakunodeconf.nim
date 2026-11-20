@@ -5,7 +5,7 @@
 
 import std/net, results
 import
-  logos_delivery/api/conf/messaging_conf,
+  logos_delivery/api/conf/logos_delivery_conf,
   logos_delivery/waku/persistency/persistency,
   tools/confutils/cli_args
 
@@ -16,8 +16,10 @@ const TestClusterId* = 3'u16
 proc defaultTestWakuNodeConf*(
     mode = LogosDeliveryMode.Core, numShards: uint16 = 1, rest = false
 ): WakuNodeConf =
-  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
-      raiseAssert error
+  var conf = libraryKernelConf().valueOr:
+    raiseAssert error
+  applyMode(conf, mode)
+  applyModeFlags(conf, DefaultKernelModeFlags)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

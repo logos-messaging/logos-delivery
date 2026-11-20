@@ -216,14 +216,11 @@ static int create_channel(const LogosDeliveryCtx *ctx, const char *channel_id,
 int main() {
     printf("=== Logos Messaging API (LMAPI) Example ===\n\n");
 
-    // Layered messaging config: {mode, preset, messagingOverrides, channelsOverrides}.
-    // Override keys are MessagingClientConf field or CLI switch names.
+    // One flat config: the keys are config field or CLI switch names.
     const char *config = "{"
         "\"mode\": \"Core\","
         "\"preset\": \"logos.dev\","
-        "\"messagingOverrides\": {"
-            "\"log-level\": \"INFO\""
-        "}"
+        "\"log-level\": \"INFO\""
     "}";
 
     printf("1. Creating node...\n");
