@@ -42,6 +42,7 @@ const settleDelay = 200.milliseconds
 const
   HashA = "0x" & repeat('a', 64)
   HashB = "0x" & repeat('b', 64)
+  HashC = "0x" & repeat('c', 64)
 
 proc startBystander(): Future[WakuNode] {.async.} =
   ## A started peer with no relay, lightpush, filter or store, so it cannot carry
@@ -186,6 +187,7 @@ suite "Messaging REST API":
         messageHash: HashB, kind: MessageErrorKind.NotStored, error: "boom"
       ),
     )
+    MessagePropagatedEvent.emit(brokerCtx, MessagePropagatedEvent(messageHash: HashC))
     await sleepAsync(settleDelay)
 
     # GET by hash returns only HashA and removes it; the hash matches in any case.
@@ -203,10 +205,18 @@ suite "Messaging REST API":
     let missingResp = await client.messagingGetSendEventsByHashRawV1(HashA)
     check missingResp.status == 404
 
-    # A hash that is not 0x + 64 hex digits → 400.
+    # A text that is not a hex hash of 32 bytes → 400.
     for badHash in ["0x1234", "0x" & repeat('z', 64), repeat('a', 66)]:
       let badResp = await client.messagingGetSendEventsByHashRawV1(badHash)
-      check badResp.status == 400
+      check:
+        badResp.status == 400
+        badResp.data.startsWith("messageHash is not a hex hash of 32 bytes: ")
+
+    # A hash with no `0x` is a hash too, so it gets the events of `HashC`.
+    let noPrefixResp = await client.messagingGetSendEventsByHashV1(HashC[2 ..^ 1])
+    check:
+      noPrefixResp.status == 200
+      noPrefixResp.data.messageHash == HashC
 
     # GET all now returns only HashB (with its error), then clears.
     let allResp = await client.messagingGetSendEventsV1()

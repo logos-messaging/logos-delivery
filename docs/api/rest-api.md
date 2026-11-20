@@ -64,7 +64,7 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `DELETE /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"messageHash":"0x..."}` |
 | `GET /messaging/v1/events/send` | | every buffered send status, then cleared |
-| `GET /messaging/v1/events/send/{messageHash}` | | the send status of one message, then cleared; `404` while nothing is buffered for it, `400` for a text that is not a `0x` hex hash |
+| `GET /messaging/v1/events/send/{messageHash}` | | the send status of one message, then cleared; `404` while nothing is buffered for it, `400` for a text that is not a hex hash of 32 bytes, with or without `0x` |
 | `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
 A send is asynchronous. `200` means that the node accepted the message and gives its message hash, which is final. The result arrives as send events grouped by that `messageHash`:

@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[algorithm, sets, strutils],
+  std/[algorithm, sets],
   chronos,
   chronicles,
   results,
@@ -62,15 +62,6 @@ proc refusedSendResponse(error: SendError): RestApiResponse =
     return RestApiResponse.error(
       Http429, text, $MIMETYPE_TEXT, [("Retry-After", $retryAfterSec)]
     )
-
-func isHexMessageHash(text: string): bool =
-  ## True for a `0x`-prefixed hex message hash, the form of the send events.
-  if text.len != 66 or not text.startsWith("0x"):
-    return false
-  for c in text[2 ..^ 1]:
-    if c notin {'0' .. '9', 'a' .. 'f', 'A' .. 'F'}:
-      return false
-  return true
 
 proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string] =
   ## Rejects a content topic that autosharding cannot resolve.
@@ -213,11 +204,11 @@ proc installMessagingApiHandlers*(
     ## Returns the buffered send events for one message hash, then removes them.
     let hash = messageHash.valueOr:
       return RestApiResponse.badRequest("Invalid messageHash")
-    if not hash.isHexMessageHash():
-      return RestApiResponse.badRequest("messageHash is not a 0x hex hash: " & hash)
+    let digest = hexToHash(hash).valueOr:
+      return
+        RestApiResponse.badRequest("messageHash is not a hex hash of 32 bytes: " & hash)
 
-    # The events carry the hash in lowercase hex.
-    let status = eventCache.pollSend(hash.toLowerAscii()).valueOr:
+    let status = eventCache.pollSend(digest.to0xHex()).valueOr:
       return RestApiResponse.notFound("No send events for messageHash: " & hash)
 
     return RestApiResponse.jsonResponse(status, status = Http200).valueOr:
