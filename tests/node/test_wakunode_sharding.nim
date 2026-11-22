@@ -1233,7 +1233,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
       assertResultOk(await clientHandler1.waitForResult(FUTURE_TIMEOUT))
-      check (await serverHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
+      assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
       check (
         await allFinished(
           [clientHandler2, serverHandler2].mapIt(it.waitForResult(FUTURE_TIMEOUT))
@@ -1253,7 +1253,7 @@ suite "Sharding":
 
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
       assertResultOk(await clientHandler2.waitForResult(FUTURE_TIMEOUT))
-      check (await serverHandler2.waitForResult(FUTURE_TIMEOUT)).isErr()
+      assertResultOk(await serverHandler2.waitForResult(FUTURE_TIMEOUT))
       check (
         await allFinished(
           [clientHandler1, serverHandler1].mapIt(it.waitForResult(FUTURE_TIMEOUT))
