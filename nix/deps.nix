@@ -80,20 +80,6 @@
     fetchSubmodules = true;
   };
 
-  bearssl_pkey_decoder = pkgs.fetchgit {
-    url = "https://github.com/vacp2p/bearssl_pkey_decoder";
-    rev = "d34aa46bf9d0a3ffff810fbd3c4d2fa024eb9368";
-    sha256 = "0200f7lf3x2hypwr2v9gms6qv7wj8m1phwd25025bfa1w9f2nkbg";
-    fetchSubmodules = true;
-  };
-
-  jwt = pkgs.fetchgit {
-    url = "https://github.com/vacp2p/nim-jwt.git";
-    rev = "057ec95eb5af0eea9c49bfe9025b3312c95dc5f2";
-    sha256 = "1hnxsl5762fdn80hl4xxfdqrcgmxrrfck66js1iqaqfxc4m0fv63";
-    fetchSubmodules = true;
-  };
-
   stew = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-stew";
     rev = "6a930214323f48d879015a1d2d68db6ace3446fb";

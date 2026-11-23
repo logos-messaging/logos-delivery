@@ -149,33 +149,6 @@
         "sha1": "e3a004381e8c2ec0d37bebc2e48b42c34353e9cf"
       }
     },
-    "bearssl_pkey_decoder": {
-      "version": "#d34aa46bf9d0a3ffff810fbd3c4d2fa024eb9368",
-      "vcsRevision": "d34aa46bf9d0a3ffff810fbd3c4d2fa024eb9368",
-      "url": "https://github.com/vacp2p/bearssl_pkey_decoder",
-      "downloadMethod": "git",
-      "dependencies": [
-        "nim",
-        "bearssl"
-      ],
-      "checksums": {
-        "sha1": "8666edbcb77cb9f97c659114d57c4ba0e7ab74c3"
-      }
-    },
-    "jwt": {
-      "version": "#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2",
-      "vcsRevision": "057ec95eb5af0eea9c49bfe9025b3312c95dc5f2",
-      "url": "https://github.com/vacp2p/nim-jwt.git",
-      "downloadMethod": "git",
-      "dependencies": [
-        "nim",
-        "bearssl",
-        "bearssl_pkey_decoder"
-      ],
-      "checksums": {
-        "sha1": "3cd368666fd2bc7f99f253452289e827abcac13c"
-      }
-    },
     "stew": {
       "version": "0.6.3",
       "vcsRevision": "6a930214323f48d879015a1d2d68db6ace3446fb",
@@ -408,7 +381,7 @@
       }
     },
     "lsquic": {
-      "version": "#f09db7565f79327c76faff547b1a33bfaf68d047",
+      "version": "0.11.3",
       "vcsRevision": "f09db7565f79327c76faff547b1a33bfaf68d047",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
