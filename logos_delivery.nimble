@@ -90,9 +90,6 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 
 requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae241cf6b478d"
 
-# v0.11.3: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.11.3
-requires "lsquic == 0.11.3"
-
 # Pin the Mix and shared RLN adapter integration revisions.
 # The plugin pin is the head of an unmerged libp2p 2.5 pull request
 # (mix-rln-spam-protection-plugin#33). Move it to the merge commit.
