@@ -46,6 +46,7 @@ type
       ## `true` when the last hop derivation found no address the encoder accepts.
       ## The hop that mix still holds is then a leftover, unusable even if it
       ## encodes.
+    hopAddressPolicy: PeerAddressPolicy
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -124,6 +125,45 @@ proc updatePoolSize*(size: int) =
   ## change when no peer-store handler fires, as when an `AddressBook` entry's
   ## TTL runs out.
   mix_pool_size.set(size)
+
+proc selectHopAddress(
+    mix: WakuMix, node: MixPubInfo, addrs: seq[MultiAddress]
+): Opt[MultiAddress] =
+  ## The address of `node` that a path can use, from `addrs` or its last dialed one.
+  ## The check has its own peer store, because `nodePool.add` writes to the store.
+  let store = PeerStore.new(nil)
+  store[AddressBook][node.peerId] = addrs
+  store[LastSeenOutboundBook][node.peerId] =
+    mix.switch.peerStore[LastSeenOutboundBook][node.peerId]
+  let pool = MixNodePool.new(store, mix.hopAddressPolicy)
+  pool.add(node)
+  let hop = pool.get(node.peerId).valueOr:
+    return Opt.none(MultiAddress)
+  return Opt.some(hop.multiAddr)
+
+proc addPeer*(mix: WakuMix, node: MixPubInfo): Result[void, string] =
+  ## Adds a mix node to the pool and to the peer manager.
+  ## Stores nothing when no path can use the node.
+  var addrs = @[node.multiAddr]
+  if mix.selectHopAddress(node, addrs).isNone():
+    # A path can still use a stored address, so the write keeps it.
+    let stored = mix.switch.peerStore[AddressBook][node.peerId]
+    let usable = mix.selectHopAddress(node, stored).valueOr:
+      return err(
+        "Mix has no usable address for this peer. A private, a loopback or a circuit relay address needs mix-allow-all-addresses"
+      )
+    addrs.add(usable)
+
+  mix.nodePool.add(node)
+  mix.peerManager.addPeer(
+    RemotePeerInfo.init(
+      node.peerId,
+      addrs,
+      publicKey = crypto.PublicKey(scheme: PKScheme.Secp256k1, skkey: node.libp2pPubKey),
+      mixPubKey = Opt.some(node.mixPubKey),
+    )
+  )
+  return ok()
 
 proc processBootNodes(
     bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
@@ -209,7 +249,14 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
-  var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
+  let hopAddressPolicy =
+    if allowAllAddresses: defaultAddressPolicy else: DirectPublicHopAddressPolicy
+  var m = WakuMix(
+    peerManager: peermgr,
+    clusterId: clusterId,
+    pubKey: mixPubKey,
+    hopAddressPolicy: hopAddressPolicy,
+  )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
@@ -222,8 +269,7 @@ proc new*(
           ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
         )
     ),
-    hopAddressPolicy =
-      if allowAllAddresses: defaultAddressPolicy else: DirectPublicHopAddressPolicy,
+    hopAddressPolicy = hopAddressPolicy,
   )
 
   processBootNodes(bootnodes, peermgr, m)

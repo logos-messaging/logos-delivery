@@ -13,3 +13,6 @@ import ./messaging/test_all
 
 # Reliable Channel API tests
 import ./channels/test_all
+
+# Library API tests
+import ./ffi/test_mix_api
