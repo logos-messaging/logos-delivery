@@ -37,6 +37,19 @@ import
   ./testlib/wakucore,
   ./testlib/wakunode
 
+proc dialConfirmed(
+    pm: PeerManager, peer: RemotePeerInfo, codec: string
+): Future[bool] {.async.} =
+  ## Dials `codec` and reads once from the stream. libp2p returns a dialed
+  ## stream before the peer acknowledges the protocol, and the stream carries
+  ## its protocol only after the first read takes that acknowledgement.
+  let conn = (await pm.dialPeer(peer, codec)).valueOr:
+    return false
+  var buf: array[1, byte]
+  discard
+    await conn.readOnce(addr buf[0], buf.len).withTimeout(chronos.milliseconds(200))
+  return true
+
 proc syncToBoundPort(node: WakuNode, key: keys.PrivateKey) =
   let addrs = node.switch.peerInfo.listenAddrs
   node.switch.peerInfo.addrs = addrs
@@ -398,7 +411,7 @@ procSuite "Peer Manager":
     # Check connection
     check:
       conn.isSome()
-      conn.get.activity
+      not conn.get.closed()
       conn.get.peerId == nodes[1].peerInfo.peerId
 
     # Check that node2 is being managed in node1
@@ -1351,14 +1364,11 @@ procSuite "Peer Manager":
       (await nodes[0].peerManager.connectPeer(pInfos[2])) == true
       (await nodes[1].peerManager.connectPeer(pInfos[2])) == true
 
-      (await nodes[0].peerManager.dialPeer(pInfos[1], WakuFilterSubscribeCodec)).isSome() ==
-        true
-      (await nodes[0].peerManager.dialPeer(pInfos[2], WakuFilterSubscribeCodec)).isSome() ==
-        true
+      (await nodes[0].peerManager.dialConfirmed(pInfos[1], WakuFilterSubscribeCodec))
+      (await nodes[0].peerManager.dialConfirmed(pInfos[2], WakuFilterSubscribeCodec))
 
       # isolated dial creates a relay conn under the hood (libp2p behaviour)
-      (await nodes[2].peerManager.dialPeer(pInfos[3], WakuFilterSubscribeCodec)).isSome() ==
-        true
+      (await nodes[2].peerManager.dialConfirmed(pInfos[3], WakuFilterSubscribeCodec))
 
     # assert physical connections
     check:
@@ -1400,14 +1410,10 @@ procSuite "Peer Manager":
     require:
       # multiple streams are multiplexed over a single connection.
       # note that a relay connection is created under the hood when dialing a peer (libp2p behaviour)
-      (await nodes[0].peerManager.dialPeer(pInfos[1], WakuFilterSubscribeCodec)).isSome() ==
-        true
-      (await nodes[0].peerManager.dialPeer(pInfos[1], WakuFilterSubscribeCodec)).isSome() ==
-        true
-      (await nodes[0].peerManager.dialPeer(pInfos[1], WakuFilterSubscribeCodec)).isSome() ==
-        true
-      (await nodes[0].peerManager.dialPeer(pInfos[1], WakuFilterSubscribeCodec)).isSome() ==
-        true
+      (await nodes[0].peerManager.dialConfirmed(pInfos[1], WakuFilterSubscribeCodec))
+      (await nodes[0].peerManager.dialConfirmed(pInfos[1], WakuFilterSubscribeCodec))
+      (await nodes[0].peerManager.dialConfirmed(pInfos[1], WakuFilterSubscribeCodec))
+      (await nodes[0].peerManager.dialConfirmed(pInfos[1], WakuFilterSubscribeCodec))
 
     check:
       nodes[0].peerManager.getNumStreams(WakuRelayCodec) == (1, 1)
