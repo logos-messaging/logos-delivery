@@ -100,9 +100,9 @@ requires "https://github.com/vacp2p/nim-lsquic#f09db7565f79327c76faff547b1a33bfa
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 # Pin the Mix and shared RLN adapter integration revisions.
-# Both are heads of unmerged libp2p 2.5 pull requests (nim-libp2p-mix#95 and
-# mix-rln-spam-protection-plugin#33). Move them to the merge commits.
-requires "https://github.com/logos-co/nim-libp2p-mix#03cb2642352dc920c07c2029f79d35736c34064f"
+# The plugin pin is the head of an unmerged libp2p 2.5 pull request
+# (mix-rln-spam-protection-plugin#33). Move it to the merge commit.
+requires "https://github.com/logos-co/nim-libp2p-mix#ed6a72a990143cfc6b667223c7d0c38e408b348e"
 requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#0fe51d4b5475d618471c87b2c9d0f8de9606570a"
 
 proc getMyCPU(): string =
