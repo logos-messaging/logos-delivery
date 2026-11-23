@@ -29,6 +29,9 @@ const MinMixPoolSize* = 4
   ## The smallest pool that mix can build a path from. `PathLength` is 3, and
   ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
 
+const MixAllowAllAddressesHint* =
+  "A private, a loopback or a circuit relay address needs --mix-allow-all-addresses"
+
 const DirectPublicHopAddressPolicy = proc(
     maddr: MultiAddress
 ): bool {.gcsafe, raises: [].} =
@@ -149,9 +152,7 @@ proc addPeer*(mix: WakuMix, node: MixPubInfo): Result[void, string] =
     # A path can still use a stored address, so the write keeps it.
     let stored = mix.switch.peerStore[AddressBook][node.peerId]
     let usable = mix.selectHopAddress(node, stored).valueOr:
-      return err(
-        "Mix has no usable address for this peer. A private, a loopback or a circuit relay address needs mix-allow-all-addresses"
-      )
+      return err("Mix has no usable address for this peer. " & MixAllowAllAddressesHint)
     addrs.add(usable)
 
   mix.nodePool.add(node)
@@ -214,9 +215,8 @@ proc processBootNodes(
   let unroutable =
     added.filterIt(mix.nodePool.get(it.peerId).isNone()).mapIt(it.multiAddr)
   if unroutable.len > 0:
-    warn "Mix paths do not use configured mix nodes that have no usable " &
-      "address. A private, a loopback or a circuit relay address needs " &
-      "--mix-allow-all-addresses",
+    warn "Mix paths do not use configured mix nodes that have no usable address. " &
+      MixAllowAllAddressesHint,
       unroutable = unroutable.len, examples = unroutable[0 ..< min(unroutable.len, 3)]
   # `count` is the accepted entries; the addresses of one peer make one member.
   let routable = mix.poolSize()

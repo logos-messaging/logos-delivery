@@ -93,7 +93,9 @@ type
 
     mixAllowAllAddresses* {.
       desc:
-        "Let mix paths use a mix node at a private, a loopback or a circuit relay address. Without it, mix uses a mix node only at a public address. Set it on a node of a local simulation, a test or a private network.",
+        "By default, mix uses a mix node only at a public address. " &
+        MixAllowAllAddressesHint &
+        ". Set it on a node of a local simulation, a test or a private network.",
       defaultValue: false,
       name: "mix-allow-all-addresses"
     .}: bool

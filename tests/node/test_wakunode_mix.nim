@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[sequtils, strutils]
+import std/[os, sequtils, strutils]
 import testutils/unittests, chronos, results, metrics
 import libp2p/[crypto/crypto, peerid, multiaddress]
 import libp2p/nameresolving/nameresolver
@@ -9,6 +9,7 @@ import libp2p_mix, libp2p_mix/[curve25519, mix_metrics]
 import
   logos_delivery/waku/[
     waku_core,
+    common/logging,
     common/waku_protocol,
     net/net_config,
     node/enr_addresses,
@@ -547,6 +548,23 @@ suite "Waku Mix - hop address policy":
       )
     )
 
+  proc logPath(): string =
+    getTempDir() / ("logos_delivery_test_mix_" & $getCurrentProcessId() & ".log")
+
+  proc logToFile() =
+    setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, logPath()).expect(
+      "log file"
+    )
+
+  proc logToStdout() =
+    setupLog(logging.LogLevel.INFO, logging.LogFormat.TEXT, StdoutLogOutput).expect(
+      "log to stdout"
+    )
+    removeFile(logPath())
+
+  proc hintLines(): seq[string] =
+    readFile(logPath()).splitLines().filterIt("--mix-allow-all-addresses" in it)
+
   asyncTest "by default the pool counts a discovered mix node only at a public address":
     let node = await mixNode()
 
@@ -576,6 +594,23 @@ suite "Waku Mix - hop address policy":
     node.discover(PrivateAddr)
     node.discover(LoopbackAddr)
     check node.getMixNodePoolSize() == 4
+
+  asyncTest "configured mix nodes with no usable address give one warning":
+    logToFile()
+    defer:
+      logToStdout()
+    discard await mixNode(
+      @[
+        mixBootnode(PublicAddr),
+        mixBootnode(relayedAddr()),
+        mixBootnode(PrivateAddr),
+        mixBootnode(LoopbackAddr),
+      ]
+    )
+    let lines = hintLines()
+    check:
+      lines.len == 1
+      lines.allIt(it.startsWith("WRN") and "unroutable=3" in it)
 
 suite "Waku Mix - bootstrap nodes":
   ## Presets pin `dns4` names. The mount seeds the pool with the literal entries
