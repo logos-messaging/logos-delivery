@@ -341,17 +341,22 @@ proc initRelayObservers(w: WakuRelay) =
         msgSize.int64, labelValues = [label, "net", "out"]
       )
 
+  proc recalculateMeshTopics(msgs: RPCMsg) =
+    ## A GRAFT or a PRUNE changes the mesh of its topic, whichever side sends it.
+    if msgs.control.isNone():
+      return
+    let ctrl = msgs.control.get()
+
+    for graft in ctrl.graft:
+      if graft.topicID.len > 0:
+        w.recalculateTopicHealth(graft.topicID)
+
+    for prune in ctrl.prune:
+      if prune.topicID.len > 0:
+        w.recalculateTopicHealth(prune.topicID)
+
   proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
-    if msgs.control.isSome():
-      let ctrl = msgs.control.get()
-
-      for graft in ctrl.graft:
-        if graft.topicID.len > 0:
-          w.recalculateTopicHealth(graft.topicID)
-
-      for prune in ctrl.prune:
-        if prune.topicID.len > 0:
-          w.recalculateTopicHealth(prune.topicID)
+    recalculateMeshTopics(msgs)
 
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
@@ -376,6 +381,8 @@ proc initRelayObservers(w: WakuRelay) =
     )
 
   proc onSend(peer: PubSubPeer, msgs: var RPCMsg) =
+    recalculateMeshTopics(msgs)
+
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
         debug "onSend: failed decoding RPC info",
