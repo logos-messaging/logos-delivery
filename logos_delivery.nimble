@@ -90,14 +90,8 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 
 requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae241cf6b478d"
 
-# v0.11.3: https://github.com/iftech/nim-lsquic/releases/tag/v0.11.3
-# libp2p requires "lsquic >= 0.11.3" by name. The exact numeric constraint
-# keeps the resolution at the validated release instead of floating to
-# the newest one.
-requires "https://github.com/vacp2p/nim-lsquic#f09db7565f79327c76faff547b1a33bfaf68d047"
-
-# No tag at pinning time; revision was one commit after v0.2.0.
-requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
+# v0.11.3: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.11.3
+requires "lsquic == 0.11.3"
 
 # Pin the Mix and shared RLN adapter integration revisions.
 # The plugin pin is the head of an unmerged libp2p 2.5 pull request
