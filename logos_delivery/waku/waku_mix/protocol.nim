@@ -169,7 +169,7 @@ proc processBootNodes(
     bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
 ) =
   var count = 0
-  var added: seq[(PeerId, string)]
+  var added: seq[tuple[peerId: PeerId, multiAddr: string]]
   for node in bootnodes:
     let pInfo = parsePeerInfo(node.multiAddr).valueOr:
       error "Failed to get peer id from multiaddress: ",
@@ -211,12 +211,13 @@ proc processBootNodes(
     )
   # One mix node can have many entries, and one usable address is enough. So
   # check each mix node only now, with all its addresses in the pool.
-  let unused = added.filterIt(mix.nodePool.get(it[0]).isNone()).mapIt(it[1])
-  if unused.len > 0:
+  let unroutable =
+    added.filterIt(mix.nodePool.get(it.peerId).isNone()).mapIt(it.multiAddr)
+  if unroutable.len > 0:
     warn "Mix paths do not use configured mix nodes that have no usable " &
       "address. A private, a loopback or a circuit relay address needs " &
       "--mix-allow-all-addresses",
-      unused = unused.len, examples = unused[0 ..< min(unused.len, 3)]
+      unroutable = unroutable.len, examples = unroutable[0 ..< min(unroutable.len, 3)]
   # `count` is the accepted entries; the addresses of one peer make one member.
   let routable = mix.poolSize()
   info "Using mix bootstrap nodes", entries = count, poolSize = routable
