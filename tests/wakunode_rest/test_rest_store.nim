@@ -1110,7 +1110,7 @@ procSuite "Waku Rest API - Store v3":
       response.status == 400
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("Failed parsing remote peer info")
-      response.data.statusDesc.contains("Error encoding `p2p/")
+      response.data.statusDesc.contains("Error encoding (p2p/")
 
   asyncTest "pageSize: over 100 returns 100, empty or 0 returns 20, negative returns 400, the largest uint64 returns 100":
     let t = await RestStoreTest.init(

@@ -313,7 +313,7 @@ suite "Waku Mix - end to end transport":
 
     check:
       mixnet.sender().announcedAddresses.allIt("/dns4/" in $it)
-      $mixnet.sender().wakuMix.localMixPubInfo().multiAddr ==
+      $mixnet.sender().wakuMix.localMixPubInfo().get().multiAddr ==
         "/ip4/127.0.0.1/tcp/" & $(23890 + NumCore)
 
     let shard = DefaultPubsubTopic

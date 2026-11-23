@@ -203,7 +203,7 @@ proc new*(
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
-    return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
+    return err("failed to parse mix node address: " & $nodeAddr & ", error: " & $error)
   let localMixNodeInfo = initMixNodeInfo(
     peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
@@ -246,7 +246,8 @@ proc selfHopUsable*(mix: WakuMix): bool =
   ## cover packet fails at build time on a hop that the encoder rejects.
   if mix.hopMissing:
     return false
-  let info = mix.localMixPubInfo()
+  let info = mix.localMixPubInfo().valueOr:
+    return false
   return mix_multiaddr.multiAddrToBytes(info.peerId, info.multiAddr).isOk()
 
 proc updateSelfHop*(
