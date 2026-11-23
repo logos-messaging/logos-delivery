@@ -220,7 +220,8 @@ proc selfHopUsable*(mix: WakuMix): bool =
   ## cover packet fails at build time on a hop that the encoder rejects.
   if mix.hopMissing:
     return false
-  let info = mix.localMixPubInfo()
+  let info = mix.localMixPubInfo().valueOr:
+    return false
   return mix_multiaddr.multiAddrToBytes(info.peerId, info.multiAddr).isOk()
 
 proc updateSelfHop*(
