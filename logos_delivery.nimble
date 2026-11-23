@@ -35,7 +35,7 @@ requires "nim >= 2.2.12",
   "protobuf_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p#25f728a9aa3b50732598794ff4f6f6dc8e233188",
+  "libp2p == 2.5.0",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -100,8 +100,10 @@ requires "https://github.com/vacp2p/nim-lsquic#f09db7565f79327c76faff547b1a33bfa
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 # Pin the Mix and shared RLN adapter integration revisions.
-requires "https://github.com/logos-co/nim-libp2p-mix#3f256aa03d2d36fea0b5206b41a6328da4f5c412"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#7b5c7cfafbffe4e47aeb46838633645afacdb73c"
+# Both are heads of unmerged libp2p 2.5 pull requests (nim-libp2p-mix#95 and
+# mix-rln-spam-protection-plugin#33). Move them to the merge commits.
+requires "https://github.com/logos-co/nim-libp2p-mix#03cb2642352dc920c07c2029f79d35736c34064f"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#0fe51d4b5475d618471c87b2c9d0f8de9606570a"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
