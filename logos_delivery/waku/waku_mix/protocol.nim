@@ -50,6 +50,8 @@ type
       ## The hop that mix still holds is then a leftover, unusable even if it
       ## encodes.
     hopAddressPolicy: PeerAddressPolicy
+    excludedLogged: bool
+      ## `true` once a log line reported the mix nodes that `countExcluded` counts.
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -122,12 +124,25 @@ proc poolSize*(mix: WakuMix): int =
       routable.inc()
   return routable
 
-proc updatePoolSize*(size: int) =
+proc countExcluded*(mix: WakuMix): int =
+  ## The number of mix nodes in the peer store that no path can use.
+  return mix.nodePool.peerIds().countIt(mix.nodePool.get(it).isNone())
+
+proc updatePoolSize*(mix: WakuMix, size: int) =
   ## Sets `mix_pool_size`; this is its only writer. The mount, `addBootNodes`
   ## and each health pass publish the count they just read: routability can
   ## change when no peer-store handler fires, as when an `AddressBook` entry's
   ## TTL runs out.
+  ## Also logs mix nodes that no path can use, one time for each mount.
   mix_pool_size.set(size)
+  if mix.excludedLogged:
+    return
+  let excluded = mix.countExcluded()
+  if excluded == 0:
+    return
+  mix.excludedLogged = true
+  info "Mix knows mix nodes that it cannot use. " & MixAllowAllAddressesHint,
+    excluded = excluded
 
 proc selectHopAddress(
     mix: WakuMix, node: MixPubInfo, addrs: seq[MultiAddress]
@@ -225,7 +240,7 @@ proc processBootNodes(
 proc addBootNodes*(mix: WakuMix, bootnodes: seq[MixNodePubInfo]) =
   ## Adds bootstrap nodes resolved after the mount, and publishes the pool size.
   processBootNodes(bootnodes, mix.peerManager, mix)
-  updatePoolSize(mix.poolSize())
+  mix.updatePoolSize(mix.poolSize())
 
 proc new*(
     T: typedesc[WakuMix],
@@ -276,7 +291,7 @@ proc new*(
   processBootNodes(bootnodes, peermgr, m)
 
   let usable = m.poolSize()
-  updatePoolSize(usable)
+  m.updatePoolSize(usable)
 
   if usable < MinMixPoolSize:
     info "Mix cannot publish yet, waiting for more mix nodes",

@@ -196,7 +196,7 @@ suite "SendService - mix size before admission":
       fits.firstAdmittedTime.isSome()
       fits.msg.proof.len == proofBytes
       mixLightpushSize(fits.pubsubTopic, fits.msg).size == mixLimit()
-      fits.errorDesc == MixUnavailableReason
+      fits.errorDesc == MixPoolTooSmallReason
       errors.len == 0
 
   asyncTest "Required rejects one byte above the proven limit without spending budget":
@@ -347,7 +347,7 @@ suite "SendService - anonymity level":
     check:
       plain.calls == 0 # `Required` never uses the plain path
       task.state == DeliveryState.FailedToDeliver
-      task.errorDesc == MixUnavailableReason
+      task.errorDesc == MixNotMountedReason
 
   asyncTest "a Required task that mix cannot attempt gives its admission back":
     ## The mix processor fails the task with no attempt, so the send service
@@ -402,7 +402,7 @@ suite "SendService - anonymity level":
     check:
       plain.calls == 0
       task.state == DeliveryState.FailedToDeliver
-      task.errorDesc == MixUnavailableReason
+      task.errorDesc == MixNotMountedReason
 
   asyncTest "a Preferred task takes the plain path at once when mix cannot deliver":
     ## No wait can mount mix, so the task goes to the plain path at once. The
@@ -514,12 +514,12 @@ suite "SendService - anonymity level with a mounted mix":
     await mix.process(task)
     check:
       task.state == DeliveryState.NextRoundRetry
-      task.errorDesc == MixUnavailableReason # written while it waits
+      task.errorDesc == MixPoolTooSmallReason # written while it waits
     task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     await mix.process(task)
     check:
       task.state == DeliveryState.FailedToDeliver
-      task.errorDesc == MixUnavailableReason
+      task.errorDesc == MixPoolTooSmallReason
 
     # One more routable member and the pool can build a path.
     addMixPeer(60103, lightpush = true)
@@ -563,7 +563,7 @@ suite "SendService - anonymity level with a mounted mix":
     check await mix.process(fits).withTimeout(FUTURE_TIMEOUT)
     check:
       fits.state == DeliveryState.NextRoundRetry
-      fits.errorDesc == MixUnavailableReason
+      fits.errorDesc == MixPoolTooSmallReason
 
     let early = sizedTask("too-large-short-pool", limit + 1)
     check await mix.process(early).withTimeout(FUTURE_TIMEOUT)
@@ -920,6 +920,40 @@ suite "SendService - anonymity level with a mounted mix":
     check task.tryCount == 1 # the pre-check let the attempt start
     await fut.cancelAndWait()
     check task.state != DeliveryState.FailedToDeliver
+
+suite "Reasons of an unusable mix":
+  asyncTest "a Required task tells why mix cannot send":
+    let waku = (await Waku.new(testConf())).expect("Waku.new")
+    defer:
+      discard await waku.stop()
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
+    )
+
+    proc sendError(id: string): Future[string] {.async.} =
+      let task = buildTask(id, ZeroDuration)
+      await mix.process(task)
+      return task.errorDesc
+
+    let notMounted = await sendError("not-mounted")
+    check "not mounted" in notMounted
+
+    let keys = generateKeyPair().expect("mix key pair")
+    (await waku.node.mountMix(3'u16, keys.privateKey, @[])).expect("mountMix")
+    let tooSmall = await sendError("pool-too-small")
+    check:
+      "fewer than" in tooSmall
+      "--mix-allow-all-addresses" notin tooSmall
+
+    waku.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        PeerId.init(generateSecp256k1Key()).tryGet(),
+        @[MultiAddress.init("/ip4/192.168.0.7/tcp/60104").tryGet()],
+        mixPubKey = Opt.some(keys.publicKey),
+      )
+    )
+    let excluded = await sendError("no-usable-address")
+    check "--mix-allow-all-addresses" in excluded
 
 suite "Mix send path - exit peer selection":
   ## With `exit_is_dest` the lightpush server is the last node of the sphinx

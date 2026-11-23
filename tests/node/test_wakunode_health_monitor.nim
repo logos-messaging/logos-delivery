@@ -1363,7 +1363,7 @@ suite "Health Monitor - mix readiness":
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
     const Sentinel = -1
-    updatePoolSize(Sentinel)
+    nodeA.wakuMix.updatePoolSize(Sentinel)
 
     # Each new mix key wakes the loop, which is the path under test.
     for i in 0 ..< MinMixPoolSize:

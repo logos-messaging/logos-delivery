@@ -370,7 +370,7 @@ suite "Waku Mix - pool size":
     discard addMixPeer("/dns4/node.test/tcp/60003")
     discard addMixPeer("/ip6/::1/tcp/60004")
 
-    updatePoolSize(node.getMixNodePoolSize())
+    node.wakuMix.updatePoolSize(node.getMixNodePoolSize())
     check:
       node.getMixNodePoolSize() == 2
       mix_pool_size.value() == 2.0
@@ -384,7 +384,7 @@ suite "Waku Mix - pool size":
     check node.getMixNodePoolSize() == 3
 
     discard addMixPeer("/ip4/127.0.0.1/tcp/60013")
-    updatePoolSize(node.getMixNodePoolSize())
+    node.wakuMix.updatePoolSize(node.getMixNodePoolSize())
     check:
       node.getMixNodePoolSize() == 4
       mix_pool_size.value() == 4.0
@@ -595,7 +595,7 @@ suite "Waku Mix - hop address policy":
     node.discover(LoopbackAddr)
     check node.getMixNodePoolSize() == 4
 
-  asyncTest "configured mix nodes with no usable address give one warning":
+  asyncTest "configured mix nodes with no usable address give one warning and one log line":
     logToFile()
     defer:
       logToStdout()
@@ -609,8 +609,28 @@ suite "Waku Mix - hop address policy":
     )
     let lines = hintLines()
     check:
+      lines.countIt(it.startsWith("WRN") and "unroutable=3" in it) == 1
+      lines.countIt(it.startsWith("INF") and "excluded=3" in it) == 1
+      lines.len == 2
+
+  asyncTest "discovered mix nodes with no usable address give one log line":
+    logToFile()
+    defer:
+      logToStdout()
+    let node = await mixNode()
+
+    node.discover(PublicAddr)
+    node.wakuMix.updatePoolSize(node.getMixNodePoolSize())
+    check hintLines().len == 0
+
+    node.discover(PrivateAddr)
+    node.discover("/ip6/::1/tcp/60505")
+    node.wakuMix.updatePoolSize(node.getMixNodePoolSize())
+    node.wakuMix.updatePoolSize(node.getMixNodePoolSize())
+    let lines = hintLines()
+    check:
       lines.len == 1
-      lines.allIt(it.startsWith("WRN") and "unroutable=3" in it)
+      lines.allIt(it.startsWith("INF") and "excluded=2" in it)
 
 suite "Waku Mix - bootstrap nodes":
   ## Presets pin `dns4` names. The mount seeds the pool with the literal entries
