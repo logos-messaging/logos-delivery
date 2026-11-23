@@ -36,7 +36,7 @@ protobufCodec(WakuPeerRecord, validateDecoded)
 
 proc checkWakuPeerRecord*(
     _: WakuPeerRecord, spr: seq[byte], peerId: PeerId
-): Result[void, string] {.gcsafe.} =
+): LPResult[void] {.gcsafe.} =
   if spr.len == 0:
     return err("Empty peer record")
   let signedEnv = ?SignedPayload[WakuPeerRecord].decode(spr).mapErr(x => $x)

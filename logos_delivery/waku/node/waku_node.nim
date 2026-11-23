@@ -21,7 +21,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
@@ -284,7 +283,7 @@ proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
     if ma in node.explicitAnnounced or ma notin base:
       addrs.add(ma)
       continue
-    node.onLearnedHost(ma).withValue(moved):
+    node.onLearnedHost(ma).ifValue(moved):
       if moved notin addrs:
         addrs.add(moved)
   return addrs
@@ -309,7 +308,14 @@ proc updateMixSelfHop(node: WakuNode) =
   ## endpoint, a relay route known from outside, then the announced set.
   if node.wakuMix.isNil():
     return
-  let before = node.wakuMix.localMixPubInfo().multiAddr
+  # The hop from before only feeds the log below. Mix has no record to read
+  # while it has no mix key, and the hop must still be set then.
+  let beforeInfo = node.wakuMix.localMixPubInfo()
+  let before =
+    if beforeInfo.isOk():
+      Opt.some(beforeInfo.get().multiAddr)
+    else:
+      Opt.none(MultiAddress)
   let wasMissing = node.wakuMix.selfHopMissing()
   let outside = node.enrAddresses()
   var preferred = outside.filterIt(not it.isCircuitRelayMA())
@@ -331,8 +337,13 @@ proc updateMixSelfHop(node: WakuNode) =
         "Announce an IPv4 TCP or QUIC-v1 address that peers can reach",
         announced = $node.announcedAddresses
     return
-  if chosen.get() != before or wasMissing:
-    info "Mix self hop set", hop = $chosen.get(), before = $before
+  if chosen != before or wasMissing:
+    let beforeText =
+      if before.isSome():
+        $before.get()
+      else:
+        "unknown"
+    info "Mix self hop set", hop = $chosen.get(), before = beforeText
 
 proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
   ## A dns4 name can answer differently at start, so the scalars follow that

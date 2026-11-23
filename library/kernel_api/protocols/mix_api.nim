@@ -12,7 +12,8 @@ proc waku_mix_get_peer_record(
   let mix = self.waku.node.wakuMix
   if mix.isNil():
     return err("Mix is not enabled")
-  let info = mix.localMixPubInfo()
+  let info = mix.localMixPubInfo().valueOr:
+    return err("Mix peer record is not available: " & error)
   return ok(
     $(
       %*{

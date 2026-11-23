@@ -8,7 +8,8 @@ import
   chronos,
   # chronos/timer,
   times,
-  libp2p/[peerstore, crypto/crypto, multiaddress]
+  libp2p/[peerstore, crypto/crypto, multiaddress],
+  libp2p/protocols/identify
 
 from times import getTime, toUnix
 
@@ -396,7 +397,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[ProtoVersionBook][serverPeerId], # FIXME: Not assigned
             serverRemotePeerInfo.protoVersion,
-            "ipfs/0.1.0",
+            identify.ProtoVersion,
           )
           clientPeerStore[KeyBook][serverPeerId] == serverRemotePeerInfo.publicKey
           chainedComparison(
@@ -462,7 +463,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[ProtoVersionBook][serverPeerId], # FIXME: Not assigned
             serverRemotePeerInfo.protoVersion,
-            "ipfs/0.1.0",
+            identify.ProtoVersion,
           )
           clientPeerStore[KeyBook][serverPeerId] == serverRemotePeerInfo.publicKey
           chainedComparison(
@@ -513,7 +514,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[ProtoVersionBook][server2PeerId], # FIXME: Not assigned
             server2RemotePeerInfo.protoVersion,
-            "ipfs/0.1.0",
+            identify.ProtoVersion,
           )
           clientPeerStore[KeyBook][serverPeerId] == server2RemotePeerInfo.publicKey
           chainedComparison(

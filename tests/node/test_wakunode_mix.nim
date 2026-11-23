@@ -27,7 +27,7 @@ import
 ## known from outside, the ENR endpoint, a relay route, then the resolved set.
 
 proc selfHop(node: WakuNode): MultiAddress =
-  node.wakuMix.localMixPubInfo().multiAddr
+  node.wakuMix.localMixPubInfo().get().multiAddr
 
 proc boundTcpPort(node: WakuNode): Port =
   getPorts(node.switch.peerInfo.listenAddrs).expect("bound ports").tcpPort.get()

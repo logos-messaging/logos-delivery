@@ -56,7 +56,7 @@ type StubMapper = ref object of PortMapper
 
 method map(
     self: StubMapper, internalPort: Port, externalPort: Port, proto: MapProto
-): Future[Result[MappedPort, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+): Future[LPResult[MappedPort]] {.async: (raises: [CancelledError]), gcsafe.} =
   discard internalPort
   inc self.mapCalls
   self.lastMapProto = proto
@@ -68,7 +68,7 @@ method map(
 
 method unmap(
     self: StubMapper, externalPort: Port, proto: MapProto
-): Future[Result[void, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+): Future[LPResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   inc self.unmapCalls
   self.lastUnmapPort = externalPort
   return ok()
@@ -144,7 +144,6 @@ suite "NAT config - NATService pipeline":
         Opt.some(PortMapper(inner)),
     )
     switch.services.add(Service(svc))
-    svc.setup(switch)
     await switch.start()
 
     check:

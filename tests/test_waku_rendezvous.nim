@@ -183,8 +183,7 @@ procSuite "Waku Rendezvous":
 
     await lightClient.stop()
 
-  asyncTest "Stop hangs during a rendezvous dial that never answers":
-    # TODO: logos-delivery#4555
+  asyncTest "Stop finishes during a rendezvous dial that never answers":
     let
       clusterId = 10.uint16
       node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
@@ -208,8 +207,4 @@ procSuite "Waku Rendezvous":
     check await accepted.wait().withTimeout(DefaultRegistrationInterval + 5.seconds)
 
     let stopping = node.stop()
-    check not await stopping.join().withTimeout(3.seconds)
-
-    # A second cancel reaches periodicRegistration, which now waits for its next registration.
-    await node.wakuRendezvous.stop()
     check await stopping.join().withTimeout(5.seconds)
