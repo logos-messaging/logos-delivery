@@ -91,10 +91,8 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae241cf6b478d"
 
 # Pin the Mix and shared RLN adapter integration revisions.
-# The plugin pin is the head of an unmerged libp2p 2.5 pull request
-# (mix-rln-spam-protection-plugin#33). Move it to the merge commit.
 requires "https://github.com/logos-co/nim-libp2p-mix#ed6a72a990143cfc6b667223c7d0c38e408b348e"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#0fe51d4b5475d618471c87b2c9d0f8de9606570a"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#f1b2430297cad2bc4034fce0207f1d59ded6a47e"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
