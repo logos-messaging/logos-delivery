@@ -114,16 +114,20 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     ok(found)
 
   method startAdvertising(
-      self: ServicePeerDiscovery, key: string, data: seq[byte]
+      self: ServicePeerDiscovery,
+      key: string,
+      data: seq[byte],
+      secondary: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
-    ## Same as the external backend: this node signs the record it advertises,
-    ## one service per record, and libp2p publishes it verbatim. The switch is
+    ## Same as the external backend: this node signs the record it advertises
+    ## and libp2p publishes it verbatim under this one service. The switch is
     ## ours here, so identity and key are read from it directly.
     let serviceId = ?serviceIdOf(key)
     let peerInfo = self.inner.protocol.switch.peerInfo
-    let record = ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data)
+    let record =
+      ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data, secondary)
     self.inner.addServiceToAdvertise(
       ServiceInfo(id: serviceId, data: Opt.some(data)), record
     )

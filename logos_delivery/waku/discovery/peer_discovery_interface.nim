@@ -88,9 +88,15 @@ BrokerInterface(IPeerDiscovery):
     # backend's business: the in-process host lets libp2p sign a record from
     # this node's switch; the plugin host signs one itself (its switch is not
     # this node); discv5 mutates our ENR for topic: keys.
+    # `secondary` are further services listed in the same record. The record
+    # is registered and found under `key` only; a reader of it sees them all.
+    # The mix key is one of them (`/mix/1.0.0`), because `data` has no room for it.
+    # libp2p limits the data of each service to `MaxServiceDataSize` and the signed
+    # record to `MaxXPRSize`. Only the Kademlia backends publish them, and discv5
+    # ignores them.
     # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising)
     proc startAdvertising(
-      key: string, data: seq[byte]
+      key: string, data: seq[byte], secondary: seq[DiscoveredService]
     ): Future[Result[void, string]] {.async.}
 
   RequestBroker:

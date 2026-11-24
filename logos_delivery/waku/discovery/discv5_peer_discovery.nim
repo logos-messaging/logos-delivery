@@ -187,9 +187,14 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     await self.lookupServicePeers("", 0)
 
   method startAdvertising(
-      self: Discv5PeerDiscovery, key: string, data: seq[byte]
+      self: Discv5PeerDiscovery,
+      key: string,
+      data: seq[byte],
+      secondary: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     ## Advertising for discv5 = mutating our own ENR; only topic: keys map.
+    ## An ENR has no list of services, so `secondary` is only for the Kademlia
+    ## backends and has no effect here.
     if not self.running:
       return err("discv5 backend: not running")
     let shard = ?topicOf(key)

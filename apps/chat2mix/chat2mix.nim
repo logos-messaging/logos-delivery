@@ -31,7 +31,7 @@ import
     protocols/service_discovery/types as sd_types,
     nameresolving/nameresolver,
   ] # define DNS resolution
-import libp2p_mix/[curve25519, mix_protocol]
+import libp2p_mix/curve25519
 import
   logos_delivery/waku/[
     common/protobuf,
@@ -41,6 +41,7 @@ import
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_enr,
+    discovery/service_discovery,
     discovery/waku_dnsdisc,
     discovery/waku_kademlia,
     waku_node,
@@ -474,7 +475,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       node.mountKademlia(
         KademliaDiscoveryConf(
           bootstrapNodes: kadBootstrapPeers,
-          servicesToDiscover: toHashSet([MixProtocolID]),
+          servicesToDiscover: toHashSet([LogosDeliveryServiceId]),
           randomLookupInterval: chronos.seconds(60),
           serviceLookupInterval: chronos.seconds(60),
           kadDhtConfig: KadDHTConfig.new(),
@@ -485,6 +486,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       ).isOkOr:
         error "failed to setup service discovery", error = error
         quit(QuitFailure)
+      node.attachDiscovery(ServicePeerDiscovery.create(node.wakuKademlia))
 
   #await node.mountRendezvousClient(conf.clusterId)
 
