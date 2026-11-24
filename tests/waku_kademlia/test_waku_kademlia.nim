@@ -1,3 +1,5 @@
+{.used.}
+
 import
   std/[base64, strutils],
   results,
