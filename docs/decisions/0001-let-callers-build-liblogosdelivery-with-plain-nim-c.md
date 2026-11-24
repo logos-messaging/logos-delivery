@@ -18,27 +18,27 @@ liblogosdelivery is built like any other Nim library. The caller compiles its en
 
 The library's build contract has three parts:
 - **Entry module:** `library/liblogosdelivery.nim`.
-- **Public headers:** `library/*.h`. They include `generated/logosdelivery.h`, which nim-ffi writes.
-- **C API prefix:** `logosdelivery_`. Every exported function carries it, and nothing else is meant to be exported.
+- **Public headers:** `library/*.h`, and the headers nim-ffi writes into `generated/`, which `liblogosdelivery.h` includes. The generated headers include `<tinycbor/cbor.h>`, so a C consumer compiles against TinyCBOR, which nim-ffi vendors, and links it.
+- **C API prefix:** `logosdelivery_`. Every supported function carries it. The unsupported `waku_*` kernel functions (#3851) are exported too.
 
-`library/config.nims`, next to the entry, is the library's default configuration. It holds what the library is and what its code needs: threads, `--deepcopy:on`, no main, the generated header and `nimMainPrefix`, the nim-ffi C bindings, the feature defines and warning switches, the chronicles sinks per OS, and the Android C++ runtime. Nim reads this file even under `--skipParentCfg`, and the caller's flags come later, so they win. Unless the caller passes `-d:ffiOutputDir`, the generated header goes to `<nimcache>/generated`, so nothing is written into a read-only installed package. The root `config.nims` is not part of the contract and is not installed.
+`library/config.nims`, next to the entry, is the library's default configuration. It holds what the library is and what its code needs: threads, `--deepcopy:on`, no main, the generated header and `nimMainPrefix`, the nim-ffi C bindings, the feature defines and warning switches, the chronicles sinks per OS, and the Android C++ runtime. Nim reads this file even under `--skipParentCfg`, and the caller's flags come later, so they win. Additive switches such as `--passL` add to the library's instead of replacing them. Unless the caller passes `-d:ffiOutputDir`, the generated header goes to `<nimcache>/generated`, so nothing is written into a read-only installed package. The root `config.nims` is not part of the contract and is not installed.
 
 A caller builds the library like this, with the `--path` entries taken from its own `nimble.paths`:
 
 ```sh
-nim c --skipParentCfg --noNimblePath <target> <policy> --path:<deps> \
+nim c --skipParentCfg --noNimblePath <app> <target> <policy> <rln> --path:<deps> \
   --nimcache:<out>/nimcache -o:<out>/<lib> <pkg>/library/liblogosdelivery.nim
 ```
 
 The caller owns:
-- **The target and toolchain:** OS and CPU, the NDK or SDK compiler, and `-fPIC`. For cross builds this includes `LeopardCmakeFlags`; without them, Leopard-RS adds `-march=native`.
+- **The target and toolchain:** OS and CPU, the CPU baseline, the NDK or SDK compiler, and `-fPIC`. `--passC` does not reach Leopard-RS, so every caller also passes `LeopardCmakeFlags`, native builds included. Without them, Leopard-RS adds `-march=native` and is built without `-fPIC` unless the toolchain defaults to it.
 - **The policy:** `--mm`, `--opt`, `-d:release` and the log level.
 - **RLN:** either `-d:disable_rln` or a link against librln.
-- **The link:** a `--app:staticlib` archive holds only the Nim objects, so a static consumer links libleopard and the C++ runtime itself. When several Nim runtimes share one image, the caller seals the archive: it keeps `logosdelivery_*` global and hides everything else. Only the caller knows what shares its link. status-go does this for the Status App.
+- **The link:** `--app:lib` or `--app:staticlib`. A static archive holds only the Nim objects, so a static consumer links libleopard and the C++ runtime itself. When several Nim runtimes share one image, the caller seals the archive: it keeps the prefixes it calls global, `logosdelivery_*` and `waku_*` if it uses the kernel API, and hides everything else. Only the caller knows what shares its link. status-go does this for the Status App.
 
-`nimble.lock` pins only this repository's own builds: Make, CI and `nix/deps.nix`. A dependent resolves `logos_delivery.nimble` from its own root, and the dependent's lock decides what ships. When two packages pin different commits of a dependency, Nimble keeps the root's pin. PR CI installs from our lock, so it does not prove that a dependent can still resolve the manifest. For PRs that change the manifest, `consumer-break-check` (#4461) and `lock-break-check` (#4462) cover that.
+`nimble.lock` pins only this repository's own builds: Make and CI, with `nix/deps.nix` checked against it. A dependent resolves `logos_delivery.nimble` from its own root, and the dependent's lock decides what ships. When two packages pin different commits of a dependency by name, Nimble keeps the root's pin; a URL pin does not always hold against a name requirement (see the chronos pin in `logos_delivery.nimble`). PR CI installs from our lock, so it does not prove that a dependent can still resolve the manifest. For PRs that change the manifest, `consumer-break-check` (#4461) and `lock-break-check` (#4462) cover that.
 
-This repository's Makefile, CI and Nix package are callers like any other. They run the same `nim c` with the flags they used before, and they also load the root `config.nims` as a parent configuration. A CI step builds the library the embedder's way, with no parent config and no `-d:ffiOutputDir`, and checks that the headers land under its `--nimcache`.
+This repository's Makefile, CI and Nix package are callers like any other. They run the same `nim c` with the flags they used before, and they also load the root `config.nims` as a parent configuration. A CI step compiles the library the embedder's way, without linking it, with no parent config and no `-d:ffiOutputDir`, and checks that the headers land under its `--nimcache`.
 
 We accept these costs:
 - Every caller repeats the target recipe: Android NDK, iOS SDK, Leopard-RS flags and the librln link.
