@@ -1,4 +1,4 @@
-# Let callers build liblogosdelivery with plain `nim c`
+# ADR-0001: Let callers build liblogosdelivery with plain `nim c`
 
 ## Context and Problem Statement
 
