@@ -23,7 +23,7 @@ Keep implementation plans and verification in issues and pull requests, linked f
 
 An ADR is accepted when its pull request merges, therefore an explicit status on the ADR is unnecessary.
 
-Do not add explicit status fields to ADRs or index entries. Keep the creation date in the index. If a decision is deprecated or superseded, explain why in More Information and link any replacement in both directions.
+Do not add explicit status fields to ADRs; an index entry only gains `— superseded by NNNN` or `— deprecated`. Keep the creation date in the index. If a decision is deprecated or superseded, explain why in More Information and link any replacement in both directions.
 
 ## Mutability
 
@@ -40,11 +40,11 @@ docs/decisions/
   backend/
     0001-use-postgres.md
   frontend/
-    0001-use-react.md
+    0002-use-react.md
   infrastructure/
-    0001-use-terraform.md
+    0003-use-terraform.md
 ```
 
-Numbers are local to each category. Choose a categorization scheme early (by architectural layer, by domain, by team) and document it in the index.
+Numbers stay global across categories, so every `ADR-NNNN` and index entry stays unique. Choose a categorization scheme early (by architectural layer, by domain, by team) and document it in the index.
 
 Alternative: use tags or a flat structure with a searchable index. Subdirectories are simpler and work with all tools.

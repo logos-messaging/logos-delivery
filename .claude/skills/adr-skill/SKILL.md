@@ -5,7 +5,7 @@ description: Create, update, or consult Architecture Decision Records (ADRs) in 
 
 # ADR Skill
 
-Adapted from [vercel/ai `skills/adr-skill`](https://github.com/vercel/ai/tree/7aae3c3a809765413613249c76b521eaa52ef3af/skills/adr-skill) (Apache-2.0).
+Adapted from [vercel/ai `skills/adr-skill`](https://github.com/vercel/ai/tree/7aae3c3a809765413613249c76b521eaa52ef3af/skills/adr-skill) (Apache-2.0, Copyright 2023 Vercel, Inc.).
 
 An ADR records what we decided and why. Keep it concise and self-contained so future contributors and coding agents can understand the decision without the original conversation. Implementation plans and verification belong in issues and pull requests.
 
@@ -46,13 +46,9 @@ See [references/examples.md](references/examples.md) for a filled-out example an
 
 ## Consult Existing ADRs
 
-Before changing architecture, scan the index and read relevant ADRs fully. Follow their decisions and constraints. Check for ADR references in code when a pattern's rationale is unclear.
+Before changing architecture, scan the index and read relevant ADRs fully. Follow their decisions and constraints. Check the ADRs linked from the implementing PR when a pattern's rationale is unclear.
 
-If implementation differs from a decision, flag the discrepancy. Do not silently replace an accepted decision with a different choice. Reference the governing ADR in the implementation PR, and add a lightweight code comment at a key entry point when it helps discoverability:
-
-```nim
-# ADR: docs/decisions/0007-choose-a-storage-engine.md
-```
+If implementation differs from a decision, flag the discrepancy. Do not silently replace an accepted decision with a different choice. Reference the governing ADR in the implementation PR. Do not add ADR-pointer comments to code.
 
 ADRs can link to the implementation PR or key code entry points in More Information without duplicating a file-by-file implementation plan.
 
@@ -63,4 +59,4 @@ ADRs can link to the implementation PR or key code entry points in More Informat
 - **Add learnings**: append a dated note in More Information. Preserve the original rationale.
 - **Simplify formatting**: preserve the decision and relevant reasoning; move tradeoffs into Decision or Alternatives Considered and leave implementation and verification detail in linked PRs or issues.
 
-Update the index entry as well. Track implementation work in issues or PRs, link back to the ADR, and add later learnings when they affect the rationale or revisit conditions.
+Append `— superseded by NNNN` or `— deprecated` to the index entry. Track implementation work in issues or PRs, link back to the ADR, and add later learnings when they affect the rationale or revisit conditions.
