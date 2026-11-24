@@ -170,6 +170,24 @@ proc handleSubscribeRequest*(
     )
   return FilterSubscribeResponse.ok(request.requestId)
 
+proc getPushStream(
+    wf: WakuFilter, peerId: PeerId
+): Future[Result[Connection, string]] {.async.} =
+  ## Reuses the peer's push stream. With optimistic multistream select (nim-libp2p
+  ## >= 2.5) a stream we only write to never gets its protocol set, so the
+  ## muxer-level lookup cannot find it and each push would leak a new stream.
+  let cached = wf.peerConnections.getOrDefault(peerId)
+  if not cached.isNil() and not LPStream(cached).isClosed and
+      not LPStream(cached).isClosedRemotely:
+    return ok(cached)
+
+  let stream = (
+    await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
+  ).valueOr:
+    return err("could not open push stream: " & error)
+  wf.peerConnections[peerId] = stream
+  return ok(stream)
+
 proc pushToPeer(
     wf: WakuFilter, peerId: PeerId, buffer: seq[byte]
 ): Future[Result[void, string]] {.async.} =
@@ -184,7 +202,7 @@ proc pushToPeer(
         error "Push to peer failed: could not open stream", peerId = shortLog(peerId)
         return err("pushToPeer failed: no stream to peer: " & $peerId)
     else:
-      (await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)).valueOr:
+      (await wf.getPushStream(peerId)).valueOr:
         error "Push to peer failed", peerId = shortLog(peerId), error
         return err("pushToPeer failed: " & $error)
 
@@ -193,6 +211,9 @@ proc pushToPeer(
   if goWaku:
     await stream.close()
   writeRes.isOkOr:
+    if not goWaku:
+      wf.peerConnections.del(peerId)
+      await stream.close()
     error "Push to peer failed", peerId = shortLog(peerId), error = error.msg
     return err("pushToPeer failed: " & error.msg)
 
