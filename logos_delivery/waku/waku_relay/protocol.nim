@@ -753,16 +753,9 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
 
-proc publish*(
-    w: WakuRelay,
-    pubsubTopic: PubsubTopic,
-    wakuMessage: WakuMessage,
-    handleAsReceived = false,
+proc publishImpl(
+    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage, forPeer: bool
 ): Future[Result[int, PublishOutcome]] {.async.} =
-  ## With `handleAsReceived`, this node handles the message as a message from the
-  ## network. The message goes to the `subscribe` handlers, once per message id,
-  ## instead of `ownMessageHandler`. A lightpush server sets this flag for the
-  ## messages of its clients.
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
@@ -808,7 +801,7 @@ proc publish*(
   if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
     msgId
   ):
-    if handleAsReceived:
+    if forPeer:
       # Gossipsub does not bring a message back to its publisher, so the
       # `subscribe` handlers get it here. They serve it too.
       await procCall PubSub(w).handleData(pubsubTopic, data)
@@ -819,6 +812,21 @@ proc publish*(
     return err(NoPeersToPublish)
 
   return ok(relayedPeerCount)
+
+proc publish*(
+    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
+): Future[Result[int, PublishOutcome]] {.async.} =
+  ## Publishes a message of this node. This node serves it through
+  ## `ownMessageHandler`, not the `subscribe` handlers.
+  return await w.publishImpl(pubsubTopic, wakuMessage, forPeer = false)
+
+proc publishForPeer*(
+    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
+): Future[Result[int, PublishOutcome]] {.async.} =
+  ## Publishes a message of another peer, as a lightpush server does for its
+  ## clients. To this node it is a received message: it goes to the `subscribe`
+  ## handlers, once per message id, instead of `ownMessageHandler`.
+  return await w.publishImpl(pubsubTopic, wakuMessage, forPeer = true)
 
 proc getConnectedPubSubPeers*(
     w: WakuRelay, pubsubTopic: PubsubTopic
