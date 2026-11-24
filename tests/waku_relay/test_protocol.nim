@@ -1257,7 +1257,7 @@ suite "Waku Relay":
 
       # When publishing a message for a peer, as a lightpush server does
       let firstPublish =
-        await node.publish(pubsubTopic, wakuMessage, onBehalfOfPeer = true)
+        await node.publish(pubsubTopic, wakuMessage, handleAsReceived = true)
 
       # Then the subscribe handler gets it, as a message from the network
       check:
@@ -1266,7 +1266,7 @@ suite "Waku Relay":
         ownMessageSeq.len == 0
 
       # When the publish is retried
-      let retry = await node.publish(pubsubTopic, wakuMessage, onBehalfOfPeer = true)
+      let retry = await node.publish(pubsubTopic, wakuMessage, handleAsReceived = true)
 
       # Then the subscribe handler does not get it again
       check:

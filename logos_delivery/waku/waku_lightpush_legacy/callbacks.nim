@@ -12,16 +12,16 @@ proc getNilPushHandler*(): PushMessageHandler =
     return err("no waku relay found")
 
 proc getRelayPushHandler*(
-    wakuRelay: WakuRelay, onBehalfOfPeer = false
+    wakuRelay: WakuRelay, handleAsReceived = false
 ): PushMessageHandler =
-  ## `onBehalfOfPeer` is for the lightpush server: the messages it publishes are
+  ## `handleAsReceived` is for the lightpush server: the messages it publishes are
   ## its clients', so its own subscribers receive them (see `WakuRelay.publish`).
   return proc(
       pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult[void]] {.async.} =
     ?(await wakuRelay.validateMessage(pubSubTopic, message))
 
-    (await wakuRelay.publish(pubsubTopic, message, onBehalfOfPeer)).isOkOr:
+    (await wakuRelay.publish(pubsubTopic, message, handleAsReceived)).isOkOr:
       ## Agreed change expected to the lightpush protocol to better handle such case. https://github.com/waku-org/pm/issues/93
       let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
       debug "Lightpush request has not been published to any peers",

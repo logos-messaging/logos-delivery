@@ -101,8 +101,9 @@ proc mountLegacyLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting legacy lightpush with relay"
-  let pushHandler =
-    legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay, onBehalfOfPeer = true)
+  let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(
+    node.wakuRelay, handleAsReceived = true
+  )
 
   node.wakuLegacyLightPush = WakuLegacyLightPush.new(
     node.peerManager,
@@ -242,7 +243,7 @@ proc mountLightPush*(
 
   info "mounting lightpush with relay"
   let pushHandler =
-    lightpush_protocol.getRelayPushHandler(node.wakuRelay, onBehalfOfPeer = true)
+    lightpush_protocol.getRelayPushHandler(node.wakuRelay, handleAsReceived = true)
 
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager,

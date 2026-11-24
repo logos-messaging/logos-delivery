@@ -757,12 +757,12 @@ proc publish*(
     w: WakuRelay,
     pubsubTopic: PubsubTopic,
     wakuMessage: WakuMessage,
-    onBehalfOfPeer = false,
+    handleAsReceived = false,
 ): Future[Result[int, PublishOutcome]] {.async.} =
-  ## `onBehalfOfPeer` says the message is another peer's, which this node only
-  ## publishes for it, as a lightpush server does. To this node it is then a
-  ## received message: it goes to the `subscribe` handlers, once per message id,
-  ## instead of `ownMessageHandler`.
+  ## With `handleAsReceived`, this node handles the message as a message from the
+  ## network. The message goes to the `subscribe` handlers, once per message id,
+  ## instead of `ownMessageHandler`. A lightpush server sets this flag for the
+  ## messages of its clients.
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
@@ -808,7 +808,7 @@ proc publish*(
   if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
     msgId
   ):
-    if onBehalfOfPeer:
+    if handleAsReceived:
       # Gossipsub does not bring a message back to its publisher, so the
       # `subscribe` handlers get it here. They serve it too.
       await procCall PubSub(w).handleData(pubsubTopic, data)
