@@ -4,6 +4,10 @@
 , targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
+  # Off builds without RLN (-d:disable_rln), so no librln is linked or shipped.
+, enableRln            ? true
+  # Appended to every `nim c`, after the package's own flags, so they win.
+, extraNimArgs         ? []
   # The libpq shipped beside a Windows artifact. NOT named `libpq`: callPackage would
   # auto-fill that name from `pkgs`, whose cross libpq does not build for mingw.
 , libpqPackage         ? null
@@ -55,6 +59,7 @@ let
          "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
     ++ lib.optional enablePostgres       "--define:postgres"
+    ++ lib.optional (!enableRln)         "--define:disable_rln"
     ++ lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
     ++ lib.optional (chroniclesLogLevel != null)
          "--define:chronicles_log_level=${toString chroniclesLogLevel}"
@@ -128,7 +133,7 @@ let
       # it here would link the same 27 MB archive twice.
       windowsLinkFlags
     else
-      "-L${zerokitRln}/lib -lrln"
+      lib.optionalString enableRln "-L${zerokitRln}/lib -lrln"
       + lib.optionalString hostPlatform.isLinux " -lstdc++";
 
   # Shared `nim c` invocation; callers vary only the output, source and a few
@@ -148,6 +153,7 @@ let
       --nimcache:$NIMCACHE \
       --out:${outFile} \
       ${lib.concatStringsSep " \\\n      " extraArgs} \
+      ${lib.concatStringsSep " \\\n      " extraNimArgs} \
       ${sourceFile}
   '';
 
@@ -188,7 +194,7 @@ pkgs.stdenv.mkDerivation {
     # shells out to `nasm -f win64` from a compile-time macro.
     ++ lib.optionals isWindows [ pkgs.buildPackages.nasm ];
 
-  buildInputs = [ zerokitRln ]
+  buildInputs = lib.optionals enableRln [ zerokitRln ]
     ++ lib.optionals hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ]
     # nixpkgs builds mingw-w64 against mcfgthread, so nothing in the default
     # closure provides pthread.h / libpthread.a.
@@ -230,7 +236,7 @@ pkgs.stdenv.mkDerivation {
 
     # config.nims links rln statically on Windows, as MSYS2 does, from the
     # archive this variable names -- so no rln DLL ships.
-    export LIBRLN_FILE=${zerokitRln}/lib/librln.a
+    ${lib.optionalString enableRln "export LIBRLN_FILE=${zerokitRln}/lib/librln.a"}
     ''}
 
     ${if buildApp then ''
@@ -324,7 +330,7 @@ ${installLibpq "$out/${dllDir}"}
       # own imports because installPhase put the .dll in $out/bin (see dllDir).
       true
     ''
-    + lib.optionalString (!isWindows) (
+    + lib.optionalString (!isWindows && enableRln) (
     if buildApp then
       lib.optionalString hostPlatform.isDarwin ''
         cp ${zerokitRln}/lib/librln.dylib $out/lib/

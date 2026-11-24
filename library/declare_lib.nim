@@ -4,6 +4,13 @@ import logos_delivery
 
 declareLibrary("logosdelivery", LogosDelivery)
 
+when compileOption("noMain"):
+  # --noMain leaves the command line std/cmdline reads undefined.
+  {.emit: """
+  N_LIB_PRIVATE int cmdCount;
+  N_LIB_PRIVATE char** cmdLine;
+  """.}
+
 template emitEvent*(eventName: string, body: untyped) =
   ## Enqueues `body`'s payload for nim-ffi's event thread to fan out to listeners.
   ## Callers are `{.async: (raises: []).}` broker listeners, and the payload
