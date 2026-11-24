@@ -6,7 +6,7 @@ An Architecture Decision Record (ADR) captures an important architecture decisio
 
 - Directory: `docs/decisions/`
 - Naming: `NNNN-verb-phrase.md`, the next free four-digit number, headed `# ADR-NNNN: Title`; numbers are never reused
-- Index entry: `- NNNN — [Title](NNNN-verb-phrase.md) — YYYY-MM-DD`, the date the record was created
+- Index entry: `- NNNN — [Title](NNNN-verb-phrase.md) — YYYY-MM-DD`, the date the record was created, followed by `— superseded by NNNN` or `— deprecated` when that applies
 - Format: Context and Problem Statement, Decision, Alternatives Considered, and optional More Information
 - Omit YAML frontmatter and explicit status fields; merging the ADR pull request accepts the decision
 - Include tradeoffs in the decision and alternatives; keep implementation and verification in issues or PRs
