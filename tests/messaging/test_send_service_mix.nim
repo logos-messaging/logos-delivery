@@ -47,6 +47,21 @@ method sendImpl(self: PlainSendProcessor, task: DeliveryTask): Future[void] {.as
   task.firstPropagatedTime = Opt.some(Moment.now())
   task.state = DeliveryState.SuccessfullyPropagated
 
+type PassCounter = ref object of BaseSendProcessor
+  ## Gives each pass of the send service to `inner`, and counts the passes and the
+  ## cancelled ones.
+  inner: BaseSendProcessor
+  passes: int
+  cancelled: int
+
+method process(self: PassCounter, task: DeliveryTask): Future[void] {.async.} =
+  inc self.passes
+  try:
+    await self.inner.process(task)
+  except CancelledError as exc:
+    inc self.cancelled
+    raise exc
+
 type RetryingProcessor = ref object of BaseSendProcessor
   ## Leaves every task for a retry, with `reason` as the outcome's `desc`.
   reason: string
@@ -883,6 +898,112 @@ suite "SendService - anonymity level with a mounted mix":
       plain.calls == 0 # never handed over
     await fut.cancelAndWait()
     check plain.calls == 0
+
+  asyncTest "a task makes one mix attempt in each MixRetryInterval":
+    ## Mix does not run here, so each attempt fails at once.
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60250 + i, lightpush = true)
+
+    for level in [AnonymityLevel.Preferred, AnonymityLevel.Required]:
+      let plain = PlainSendProcessor()
+      let mix = MixSendProcessor.new(waku, waku.brokerCtx, level, MixWindow)
+      mix.chain(plain)
+      let task = buildTask("paced-" & $level, ZeroDuration)
+
+      check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
+      check:
+        task.tryCount == 1
+        task.state == DeliveryState.NextRoundRetry
+
+      # The next pass comes before the interval ends.
+      check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
+      check:
+        task.tryCount == 1
+        task.state == DeliveryState.NextRoundRetry
+
+      # The interval ends inside the mix window.
+      task.stampAgo(MixRetryInterval)
+      task.lastMixAttemptTime = Opt.some(Moment.now() - MixRetryInterval)
+      check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
+      check:
+        task.tryCount == 2
+        task.state == DeliveryState.NextRoundRetry
+        plain.calls == 0
+
+  asyncTest "a Preferred task takes the plain path inside MixRetryInterval":
+    ## The interval is for a mix attempt. A hand-over comes at the next pass.
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60260 + i, lightpush = true)
+
+    let plain = PlainSendProcessor()
+    let mix =
+      MixSendProcessor.new(waku, waku.brokerCtx, AnonymityLevel.Preferred, MixWindow)
+    mix.chain(plain)
+
+    # The mix window ends after the attempt.
+    let late = buildTask("paced-late", ZeroDuration)
+    check await mix.process(late).withTimeout(FUTURE_TIMEOUT)
+    check late.tryCount == 1
+    late.stampAgo(MixWindow + chronos.seconds(1))
+    check await mix.process(late).withTimeout(FUTURE_TIMEOUT)
+    check:
+      plain.calls == 1
+      late.state == DeliveryState.SuccessfullyPropagated
+
+    # Mix loses a node after the attempt.
+    let unusable = buildTask("paced-unusable", ZeroDuration)
+    check await mix.process(unusable).withTimeout(FUTURE_TIMEOUT)
+    check unusable.tryCount == 1
+    waku.node.peerManager.switch.peerStore.delete(
+      waku.node.wakuMix.nodePool.peerIds()[0]
+    )
+    check not waku.mixReady()
+    check await mix.process(unusable).withTimeout(FUTURE_TIMEOUT)
+    check:
+      plain.calls == 2
+      unusable.state == DeliveryState.SuccessfullyPropagated
+
+  asyncTest "a restart makes no mix attempt inside MixRetryInterval":
+    ## The stop cancels an attempt that waits for a first hop that does not answer.
+    var held: seq[StreamTransport]
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held.add(client)
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    defer:
+      for client in held:
+        await client.closeWait()
+      listener.stop()
+      await listener.closeWait()
+
+    await waku.node.start()
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(int(listener.localAddress().port), lightpush = true)
+
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
+    )
+    let counter = PassCounter(inner: mix)
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    let service = SendService
+      .new(false, waku, manager, counter, retryInterval = chronos.milliseconds(10))
+      .expect("SendService.new")
+    let task = buildTask("paced-restart", ZeroDuration)
+    check (service.enqueue(task)).isOk()
+    service.startSendService()
+    checkUntilTimeout:
+      task.tryCount == 1
+    await service.stopSendService()
+    check counter.cancelled == 1
+
+    service.startSendService()
+    defer:
+      await service.stopSendService()
+    checkUntilTimeout:
+      counter.passes >= 5
+    check task.tryCount == 1
 
   asyncTest "a mix attempt marks the task before it can know whether it worked":
     ## The exit publishes before it replies, so the mark must be set before any
