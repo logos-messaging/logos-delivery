@@ -753,8 +753,28 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
 
+type LocalDelivery = proc(
+  w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+): Future[void] {.async, nimcall.}
+
+proc deliverAsOwn(
+    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+) {.async.} =
+  if not w.ownMessageHandler.isNil():
+    await w.ownMessageHandler(pubsubTopic, message)
+
+proc deliverAsReceived(
+    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+) {.async.} =
+  # Gossipsub does not bring a message back to its publisher, so the
+  # `subscribe` handlers get it here. They serve it too.
+  await procCall PubSub(w).handleData(pubsubTopic, data)
+
 proc publishImpl(
-    w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage, forPeer: bool
+    w: WakuRelay,
+    pubsubTopic: PubsubTopic,
+    wakuMessage: WakuMessage,
+    deliverLocally: LocalDelivery,
 ): Future[Result[int, PublishOutcome]] {.async.} =
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
@@ -801,12 +821,7 @@ proc publishImpl(
   if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
     msgId
   ):
-    if forPeer:
-      # Gossipsub does not bring a message back to its publisher, so the
-      # `subscribe` handlers get it here. They serve it too.
-      await procCall PubSub(w).handleData(pubsubTopic, data)
-    elif not w.ownMessageHandler.isNil():
-      await w.ownMessageHandler(pubsubTopic, message)
+    await deliverLocally(w, pubsubTopic, message, data)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)
@@ -818,7 +833,7 @@ proc publish*(
 ): Future[Result[int, PublishOutcome]] {.async.} =
   ## Publishes a message of this node. This node serves it through
   ## `ownMessageHandler`, not the `subscribe` handlers.
-  return await w.publishImpl(pubsubTopic, wakuMessage, forPeer = false)
+  return await w.publishImpl(pubsubTopic, wakuMessage, deliverAsOwn)
 
 proc publishForPeer*(
     w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
@@ -826,7 +841,7 @@ proc publishForPeer*(
   ## Publishes a message of another peer, as a lightpush server does for its
   ## clients. To this node it is a received message: it goes to the `subscribe`
   ## handlers, once per message id, instead of `ownMessageHandler`.
-  return await w.publishImpl(pubsubTopic, wakuMessage, forPeer = true)
+  return await w.publishImpl(pubsubTopic, wakuMessage, deliverAsReceived)
 
 proc getConnectedPubSubPeers*(
     w: WakuRelay, pubsubTopic: PubsubTopic
