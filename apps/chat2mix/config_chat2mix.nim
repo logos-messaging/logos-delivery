@@ -91,6 +91,15 @@ type
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    mixAllowAllAddresses* {.
+      desc:
+        "By default, mix uses a mix node only at a public address. " &
+        MixAllowAllAddressesHint &
+        ". Set it on a node of a local simulation, a test or a private network.",
+      defaultValue: false,
+      name: "mix-allow-all-addresses"
+    .}: bool
+
     keepAlive* {.
       desc: "Enable keep-alive for idle connections: true|false",
       defaultValue: false,

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/strutils
+import std/[sequtils, strutils]
 import chronicles, chronos, results, metrics
 
 import
@@ -13,7 +13,7 @@ import
   libp2p_mix/multiaddr as mix_multiaddr,
   libp2p_mix/delay_strategy,
   libp2p_mix/spam_protection,
-  libp2p/[multiaddress, peerid],
+  libp2p/[multiaddress, peerid, peeraddrpolicy, wire],
   eth/common/keys
 
 import
@@ -29,6 +29,17 @@ const MinMixPoolSize* = 4
   ## The smallest pool that mix can build a path from. `PathLength` is 3, and
   ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
 
+const MixAllowAllAddressesHint* =
+  "A private, a loopback or a circuit relay address needs --mix-allow-all-addresses"
+
+const DirectPublicHopAddressPolicy = proc(
+    maddr: MultiAddress
+): bool {.gcsafe, raises: [].} =
+  ## Accepts a hop address that each node of the public network can dial
+  ## directly. `publicHopAddressPolicy` also accepts a circuit relay route, and
+  ## a node dials that only as a circuit relay client.
+  publicHopAddressPolicy(maddr) and not isCircuitRelayMA(maddr)
+
 type
   WakuMix* = ref object of MixProtocol
     peerManager*: PeerManager
@@ -38,6 +49,9 @@ type
       ## `true` when the last hop derivation found no address the encoder accepts.
       ## The hop that mix still holds is then a leftover, unusable even if it
       ## encodes.
+    hopAddressPolicy: PeerAddressPolicy
+    excludedLogged: bool
+      ## `true` once a log line reported the mix nodes that `countExcluded` counts.
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -101,7 +115,8 @@ proc parseMixNode*(entry: string): Result[MixNodePubInfo, string] =
 
 proc poolSize*(mix: WakuMix): int =
   ## The number of pool members a path can use. `nodePool.get` needs an IPv4 TCP
-  ## or QUIC-v1 address and a secp256k1 key; `MixNodePool.len` checks neither.
+  ## or QUIC-v1 address that the hop address policy accepts and a secp256k1 key;
+  ## `MixNodePool.len` checks neither.
   ## Walks the pool; `mixReady` calls it once per send attempt.
   var routable = 0
   for peerId in mix.nodePool.peerIds():
@@ -109,17 +124,68 @@ proc poolSize*(mix: WakuMix): int =
       routable.inc()
   return routable
 
-proc updatePoolSize*(size: int) =
+proc countExcluded*(mix: WakuMix): int =
+  ## The number of mix nodes in the peer store that no path can use.
+  return mix.nodePool.peerIds().countIt(mix.nodePool.get(it).isNone())
+
+proc updatePoolSize*(mix: WakuMix, size: int) =
   ## Sets `mix_pool_size`; this is its only writer. The mount, `addBootNodes`
   ## and each health pass publish the count they just read: routability can
   ## change when no peer-store handler fires, as when an `AddressBook` entry's
   ## TTL runs out.
+  ## Also logs mix nodes that no path can use, one time for each mount.
   mix_pool_size.set(size)
+  if mix.excludedLogged:
+    return
+  let excluded = mix.countExcluded()
+  if excluded == 0:
+    return
+  mix.excludedLogged = true
+  info "Mix knows mix nodes that it cannot use. " & MixAllowAllAddressesHint,
+    excluded = excluded
+
+proc selectHopAddress(
+    mix: WakuMix, node: MixPubInfo, addrs: seq[MultiAddress]
+): Opt[MultiAddress] =
+  ## The address of `node` that a path can use, from `addrs` or its last dialed one.
+  ## The check has its own peer store, because `nodePool.add` writes to the store.
+  let store = PeerStore.new(nil)
+  store[AddressBook][node.peerId] = addrs
+  store[LastSeenOutboundBook][node.peerId] =
+    mix.switch.peerStore[LastSeenOutboundBook][node.peerId]
+  let pool = MixNodePool.new(store, mix.hopAddressPolicy)
+  pool.add(node)
+  let hop = pool.get(node.peerId).valueOr:
+    return Opt.none(MultiAddress)
+  return Opt.some(hop.multiAddr)
+
+proc addPeer*(mix: WakuMix, node: MixPubInfo): Result[void, string] =
+  ## Adds a mix node to the pool and to the peer manager.
+  ## Stores nothing when no path can use the node.
+  var addrs = @[node.multiAddr]
+  if mix.selectHopAddress(node, addrs).isNone():
+    # A path can still use a stored address, so the write keeps it.
+    let stored = mix.switch.peerStore[AddressBook][node.peerId]
+    let usable = mix.selectHopAddress(node, stored).valueOr:
+      return err("Mix has no usable address for this peer. " & MixAllowAllAddressesHint)
+    addrs.add(usable)
+
+  mix.nodePool.add(node)
+  mix.peerManager.addPeer(
+    RemotePeerInfo.init(
+      node.peerId,
+      addrs,
+      publicKey = crypto.PublicKey(scheme: PKScheme.Secp256k1, skkey: node.libp2pPubKey),
+      mixPubKey = Opt.some(node.mixPubKey),
+    )
+  )
+  return ok()
 
 proc processBootNodes(
     bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
 ) =
   var count = 0
+  var added: seq[tuple[peerId: PeerId, multiAddr: string]]
   for node in bootnodes:
     let pInfo = parsePeerInfo(node.multiAddr).valueOr:
       error "Failed to get peer id from multiaddress: ",
@@ -152,12 +218,21 @@ proc processBootNodes(
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
+    added.add((peerId, node.multiAddr))
 
     peermgr.addPeer(
       RemotePeerInfo.init(
         peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
       )
     )
+  # One mix node can have many entries, and one usable address is enough. So
+  # check each mix node only now, with all its addresses in the pool.
+  let unroutable =
+    added.filterIt(mix.nodePool.get(it.peerId).isNone()).mapIt(it.multiAddr)
+  if unroutable.len > 0:
+    warn "Mix paths do not use configured mix nodes that have no usable address. " &
+      MixAllowAllAddressesHint,
+      unroutable = unroutable.len, examples = unroutable[0 ..< min(unroutable.len, 3)]
   # `count` is the accepted entries; the addresses of one peer make one member.
   let routable = mix.poolSize()
   info "Using mix bootstrap nodes", entries = count, poolSize = routable
@@ -165,7 +240,7 @@ proc processBootNodes(
 proc addBootNodes*(mix: WakuMix, bootnodes: seq[MixNodePubInfo]) =
   ## Adds bootstrap nodes resolved after the mount, and publishes the pool size.
   processBootNodes(bootnodes, mix.peerManager, mix)
-  updatePoolSize(mix.poolSize())
+  mix.updatePoolSize(mix.poolSize())
 
 proc new*(
     T: typedesc[WakuMix],
@@ -175,7 +250,12 @@ proc new*(
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    allowAllAddresses: bool = false,
 ): WakuMixResult[T] =
+  ## A path uses a pool member only at a public address, because each node of
+  ## the path must dial the next one. With `allowAllAddresses`, a path also uses
+  ## a private, a loopback or a circuit relay address. Set it for a local
+  ## simulation, a test or a private network.
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
@@ -185,7 +265,14 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
-  var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
+  let hopAddressPolicy =
+    if allowAllAddresses: defaultAddressPolicy else: DirectPublicHopAddressPolicy
+  var m = WakuMix(
+    peerManager: peermgr,
+    clusterId: clusterId,
+    pubKey: mixPubKey,
+    hopAddressPolicy: hopAddressPolicy,
+  )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
@@ -198,12 +285,13 @@ proc new*(
           ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
         )
     ),
+    hopAddressPolicy = hopAddressPolicy,
   )
 
   processBootNodes(bootnodes, peermgr, m)
 
   let usable = m.poolSize()
-  updatePoolSize(usable)
+  m.updatePoolSize(usable)
 
   if usable < MinMixPoolSize:
     info "Mix cannot publish yet, waiting for more mix nodes",

@@ -9,9 +9,15 @@ import ./[delivery_task, send_processor]
 logScope:
   topics = "send service mix processor"
 
-const MixUnavailableReason* =
-  "mix is not mounted or knows fewer than " & $MinMixPoolSize & " usable mix nodes"
+const MixNotMountedReason* = "mix is not mounted"
+
+const MixPoolTooSmallReason* =
+  "mix knows fewer than " & $MinMixPoolSize & " usable mix nodes"
   ## The pool counts only members with an address that mix routes.
+
+const MixNodesExcludedReason* =
+  MixPoolTooSmallReason & " and knows mix nodes that it cannot use. " &
+  MixAllowAllAddressesHint
 
 const MixSelfHopReason* = "this node has no address that mix can use for replies"
   ## An IPv6-only or name-only announcement, or a NAT mapping not yet arrived.
@@ -30,7 +36,9 @@ type
   MixUnusable* {.pure.} = enum
     ## Why mix cannot attempt a task now.
     None
-    Unavailable
+    NotMounted
+    PoolTooSmall
+    NodesExcluded
     SelfHop
     NoExit
 
@@ -46,7 +54,9 @@ proc reason*(unusable: MixUnusable): string =
   ## The text written to `errorDesc` and the log lines.
   case unusable
   of MixUnusable.None: ""
-  of MixUnusable.Unavailable: MixUnavailableReason
+  of MixUnusable.NotMounted: MixNotMountedReason
+  of MixUnusable.PoolTooSmall: MixPoolTooSmallReason
+  of MixUnusable.NodesExcluded: MixNodesExcludedReason
   of MixUnusable.SelfHop: MixSelfHopReason
   of MixUnusable.NoExit: MixNoExitReason
 
@@ -80,12 +90,16 @@ proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
 
 proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
   ## Why mix cannot attempt `task` now, with no network call. It splits
-  ## `mixReady()` into the self hop and the pool, then checks the exit with
+  ## `mixReady()` into the mount, the self hop and the pool, then checks the exit with
   ## `selectMixLightpushPeer`, as `lightpushPublishToAny(mixify = true)` does.
   if not self.waku.mixReady():
-    if self.waku.mixMounted() and not self.waku.mixSelfHopUsable():
+    if not self.waku.mixMounted():
+      return MixUnusable.NotMounted
+    if not self.waku.mixSelfHopUsable():
       return MixUnusable.SelfHop
-    return MixUnusable.Unavailable
+    if self.waku.mixHasExcludedNodes():
+      return MixUnusable.NodesExcluded
+    return MixUnusable.PoolTooSmall
   if self.waku.selectMixLightpushPeer(task.pubsubTopic).isNone():
     return MixUnusable.NoExit
   return MixUnusable.None

@@ -20,6 +20,7 @@ type MixConfBuilder* = object
   enabled: Opt[bool]
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
+  allowAllAddresses: bool
   mixRlnConfig: Opt[ModuleRlnConfig]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
@@ -35,6 +36,9 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   ## Appends, so a preset's mix nodes and the ones given on the command line
   ## both end up in the pool.
   b.mixNodes = concat(b.mixNodes, mixNodes)
+
+proc withAllowAllAddresses*(b: var MixConfBuilder, allowAllAddresses: bool) =
+  b.allowAllAddresses = allowAllAddresses
 
 proc withMixRln*(b: var MixConfBuilder, config: ModuleRlnConfig) =
   b.mixRlnConfig = Opt.some(config)
@@ -54,6 +58,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixKey: mixPrivKey,
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
+            allowAllAddresses: b.allowAllAddresses,
             mixRlnConfig: b.mixRlnConfig,
           )
         )
@@ -67,6 +72,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixKey: mixPrivKey,
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
+            allowAllAddresses: b.allowAllAddresses,
             mixRlnConfig: b.mixRlnConfig,
           )
         )

@@ -2,8 +2,8 @@ import std/json
 import chronos, results, ffi, stew/byteutils
 import libp2p/[peerid, multiaddress]
 import libp2p/crypto/[crypto, secp]
-import libp2p_mix/[mix_protocol, mix_node, curve25519, pool]
-import logos_delivery, logos_delivery/waku/node/peer_manager
+import libp2p_mix/[mix_protocol, mix_node, curve25519]
+import logos_delivery, logos_delivery/waku/waku_mix
 import library/declare_lib
 
 proc waku_mix_get_peer_record(
@@ -52,12 +52,8 @@ proc waku_mix_add_peer(
     let publicKey = PublicKey(scheme: Secp256k1, skkey: pubkey)
     if PeerId.init(publicKey).valueOr(default(PeerId)) != peerId:
       return err("Mix peer id does not match public key")
-    mix.nodePool.add(MixPubInfo.init(peerId, address, key, pubkey))
-    self.waku.node.peerManager.addPeer(
-      RemotePeerInfo.init(
-        peerId, @[address], publicKey = publicKey, mixPubKey = Opt.some(key)
-      )
-    )
+    mix.addPeer(MixPubInfo.init(peerId, address, key, pubkey)).isOkOr:
+      return err(error)
     return ok("{}")
   except CatchableError as exc:
     return err("Invalid Mix peer record: " & exc.msg)
