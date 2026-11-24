@@ -117,7 +117,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
       self: ServicePeerDiscovery,
       key: string,
       data: seq[byte],
-      secondary: seq[DiscoveredService],
+      extraServices: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -127,7 +127,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     let serviceId = ?serviceIdOf(key)
     let peerInfo = self.inner.protocol.switch.peerInfo
     let record = signedServiceRecord(
-      peerInfo, peerInfo.privateKey, serviceId, data, secondary
+      peerInfo, peerInfo.privateKey, serviceId, data, extraServices
     ).valueOr:
       # The record that is advertised is outdated, so it stops even though the
       # new one cannot be signed.

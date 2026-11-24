@@ -739,14 +739,14 @@ suite "ExternalServiceDiscovery":
       fake.lastData[0] == 7'u8
       fake.advertRefusedAsHeld.load() == 0
 
-    ## The secondary services are part of the record the plugin holds, so a
+    ## The extra services are part of the record the plugin holds, so a
     ## change in them alone is sent again too.
-    let secondary = @[DiscoveredService(id: "/y/1.0.0", data: @[9'u8])]
-    check (await iface.startAdvertising("service:x", @[7'u8], secondary)).isOk()
+    let extraServices = @[DiscoveredService(id: "/y/1.0.0", data: @[9'u8])]
+    check (await iface.startAdvertising("service:x", @[7'u8], extraServices)).isOk()
     check eventually(fake.advertTaken.load() == 3)
     check fake.stopAdvertCalls.load() == 2
 
-    check (await iface.startAdvertising("service:x", @[7'u8], secondary)).isOk()
+    check (await iface.startAdvertising("service:x", @[7'u8], extraServices)).isOk()
     check:
       backend.pendingAnnouncements() == 0
       fake.advertTaken.load() == 3

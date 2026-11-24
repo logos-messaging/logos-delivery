@@ -10,7 +10,7 @@ type FakeBackend* = ref object of IPeerDiscovery
   kinds: seq[string]
   advertised*: seq[string]
   advertisedData*: seq[seq[byte]]
-  advertisedSecondary*: seq[seq[DiscoveredService]]
+  advertisedExtraServices*: seq[seq[DiscoveredService]]
   withdrawn*: seq[string]
   interests*: seq[string]
   pauseNextAdvert*: Future[void].Raising([CancelledError])
@@ -26,11 +26,14 @@ BrokerImplement FakeBackend of IPeerDiscovery:
     ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
 
   method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte], secondary: seq[DiscoveredService]
+      self: FakeBackend,
+      key: string,
+      data: seq[byte],
+      extraServices: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     self.advertised.add(key)
     self.advertisedData.add(data)
-    self.advertisedSecondary.add(secondary)
+    self.advertisedExtraServices.add(extraServices)
     let pause = self.pauseNextAdvert
     self.pauseNextAdvert = nil
     if not pause.isNil():

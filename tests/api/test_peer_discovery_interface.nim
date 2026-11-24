@@ -50,7 +50,7 @@ BrokerImplement MockDiscovery of IPeerDiscovery:
       self: MockDiscovery,
       key: string,
       data: seq[byte],
-      secondary: seq[DiscoveredService],
+      extraServices: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     if key.len == 0:
       return err("mock: empty key")

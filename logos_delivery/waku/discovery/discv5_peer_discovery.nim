@@ -190,10 +190,10 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       self: Discv5PeerDiscovery,
       key: string,
       data: seq[byte],
-      secondary: seq[DiscoveredService],
+      extraServices: seq[DiscoveredService],
   ): Future[Result[void, string]] {.async.} =
     ## Advertising for discv5 = mutating our own ENR; only topic: keys map.
-    ## An ENR has no list of services, so `secondary` is only for the Kademlia
+    ## An ENR has no list of services, so `extraServices` is only for the Kademlia
     ## backends and has no effect here.
     if not self.running:
       return err("discv5 backend: not running")

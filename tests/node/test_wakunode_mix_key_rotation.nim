@@ -68,9 +68,9 @@ suite "Waku Mix - key rotation":
   proc mixKeys(backend: FakeBackend): seq[seq[byte]] =
     ## The mix key of each record the backend was asked to advertise.
     var keys: seq[seq[byte]]
-    for secondary in backend.advertisedSecondary:
-      if secondary.len == 1 and secondary[0].id == MixProtocolID:
-        keys.add(secondary[0].data)
+    for extraServices in backend.advertisedExtraServices:
+      if extraServices.len == 1 and extraServices[0].id == MixProtocolID:
+        keys.add(extraServices[0].data)
     return keys
 
   proc rotate(node: WakuNode, intervals = 1) =
@@ -171,9 +171,9 @@ suite "Waku Mix - key rotation":
     node.wakuMixRln = ModuleRlnProtection()
     node.mixAdvertChanged("test: the Mix membership ended")
     checkUntilTimeout:
-      backend.advertisedSecondary.len == 2
+      backend.advertisedExtraServices.len == 2
     check:
-      backend.advertisedSecondary[1].len == 0
+      backend.advertisedExtraServices[1].len == 0
       not advertisedCapabilities(backend.advertisedData[1])
         .expect("a delivery payload")
         .supportsCapability(Capabilities.Mix)
