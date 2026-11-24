@@ -1,3 +1,10 @@
+## v0.41.0 (unreleased)
+
+### Changes
+
+- Filter: reuse the push stream per subscriber, so pushes no longer leak streams and stop after ~100 messages over QUIC ([#4843](https://github.com/logos-messaging/logos-delivery/pull/4843))
+- Build: bump nim-libp2p to 2.5.1, which sets the protocol of write-only streams and stops gossipsub retries to peers without pubsub ([#4845](https://github.com/logos-messaging/logos-delivery/pull/4845))
+
 ## v0.40.0 (2026-11-12)
 
 ### Notes
