@@ -22,6 +22,12 @@ const MixNoExitReason* = "no mix node serves lightpush on the shard of the messa
 const MixTooLargeReason* = "message too large for mix"
   ## One mix message carries much less than the plain path.
 
+const MixRetryInterval* = chronos.seconds(5)
+  ## The least time between the starts of two mix attempts of a task. With Mix RLN,
+  ## each attempt makes a proof, also one that fails at once, for example because
+  ## the first hop refuses the dial. The value is that of `MixReplyTimeout`, the
+  ## limit of an attempt with no reply.
+
 const MixUnusableGrace* = chronos.seconds(3)
   ## How long after its message timestamp a `Required` task waits for a mounted
   ## mix that cannot attempt it. Retries come `RetryInterval` apart.
@@ -77,6 +83,12 @@ proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
   ## attempts at either level. The window runs from the message timestamp, as
   ## the delivery window does, so a new RLN proof does not start it again.
   return task.messageAge() > self.mixWindow
+
+proc mixAttemptDue(task: DeliveryTask): bool =
+  ## True when no mix attempt of `task` started in the last `MixRetryInterval`.
+  return
+    task.lastMixAttemptTime.isNone() or
+    Moment.now() - task.lastMixAttemptTime.get() >= MixRetryInterval
 
 proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
   ## Why mix cannot attempt `task` now, with no network call. It splits
@@ -181,6 +193,11 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     task.errorDesc = ""
     task.state = DeliveryState.FallbackRetry
     return
+
+  if not task.mixAttemptDue():
+    task.state = DeliveryState.NextRoundRetry
+    return
+  task.lastMixAttemptTime = Opt.some(Moment.now())
 
   # Mark before the attempt: the exit publishes before it replies, so a message
   # whose reply is lost is still on the network. From here on, the send service
