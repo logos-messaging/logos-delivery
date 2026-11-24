@@ -12,7 +12,11 @@ proc getNilPushHandler*(): PushMessageHandler =
   ): Future[WakuLightPushResult] {.async.} =
     return lightpushResultInternalError("no waku relay found")
 
-proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
+proc getRelayPushHandler*(
+    wakuRelay: WakuRelay, handleAsReceived = false
+): PushMessageHandler =
+  ## `handleAsReceived` is for the lightpush server: the messages it publishes are
+  ## its clients', so its own subscribers receive them (see `WakuRelay.publish`).
   return proc(
       pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
@@ -27,7 +31,9 @@ proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
     (await wakuRelay.validateMessage(pubSubTopic, message)).isOkOr:
       return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, $error)
 
-    let publishedResult = (await wakuRelay.publish(pubsubTopic, message)).valueOr:
+    let publishedResult = (
+      await wakuRelay.publish(pubsubTopic, message, handleAsReceived)
+    ).valueOr:
       let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
       debug "Lightpush request has not been published to any peers",
         msg_hash = msgHash, reason = $error

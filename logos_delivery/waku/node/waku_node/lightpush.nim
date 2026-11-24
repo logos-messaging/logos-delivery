@@ -21,7 +21,6 @@ import
   libp2p_mix
 
 import
-  logos_delivery/api/events/kernel_events, # MessageSeenEvent
   ../waku_node,
   ../../waku_core,
   ../../waku_core/topics/sharding,
@@ -93,31 +92,6 @@ proc publishOverMix*(
   return await publishFut
 
 ## Waku lightpush
-proc announceServedMessage(
-    node: WakuNode, handler: lightpush_protocol.PushMessageHandler
-): lightpush_protocol.PushMessageHandler =
-  ## A message a client lightpushes did not come from this node's own app, but
-  ## relay `publish` serves it as an own message and skips the app. Tell the
-  ## app that the message was seen, as if it had come from the network.
-  return proc(
-      pubsubTopic: PubsubTopic, message: WakuMessage
-  ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
-    let pushed = await handler(pubsubTopic, message)
-    if pushed.isOk():
-      MessageSeenEvent.emit(node.brokerCtx, pubsubTopic, message)
-    return pushed
-
-proc announceServedMessage(
-    node: WakuNode, handler: legacy_lightpush_protocol.PushMessageHandler
-): legacy_lightpush_protocol.PushMessageHandler =
-  return proc(
-      pubsubTopic: PubsubTopic, message: WakuMessage
-  ): Future[legacy_lightpush_protocol.WakuLightPushResult[void]] {.async.} =
-    let pushed = await handler(pubsubTopic, message)
-    if pushed.isOk():
-      MessageSeenEvent.emit(node.brokerCtx, pubsubTopic, message)
-    return pushed
-
 proc mountLegacyLightPush*(
     node: WakuNode, rateLimit: RateLimitSetting = DefaultGlobalNonRelayRateLimit
 ): Future[Result[void, string]] {.async.} =
@@ -127,8 +101,8 @@ proc mountLegacyLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting legacy lightpush with relay"
-  let pushHandler = node.announceServedMessage(
-    legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay)
+  let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(
+    node.wakuRelay, handleAsReceived = true
   )
 
   node.wakuLegacyLightPush = WakuLegacyLightPush.new(
@@ -269,7 +243,7 @@ proc mountLightPush*(
 
   info "mounting lightpush with relay"
   let pushHandler =
-    node.announceServedMessage(lightpush_protocol.getRelayPushHandler(node.wakuRelay))
+    lightpush_protocol.getRelayPushHandler(node.wakuRelay, handleAsReceived = true)
 
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager,

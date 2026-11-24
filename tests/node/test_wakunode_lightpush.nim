@@ -572,6 +572,48 @@ suite "Waku Lightpush message delivery":
     require await seenFut.withTimeout(5.seconds)
     check seenFut.read() == message
 
+  asyncTest "A lightpushed message reaches the relay subscribers of the service node":
+    ## The service node publishes it, so gossipsub never brings it back. The
+    ## message is the client's, so the service node's own subscribers get it.
+    ## Setup
+    let
+      lightNode = newTestWakuNode(generateSecp256k1Key())
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
+
+    await allFutures(lightNode.start(), serviceNode.start())
+
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+    lightNode.mountLightPushClient()
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let
+      message = fakeWakuMessage(contentTopic = DefaultContentTopic)
+      serviceRemotePeerInfo = serviceNode.peerInfo.toRemotePeerInfo()
+
+    var received: seq[(PubsubTopic, WakuMessage)]
+    proc relayHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      received.add((topic, msg))
+
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), relayHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+
+    discard
+      await lightNode.peerManager.dialPeer(serviceRemotePeerInfo, WakuLightPushCodec)
+
+    ## When the light node lightpushes a message through the service node, which
+    ## has no relay peer
+    discard await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+
+    ## Then the relay subscriber of the service node gets it, once
+    check received == @[(CustomPubsubTopic, message)]
+
+    ## Cleanup
+    await allFutures(lightNode.stop(), serviceNode.stop())
+
   asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
     ## Setup
     let
