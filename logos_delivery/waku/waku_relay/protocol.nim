@@ -190,10 +190,6 @@ type
     selfHandled: TimedCache[MessageId]
       ## Ids `publish` already handed to `ownMessageHandler` or, for a message
       ## published for a peer, to the `subscribe` handlers.
-    servedForPeer: TimedCache[MessageId]
-      ## Ids `publishForPeer` handed to the `subscribe` handlers. With no relay
-      ## peer, gossipsub did not mark them seen, so a copy arriving later from
-      ## the network is still relayed but not handed to them again.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -429,9 +425,6 @@ proc new*(
 
     procCall GossipSub(w).initPubSub()
     w.selfHandled = TimedCache[MessageId].init(
-      GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
-    )
-    w.servedForPeer = TimedCache[MessageId].init(
       GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
     )
     w.topicsHealth = initTable[string, TopicHealth]()
@@ -690,12 +683,6 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   let topicHandler = proc(
       pubsubTopic: string, data: seq[byte]
   ): Future[void] {.gcsafe, raises: [].} =
-    if w.servedForPeer.len > 0:
-      let msgId = w.msgIdProvider(Message(data: data, topic: pubsubTopic))
-      if msgId.isOk() and msgId.get() in w.servedForPeer:
-        let fut = newFuture[void]()
-        fut.complete()
-        return fut
     let decMsg = WakuMessage.decode(data).valueOr:
       debug "Failed to decode WakuMessage, validator passed a wrong message",
         pubsubTopic = pubsubTopic, error = error
@@ -767,34 +754,21 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHealthDirty.excl(pubsubTopic)
 
 type LocalDelivery = proc(
-  w: WakuRelay,
-  pubsubTopic: PubsubTopic,
-  message: WakuMessage,
-  data: seq[byte],
-  msgId: MessageId,
+  w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
 ): Future[void] {.async, nimcall.}
 
 proc deliverAsOwn(
-    w: WakuRelay,
-    pubsubTopic: PubsubTopic,
-    message: WakuMessage,
-    data: seq[byte],
-    msgId: MessageId,
+    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
 ) {.async.} =
   if not w.ownMessageHandler.isNil():
     await w.ownMessageHandler(pubsubTopic, message)
 
 proc deliverAsReceived(
-    w: WakuRelay,
-    pubsubTopic: PubsubTopic,
-    message: WakuMessage,
-    data: seq[byte],
-    msgId: MessageId,
+    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
 ) {.async.} =
   # Gossipsub does not bring a message back to its publisher, so the
   # `subscribe` handlers get it here. They serve it too.
   await procCall PubSub(w).handleData(pubsubTopic, data)
-  discard w.servedForPeer.put(msgId)
 
 proc publishImpl(
     w: WakuRelay,
@@ -847,7 +821,7 @@ proc publishImpl(
   if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
     msgId
   ):
-    await deliverLocally(w, pubsubTopic, message, data, msgId)
+    await deliverLocally(w, pubsubTopic, message, data)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)

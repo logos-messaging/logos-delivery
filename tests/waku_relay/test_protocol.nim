@@ -1273,63 +1273,6 @@ suite "Waku Relay":
         messageSeq == @[(pubsubTopic, wakuMessage)]
         ownMessageSeq.len == 0
 
-    asyncTest "A message published for a peer with no relay peer is relayed but not handled again when it arrives over relay":
-      # Given a subscribed node that published a message for a peer with no relay peer
-      let laterMessage = fakeWakuMessage("later")
-      var received: seq[WakuMessage]
-      let laterArrived = newFuture[void]("later-arrived")
-      proc recordingHandler(
-          topic: PubsubTopic, msg: WakuMessage
-      ): Future[void] {.async, closure, gcsafe.} =
-        received.add(msg)
-        if msg == laterMessage and not laterArrived.finished():
-          laterArrived.complete()
-
-      node.subscribe(pubsubTopic, recordingHandler)
-      discard await node.publishForPeer(pubsubTopic, wakuMessage)
-      check received == @[wakuMessage]
-
-      # And two relay peers that join later, each connected only to the node
-      let
-        otherSwitch = newTestSwitch()
-        otherNode = await newTestWakuRelay(otherSwitch)
-        thirdSwitch = newTestSwitch()
-        thirdNode = await newTestWakuRelay(thirdSwitch)
-      await allFutures(
-        otherSwitch.start(), otherNode.start(), thirdSwitch.start(), thirdNode.start()
-      )
-      check await peerManager.connectPeer(otherSwitch.peerInfo.toRemotePeerInfo())
-      check await peerManager.connectPeer(thirdSwitch.peerInfo.toRemotePeerInfo())
-
-      var thirdReceived: seq[WakuMessage]
-      let relayedToThird = newFuture[void]("relayed-to-third")
-      proc thirdHandler(
-          topic: PubsubTopic, msg: WakuMessage
-      ): Future[void] {.async, closure, gcsafe.} =
-        thirdReceived.add(msg)
-        if msg == wakuMessage and not relayedToThird.finished():
-          relayedToThird.complete()
-
-      otherNode.subscribe(pubsubTopic, simpleFutureHandler)
-      thirdNode.subscribe(pubsubTopic, thirdHandler)
-      checkUntilTimeout:
-        node.hasMeshPeer(pubsubTopic, otherSwitch.peerInfo.peerId)
-        node.hasMeshPeer(pubsubTopic, thirdSwitch.peerInfo.peerId)
-
-      # When one peer publishes the same message, then another one
-      discard await otherNode.publish(pubsubTopic, wakuMessage)
-      discard await otherNode.publish(pubsubTopic, laterMessage)
-
-      # Then the node relays the copy to the other peer
-      check await relayedToThird.withTimeout(FUTURE_TIMEOUT)
-      # And handles only the other message
-      check await laterArrived.withTimeout(FUTURE_TIMEOUT)
-      check received == @[wakuMessage, laterMessage]
-
-      await allFutures(
-        otherSwitch.stop(), otherNode.stop(), thirdSwitch.stop(), thirdNode.stop()
-      )
-
     asyncTest "A message published to a topic the node is not subscribed to skips the own message handler":
       # Given a node with an own message handler, not subscribed to the topic
       var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]
