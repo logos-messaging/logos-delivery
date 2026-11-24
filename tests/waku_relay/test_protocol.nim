@@ -1273,6 +1273,42 @@ suite "Waku Relay":
         messageSeq == @[(pubsubTopic, wakuMessage)]
         ownMessageSeq.len == 0
 
+    asyncTest "A message published for a peer with no relay peer is not handled again when it arrives over relay":
+      # Given a subscribed node that published a message for a peer with no relay peer
+      let laterMessage = fakeWakuMessage("later")
+      var received: seq[WakuMessage]
+      let laterArrived = newFuture[void]("later-arrived")
+      proc recordingHandler(
+          topic: PubsubTopic, msg: WakuMessage
+      ): Future[void] {.async, closure, gcsafe.} =
+        received.add(msg)
+        if msg == laterMessage and not laterArrived.finished():
+          laterArrived.complete()
+
+      node.subscribe(pubsubTopic, recordingHandler)
+      discard await node.publishForPeer(pubsubTopic, wakuMessage)
+      check received == @[wakuMessage]
+
+      # And a relay peer that joins later
+      let
+        otherSwitch = newTestSwitch()
+        otherNode = await newTestWakuRelay(otherSwitch)
+      await allFutures(otherSwitch.start(), otherNode.start())
+      check await peerManager.connectPeer(otherSwitch.peerInfo.toRemotePeerInfo())
+      otherNode.subscribe(pubsubTopic, simpleFutureHandler)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherSwitch.peerInfo.peerId)
+
+      # When the peer publishes the same message, then another one
+      discard await otherNode.publish(pubsubTopic, wakuMessage)
+      discard await otherNode.publish(pubsubTopic, laterMessage)
+
+      # Then the node handles only the other one
+      check await laterArrived.withTimeout(FUTURE_TIMEOUT)
+      check received == @[wakuMessage, laterMessage]
+
+      await allFutures(otherSwitch.stop(), otherNode.stop())
+
     asyncTest "A message published to a topic the node is not subscribed to skips the own message handler":
       # Given a node with an own message handler, not subscribed to the topic
       var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]

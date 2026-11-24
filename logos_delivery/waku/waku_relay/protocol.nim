@@ -189,7 +189,8 @@ type
       ## handlers are not called: the message did not come from the network.
     selfHandled: TimedCache[MessageId]
       ## Ids `publish` already handed to `ownMessageHandler` or, for a message
-      ## published for a peer, to the `subscribe` handlers.
+      ## published for a peer, to the `subscribe` handlers. The validator
+      ## ignores them when they arrive from the network.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -614,6 +615,15 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
         messageSizeBytes = message.payloadBytes.len,
         maxMessageSize = w.maxEncodedMessageSize
       return ValidationResult.Reject
+
+    # `publish` already handed this message to this node's handlers. With no
+    # relay peer, gossipsub did not mark it seen, so a copy arriving later
+    # would reach the handlers a second time.
+    if w.selfHandled.len > 0:
+      let msgId = w.msgIdProvider(message).valueOr:
+        return error
+      if msgId in w.selfHandled:
+        return ValidationResult.Ignore
 
     # can be optimized by checking if the message is a WakuMessage without allocating memory
     # see nim-libp2p protobuf library
