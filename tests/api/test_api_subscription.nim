@@ -224,12 +224,17 @@ proc newFilterServiceNode(
     shard: PubsubTopic, clusterId = TestClusterId, bindPort = Port(0), start = true
 ): Future[WakuNode] {.async.} =
   ## A relay node that serves filter on `shard`. With `start` false, the caller
-  ## starts it and subscribes it to `shard` with `serveShard`.
+  ## starts it and subscribes it to `shard` with `serveShard`. A node with a
+  ## `bindPort` has no QUIC, because only the TCP port is known to be free.
   let shardId = RelayShard.parse(shard).get().shardId
   var filterNode: WakuNode
   lockNewGlobalBrokerContext:
-    filterNode =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), bindPort)
+    filterNode = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("127.0.0.1"),
+      bindPort,
+      quicEnabled = bindPort == Port(0),
+    )
     filterNode.mountMetadata(clusterId, @[shardId]).expect(
       "Failed to mount metadata on filterNode"
     )
