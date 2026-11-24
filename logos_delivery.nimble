@@ -35,7 +35,7 @@ requires "nim >= 2.2.12",
   "protobuf_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.5.0",
+  "libp2p == 2.5.1",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
