@@ -189,8 +189,11 @@ type
       ## handlers are not called: the message did not come from the network.
     selfHandled: TimedCache[MessageId]
       ## Ids `publish` already handed to `ownMessageHandler` or, for a message
-      ## published for a peer, to the `subscribe` handlers. The validator
-      ## ignores them when they arrive from the network.
+      ## published for a peer, to the `subscribe` handlers.
+    servedForPeer: TimedCache[MessageId]
+      ## Ids `publishForPeer` handed to the `subscribe` handlers. With no relay
+      ## peer, gossipsub did not mark them seen, so a copy arriving later from
+      ## the network is still relayed but not handed to them again.
     maxEncodedMessageSize*: int
       ## The max size of an encoded `WakuMessage`, from `--max-msg-size`.
       ## Gossipsub's `maxMessageSize` is the read cap of one RPC message, this
@@ -428,6 +431,9 @@ proc new*(
     w.selfHandled = TimedCache[MessageId].init(
       GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
     )
+    w.servedForPeer = TimedCache[MessageId].init(
+      GossipsubParameters.seenTTL, maxSize = GossipsubParameters.seenMaxSize
+    )
     w.topicsHealth = initTable[string, TopicHealth]()
     w.topicHealthUpdateEvent = newAsyncEvent()
     w.topicHealthDirty = initHashSet[string]()
@@ -616,15 +622,6 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
         maxMessageSize = w.maxEncodedMessageSize
       return ValidationResult.Reject
 
-    # `publish` already handed this message to this node's handlers. With no
-    # relay peer, gossipsub did not mark it seen, so a copy arriving later
-    # would reach the handlers a second time.
-    if w.selfHandled.len > 0:
-      let msgId = w.msgIdProvider(message).valueOr:
-        return error
-      if msgId in w.selfHandled:
-        return ValidationResult.Ignore
-
     # can be optimized by checking if the message is a WakuMessage without allocating memory
     # see nim-libp2p protobuf library
     let msg = WakuMessage.decode(message.payloadBytes).valueOr:
@@ -693,6 +690,12 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   let topicHandler = proc(
       pubsubTopic: string, data: seq[byte]
   ): Future[void] {.gcsafe, raises: [].} =
+    if w.servedForPeer.len > 0:
+      let msgId = w.msgIdProvider(Message(data: data, topic: pubsubTopic))
+      if msgId.isOk() and msgId.get() in w.servedForPeer:
+        let fut = newFuture[void]()
+        fut.complete()
+        return fut
     let decMsg = WakuMessage.decode(data).valueOr:
       debug "Failed to decode WakuMessage, validator passed a wrong message",
         pubsubTopic = pubsubTopic, error = error
@@ -764,21 +767,34 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHealthDirty.excl(pubsubTopic)
 
 type LocalDelivery = proc(
-  w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+  w: WakuRelay,
+  pubsubTopic: PubsubTopic,
+  message: WakuMessage,
+  data: seq[byte],
+  msgId: MessageId,
 ): Future[void] {.async, nimcall.}
 
 proc deliverAsOwn(
-    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+    w: WakuRelay,
+    pubsubTopic: PubsubTopic,
+    message: WakuMessage,
+    data: seq[byte],
+    msgId: MessageId,
 ) {.async.} =
   if not w.ownMessageHandler.isNil():
     await w.ownMessageHandler(pubsubTopic, message)
 
 proc deliverAsReceived(
-    w: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage, data: seq[byte]
+    w: WakuRelay,
+    pubsubTopic: PubsubTopic,
+    message: WakuMessage,
+    data: seq[byte],
+    msgId: MessageId,
 ) {.async.} =
   # Gossipsub does not bring a message back to its publisher, so the
   # `subscribe` handlers get it here. They serve it too.
   await procCall PubSub(w).handleData(pubsubTopic, data)
+  discard w.servedForPeer.put(msgId)
 
 proc publishImpl(
     w: WakuRelay,
@@ -831,7 +847,7 @@ proc publishImpl(
   if fitsMaxSize and w.topicHandlers.hasKey(pubsubTopic) and not w.selfHandled.put(
     msgId
   ):
-    await deliverLocally(w, pubsubTopic, message, data)
+    await deliverLocally(w, pubsubTopic, message, data, msgId)
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)
