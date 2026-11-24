@@ -771,7 +771,7 @@ suite "SendService - Store validation loop":
       raiseAssert "mountMetadata: " & error
     var pushed: seq[WakuMessageHash]
     proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       pushed.add(computeMessageHash(pubsubTopic, message))
       return lightpushSuccessResult(1)
@@ -811,7 +811,7 @@ suite "SendService - Store validation loop":
     let pushStarted = newFuture[void]("push started")
     let releasePush = newFuture[void]("release push")
     proc stalledHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       if not pushStarted.finished():
         pushStarted.complete()
@@ -849,7 +849,7 @@ suite "SendService - Store validation loop":
       raiseAssert "mountMetadata: " & error
     var pushed: seq[WakuMessageHash]
     proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       pushed.add(computeMessageHash(pubsubTopic, message))
       return lightpushSuccessResult(1)
@@ -880,7 +880,7 @@ suite "SendService - Store validation loop":
       raiseAssert "mountMetadata: " & error
     var pushed: seq[WakuMessageHash]
     proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       pushed.add(computeMessageHash(pubsubTopic, message))
       return lightpushSuccessResult(1)
@@ -916,7 +916,7 @@ suite "SendService - Store validation loop":
       raiseAssert "mountMetadata: " & error
     var pushed: seq[WakuMessageHash]
     proc pushHandler(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       pushed.add(computeMessageHash(pubsubTopic, message))
       return lightpushSuccessResult(1)
