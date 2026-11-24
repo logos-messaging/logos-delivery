@@ -18,7 +18,7 @@ logScope:
 type WakuLightPush* = ref object of LPProtocol
   rng*: crypto.Rng
   peerManager*: PeerManager
-  pushHandler*: PushMessageHandler
+  pushHandler*: PushRequestHandler
   requestRateLimiter*: RequestRateLimiter
   autoSharding: Opt[Sharding]
   maxRpcSize: int
@@ -68,7 +68,7 @@ proc handleRequest(
     msg_hash = msg_hash,
     receivedTime = getNowInNanosecondTime()
 
-  let res = (await wl.pushHandler(pubsubTopic, pushRequest.message)).valueOr:
+  let res = (await wl.pushHandler(peerId, pubsubTopic, pushRequest.message)).valueOr:
     return err((code: error.code, desc: error.desc))
   return ok(res)
 
@@ -164,7 +164,7 @@ proc new*(
     T: type WakuLightPush,
     peerManager: PeerManager,
     rng: crypto.Rng,
-    pushHandler: PushMessageHandler,
+    pushHandler: PushRequestHandler,
     autoSharding: Opt[Sharding],
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
     maxMessageSize: int,

@@ -19,8 +19,8 @@ suite "Rate limited push service":
 
     ## Given
     var handlerFuture = newFuture[(string, WakuMessage)]()
-    let handler: PushMessageHandler = proc(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+    let handler: PushRequestHandler = proc(
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       handlerFuture.complete((pubsubTopic, message))
       return lightpushSuccessResult(1) # succeed to publish to 1 peer.
@@ -86,7 +86,7 @@ suite "Rate limited push service":
     # CI can be slow enough that sequential requests accidentally refill tokens.
     # Instead we issue a small burst and assert we observe at least one rejection.
     let handler = proc(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       return lightpushSuccessResult(1)
 
