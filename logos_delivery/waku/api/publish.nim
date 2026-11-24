@@ -107,7 +107,7 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
   ## first, then draws one usable pool member uniformly. It reads the pool of the
   ## mix protocol, so it accepts the same hop addresses as the paths do.
-  if self.node.wakuMix.isNil():
+  if self.node.wakuMix.isNil() or self.node.wakuMix.nodePool.isNil():
     return Opt.none(RemotePeerInfo)
   let peerStore = self.node.peerManager.switch.peerStore
   let pool = self.node.wakuMix.nodePool
