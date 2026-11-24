@@ -121,10 +121,10 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
 
 proc removeMixPubKey*(peerStore: PeerStore, peerId: PeerId) =
   ## Takes the peer out of the mix pool. For a peer whose delivery record says
-  ## it is no mix node (any more): it lost its Mix RLN membership, or it stopped
-  ## relaying. See `disclaimsMix`.
+  ## it is no mix node (any more): it lost its Mix RLN membership, it stopped
+  ## relaying, or it is on another cluster. See `disclaimsMix`.
   if peerStore[MixPubKeyBook].del(peerId):
-    debug "removed the mix pub key of a peer that advertises none any more",
+    debug "Removed the mix pub key of a peer whose record disclaims mix",
       peer_id = $peerId
 
 proc admitMixRecord*(peerStore: PeerStore, peerId: PeerId, seqNo: uint64): bool =
@@ -133,11 +133,13 @@ proc admitMixRecord*(peerStore: PeerStore, peerId: PeerId, seqNo: uint64): bool 
   ## serves the record it was handed until that expires, so a lookup can return
   ## a record older than one seen earlier or one that rendezvous delivered, for
   ## instance the keyless record a mix node advertises until its Mix RLN
-  ## membership is usable. Every sequence number is the Unix time of signing.
+  ## membership is usable. Every sequence number of an advert is the Unix time
+  ## of signing.
   ##
   ## Call it only for a record that carries a mix key or disclaims mix. A
-  ## record that says neither, like the one libp2p publishes under a node's own
-  ## peer id, has a sequence of its own and must not outdate the node's advert.
+  ## record that says neither, like the one libp2p publishes under the peer id
+  ## of a mix node of our cluster, has a sequence of its own and must not outdate
+  ## the node's advert.
   if seqNo < peerStore[MixRecordSeqBook][peerId]:
     return false
   peerStore[MixRecordSeqBook][peerId] = seqNo

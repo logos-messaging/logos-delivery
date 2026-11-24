@@ -61,6 +61,21 @@ suite "WakuNodeConf - preset integration":
       wakuConf.kademliaDiscoveryConf.get().bootstrapNodes.len ==
         preset.kadBootstrapNodes.len + preset.entryNodes.len
 
+  test "LogosDev preset gives the kad discovery the node's cluster":
+    ## The kad discovery takes a mix key only from a record of this cluster.
+    var conf = defaultKernelConf().valueOr:
+      raiseAssert error
+    conf.preset = "logosdev"
+
+    let wakuConf = conf.toWakuConf().valueOr:
+      checkpoint error
+      fail()
+      return
+    check:
+      wakuConf.clusterId == 3
+      wakuConf.kademliaDiscoveryConf.isSome() and
+        wakuConf.kademliaDiscoveryConf.get().clusterId == 3
+
   test "LogosTest preset applies LogosTestConf":
     ## Given
     var conf = defaultKernelConf().valueOr:

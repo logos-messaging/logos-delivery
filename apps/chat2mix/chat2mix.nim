@@ -475,6 +475,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     if kadBootstrapPeers.len > 0:
       node.mountKademlia(
         KademliaDiscoveryConf(
+          clusterId: conf.clusterId,
           bootstrapNodes: kadBootstrapPeers,
           servicesToDiscover: toHashSet([LogosDeliveryServiceId]),
           randomLookupInterval: chronos.seconds(60),

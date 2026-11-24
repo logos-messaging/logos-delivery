@@ -336,3 +336,10 @@ suite "Delivery record into the peer store":
       peerStore.hasShard(pid, 16'u16, 1'u16)
       not peerStore.hasShard(pid, 16'u16, 3'u16)
       peerStore[ShardBook][pid].len == 0
+
+  test "a mix node of another cluster gives no mix key":
+    var peer = discovered(confWith(CoreFlags).withMix())
+    peer.services.add(DiscoveredService(id: MixProtocolID, data: mixKeyBytes()))
+    check:
+      peer.toRemotePeerInfo(16'u16).get().mixPubKey == mixKey()
+      peer.toRemotePeerInfo(7'u16).get().mixPubKey.isNone()

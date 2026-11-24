@@ -54,8 +54,8 @@ type WakuKademlia* = ref object
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
   ownClusterId: uint16
-    ## The records of other clusters claim no codecs and shards, see
-    ## `advertisedServing`.
+    ## The records of other clusters claim no codecs, shards or mix key, see
+    ## `advertisedServing` and `advertisedMixKey`.
   servicesToAdvertise: Table[string, AdvertisedService]
     ## Keyed by service id: libp2p keeps one record per service. In production
     ## the only key is `/logos/delivery`, whose record also lists the mix key.
@@ -94,7 +94,7 @@ proc remotePeerInfoFrom*(
   let (codecs, shards) = advertisedServing(record.discoveredServices(), ownClusterId)
   let protocols = deduplicate(record.services.mapIt(it.id) & codecs)
 
-  let mixPubKey = advertisedMixKey(record.discoveredServices())
+  let mixPubKey = advertisedMixKey(record.discoveredServices(), Opt.some(ownClusterId))
   if mixPubKey.isSome():
     trace "Successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
@@ -120,7 +120,8 @@ proc processRecords*(
 
     # An older record than the one that last told this peer's mix key neither
     # sets nor removes it.
-    let disclaims = disclaimsMix(record.discoveredServices())
+    let disclaims =
+      disclaimsMix(record.discoveredServices(), Opt.some(self.ownClusterId))
     let admitted =
       (peerInfo.mixPubKey.isSome() or disclaims) and
       self.peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, record.seqNo)
