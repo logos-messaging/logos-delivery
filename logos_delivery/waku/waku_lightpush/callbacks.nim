@@ -44,7 +44,17 @@ proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
   ## Publishes the messages of this node.
   return relayPushHandler(wakuRelay, publish)
 
-proc getRelayServerPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
+proc getRelayServerPushHandler*(
+    wakuRelay: WakuRelay, selfPeerId: PeerId
+): PushRequestHandler =
   ## Publishes the messages a lightpush server receives from its clients, so
-  ## its own subscribers receive them too (see `WakuRelay.publishForPeer`).
-  return relayPushHandler(wakuRelay, publishForPeer)
+  ## its own subscribers receive them too (see `WakuRelay.publishForPeer`). A
+  ## request this node makes to itself publishes its own message.
+  let ownPush = relayPushHandler(wakuRelay, publish)
+  let peerPush = relayPushHandler(wakuRelay, publishForPeer)
+  return proc(
+      peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+  ): Future[WakuLightPushResult] {.async.} =
+    if peerId == selfPeerId:
+      return await ownPush(pubsubTopic, message)
+    return await peerPush(pubsubTopic, message)

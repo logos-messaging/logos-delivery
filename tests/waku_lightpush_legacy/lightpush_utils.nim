@@ -15,7 +15,7 @@ import
 
 proc newTestWakuLegacyLightpushNode*(
     switch: Switch,
-    handler: PushMessageHandler,
+    handler: PushRequestHandler,
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
     maxMessageSize: int = int(DefaultMaxWakuMessageSize),
 ): Future[WakuLegacyLightPush] {.async.} =
