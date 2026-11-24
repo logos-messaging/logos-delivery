@@ -3,7 +3,7 @@
 This filled-out example follows the ADR template. For a more complex decision, use option headings within Alternatives Considered and give each tradeoff enough room.
 
 ```markdown
-# Use SQLite for local development database
+# ADR-0002: Use SQLite for local development database
 
 ## Context and Problem Statement
 
@@ -24,7 +24,7 @@ Migrating production to SQLite and building a full ORM abstraction are out of sc
 
 ## More Information
 
-- Related: [Use PostgreSQL for production](2025-05-01-use-postgresql-for-production.md)
+- Related: [Use PostgreSQL for production](0001-use-postgresql-for-production.md)
 - Implementation and verification: #347
 - PostgreSQL compatibility CI: #348
 - Revisit if dialect-drift bugs exceed two per quarter.

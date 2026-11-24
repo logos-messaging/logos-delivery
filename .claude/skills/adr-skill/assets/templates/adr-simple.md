@@ -1,4 +1,4 @@
-# {TITLE}
+# ADR-{NNNN}: {TITLE}
 
 ## Context and Problem Statement
 

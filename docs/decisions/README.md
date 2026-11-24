@@ -5,7 +5,8 @@ An Architecture Decision Record (ADR) captures an important architecture decisio
 ## Conventions
 
 - Directory: `docs/decisions/`
-- Naming: `YYYY-MM-DD-verb-phrase.md`
+- Naming: `NNNN-verb-phrase.md`, the next free four-digit number, headed `# ADR-NNNN: Title`; numbers are never reused
+- Index entry: `- NNNN — [Title](NNNN-verb-phrase.md) — YYYY-MM-DD`, the date the record was created
 - Format: Context and Problem Statement, Decision, Alternatives Considered, and optional More Information
 - Omit YAML frontmatter and explicit status fields; merging the ADR pull request accepts the decision
 - Include tradeoffs in the decision and alternatives; keep implementation and verification in issues or PRs
@@ -18,4 +19,5 @@ An Architecture Decision Record (ADR) captures an important architecture decisio
 
 ## ADRs
 
-- 2026-11-24 — [Let callers build liblogosdelivery with plain `nim c`](2026-11-24-let-callers-build-liblogosdelivery-with-plain-nim-c.md)
+None yet.
+

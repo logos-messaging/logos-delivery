@@ -29,14 +29,14 @@ When an architectural choice comes up during implementation, propose capturing i
 
 ### Draft
 
-Copy [assets/templates/adr-simple.md](assets/templates/adr-simple.md) to `docs/decisions/YYYY-MM-DD-verb-phrase.md`, fill or remove every placeholder, and add the record to the index. Alternatives can be short bullets or use option headings when they need more explanation; both fit the same template.
+Copy [assets/templates/adr-simple.md](assets/templates/adr-simple.md) to `docs/decisions/NNNN-verb-phrase.md`, using the next free number in the index (check open pull requests too), fill or remove every placeholder, and add the record to the index. Alternatives can be short bullets or use option headings when they need more explanation; both fit the same template.
 
 - **Context and Problem Statement**: the problem, trigger, and relevant constraints.
 - **Decision**: what is chosen, why, scope, non-goals, and accepted tradeoffs.
 - **Alternatives Considered**: the benefits and drawbacks of other options and why they were rejected. Avoid repeating the same tradeoffs in multiple sections.
 - **More Information** (optional): related records, PRs, issues, references, and revisit conditions.
 
-Do not add YAML frontmatter, a separate Consequences section, an Implementation Plan, or Verification checklists. Do not add explicit status fields; merging the ADR pull request accepts the decision. Dates belong in date-prefixed filenames and the index; participants can be credited in the linked discussion or pull request.
+Do not add YAML frontmatter, a separate Consequences section, an Implementation Plan, or Verification checklists. Do not add explicit status fields; merging the ADR pull request accepts the decision. The creation date belongs in the index; participants can be credited in the linked discussion or pull request.
 
 ### Review
 
@@ -51,7 +51,7 @@ Before changing architecture, scan the index and read relevant ADRs fully. Follo
 If implementation differs from a decision, flag the discrepancy. Do not silently replace an accepted decision with a different choice. Reference the governing ADR in the implementation PR, and add a lightweight code comment at a key entry point when it helps discoverability:
 
 ```nim
-# ADR: docs/decisions/2026-11-24-let-callers-build-liblogosdelivery-with-plain-nim-c.md
+# ADR: docs/decisions/0007-choose-a-storage-engine.md
 ```
 
 ADRs can link to the implementation PR or key code entry points in More Information without duplicating a file-by-file implementation plan.
