@@ -112,21 +112,21 @@ type SelfAdvert* = object
   data*: Opt[seq[byte]] ## None for a node that serves nothing: it advertises nothing.
   secondary*: seq[DiscoveredService]
 
-proc deliveryAdvertPart*(conf: WakuConf, shards: seq[uint16]): SelfAdvertPart =
+proc deliveryAdvertPart*(conf: WakuConf, shards: seq[uint16]): GetSelfAdvert =
   ## The record's own service. `shards` is what the node is actually subscribed
   ## to -- the caller resolves that, since the configured list is not the same
   ## thing under autosharding.
-  SelfAdvertPart(
+  GetSelfAdvert(
     service: DiscoveredService(
       id: LogosDeliveryServiceId, data: selfAdvertisementData(conf, shards)
     )
   )
 
-func mixAdvertPart*(mixKey: Curve25519Key): SelfAdvertPart =
+func mixAdvertPart*(mixKey: Curve25519Key): GetSelfAdvert =
   ## This node's current mix key, as the `/mix/1.0.0` service of the record.
-  SelfAdvertPart(service: DiscoveredService(id: MixProtocolID, data: @mixKey))
+  GetSelfAdvert(service: DiscoveredService(id: MixProtocolID, data: @mixKey))
 
-func assembleAdvert*(parts: openArray[SelfAdvertPart]): Result[SelfAdvert, string] =
+func assembleAdvert*(parts: openArray[GetSelfAdvert]): Result[SelfAdvert, string] =
   ## The record these parts make. The delivery part is the record: without it
   ## the node advertises nothing, whatever else is provided.
   ##

@@ -171,11 +171,9 @@ suite "Waku Kademlia node advertising":
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
     let shards = @[0'u16]
-    node.provideAdvertPart(
-      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
-        return ok(deliveryAdvertPart(conf, shards))
-    ).isOkOr:
-      raiseAssert "Failed to provide the delivery part: " & error
+    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+      return ok(deliveryAdvertPart(conf, shards))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
     (await node.mountRelay()).isOkOr:
       raiseAssert "Failed to mount relay: " & $error
     await node.start()

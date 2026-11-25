@@ -55,11 +55,9 @@ suite "Waku Mix - key rotation":
     let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
-    node.provideAdvertPart(
-      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
-        return ok(deliveryAdvertPart(conf, @[0'u16]))
-    ).isOkOr:
-      raiseAssert "Failed to provide the delivery part: " & error
+    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+      return ok(deliveryAdvertPart(conf, @[0'u16]))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
     # A node provides its mix key only when it relays for others.
     (await node.mountRelay()).isOkOr:
       raiseAssert "Failed to mount relay: " & $error
@@ -194,11 +192,9 @@ suite "Waku Mix - key rotation":
     checkUntilTimeout:
       backend.advertisedData.len == 1
 
-    node.provideAdvertPart(
-      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
-        return err("this part cannot be read")
-    ).isOkOr:
-      raiseAssert "Failed to provide the failing part: " & error
+    let provided = GetSelfAdvert.provideIt(node.brokerCtx):
+      return err("this part cannot be read")
+    node.keepAdvertProvider(provided.expect("provides the failing part"))
     node.rotate()
     # Nothing signals an advertisement that does not happen; one would start
     # within a few event-loop turns.

@@ -56,7 +56,7 @@ proc advertiseSelf(
   ## Advertises the record of a node with this configuration, as the node puts
   ## it together: the delivery part when it serves something, and the mix part
   ## while it has a mix key to advertise.
-  var parts: seq[SelfAdvertPart]
+  var parts: seq[GetSelfAdvert]
   if conf.wakuFlags.isServiceNode():
     parts.add(deliveryAdvertPart(conf, shards))
   if mixKey.isSome():
@@ -149,7 +149,7 @@ suite "Self advertisement":
 
   test "a part of another service is listed in the record as it is":
     let other =
-      SelfAdvertPart(service: DiscoveredService(id: "/other/1.0.0", data: @[7'u8]))
+      GetSelfAdvert(service: DiscoveredService(id: "/other/1.0.0", data: @[7'u8]))
     let advert = assembleAdvert(
         [other, deliveryAdvertPart(confWith(CoreFlags), TestShards)]
       )

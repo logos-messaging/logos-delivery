@@ -177,12 +177,12 @@ type
       ## not know, so that it is warned about once. None after a known state.
     mixMembershipLoop*: Future[void].Raising([CancelledError])
       ## Re-reads the Mix membership while Mix RLN runs; `nil` otherwise.
-    advertListener: Opt[SelfAdvertChangedEventListener]
+    advertListener: Opt[AdvertChangedEventListener]
       ## Advertises this node's record again when a part of it changed. Held
       ## from `startRecordAdvertising` until `stop`.
-    advertProviders: seq[SelfAdvertPartProviderHandle]
-      ## The parts of this node's record given with `provideAdvertPart`.
-    mixAdvertProvider: Opt[SelfAdvertPartProviderHandle]
+    advertProviders: seq[GetSelfAdvertProviderHandle]
+      ## The parts of this node's record given with `keepAdvertProvider`.
+    mixAdvertProvider: Opt[GetSelfAdvertProviderHandle]
       ## Provides the mix key while this node can act as a mix node.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
@@ -737,7 +737,7 @@ proc advertiseRecordAfter(
     return
   # A record that cannot be put together is not advertised: the one that is
   # advertised stays.
-  let parts = (await SelfAdvertPart.request(node.brokerCtx)).valueOr:
+  let parts = (await GetSelfAdvert.request(node.brokerCtx)).valueOr:
     error "Failed to collect this node's record; the advertised one stays",
       error = error
     return
@@ -759,13 +759,11 @@ proc readvertise(node: WakuNode) =
   node.recordAdvertisement =
     node.advertiseRecordAfter(node.recordAdvertisement, node.recordVersion)
 
-proc provideAdvertPart*(
-    node: WakuNode, provider: SelfAdvertPartProvider
-): Result[void, string] =
-  ## Adds a part to this node's record, until `stop`. The provider is asked for
-  ## it each time the record is advertised.
-  node.advertProviders.add(?SelfAdvertPart.setProvider(node.brokerCtx, provider))
-  return ok()
+proc keepAdvertProvider*(node: WakuNode, provider: GetSelfAdvertProviderHandle) =
+  ## Keeps a part of this node's record, provided with `GetSelfAdvert.provideIt`
+  ## on `node.brokerCtx`, until `stop` removes it. The provider is asked for
+  ## the part each time the record is advertised.
+  node.advertProviders.add(provider)
 
 proc syncMixAdvertProvider(node: WakuNode) =
   ## Provides this node's mix key as a part of its record while the node can
@@ -778,15 +776,14 @@ proc syncMixAdvertProvider(node: WakuNode) =
   if wanted == provided:
     return
   if not wanted:
-    SelfAdvertPart.removeProvider(node.brokerCtx, node.mixAdvertProvider.get())
-    node.mixAdvertProvider = Opt.none(SelfAdvertPartProviderHandle)
+    GetSelfAdvert.removeProvider(node.brokerCtx, node.mixAdvertProvider.get())
+    node.mixAdvertProvider = Opt.none(GetSelfAdvertProviderHandle)
     return
-  proc mixPart(): Future[Result[SelfAdvertPart, string]] {.async.} =
+  let registered = GetSelfAdvert.provideIt(node.brokerCtx):
     let key = node.wakuMix.currentMixPubKey().valueOr:
       return err("mix holds no key for this node")
     return ok(mixAdvertPart(key))
-
-  let handle = SelfAdvertPart.setProvider(node.brokerCtx, mixPart).valueOr:
+  let handle = registered.valueOr:
     error "Failed to provide this node's mix key for its record", error = error
     return
   node.mixAdvertProvider = Opt.some(handle)
@@ -795,7 +792,7 @@ proc mixAdvertChanged*(node: WakuNode, reason: string) =
   ## Reports that this node's mix part of the record changed: its mix key, or
   ## whether the node can act as a mix node.
   node.syncMixAdvertProvider()
-  SelfAdvertChangedEvent.emit(node.brokerCtx, SelfAdvertChangedEvent(reason: reason))
+  AdvertChangedEvent.emit(node.brokerCtx, AdvertChangedEvent(reason: reason))
 
 proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
   ## Advertises this node's record and returns once it is advertised. From then
@@ -805,13 +802,10 @@ proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
   ## With mix key rotation it returns at once, and the first advertisement runs
   ## in the background too.
   if node.advertListener.isNone():
-    proc onChanged(
-        event: SelfAdvertChangedEvent
-    ): Future[void] {.async: (raises: []).} =
-      debug "Advertising this node's record again", reason = event.reason
+    let listening = AdvertChangedEvent.listenIt(node.brokerCtx):
+      debug "Advertising this node's record again", reason = it.reason
       node.readvertise()
-
-    let listener = SelfAdvertChangedEvent.listen(node.brokerCtx, onChanged).valueOr:
+    let listener = listening.valueOr:
       error "Failed to listen for changes of this node's record", error = error
       return
     node.advertListener = Opt.some(listener)
@@ -837,11 +831,11 @@ proc stopRecordAdvertising(node: WakuNode) {.async: (raises: []).} =
     return
   if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
     node.wakuMix.keyRing().get().setKeyHandler(nil)
-  await SelfAdvertChangedEvent.dropListener(node.brokerCtx, node.advertListener.get())
-  node.advertListener = Opt.none(SelfAdvertChangedEventListener)
+  await AdvertChangedEvent.dropListener(node.brokerCtx, node.advertListener.get())
+  node.advertListener = Opt.none(AdvertChangedEventListener)
   node.syncMixAdvertProvider()
   for provider in node.advertProviders:
-    SelfAdvertPart.removeProvider(node.brokerCtx, provider)
+    GetSelfAdvert.removeProvider(node.brokerCtx, provider)
   node.advertProviders = @[]
   node.recordVersion.inc()
   if not node.recordAdvertisement.isNil():
