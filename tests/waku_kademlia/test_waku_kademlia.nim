@@ -380,7 +380,7 @@ suite "Waku Kademlia advertises records this node signs":
     for i in 0 ..< mixKey.len:
       mixKey[i] = byte(i)
 
-    proc advertise(mix: bool) {.async.} =
+    proc advertise(mix: bool, key = mixKey) {.async.} =
       let payload = cast[seq[byte]](base64.encode(
         @[
           AdvertFormatVersion,
@@ -391,7 +391,7 @@ suite "Waku Kademlia advertises records this node signs":
       ))
       let secondary =
         if mix:
-          @[DiscoveredService(id: MixProtocolID, data: mixKey)]
+          @[DiscoveredService(id: MixProtocolID, data: key)]
         else:
           @[]
       await wkA.replaceServiceToAdvertise(
@@ -426,6 +426,18 @@ suite "Waku Kademlia advertises records this node signs":
       if found.isSome() and found.get().isSome():
         break
     check found == Opt.some(Opt.some(intoCurve25519Key(mixKey)))
+
+    ## A rotated mix key changes the record and leaves the delivery payload as
+    ## it is, so the service that libp2p holds is the same one.
+    var rotatedKey = mixKey
+    rotatedKey[0] = 0xff'u8
+    await advertise(mix = true, key = rotatedKey)
+    for _ in 0 ..< 60:
+      await sleepAsync(500.milliseconds)
+      found = await foundMixKey()
+      if found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey))):
+        break
+    check found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
 
     await wkB.stop()
     await wkA.stop()
