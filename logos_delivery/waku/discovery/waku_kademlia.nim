@@ -335,6 +335,28 @@ proc addServiceToAdvertise*(
     self.servicesToAdvertise[service] = Opt.some(advert)
     debug "Added service to advertise", service = service.id
 
+proc removeServiceToAdvertise*(
+  self: WakuKademlia, service: ServiceInfo
+) {.async: (raises: [CancelledError]).}
+
+proc replaceServiceToAdvertise*(
+    self: WakuKademlia, service: ServiceInfo, advert: seq[byte]
+) {.async: (raises: [CancelledError]).} =
+  ## As `addServiceToAdvertise`, for a service this node may advertise already.
+  ## libp2p refuses a second record for a service, so a changed payload or
+  ## record takes the place of the old one. An unchanged one is left alone:
+  ## a new registration waits at the registrars again.
+  var current = Opt.none(ServiceInfo)
+  for advertised, record in self.servicesToAdvertise:
+    if advertised.id == service.id:
+      if advertised == service and record == Opt.some(advert):
+        return
+      current = Opt.some(advertised)
+      break
+  if current.isSome():
+    await self.removeServiceToAdvertise(current.get())
+  self.addServiceToAdvertise(service, advert)
+
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.missingOrExcl(service):
     self.protocol.unregisterInterest(service)
