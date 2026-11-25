@@ -542,6 +542,20 @@ suite "SendService - anonymity level with a mounted mix":
     )
     waku.node.peerManager.switch.peerStore.setShardInfo(peerId, @[0'u16])
 
+  proc addMixPeer(lightpush: bool) =
+    ## Adds a pool member at an address where nothing listens.
+    addMixPeer(1, lightpush)
+
+  proc fillPoolWithNoExit() =
+    for _ in 0 ..< MinMixPoolSize:
+      addMixPeer(lightpush = false)
+    doAssert waku.mixReady()
+
+  proc preferredMix(): MixSendProcessor =
+    return MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
+    )
+
   asyncTest "a Required task waits for a short pool during its grace, then fails":
     ## A short pool is a reason mix cannot attempt the task. A `Required` task
     ## waits while its admission is within `MixUnusableGrace`, then fails with
@@ -752,8 +766,19 @@ suite "SendService - anonymity level with a mounted mix":
       fut.completed()
       plain.calls == 2
       not task.anonymized
-      mix.fellBackFor() == MixUnusable.None
     await fut.cancelAndWait()
+
+  asyncTest "a Preferred task with deanonymized set goes to the plain path before the pool check":
+    fillPoolWithNoExit()
+    let mix = preferredMix()
+    let task = buildTask("deanonymized-before-pool-check", chronos.seconds(5))
+    task.deanonymized = true
+    await mix.process(task)
+    check:
+      task.state == DeliveryState.NextRoundRetry
+      not task.anonymized
+      # The pool has no exit, so a pool check would give `NoExit`.
+      mix.fellBackFor() == MixUnusable.None
 
   asyncTest "a Preferred task without a plain attempt retries over mix when an exit returns":
     for i in 0 ..< MinMixPoolSize:
