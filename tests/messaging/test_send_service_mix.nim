@@ -860,8 +860,7 @@ suite "SendService - anonymity level with a mounted mix":
     let task = buildTask("no-membership", ZeroDuration)
     await mix.process(task)
     check task.state == DeliveryState.NextRoundRetry
-    task.firstAdmittedTime =
-      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    task.stampAgo(MixUnusableGrace + chronos.seconds(1))
     await mix.process(task)
     check:
       plain.calls == 0
