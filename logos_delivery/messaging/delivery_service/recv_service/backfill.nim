@@ -5,6 +5,7 @@
 ## makes the record `Offline`. The backfill worker makes it `Online` after Store
 ## gives the messages up to the time when live delivery covered the topic again.
 ## An unsubscribe deletes the record.
+## A first subscribe with a start time makes an `Offline` record.
 {.push raises: [].}
 
 import std/[algorithm, sets]
@@ -35,6 +36,8 @@ const
   OutageWindow* = chronos.minutes(5).nanos
     ## An outage that the node detects now started at most this long before. It
     ## covers the lag of the health signal and the variance of the timestamps.
+  MaxStartTimeAge = chronos.hours(3).nanos
+    ## An older start time counts as this old, to limit the Store queries of its gap.
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
@@ -79,12 +82,17 @@ func newRecord*(
     live: bool,
     liveSince: Timestamp,
     variance = MaxMessageTimestampVariance,
+    startTime = Opt.none(Timestamp),
 ): TopicRecord =
   ## The record of a topic subscribed at `at`. When live delivery is ready now
   ## and did not change after the subscribe, it covers the topic from the
   ## subscribe, and the topic gets no history. Otherwise the record is
   ## `Offline` from the subscribe. The archive accepts a timestamp `variance`
   ## away from its clock, so the bound is `variance` below the subscribe.
+  ## With a `startTime`, the record is `Offline` from `variance` before that time.
+  if startTime.isSome():
+    let since = clamp(startTime.get(), at - MaxStartTimeAge, at)
+    return TopicRecord.init(since - variance, TopicRecordState.Offline)
   if live and liveSince <= at:
     return TopicRecord.init(at - variance, TopicRecordState.Online)
   return TopicRecord.init(at - variance, TopicRecordState.Offline)

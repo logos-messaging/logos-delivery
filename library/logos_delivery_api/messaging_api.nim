@@ -2,13 +2,13 @@ import std/[json]
 import chronos, results, ffi
 import
   logos_delivery/waku/common/base64,
-  logos_delivery/waku/waku,
+  logos_delivery,
   logos_delivery/waku/waku_core/topics/content_topic,
   logos_delivery/api/types,
   ../declare_lib
 
 proc logosdelivery_subscribe(
-    self: LogosDelivery, contentTopicStr: string
+    self: LogosDelivery, contentTopicStr: string, startTimeNs: int64
 ): Future[Result[string, string]] {.ffi.} =
   requireMessaging(self, "Subscribe"):
     return err(errMsg)
@@ -16,7 +16,13 @@ proc logosdelivery_subscribe(
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic(contentTopicStr)
 
-  (await self.messagingClient.subscribe(contentTopic)).isOkOr:
+  let startTime =
+    if startTimeNs == 0:
+      Opt.none(Timestamp)
+    else:
+      Opt.some(Timestamp(startTimeNs))
+
+  (await self.messagingClient.subscribe(contentTopic, startTime)).isOkOr:
     let errMsg = $error
     return err("Subscribe failed: " & errMsg)
 

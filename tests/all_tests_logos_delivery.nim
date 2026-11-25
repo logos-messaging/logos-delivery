@@ -15,4 +15,4 @@ import ./messaging/test_all
 import ./channels/test_all
 
 # Library API tests
-import ./ffi/test_mix_api
+import ./ffi/[test_messaging_api, test_mix_api]

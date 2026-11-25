@@ -76,7 +76,7 @@ Emitted when a message that `send` accepted fails. `kind` tells the two cases ap
 - `error`: Description of what went wrong
 
 ### 4. message_received
-Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.
+Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, after a connectivity gap, or after a subscribe with a start time). The `source` field tells the two apart.
 
 **JSON Structure:**
 ```json
