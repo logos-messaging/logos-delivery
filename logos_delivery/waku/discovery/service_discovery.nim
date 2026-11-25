@@ -202,7 +202,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
 
     var found: seq[DiscoveredPeer]
     for record in records:
-      let rpi = remotePeerInfoFrom(record).valueOr:
+      let rpi = remotePeerInfoFrom(record, self.inner.ownClusterId).valueOr:
         continue
       found.add(rpi.toDiscoveredPeer())
     ok(found)

@@ -94,6 +94,9 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   nodeCtx: BrokerContext
   adverts: Table[string, Advert]
   interests: Table[string, bool] ## key -> taken by the plugin
+  ownClusterId: uint16
+    ## The records of other clusters claim no codecs and shards, see
+    ## `advertisedServing`.
   announceWanted: AsyncEvent
   announceLoop: Future[void]
   observedPeerInfo: PeerInfo
@@ -135,7 +138,7 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
     return
 
   for peer in peers:
-    let peerInfo = peer.toRemotePeerInfo(peerManager.ownClusterId()).valueOr:
+    let peerInfo = peer.toRemotePeerInfo(self.ownClusterId).valueOr:
       debug "discarding discovered peer", reason = error
       continue
 
@@ -417,6 +420,7 @@ proc runAnnounceLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
 BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   proc new(
       T: typedesc[ExternalServiceDiscovery],
+      ownClusterId: uint16,
       serviceLookupInterval = DefaultServiceLookupInterval,
       randomLookupInterval = DefaultRandomLookupInterval,
   ): ExternalServiceDiscovery =
@@ -427,6 +431,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       announceWanted: newAsyncEvent(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
+      ownClusterId: ownClusterId,
     )
 
     # Registration stays on the single-thread lane: the vtable is full of

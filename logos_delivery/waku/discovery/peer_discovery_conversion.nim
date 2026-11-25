@@ -35,7 +35,7 @@ proc toDiscoveredPeer*(record: waku_enr.Record): Result[DiscoveredPeer, string] 
   ok(peer)
 
 proc toRemotePeerInfo*(
-    peer: DiscoveredPeer, clusterId = Opt.none(uint16)
+    peer: DiscoveredPeer, ownClusterId: uint16
 ): Result[RemotePeerInfo, string] =
   ## The DTO back into the node's own peer type, for a backend whose source
   ## speaks the DTO rather than an ENR or a peer record. Mirrors
@@ -53,13 +53,13 @@ proc toRemotePeerInfo*(
   if addrs.len == 0:
     return err("no dialable address for peer " & peer.peerId)
 
-  let (codecs, shards) = advertisedServing(peer.services, clusterId)
+  let (codecs, shards) = advertisedServing(peer.services, ownClusterId)
   ok(
     RemotePeerInfo.init(
       peerId,
       addrs = addrs,
       protocols = deduplicate(peer.services.mapIt(it.id) & codecs),
-      shards = shards,
+      advertisedShards = shards,
       origin = PeerOrigin.Kademlia,
       mixPubKey = advertisedMixKey(peer.services),
     )

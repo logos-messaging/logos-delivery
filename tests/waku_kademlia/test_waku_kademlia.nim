@@ -184,13 +184,13 @@ suite "Waku Kademlia service discovery":
     test "empty addresses returns none":
       let record = buildExtendedPeerRecord(randomPeerId(), @[])
       check:
-        remotePeerInfoFrom(record).isNone()
+        remotePeerInfoFrom(record, 0).isNone()
 
     test "origin set to PeerOrigin.Kademlia":
       let
         pid = randomPeerId()
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -204,7 +204,7 @@ suite "Waku Kademlia service discovery":
         svc = validMixService()
         record =
           buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), svc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -216,7 +216,7 @@ suite "Waku Kademlia service discovery":
       let
         pid = randomPeerId()
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[validMixService()])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -227,7 +227,7 @@ suite "Waku Kademlia service discovery":
         pid = randomPeerId()
         svc = ServiceInfo(id: "/other/1.0.0", data: Opt.some(@[1u8]))
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[svc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -238,7 +238,7 @@ suite "Waku Kademlia service discovery":
         pid = randomPeerId()
         addrs = @[testAddr(61600), testAddr(61601), testAddr(61602)]
         record = buildExtendedPeerRecord(pid, addrs)
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -264,7 +264,7 @@ suite "Waku Kademlia service discovery":
           @[testAddr(61600)],
           @[deliveryService(), mixService(firstBytes), mixService(secondBytes)],
         )
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -276,7 +276,7 @@ suite "Waku Kademlia service discovery":
         badSvc = mixService(@[0u8, 1u8, 2u8])
         record =
           buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), badSvc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -341,7 +341,7 @@ suite "Waku Kademlia service discovery":
       let
         peerStore = PeerStore.new(nil, capacity = 50)
         pid = randomPeerId()
-      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid), 0).get())
 
       peerStore.addPeer(
         RemotePeerInfo.init(

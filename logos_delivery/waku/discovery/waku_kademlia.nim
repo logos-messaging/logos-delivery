@@ -35,6 +35,13 @@ const
   DefaultServiceDiscoveryInterval* = chronos.seconds(60)
   DefaultRandomDiscoveryInterval* = chronos.seconds(60)
 
+type AdvertisedService = object
+  info: ServiceInfo
+  signedRecord: Opt[seq[byte]]
+    ## The record this node signed, published as it is. None for a service of
+    ## `KademliaDiscoveryConf.servicesToAdvertise`: libp2p builds and signs
+    ## the record.
+
 type WakuKademlia* = ref object
   protocol*: ServiceDiscovery
   brokerCtx*: BrokerContext
@@ -46,13 +53,17 @@ type WakuKademlia* = ref object
   randomLookupInterval: Duration
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
-  servicesToAdvertise: Table[string, (ServiceInfo, Opt[seq[byte]])]
-    ## The services this node advertises, by service id as libp2p holds them,
-    ## each with the record to publish as is, or none when libp2p builds the
-    ## record. `start` advertises them and `stop` stops advertising them, so a
-    ## restart advertises them again.
+  ownClusterId: uint16
+    ## The records of other clusters claim no codecs and shards, see
+    ## `advertisedServing`.
+  servicesToAdvertise: Table[string, AdvertisedService]
+    ## Keyed by service id: libp2p keeps one record per service. In production
+    ## the only key is `/logos/delivery`, whose record also lists the mix key.
+    ## `start` advertises them and `stop` stops advertising them, so a restart
+    ## advertises them again.
 
 type KademliaDiscoveryConf* = object
+  clusterId*: uint16 ## This node's cluster.
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
   servicesToAdvertise*: HashSet[ServiceInfo]
   servicesToDiscover*: HashSet[string]
@@ -67,7 +78,7 @@ func discoveredServices(record: ExtendedPeerRecord): seq[DiscoveredService] =
   record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
 
 proc remotePeerInfoFrom*(
-    record: ExtendedPeerRecord, clusterId = Opt.none(uint16)
+    record: ExtendedPeerRecord, ownClusterId: uint16
 ): Opt[RemotePeerInfo] =
   ## The codecs and shards the record's delivery payload claims are stored
   ## with the peer, see `advertisedServing`.
@@ -80,7 +91,7 @@ proc remotePeerInfoFrom*(
     trace "No dialable addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
 
-  let (codecs, shards) = advertisedServing(record.discoveredServices(), clusterId)
+  let (codecs, shards) = advertisedServing(record.discoveredServices(), ownClusterId)
   let protocols = deduplicate(record.services.mapIt(it.id) & codecs)
 
   let mixPubKey = advertisedMixKey(record.discoveredServices())
@@ -93,7 +104,7 @@ proc remotePeerInfoFrom*(
       record.peerId,
       addrs = addrs,
       protocols = protocols,
-      shards = shards,
+      advertisedShards = shards,
       origin = PeerOrigin.Kademlia,
       mixPubKey = mixPubKey,
     )
@@ -104,7 +115,7 @@ proc processRecords*(
 ): seq[RemotePeerInfo] =
   var discovered: seq[RemotePeerInfo]
   for record in records:
-    let peerInfo = remotePeerInfoFrom(record, self.peerManager.ownClusterId()).valueOr:
+    let peerInfo = remotePeerInfoFrom(record, self.ownClusterId).valueOr:
       continue
 
     # An older record than the one that last told this peer's mix key neither
@@ -233,6 +244,7 @@ proc new*(
     T: type WakuKademlia,
     switch: Switch,
     peerManager: PeerManager,
+    ownClusterId: uint16,
     bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
     servicesToAdvertise: HashSet[ServiceInfo],
     servicesToDiscover: HashSet[string],
@@ -266,19 +278,22 @@ proc new*(
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
     servicesToDiscover: servicesToDiscover,
+    ownClusterId: ownClusterId,
   )
   for service in servicesToAdvertise:
-    self.servicesToAdvertise[service.id] = (service, Opt.none(seq[byte]))
+    self.servicesToAdvertise[service.id] =
+      AdvertisedService(info: service, signedRecord: Opt.none(seq[byte]))
 
   return ok(self)
 
 proc advertiseServices(self: WakuKademlia) =
   ## Advertises the services not advertised yet. A failure keeps the service.
   ## libp2p republishes the self record for each service that it adds.
-  for (service, advert) in self.servicesToAdvertise.values:
+  for advertised in self.servicesToAdvertise.values:
+    let service = advertised.info
     if service in self.protocol.services:
       continue
-    self.protocol.startAdvertising(service, advert).isOkOr:
+    self.protocol.startAdvertising(service, advertised.signedRecord).isOkOr:
       notice "Failed to advertise configured service",
         service = service.id, error = error
 
@@ -337,6 +352,9 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
 
   info "Kademlia discovery stopped"
 
+func ownClusterId*(self: WakuKademlia): uint16 =
+  self.ownClusterId
+
 proc addServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.containsOrIncl(service):
     discard self.protocol.registerInterest(service)
@@ -350,11 +368,11 @@ proc addServiceToAdvertise*(
   ## of the one advertised for the service: libp2p 2.5 replaces it in one call,
   ## and keeps it when it refuses the new one. An unchanged record is left
   ## alone, because a new registration waits at the registrars again.
-  let wanted = (service, Opt.some(advert))
+  let wanted = AdvertisedService(info: service, signedRecord: Opt.some(advert))
   if self.servicesToAdvertise.getOrDefault(service.id) == wanted:
     return ok()
   self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
-    return err($error)
+    return err("failure in addServiceToAdvertise: " & $error)
   self.servicesToAdvertise[service.id] = wanted
   debug "Added service to advertise", service = service.id
   return ok()

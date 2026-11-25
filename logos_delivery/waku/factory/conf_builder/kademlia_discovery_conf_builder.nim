@@ -46,7 +46,7 @@ proc withServiceLookupInterval*(
   b.serviceLookupInterval = Opt.some(interval)
 
 proc build*(
-    b: KademliaDiscoveryConfBuilder
+    b: KademliaDiscoveryConfBuilder, clusterId: uint16
 ): Result[Opt[KademliaDiscoveryConf], string] =
   # Explicit disable wins: enabled=false disables regardless of bootstrap nodes.
   if b.enabled == Opt.some(false):
@@ -64,6 +64,7 @@ proc build*(
   return ok(
     Opt.some(
       KademliaDiscoveryConf(
+        clusterId: clusterId,
         bootstrapNodes: parsedNodes,
         randomLookupInterval: b.randomLookupInterval.get(DefaultRandomLookupInterval),
         serviceLookupInterval: b.serviceLookupInterval.get(DefaultServiceLookupInterval),

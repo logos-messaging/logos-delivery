@@ -261,7 +261,7 @@ suite "ExternalServiceDiscovery":
     fake = nil
 
   asyncTest "verbs reach the plugin on the worker thread":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -340,7 +340,7 @@ suite "ExternalServiceDiscovery":
     ## The worker is joined when discovery stops, so a restart has to spawn a
     ## fresh one on the same broker context. That only works because the
     ## exiting thread hands its (mt) buckets back.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -361,7 +361,7 @@ suite "ExternalServiceDiscovery":
 
   asyncTest "configured but unregistered: verbs refuse to run":
     ## Config alone is not enough — the plugin half must be there too.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     check (await ClearServiceDiscoveryPlugin.request(globalBrokerContext())).isOk()
 
     let res = await backend.startDiscovery()
@@ -370,7 +370,7 @@ suite "ExternalServiceDiscovery":
       "no service discovery plugin registered" in res.error
 
   asyncTest "plugin error text is surfaced":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     check (await SetServiceDiscoveryPlugin.request(globalBrokerContext(), fakePlugin())).isOk()
 
     fake.failNext.store(true)
@@ -380,7 +380,7 @@ suite "ExternalServiceDiscovery":
       "plugin refused to start" in res.error
 
   asyncTest "a plugin with a bad ABI version is rejected":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     var bad = fakePlugin()
     bad.abiVersion = 999
     let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
@@ -389,7 +389,7 @@ suite "ExternalServiceDiscovery":
       "ABI version mismatch" in res.error
 
   asyncTest "a plugin with a missing entry point is rejected":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     var bad = fakePlugin()
     bad.lookup = nil
     let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
@@ -400,7 +400,7 @@ suite "ExternalServiceDiscovery":
   asyncTest "registration is refused while discovery is running":
     ## The worker is calling into the vtable, so swapping or removing it now
     ## would change which plugin serves calls already in flight.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     check (await backend.startDiscovery()).isOk()
@@ -422,7 +422,7 @@ suite "ExternalServiceDiscovery":
   asyncTest "one registration serves many start/stop cycles":
     ## The plugin is registered once and must survive every cycle; only the
     ## worker thread comes and goes with it.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -446,7 +446,7 @@ suite "ExternalServiceDiscovery":
     fake.lookupStuck = ThreadSignalPtr.new().expect("thread signal")
     ## The fake fires this when the thread stuck in that lookup exits.
     fake.stuckThreadExited = ThreadSignalPtr.new().expect("thread signal")
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     let iface: IPeerDiscovery = backend
@@ -505,7 +505,7 @@ suite "ExternalServiceDiscovery":
     ## itself, the way the in-process backend does in `processRecords`.
     ## Without this the lookups would succeed and the node would still never
     ## dial anyone.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -549,7 +549,7 @@ suite "ExternalServiceDiscovery":
         ]
       )
 
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     let peerManager = PeerManager.new(switch = newTestSwitch(), storage = nil)
@@ -596,7 +596,7 @@ suite "ExternalServiceDiscovery":
     ## configured interval. With ten minutes configured, a lookup that lands
     ## within a few seconds can only have come from the eager phase.
     let backend =
-      ExternalServiceDiscovery.create(serviceLookupInterval = chronos.minutes(10))
+      ExternalServiceDiscovery.create(0, serviceLookupInterval = chronos.minutes(10))
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -620,7 +620,7 @@ suite "ExternalServiceDiscovery":
     ## the node would otherwise be held to. A plugin that takes 7 s here is
     ## standing in for libp2p's own bring-up, which reaches its fixed 10 s
     ## call budget whenever kademlia bootstraps inside the switch start.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 
@@ -637,7 +637,7 @@ suite "ExternalServiceDiscovery":
     ## The plugin is up but its libp2p switch is not: it refuses the verbs the
     ## node sends at start. They must not be lost -- the node has no other
     ## moment to send them.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -666,7 +666,7 @@ suite "ExternalServiceDiscovery":
     ## The worker is not interrupted on timeout: the plugin may complete a call
     ## the node already gave up on. The retry is then refused as already
     ## advertised, which says the plugin holds it.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -691,7 +691,7 @@ suite "ExternalServiceDiscovery":
   asyncTest "a new session replaces the record the plugin still holds":
     ## libp2p outlives the node's discovery session, so after a restart it may
     ## hold the last session's record, with the addresses of that time.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -714,7 +714,7 @@ suite "ExternalServiceDiscovery":
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "new data replaces the advert; the same data sends nothing":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -754,7 +754,7 @@ suite "ExternalServiceDiscovery":
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "an advert given up while still refused is never published":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -780,7 +780,7 @@ suite "ExternalServiceDiscovery":
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "verbs before start are handed over once discovery starts":
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -800,7 +800,7 @@ suite "ExternalServiceDiscovery":
   asyncTest "an advert is re-signed when the node's addresses change":
     ## The plugin publishes the record it was handed and never refreshes it,
     ## so a record signed at start would advertise stale addresses for good.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     let peerInfo = provideNodeIdentity(ctx)
@@ -841,7 +841,7 @@ suite "ExternalServiceDiscovery":
   asyncTest "a key removed while a pass is out is not sent":
     ## A pass walks a snapshot of the keys. One removed during an earlier call
     ## of the same pass must be skipped, not sent as an empty default entry.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -871,7 +871,7 @@ suite "ExternalServiceDiscovery":
     ## Plugin calls go out as cancellable (mt) requests: cancelling the caller
     ## tombstones a request still queued for the worker, so the provider is
     ## never invoked for it.
-    let backend = ExternalServiceDiscovery.create()
+    let backend = ExternalServiceDiscovery.create(0)
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     discard provideNodeIdentity(ctx)
@@ -906,7 +906,7 @@ suite "ExternalServiceDiscovery":
     ## provider's table; a refused interest used to drop the key from the
     ## lookup loop for good.
     let backend =
-      ExternalServiceDiscovery.create(serviceLookupInterval = chronos.minutes(10))
+      ExternalServiceDiscovery.create(0, serviceLookupInterval = chronos.minutes(10))
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
 

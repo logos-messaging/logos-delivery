@@ -51,6 +51,9 @@ type RemotePeerInfo* {.proto3.} = ref object
   enr* {.fieldNumber: 7, ext.}: Opt[enr.Record]
   protocols* {.fieldNumber: 3.}: seq[string]
   shards* {.dontSerialize.}: seq[uint16]
+  advertisedShards* {.dontSerialize.}: seq[uint16]
+    ## The shards a discovery record of the peer claims. `shards` (metadata)
+    ## wins once known, see `supportsShard`.
   mixPubKey* {.dontSerialize.}: Opt[Curve25519Key]
 
   agent* {.dontSerialize.}: string
@@ -118,6 +121,7 @@ proc init*(
     lastFailedConn: Moment = Moment.init(0, Second),
     numberFailedConn: int = 0,
     mixPubKey: Opt[Curve25519Key] = Opt.none(Curve25519Key),
+    advertisedShards: seq[uint16] = @[],
 ): T =
   RemotePeerInfo(
     peerId: peerId,
@@ -125,6 +129,7 @@ proc init*(
     enr: enr,
     protocols: protocols,
     shards: shards,
+    advertisedShards: advertisedShards,
     publicKey: publicKey,
     agent: agent,
     protoVersion: protoVersion,

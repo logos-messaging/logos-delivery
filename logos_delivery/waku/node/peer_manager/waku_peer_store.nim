@@ -47,8 +47,14 @@ type
   # Keeps track of when a discovery mechanism last vouched for the peer's ENR
   ENRAliveBook* = ref object of PeerBook[Moment]
 
-  # Keeps track of peer shards
+  # Keeps track of peer shards, as the peer's metadata gives them
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+  # Keeps track of the shards the newest discovery record of a peer claims.
+  # Apart from `ShardBook`: a record can be older than the metadata, because a
+  # node signs a new one when its addresses or mix part change, and not when it
+  # subscribes to a shard.
+  AdvertisedShardBook* = ref object of PeerBook[seq[uint16]]
 
   # Keeps track of the sequence number of the newest record, from service
   # discovery or rendezvous, that set or removed the peer's mix key
@@ -80,6 +86,7 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
         Opt.none(enr.Record),
     protocols: peerStore[ProtoBook][peerId],
     shards: peerStore[ShardBook][peerId],
+    advertisedShards: peerStore[AdvertisedShardBook][peerId],
     agent: peerStore[AgentBook][peerId],
     protoVersion: peerStore[ProtoVersionBook][peerId],
     publicKey: peerStore[KeyBook][peerId],
@@ -180,10 +187,10 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
       protos.add($new_proto)
   peerStore[ProtoBook][peer.peerId] = protos
 
-  ## A discovery record names the peer's shards; the peer's current claim
-  ## replaces what was stored, as metadata does through `setShardInfo`.
-  if peer.shards.len > 0:
-    peerStore[ShardBook][peer.peerId] = peer.shards
+  ## A discovery record's shards replace the ones an earlier record claimed,
+  ## and leave the metadata's alone.
+  if peer.advertisedShards.len > 0:
+    peerStore[AdvertisedShardBook][peer.peerId] = peer.advertisedShards
 
   ## We don't care whether the item was already present in the table or not. Hence, we always discard the hasKeyOrPut's bool returned value
 
@@ -222,10 +229,18 @@ proc peers*(peerStore: PeerStore, protocolMatcher: Matcher): seq[RemotePeerInfo]
 proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
 
+func knownShards(metadata, advertised: seq[uint16]): seq[uint16] =
+  ## The metadata's shards once the peer gave them, else its record's.
+  if metadata.len > 0: metadata else: advertised
+
 proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bool =
   return
     peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard) or
-    peerStore[ShardBook].book.getOrDefault(peerId, @[]).contains(shard)
+    knownShards(
+      peerStore[ShardBook].book.getOrDefault(peerId, @[]),
+      peerStore[AdvertisedShardBook].book.getOrDefault(peerId, @[]),
+    )
+    .contains(shard)
 
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
@@ -299,7 +314,7 @@ proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
 proc supportsShard*(peer: RemotePeerInfo, cluster, shard: uint16): bool =
   return
     (peer.enr.isSome() and peer.enr.get().containsShard(cluster, shard)) or
-    peer.shards.contains(shard)
+    knownShards(peer.shards, peer.advertisedShards).contains(shard)
 
 proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16

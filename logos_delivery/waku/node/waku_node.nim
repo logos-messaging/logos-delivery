@@ -975,8 +975,8 @@ proc mountKademlia*(
     return err("WakuKademlia already mounted, skipping")
 
   let wk = WakuKademlia.new(
-    node.switch, node.peerManager, config.bootstrapNodes, config.servicesToAdvertise,
-    config.servicesToDiscover, config.randomLookupInterval,
+    node.switch, node.peerManager, config.clusterId, config.bootstrapNodes,
+    config.servicesToAdvertise, config.servicesToDiscover, config.randomLookupInterval,
     config.serviceLookupInterval, node.rng, config.kadDhtConfig, config.discoConfig,
     config.clientMode, config.xprPublishing,
   ).valueOr:

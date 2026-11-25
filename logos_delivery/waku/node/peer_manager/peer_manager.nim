@@ -254,12 +254,6 @@ proc candidatePeers*(pm: PeerManager, proto: string): seq[RemotePeerInfo] =
     return exclusive[].mapIt(it.deepCopy())
   return pm.switch.peerStore.getPeersByProtocol(proto)
 
-func ownClusterId*(pm: PeerManager): Opt[uint16] =
-  ## This node's cluster id, none before the metadata protocol is mounted.
-  if pm.wakuMetadata.isNil():
-    return Opt.none(uint16)
-  Opt.some(uint16(pm.wakuMetadata.clusterId))
-
 proc selectPeers*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): seq[RemotePeerInfo] =
