@@ -843,6 +843,37 @@ suite "SendService - anonymity level with a mounted mix":
       plain.calls == 1
       old.state == DeliveryState.SuccessfullyPropagated
 
+  asyncTest "a Required task fails with the reason when the node has no usable Mix RLN membership":
+    ## With Mix RLN the sender proves the first hop, so no attempt is made
+    ## without a membership. One that arrives later reopens the gate.
+    for i in 0 ..< MinMixPoolSize:
+      addMixPeer(60170 + i, lightpush = true)
+    check waku.mixReady()
+    waku.node.wakuMixRln = ModuleRlnProtection()
+
+    let plain = PlainSendProcessor()
+    let mix = MixSendProcessor.new(
+      waku, waku.brokerCtx, AnonymityLevel.Required, chronos.minutes(1)
+    )
+    mix.chain(plain)
+
+    let task = buildTask("no-membership", ZeroDuration)
+    await mix.process(task)
+    check task.state == DeliveryState.NextRoundRetry
+    task.firstAdmittedTime =
+      Opt.some(Moment.now() - MixUnusableGrace - chronos.seconds(1))
+    await mix.process(task)
+    check:
+      plain.calls == 0
+      task.state == DeliveryState.FailedToDeliver
+      task.errorDesc == MixNoMembershipReason
+
+    waku.node.mixMembershipUsable = true
+    let later = buildTask("membership-arrived", ZeroDuration)
+    await mix.process(later)
+    check later.errorDesc != MixNoMembershipReason
+    waku.node.wakuMixRln = nil
+
   asyncTest "a Required task waits during its grace when mix cannot encode its own hop, then fails":
     ## The pool is usable and the self hop is not, so no reply path can be built.
     for i in 0 ..< MinMixPoolSize:

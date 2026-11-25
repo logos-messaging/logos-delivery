@@ -2,6 +2,7 @@ import chronicles, chronos, results, brokers/broker_context
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku
 import logos_delivery/waku/api/publish
 import logos_delivery/waku/waku_mix
+import logos_delivery/waku/node/waku_node/mix_rln
 import logos_delivery/api/conf/modes
 
 import ./[delivery_task, send_processor]
@@ -21,6 +22,10 @@ const MixNodesExcludedReason* =
 
 const MixSelfHopReason* = "this node has no address that mix can use for replies"
   ## An IPv6-only or name-only announcement, or a NAT mapping not yet arrived.
+
+const MixNoMembershipReason* = "this node has no usable Mix RLN membership"
+  ## With Mix RLN, the sender proves the first hop. The membership can arrive
+  ## later: the host's RLN module acquires it.
 
 const MixNoExitReason* = "no mix node serves lightpush on the shard of the message"
   ## No pool member serves lightpush on the message's shard.
@@ -46,6 +51,7 @@ type
     PoolTooSmall
     NodesExcluded
     SelfHop
+    NoMembership
     NoExit
 
   MixSendProcessor* = ref object of BaseSendProcessor
@@ -64,6 +70,7 @@ proc reason*(unusable: MixUnusable): string =
   of MixUnusable.PoolTooSmall: MixPoolTooSmallReason
   of MixUnusable.NodesExcluded: MixNodesExcludedReason
   of MixUnusable.SelfHop: MixSelfHopReason
+  of MixUnusable.NoMembership: MixNoMembershipReason
   of MixUnusable.NoExit: MixNoExitReason
 
 proc fellBackFor*(self: MixSendProcessor): MixUnusable =
@@ -112,6 +119,8 @@ proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
     if self.waku.mixHasExcludedNodes():
       return MixUnusable.NodesExcluded
     return MixUnusable.PoolTooSmall
+  if not self.waku.node.mixAdvertReady():
+    return MixUnusable.NoMembership
   if self.waku.selectMixLightpushPeer(task.pubsubTopic).isNone():
     return MixUnusable.NoExit
   return MixUnusable.None
