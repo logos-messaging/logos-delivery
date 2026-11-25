@@ -1,14 +1,24 @@
 {.used.}
 
-import std/[macros, net, strutils], results, chronos, testutils/unittests
+import std/[macros, net, strutils, tables], results, chronos, testutils/unittests
 import confutils/defs
+import libp2p/multiaddress
 import brokers/broker_context
 import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
+import logos_delivery/waku/waku_mix
+import logos_delivery/waku/common/rate_limit/setting
 import tools/confutils/cli_args
 import logos_delivery/waku/common/logging
 import ../testlib/wakunodeconf
+
+const TestMixRlnRegistryId = "logos:local:mix"
+const TestMixRlnIdentifierHex = repeat("ab", 32)
+const TestMixRlnMetadataTopic = "/mix/1/metadata/proto"
+const TestMixKey = repeat("11", 32)
+const TestMixNode =
+  "/ip4/203.0.113.9/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby:c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
 
 proc kernelOf(
     mode = LogosDeliveryMode.Core,
@@ -247,6 +257,71 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
+
+  test "flat kernel keys set the external addresses":
+    let lc = parseLogosDeliveryConf(
+      """{"ext-multiaddr": ["/dns4/node.example.org/tcp/30303"], "dns4-domain-name": "node.example.org"}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.endpointConf.extMultiAddrs ==
+        @[MultiAddress.init("/dns4/node.example.org/tcp/30303").get()]
+      wakuConf.endpointConf.dns4DomainName == Opt.some("node.example.org")
+
+  test "flat kernel keys set the RLN credentials":
+    let lc = parseLogosDeliveryConf(
+      """{"rln-relay": true, "rln-relay-eth-contract-address": "0x0000000000000000000000000000000000000001", "rln-relay-chain-id": 1, "rln-relay-eth-client-address": ["http://localhost:8545"], "rln-relay-cred-path": "/keystore.json", "rln-relay-cred-password": "secret", "rln-relay-membership-index": 7}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.rlnEvmConf.isSome()
+    let rlnConf = wakuConf.rlnEvmConf.get()
+    let creds = rlnConf.creds.valueOr:
+      RlnCreds(path: "", password: "")
+    check:
+      creds.path == "/keystore.json"
+      creds.password == "secret"
+      rlnConf.credIndex == Opt.some(7'u)
+
+  test "a flat kernel key sets the service rate limits":
+    let lc = parseLogosDeliveryConf("""{"rate-limit": ["lightpush:100/1s"]}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check wakuConf.rateLimit[LIGHTPUSH] == (100, 1.seconds)
+
+  test "flat kernel keys set the mix key and the mix nodes":
+    let lc = parseLogosDeliveryConf(
+      """{"anonymityLevel": "Required", "mixkey": "$1", "mixnode": ["$2"]}""" %
+        [TestMixKey, TestMixNode]
+    ).valueOr:
+      raiseAssert error
+    let kernel = WakuNodeConf(lc.kernelConf)
+    let wakuConf = kernel.toWakuConf().valueOr:
+      raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check:
+      kernel.mixkey == Opt.some(TestMixKey)
+      wakuConf.mixConf.get().mixNodes == @[parseMixNode(TestMixNode).get()]
+
+  test "flat kernel keys set the mix RLN options":
+    let lc = parseLogosDeliveryConf(
+      """{"anonymityLevel": "Required", "mix-rln-registry-id": "$1", "mix-rln-identifier-hex": "$2", "mix-rln-metadata-topic": "$3"}""" %
+        [TestMixRlnRegistryId, TestMixRlnIdentifierHex, TestMixRlnMetadataTopic]
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    let mixRlnConfig = wakuConf.mixConf.get().mixRlnConfig
+    require mixRlnConfig.isSome()
+    check:
+      mixRlnConfig.get().registryId == TestMixRlnRegistryId
+      mixRlnConfig.get().rlnIdentifierHex == TestMixRlnIdentifierHex
+      mixRlnConfig.get().metadataTopic == TestMixRlnMetadataTopic
 
   test "the mix option to allow all addresses is a kernel key":
     let lc = parseLogosDeliveryConf(
