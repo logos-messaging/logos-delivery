@@ -1,7 +1,7 @@
 from logos_delivery/waku/node/waku_node/lightpush import MixLightpushSurbs
 
 import
-  std/[tables, times, sequtils, strutils],
+  std/[strutils],
   stew/byteutils,
   chronicles,
   results,
@@ -109,7 +109,14 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
     let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
       error "failed to generate mix key pair", error = error
       return
-    (await node.mountMix(clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
+    (
+      await node.mountMix(
+        clusterId,
+        mixPrivKey,
+        conf.mixnodes,
+        allowAllAddresses = conf.mixAllowAllAddresses,
+      )
+    ).isOkOr:
       error "failed to mount waku mix protocol: ", error = $error
       return
 
@@ -121,9 +128,12 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
   await node.start()
   node.peerManager.start()
   node.startPeerExchangeLoop()
+  let metricsServer = MetricsHttpServerRef.new("0.0.0.0", Port(8008)).valueOr:
+    error "failed to create metrics server: ", error = error
+    return
   try:
-    startMetricsHttpServer("0.0.0.0", Port(8008))
-  except Exception:
+    await metricsServer.start()
+  except CatchableError:
     error "failed to start metrics server: ", error = getCurrentExceptionMsg()
   (await node.fetchPeerExchangePeers()).isOkOr:
     warn "Cannot fetch peers from peer exchange", cause = error
@@ -132,7 +142,7 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
     while node.getMixNodePoolSize() < conf.minMixPoolSize:
       info "waiting for mix nodes to be discovered",
         currentpoolSize = node.getMixNodePoolSize()
-      await sleepAsync(1000)
+      await sleepAsync(1000.milliseconds)
     notice "publisher service started with mix node pool size ",
       currentpoolSize = node.getMixNodePoolSize()
 
@@ -195,7 +205,7 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
 
     if conf.mixDisabled:
       await conn.close()
-    await sleepAsync(conf.msgIntervalMilliseconds)
+    await sleepAsync(conf.msgIntervalMilliseconds.milliseconds)
   info "Sent all messages via mix"
   quit(0)
 

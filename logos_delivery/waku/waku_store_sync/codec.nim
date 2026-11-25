@@ -39,6 +39,54 @@ proc deltaEncode*(itemSet: ItemSet): seq[byte] =
 
   return output
 
+const
+  MaxVarIntLen = int(Leb128.maxLen(uint64))
+  # A bound's time difference, then, when its timestamp equals the previous
+  # bound's, a prefix length byte and a hash prefix (see encodeUpperBound).
+  MaxBoundLen = MaxVarIntLen + 1 + HashLen
+
+func encodedElementSize*(id: SyncID, previousTime: Timestamp): int =
+  ## The bytes that `deltaEncode(ItemSet)` writes for `id` after an element at
+  ## `previousTime`, which is 0 for the first element.
+  int(Leb128.len(uint64(id.time) - uint64(previousTime))) + HashLen
+
+func encodedSize*(itemSet: ItemSet): int =
+  ## The length of `itemSet.deltaEncode()`, without encoding it.
+  var
+    size = 1 # the reconciled byte
+    lastTime = Timestamp(0)
+
+  for id in itemSet.elements:
+    size += encodedElementSize(id, lastTime)
+    lastTime = id.time
+
+  return size
+
+func maxEncodedRangeSize*(rangeType: RangeType, itemSet = ItemSet()): int =
+  ## An upper bound for what `deltaEncode(RangesData)` writes for one range:
+  ## its upper bound, its type and its content. `itemSet` is the content of an
+  ## ItemSet range.
+  let content =
+    case rangeType
+    of RangeType.Skip:
+      0
+    of RangeType.Fingerprint:
+      HashLen
+    of RangeType.ItemSet:
+      int(Leb128.len(uint64(itemSet.elements.len))) + itemSet.encodedSize()
+
+  return MaxBoundLen + 1 + content
+
+func maxEncodedHeaderSize*(shardCount: int): int =
+  ## An upper bound for what `deltaEncode(RangesData)` writes besides the
+  ## ranges: the cluster, the shards, and the Skip range it adds when the first
+  ## range does not start at zero.
+  let maxShardLen = int(Leb128.maxLen(uint16))
+
+  return
+    maxShardLen + int(Leb128.len(uint64(shardCount))) + shardCount * maxShardLen +
+    maxEncodedRangeSize(RangeType.Skip)
+
 proc encodeUpperBound(
     output: var seq[byte],
     bound: SyncID,
@@ -304,8 +352,9 @@ proc getItemSet(
   return ok(itemSet)
 
 proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
+  # WAKU-SYNC defines the empty payload as the header alone. Zero bytes are malformed.
   if buffer.len == 0:
-    return ok(RangesData())
+    return err("Zero-length payload")
 
   var
     payload = RangesData()

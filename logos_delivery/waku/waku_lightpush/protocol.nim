@@ -18,7 +18,7 @@ logScope:
 type WakuLightPush* = ref object of LPProtocol
   rng*: crypto.Rng
   peerManager*: PeerManager
-  pushHandler*: PushMessageHandler
+  pushHandler*: PushRequestHandler
   requestRateLimiter*: RequestRateLimiter
   autoSharding: Opt[Sharding]
   maxRpcSize: int
@@ -68,7 +68,7 @@ proc handleRequest(
     msg_hash = msg_hash,
     receivedTime = getNowInNanosecondTime()
 
-  let res = (await wl.pushHandler(pubsubTopic, pushRequest.message)).valueOr:
+  let res = (await wl.pushHandler(peerId, pubsubTopic, pushRequest.message)).valueOr:
     return err((code: error.code, desc: error.desc))
   return ok(res)
 
@@ -79,8 +79,7 @@ proc handleRequest*(
     let desc = decodeRpcFailure & ": " & $error
     debug "Failed to decode Lightpush request", error = desc
     let errorCode = LightPushErrorCode.BAD_REQUEST
-    # bounded-label: LightPushErrorCode enum
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [statusLabel(errorCode)])
     return LightPushResponse(
       requestId: UnknownRequestId, # due to decode failure we don't know requestId
       statusCode: errorCode,
@@ -89,8 +88,7 @@ proc handleRequest*(
 
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
-    # bounded-label: LightPushErrorCode enum
-    logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [statusLabel(error.code)])
     debug "Failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc
@@ -166,7 +164,7 @@ proc new*(
     T: type WakuLightPush,
     peerManager: PeerManager,
     rng: crypto.Rng,
-    pushHandler: PushMessageHandler,
+    pushHandler: PushRequestHandler,
     autoSharding: Opt[Sharding],
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
     maxMessageSize: int,

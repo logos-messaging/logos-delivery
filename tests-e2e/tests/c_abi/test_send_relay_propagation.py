@@ -4,6 +4,7 @@ from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
     EventCollector,
     assert_event_invariants,
+    assert_message_hash,
     create_message_bindings,
     get_node_multiaddr,
     wait_for_connected,
@@ -21,7 +22,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
     S29 — Send on two different content topics that map to different shards.
     Sender has a relay peer reachable on shard X and shard Y; topic A maps to
     shard X and topic B maps to shard Y. Two independent sends, one per topic.
-    Expected: both sends return Ok(RequestId), and each request gets its own
+    Expected: both sends return Ok(messageHash), and each message gets its own
     message_propagated event following the availability of its own shard.
     Purpose: ensures shard derivation and delivery behavior are topic-specific.
     """
@@ -70,9 +71,7 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                     contentTopic=self.TOPIC_A,
                 )
                 send_a = sender.send_message(message=message_a)
-                assert send_a.is_ok(), f"send() on TOPIC_A failed: {send_a.err()}"
-                request_id_a = send_a.ok_value
-                assert request_id_a, "send() on TOPIC_A returned an empty RequestId"
+                message_hash_a = assert_message_hash(send_a)
 
                 # Send on topic B (shard Y).
                 message_b = create_message_bindings(
@@ -80,37 +79,35 @@ class TestS29SendOnTopicsMappingToDifferentShards(StepsCommon):
                     contentTopic=self.TOPIC_B,
                 )
                 send_b = sender.send_message(message=message_b)
-                assert send_b.is_ok(), f"send() on TOPIC_B failed: {send_b.err()}"
-                request_id_b = send_b.ok_value
-                assert request_id_b, "send() on TOPIC_B returned an empty RequestId"
+                message_hash_b = assert_message_hash(send_b)
 
-                assert request_id_a != request_id_b, "Each send must produce a distinct RequestId"
+                assert message_hash_a != message_hash_b, "Each send must produce a distinct message hash"
 
                 # Each request propagates over its own shard's mesh independently.
                 propagated_a = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id_a,
+                    message_hash=message_hash_a,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated_a is not None, (
                     f"No message_propagated event for TOPIC_A within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_a["requestId"] == request_id_a
+                assert propagated_a["messageHash"] == message_hash_a
 
                 propagated_b = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id_b,
+                    message_hash=message_hash_b,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated_b is not None, (
                     f"No message_propagated event for TOPIC_B within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated_b["requestId"] == request_id_b
+                assert propagated_b["messageHash"] == message_hash_b
 
                 # No cross-talk: neither request should produce an error.
-                for request_id in (request_id_a, request_id_b):
-                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
-                    assert error is None, f"Unexpected message_error event for {request_id}: {error}"
+                for message_hash in (message_hash_a, message_hash_b):
+                    error = wait_for_error(sender_collector, message_hash, timeout_s=0)
+                    assert error is None, f"Unexpected message_error event for {message_hash}: {error}"
 
-                assert_event_invariants(sender_collector, request_id_a)
-                assert_event_invariants(sender_collector, request_id_b)
+                assert_event_invariants(sender_collector, message_hash_a)
+                assert_event_invariants(sender_collector, message_hash_b)

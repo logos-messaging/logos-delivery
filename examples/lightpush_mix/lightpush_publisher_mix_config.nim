@@ -40,6 +40,15 @@ type LightPushMixConf* = object
     name: "mixnode"
   .}: seq[MixNodePubInfo]
 
+  mixAllowAllAddresses* {.
+    desc:
+      "By default, mix uses a mix node only at a public address. " &
+      MixAllowAllAddressesHint &
+      ". Set it on a node of a local simulation, a test or a private network.",
+    defaultValue: false,
+    name: "mix-allow-all-addresses"
+  .}: bool
+
 proc parseCmdArg*(T: typedesc[MixNodePubInfo], p: string): T =
   let elements = p.split(":")
   if elements.len != 2:

@@ -17,7 +17,7 @@ logScope:
 type WakuLegacyLightPush* = ref object of LPProtocol
   rng*: crypto.Rng
   peerManager*: PeerManager
-  pushHandler*: PushMessageHandler
+  pushHandler*: PushRequestHandler
   requestRateLimiter*: RequestRateLimiter
   maxRpcSize: int
 
@@ -56,7 +56,7 @@ proc handleRequest*(
       msg_hash = msg_hash,
       receivedTime = getNowInNanosecondTime()
 
-    let handleRes = await wl.pushHandler(pubsubTopic, message)
+    let handleRes = await wl.pushHandler(peerId, pubsubTopic, message)
     isSuccess = handleRes.isOk()
     pushResponseInfo = (if isSuccess: "OK" else: handleRes.error)
 
@@ -136,7 +136,7 @@ proc new*(
     T: type WakuLegacyLightPush,
     peerManager: PeerManager,
     rng: crypto.Rng,
-    pushHandler: PushMessageHandler,
+    pushHandler: PushRequestHandler,
     rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
     maxMessageSize: int,
 ): T =

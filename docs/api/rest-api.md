@@ -62,17 +62,16 @@ logosdeliverynode --entry-layer=messaging --mode=core --preset=logos.test \
 | `GET /messaging/v1/subscriptions` | | `["/app/1/topic/proto", ...]`, sorted |
 | `POST /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
 | `DELETE /messaging/v1/subscriptions` | `["/app/1/topic/proto", ...]` | `200 OK` |
-| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"requestId":"..."}` |
+| `POST /messaging/v1/messages` | `{"payload":"<base64>","contentTopic":"/app/1/topic/proto","ephemeral":false,"meta":"<base64>"}` | `{"messageHash":"0x..."}` |
 | `GET /messaging/v1/events/send` | | every buffered send status, then cleared |
-| `GET /messaging/v1/events/send/{requestId}` | | the send status of one request, then cleared; `404` while nothing is buffered for it |
+| `GET /messaging/v1/events/send/{messageHash}` | | the send status of one message, then cleared; `404` while nothing is buffered for it, `400` for a text that is not a hex hash of 32 bytes, with or without `0x` |
 | `GET /messaging/v1/events/received` | | the buffered received messages, oldest first, then cleared; each record has a `seq` |
 
-A send is asynchronous. `200` means that the node accepted the message. The result arrives as send events with the same `requestId`:
+A send is asynchronous. `200` means that the node accepted the message and gives its message hash, which is final. The result arrives as send events grouped by that `messageHash`:
 
-* `queued`: the send waits for rate-limit budget (only when rate limiting is on)
 * `propagated`: the message reached at least one peer
 * `sent`: a Store peer confirmed that it holds the message, or, for a send over mix, the mix exit replied
-* `error`: the send failed (rejected message, no peer within the retry window, no Store confirmation within about 60 s of propagation, ...)
+* `error`: the send failed. Its `errorKind` is `NotPropagated` when no peer took the message within 15 s of the send, or a peer rejected it, and `NotStored` when no Store peer reported the propagated message within about 30 s
 
 After a `sent` or `error` event, no more events come for that message.
 
@@ -81,17 +80,15 @@ After a `sent` or `error` event, no more events come for that message.
 * Reliability is on by default, and off for the `twn` and `status.prod` presets. `--reliability` overrides that.
 * Without reliability, or for an ephemeral message, `propagated` is the last event.
 * Later versions can add new event types. A client must skip an event type that it does not know.
-* `GET /messaging/v1/events/send/{requestId}` answers `404` while the node has no event for that request: the request id is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
+* `GET /messaging/v1/events/send/{messageHash}` answers `404` while the node has no event for that message: the hash is unknown, a client already read its events, or no event came yet. Call it again until the last event comes.
 
-The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it.
+The receivers can have the message after an `error` event. While a message waits for its `sent` event, the node sends it again, up to 3 times, each time a Store peer does not report it, but only within 15 s of the send: Store and RLN validators refuse a message more than 20 s off their clock.
 
 * Each received message comes as a JSON object with:
   * the message hash
   * the full `WakuMessage`
   * a `source`: `live` for a message that arrived when it was published, or `history` for a message that a Store peer returned at startup or after the node came back online
 * The node keeps messages only for the content topics subscribed through `/messaging/v1/subscriptions`. A relay subscription to the shard is not enough.
-* With `--anonymity-level=None` (the default), a send subscribes the node to its content topic, so the sender also receives its own messages.
-* With `--anonymity-level=Preferred` or `Required`, a send makes no subscription. A client that wants to receive its own messages must subscribe to their content topics.
 
 A content topic that the client subscribes for the first time gets no earlier messages. From then on, the node fills the gaps of the topic from Store. When live delivery goes down and comes back, the node fetches the messages of the topic from a few minutes before it noticed the outage up to the recovery, and delivers them with the `source` `history`. The fetch can include a message that the node already delivered live; the node drops such a message when it still has it in its duplicate filter, and the `source` tells the client the rest.
 
@@ -102,9 +99,19 @@ With the `backfill-enabled` setting on (the default), the node saves the state o
 * Each message has a `seq` number that goes up by 1 for each message. A jump in `seq` between two calls is the number of dropped messages, or of messages that another client got. `seq` starts again at 1 when the node restarts.
 * The metric `logos_delivery_rest_received_dropped_total` counts the dropped messages.
 
-The send buffer keeps the statuses of the newest requests and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
+The send buffer keeps the statuses of the newest messages and drops the oldest when full. The metric `logos_delivery_rest_send_dropped_total` counts the dropped ones.
 
-Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. A send to a full send queue gets HTTP `429` with a `Retry-After` header.
+Malformed bodies and content topics get HTTP `400`. A node without autosharding answers HTTP `503`. The node refuses a send at once, with no event:
+
+| Refusal | HTTP |
+|---|---|
+| node not started or not connected | `503` |
+| content topic with no shard | `400` |
+| message too large, with its RLN proof | `413` |
+| 50 sends with no last event yet | `429` with `Retry-After: 1` |
+| rate-limit budget of the epoch spent | `429` with `Retry-After` set to the seconds until the next epoch, or 1 when the RLN backend does not state the length of its epoch |
+
+The body of a refusal ends with the kind of the refusal in parentheses, such as `(RateLimited)`. The body of a `RateLimited` refusal also gives the seconds of its `Retry-After`, such as `retry after: 42 s (RateLimited)`. The node queues nothing for a refused send.
 
 ### Node configuration
 To set up a network of Messaging API nodes, see [Run a Messaging API node](../operators/how-to/run-messaging.md).

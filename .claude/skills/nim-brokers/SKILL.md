@@ -285,7 +285,7 @@ Passing a plain closure works too, so it is a strict superset of the typed verbs
 ```nim
 # before — hand-written forwarding closure
 MessagingSend.setProvider(self.brokerCtx,
-  proc(e: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+  proc(e: MessageEnvelope): Future[Result[WakuMessageHash, string]] {.async.} =
     await self.send(e))
 
 # after — the sugar generates exactly that trampoline

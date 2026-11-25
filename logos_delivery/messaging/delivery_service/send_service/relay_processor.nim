@@ -56,14 +56,12 @@ method isValidProcessor*(
 method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   task.tryCount.inc()
   debug "Trying message delivery via Relay",
-    requestId = task.requestId,
-    msgHash = task.msgHash.to0xHex(),
-    tryCount = task.tryCount
+    msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
   let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
     let errorMessage = error.desc.get($error.code)
     error "Failed to publish message with relay",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
+      msgHash = task.msgHash.to0xHex(), error = errorMessage
 
     if error.isRlnRejection():
       task.parkForRlnProofRefresh(self.waku, errorMessage)
@@ -78,9 +76,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
 
   if noOfPublishedPeers > 0:
     debug "Message propagated via Relay",
-      requestId = task.requestId,
-      msgHash = task.msgHash.to0xHex(),
-      noOfPeers = noOfPublishedPeers
+      msgHash = task.msgHash.to0xHex(), noOfPeers = noOfPublishedPeers
     task.state = DeliveryState.SuccessfullyPropagated
     if task.firstPropagatedTime.isNone():
       task.firstPropagatedTime = Opt.some(Moment.now())

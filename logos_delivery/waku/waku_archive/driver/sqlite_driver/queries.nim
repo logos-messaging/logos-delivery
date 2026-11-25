@@ -405,10 +405,7 @@ proc execSelectMessagesWithLimitStmt(
     checkErr bindParam(s, paramIndex, topic.toBytes())
     paramIndex += 1
 
-  for hash in hashes:
-    checkErr bindParam(s, paramIndex, toSeq(hash))
-    paramIndex += 1
-
+  # In the order of the clauses of whereClause.
   if startTime.isSome():
     let time = startTime.get()
     checkErr bindParam(s, paramIndex, time)
@@ -417,6 +414,10 @@ proc execSelectMessagesWithLimitStmt(
   if endTime.isSome():
     let time = endTime.get()
     checkErr bindParam(s, paramIndex, time)
+    paramIndex += 1
+
+  for hash in hashes:
+    checkErr bindParam(s, paramIndex, toSeq(hash))
     paramIndex += 1
 
   try:

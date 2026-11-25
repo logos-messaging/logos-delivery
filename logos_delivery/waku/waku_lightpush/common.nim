@@ -21,12 +21,24 @@ const LightPushErrorCode* = (
   NO_PEERS_TO_RELAY: LightPushStatusCode(505),
 )
 
+func statusLabel*(code: LightPushStatusCode): string =
+  for known in LightPushErrorCode.fields:
+    if code == known:
+      return $known
+  return OtherLabel
+
 type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Opt[string]]
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 
 type PushMessageHandler* = proc(
   pubsubTopic: PubsubTopic, message: WakuMessage
 ): Future[WakuLightPushResult] {.async.}
+
+type PushRequestHandler* = proc(
+  peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+): Future[WakuLightPushResult] {.async.}
+  ## Handles the push request of `peerId`, this node's own id for a request
+  ## the node makes to itself.
 
 const TooManyRequestsMessage* = "Request rejected due to too many requests"
 

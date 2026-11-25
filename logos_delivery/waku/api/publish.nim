@@ -51,6 +51,12 @@ proc rlnEpochQuota*(
   ## `timestamp` (Unix seconds). An error without a backend that keeps one.
   return await epochQuota(self.node.rlnPlugin, timestamp)
 
+proc rlnEpochSizeSec*(self: Waku): Opt[uint64] =
+  ## The epoch length of the mounted RLN backend, when it states one.
+  let plugin = self.node.rlnPlugin.valueOr:
+    return Opt.none(uint64)
+  return plugin.epochSizeSec
+
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
 ): Future[Result[WakuMessage, RlnError]] {.async.} =
@@ -99,9 +105,12 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   ## Selects a lightpush service peer for `shard` that mix can route to. With
   ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
   ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
-  ## first, then draws one usable pool member uniformly.
+  ## first, then draws one usable pool member uniformly. It reads the pool of the
+  ## mix protocol, so it accepts the same hop addresses as the paths do.
+  if self.node.wakuMix.isNil() or self.node.wakuMix.nodePool.isNil():
+    return Opt.none(RemotePeerInfo)
   let peerStore = self.node.peerManager.switch.peerStore
-  let pool = MixNodePool.new(peerStore)
+  let pool = self.node.wakuMix.nodePool
 
   let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
   if not slotted.isNil() and pool.get(slotted.peerId).isSome():
@@ -145,6 +154,10 @@ proc mixSelfHopUsable*(self: Waku): bool =
   ## True when mix is mounted and can encode this node's own hop. `mixReady`
   ## also checks this; the send path reads it alone to name the reason.
   return not self.node.wakuMix.isNil() and self.node.wakuMix.selfHopUsable()
+
+proc mixHasExcludedNodes*(self: Waku): bool =
+  ## True when mix knows mix nodes that no path can use.
+  return not self.node.wakuMix.isNil() and self.node.wakuMix.countExcluded() > 0
 
 proc mixLightpushSize*(
     self: Waku, shard: PubsubTopic, message: WakuMessage

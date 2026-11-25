@@ -5,37 +5,54 @@ import logos_delivery/api/types
 import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku
-import logos_delivery/waku/api/subscriptions
+import logos_delivery/waku/api/publish
+import logos_delivery/waku/api/peer_manager
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
-proc enqueueSend(
-    self: MessagingClient, envelope: MessageEnvelope
-): Result[RequestId, string] =
-  let requestId = RequestId.new(self.waku.rng)
-  info "Messaging API enqueueSend", requestId
-
-  ## The body of `send`. It is not async, so it cannot suspend.
-  ?self.checkApiAvailability()
-  # A full send queue gets no subscribe. `enqueue` refuses the send.
-  if not self.sendService.isFull() and self.sendService.subscribesOnSend():
-    let isSubbed = self.waku.isSubscribed(envelope.contentTopic).valueOr(false)
-    if not isSubbed:
-      debug "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-      self.waku.subscribe(envelope.contentTopic).isOkOr:
-        error "Failed to auto-subscribe", error, requestId
-        return err("Failed to auto-subscribe before sending: " & error)
-
-  let deliveryTask = DeliveryTask.new(requestId, envelope, self.waku.brokerCtx).valueOr:
-    error "Failed to create delivery task", error, requestId
-    return err("MessagingClient.send: Failed to create delivery task: " & error)
-
-  return self.sendService.enqueue(deliveryTask)
+proc canReachPeer(self: MessagingClient, pubsubTopic: PubsubTopic): bool =
+  ## True when the node has a connected peer, or knows a lightpush peer that the
+  ## lightpush attempt can select for `pubsubTopic`. That attempt dials its peer,
+  ## so an edge whose only peer is its lightpush service peer gets its first
+  ## connection from a send.
+  return
+    self.waku.hasConnectedPeer() or
+    (self.waku.hasLightpush() and self.waku.lightpushPeerAvailable(pubsubTopic))
 
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope
-): Future[Result[RequestId, string]] {.async.} =
-  ## At the `None` level, subscribes to the content topic. Queues the message
-  ## and returns its request id. It never suspends, so the caller gets the id
-  ## before any event of the request, also over the FFI.
-  return self.enqueueSend(envelope)
+): Future[Result[WakuMessageHash, SendError]] {.async: (raises: []).} =
+  ## Stamps the message, charges the rate-limit budget and returns the message
+  ## hash. It never suspends: the budget is the one that the rate limit manager
+  ## last read. A refused message gets a `SendError` and no event. The events of
+  ## an accepted message carry its hash and come after `send` returns, also over
+  ## the FFI.
+  self.checkApiAvailability().isOkOr:
+    return err(
+      SendError.init(SendErrorKind.NotStarted, "messaging client unavailable: " & error)
+    )
+
+  let deliveryTask = DeliveryTask.new(
+    envelope, self.waku.brokerCtx, self.nextTimestamp()
+  ).valueOr:
+    debug "Failed to create delivery task", error
+    return err(
+      SendError.init(
+        SendErrorKind.NoShardMapsContentTopic, "failed to prepare the message: " & error
+      )
+    )
+
+  # Only a node that can reach no peer is refused: the health status needs more
+  # than a send does, such as a filter peer for an edge or relay peers for a node
+  # that falls back to lightpush.
+  if not self.canReachPeer(deliveryTask.pubsubTopic):
+    return err(SendError.init(SendErrorKind.NotConnected, "node has no connected peer"))
+
+  let msgHash = self.sendService.enqueue(deliveryTask).valueOr:
+    debug "Send refused", msg_hash = deliveryTask.loggedHash(), error = $error
+    return err(
+      SendError.init(
+        error.kind, "failed to enqueue the message: " & error.desc, error.retryAfter
+      )
+    )
+  return ok(msgHash)

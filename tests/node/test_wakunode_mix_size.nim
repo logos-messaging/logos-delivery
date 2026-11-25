@@ -36,29 +36,27 @@ proc newService(waku: Waku, level: AnonymityLevel): SendService =
     RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
   let chain = setupSendProcessorChain(waku, level).expect("chain")
   let service = SendService
-    .new(false, waku, manager, chain, level, retryInterval = chronos.hours(1))
+    .new(false, waku, manager, chain, retryInterval = chronos.hours(1))
     .expect("SendService.new")
   service.startSendService()
   return service
 
-proc sizedTask(id: string, size: int): DeliveryTask =
-  ## An admitted task whose lightpush request over mix has `size` bytes.
+proc sizedTask(size: int): DeliveryTask =
+  ## A task whose lightpush request over mix has `size` bytes.
   const contentTopic = "/mix-size/1/probe/proto"
   for n in 0 .. size:
     let msg = fakeWakuMessage(payload = newSeq[byte](n), contentTopic = contentTopic)
     if mixLightpushSize(DefaultPubsubTopic, msg).size == size:
       return DeliveryTask(
-        requestId: RequestId(id),
         pubsubTopic: DefaultPubsubTopic,
         msg: msg,
         msgHash: computeMessageHash(DefaultPubsubTopic, msg),
         state: DeliveryState.Entry,
-        firstAdmittedTime: Opt.some(Moment.now()), # no budget and no proof
       )
   raiseAssert "no payload gives a request of " & $size & " bytes"
 
 suite "Waku Mix - the size of a mix send":
-  asyncTest "the largest message that fits goes over mix, and one more byte fails at once":
+  asyncTest "the largest message that fits goes over mix, and one more byte is refused at send":
     let net = await startMixNodes()
     defer:
       await net.stop(@[])
@@ -66,7 +64,11 @@ suite "Waku Mix - the size of a mix send":
     lockNewGlobalBrokerContext:
       waku = (await Waku.new(senderConf())).expect("Waku.new")
       let keys = generateKeyPair().expect("mix key pair")
-      (await waku.node.mountMix(DefaultClusterId, keys.privateKey, net.infos)).isOkOr:
+      (
+        await waku.node.mountMix(
+          DefaultClusterId, keys.privateKey, net.infos, allowAllAddresses = true
+        )
+      ).isOkOr:
         raiseAssert "mountMix: " & $error
       (await waku.start()).expect("start")
     defer:
@@ -95,23 +97,24 @@ suite "Waku Mix - the size of a mix send":
       await service.stopSendService()
     let limit = mixLightpushSize(DefaultPubsubTopic, fakeWakuMessage()).limit
 
-    let tooLarge = sizedTask("one-byte-too-many", limit + 1)
-    check service.enqueue(tooLarge).isOk()
-    checkUntilTimeout:
-      tooLarge.state == DeliveryState.FailedToDeliver
+    let tooLarge = sizedTask(limit + 1)
+    let refused = service.enqueue(tooLarge)
+    check refused.isErr()
+    let error = refused.error
     check:
-      tooLarge.state == DeliveryState.FailedToDeliver
-      tooLarge.errorDesc.startsWith(MixTooLargeReason)
+      error.kind == SendErrorKind.TooLarge
+      error.desc.startsWith(MixTooLargeReason)
       tooLarge.tryCount == 0
-    checkUntilTimeout:
-      errors.len == 1
-    check errors == @[tooLarge.errorDesc]
+      tooLarge.state == DeliveryState.Entry
 
-    let fits = sizedTask("largest-that-fits", limit)
-    check service.enqueue(fits).isOk()
+    let fits = sizedTask(limit)
+    let accepted = service.enqueue(fits)
+    check:
+      accepted.isOk()
+      accepted.value == fits.msgHash
     checkUntilTimeout:
       fits.state == DeliveryState.SuccessfullyPropagated
     check:
       fits.state == DeliveryState.SuccessfullyPropagated
       fits.propagatedAnonymously
-      errors.len == 1
+      errors.len == 0

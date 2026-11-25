@@ -17,15 +17,18 @@ method isValidProcessor*(
 ): bool {.base, gcsafe.} =
   return false
 
-method checkBeforeAdmission*(
+method checkBeforeSend*(
     self: BaseSendProcessor, task: DeliveryTask
-): bool {.base, gcsafe, raises: [].} =
-  ## Returns false when the task fails before it spends budget or a message id.
-  return true
+): Result[void, SendError] {.base, gcsafe, raises: [].} =
+  ## Refuses a message in `send`, before it spends budget or a message id.
+  return ok()
 
 method sendImpl*(
     self: BaseSendProcessor, task: DeliveryTask
 ): Future[void] {.async, base.} =
+  ## Makes one attempt. An override counts the attempt in `task.tryCount` before
+  ## it sends, because the send service reads that count to tell that the
+  ## attempt used the admission of the task.
   assert false, "Not implemented"
 
 method canResend*(self: BaseSendProcessor, task: DeliveryTask): bool {.base, gcsafe.} =

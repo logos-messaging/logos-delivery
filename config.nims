@@ -142,6 +142,10 @@ when defined(macosx):
   on
 --opt:
   speed
+# ORC rejects `deepCopy` unless deepcopy is on. `PeerManager.candidatePeers`
+# calls `deepCopy`, and nat_traversal defines a `=deepCopy` hook. refc has it on already.
+--deepcopy:
+  on
 
 # All feature defines go here
 --define:
@@ -152,7 +156,8 @@ when defined(macosx):
 # enable metric collection
 --define:
   metrics
-# for heap-usage-by-instance-type metrics and object base-type strings
+# for object base-type strings, and for the heap-usage-by-instance-type
+# metrics, which only refc reports
 --define:
   nimTypeNames
 

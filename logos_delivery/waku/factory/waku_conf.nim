@@ -93,6 +93,8 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  allowAllAddresses*: bool
+    ## Lets mix paths use a mix node at a private, a loopback or a circuit relay address.
   mixRlnConfig*: Opt[ModuleRlnConfig]
 
 type StoreServiceConf* = object
@@ -326,10 +328,23 @@ proc validateExtraListenShards(wakuConf: WakuConf): Result[void, string] =
     )
   return ok()
 
+proc validateStoreSyncShards(wakuConf: WakuConf): Result[void, string] =
+  ## Store sync peers match only on equal shard sets, so a node without
+  ## shards would start but never sync with any peer that lists shards.
+  let syncEnabled =
+    wakuConf.storeServiceConf.isSome() and
+    wakuConf.storeServiceConf.get().storeSyncConf.isSome()
+  if syncEnabled and wakuConf.subscribeShards.len == 0:
+    return err(
+      "store-sync requires at least one shard: pass --shard, --preset or --num-shards-in-network"
+    )
+  return ok()
+
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateExtraListenShards()
+  ?wakuConf.validateStoreSyncShards()
   ?wakuConf.validateNoEmptyStrings()
   ?wakuConf.validateExtMultiAddrsOnly()
   return ok()

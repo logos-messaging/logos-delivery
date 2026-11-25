@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, times, strutils]
+import std/[sequtils, times, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 import
   logos_delivery/waku/[waku, waku_core, rln],
@@ -65,7 +65,10 @@ proc mountFailingRln(waku: Waku, failWith: RlnErrorKind): FailingProofBackend =
     backend.attempts.inc()
     return err(RlnError.init(backend.failWith, "scripted attach failure"))
 
-  waku.node.rlnPlugin = Opt.some(RlnPlugin(name: "stub", generateProof: generate))
+  # `send` sizes the message with the proof before it charges the budget, so the
+  # stub declares a proof size.
+  waku.node.rlnPlugin =
+    Opt.some(RlnPlugin(name: "stub", generateProof: generate, proofSize: Opt.some(3)))
   return backend
 
 type CountingProcessor = ref object of BaseSendProcessor
@@ -77,13 +80,13 @@ method isValidProcessor(self: CountingProcessor, task: DeliveryTask): bool {.gcs
 
 method sendImpl(self: CountingProcessor, task: DeliveryTask): Future[void] {.async.} =
   inc self.calls
+  task.tryCount.inc()
   task.state = DeliveryState.SuccessfullyPropagated
 
-proc buildTask(id: string): DeliveryTask =
+proc buildTask(): DeliveryTask =
   let msg = testMessage()
   let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
   return DeliveryTask(
-    requestId: RequestId(id),
     pubsubTopic: pubsubTopic,
     msg: msg,
     msgHash: computeMessageHash(pubsubTopic, msg),
@@ -160,7 +163,7 @@ suite "SendService RLN proof attach - failing backend":
         waku,
         manager,
         processor,
-        sendQueueCapacity = 1,
+        maxSendsInFlight = 1,
         retryInterval = chronos.minutes(10),
       )
       .expect("SendService.new")
@@ -169,9 +172,9 @@ suite "SendService RLN proof attach - failing backend":
     let backend = waku.mountFailingRln(RlnErrorKind.Permanent)
     let processor = CountingProcessor()
     let service = newService(processor)
-    let task = buildTask("permanent-in-first-attempt")
+    let task = buildTask()
 
-    check service.enqueue(task).isOk()
+    check (service.enqueue(task)).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -180,7 +183,8 @@ suite "SendService RLN proof attach - failing backend":
     check:
       task.state == DeliveryState.FailedToDeliver
       processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 1
       not service.isFull() # removed, so it is not retried or reported again
@@ -191,9 +195,9 @@ suite "SendService RLN proof attach - failing backend":
     let backend = waku.mountFailingRln(RlnErrorKind.NotReady)
     let processor = CountingProcessor()
     let service = newService(processor)
-    let task = buildTask("permanent-in-retry")
+    let task = buildTask()
 
-    check service.enqueue(task).isOk()
+    check (service.enqueue(task)).isOk()
     service.startSendService()
     defer:
       await service.stopSendService()
@@ -210,7 +214,8 @@ suite "SendService RLN proof attach - failing backend":
     check:
       task.state == DeliveryState.FailedToDeliver
       processor.calls == 0
-      errors.mapIt(it.requestId) == @[task.requestId]
+      errors.mapIt(it.messageHash) == @[task.msgHash.to0xHex()]
+      errors.mapIt(it.kind) == @[MessageErrorKind.NotPropagated]
       errors.mapIt(it.error) == @[PermanentReason]
       backend.attempts == 2
       not service.isFull() # removed, so no later attempt reserves an id for it
@@ -263,8 +268,8 @@ suite "SendService RLN proof attach - RLN mounted":
       mixLightpushSize(PubsubTopic("/waku/2/rs/3/0"), preview).size ==
         mixLightpushSize(PubsubTopic("/waku/2/rs/3/0"), proven).size
 
-  asyncTest "an oversized Required send leaves EVM message ids and admission budget untouched":
-    let task = buildTask("oversized-with-evm")
+  asyncTest "an oversized Required send is refused before it spends EVM message ids or budget":
+    let task = buildTask()
     let limit = mixLightpushSize(task.pubsubTopic, task.msg).limit
     for n in 0 .. limit:
       task.msg.payload = newSeq[byte](n)
@@ -284,11 +289,12 @@ suite "SendService RLN proof attach - RLN mounted":
     service.startSendService()
     defer:
       await service.stopSendService()
-    check service.enqueue(task).isOk()
-    checkUntilTimeout:
-      task.state == DeliveryState.FailedToDeliver
+    let res = service.enqueue(task)
     check:
-      task.errorDesc.startsWith(MixTooLargeReason)
+      res.isErr()
+      res.error.kind == SendErrorKind.TooLarge
+      res.error.desc.startsWith(MixTooLargeReason)
+      not service.isQueued(task)
       task.msg.proof.len == 0
       task.firstAdmittedTime.isNone()
       onchainRln.nonceManager.nextId == 0

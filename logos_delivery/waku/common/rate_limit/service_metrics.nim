@@ -1,6 +1,7 @@
 {.push raises: [].}
 
 import results, metrics, setting
+import ../../waku_core/metric_labels
 
 export metrics
 
@@ -16,7 +17,7 @@ declarePublicCounter logos_delivery_service_network_bytes,
 proc setServiceLimitMetric*(service: string, limit: Opt[RateLimitSetting]) =
   if limit.isSome() and not limit.get().isUnlimited():
     logos_delivery_service_requests_limit.set(
-      limit.get().calculateLimitPerSecond(), labelValues = [service]
+      limit.get().calculateLimitPerSecond(), labelValues = [codecLabel(service)]
     )
 
 declarePublicHistogram logos_delivery_service_request_handling_duration_seconds,

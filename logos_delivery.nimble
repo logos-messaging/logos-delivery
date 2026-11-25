@@ -4,7 +4,7 @@ import std/[os, strutils]
 mode = ScriptMode.Verbose
 
 ### Package
-version = "0.40.0"
+version = "0.41.0"
 author = "Status Research & Development GmbH"
 description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
@@ -17,8 +17,9 @@ const RequiredNimblePin = "0.26.0"
   ## The Nimble release the build installs.
 
 ### Dependencies
-# Only Nim 2.2.6 is tested; newer releases are accepted for callers that pin their own.
-requires "nim >= 2.2.6",
+# 2.2.12 is the first Nim ORC is safe on (nim-lang/Nim#25693). CI tests the
+# locked Nim and the newest release.
+requires "nim >= 2.2.12",
   # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
   # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
   # solver keeps the name node on the newest tag.
@@ -34,7 +35,7 @@ requires "nim >= 2.2.6",
   "protobuf_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.4.1",
+  "libp2p == 2.5.0",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -43,7 +44,7 @@ requires "nim >= 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  # v0.4.1: libp2p 2.4.0 requires websock >= 0.4.1 and locks this version.
+  # v0.4.1: libp2p 2.5.0 requires websock >= 0.4.1 and locks this version.
   "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto >= 0.7.3",
@@ -89,18 +90,9 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 
 requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae241cf6b478d"
 
-# v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
-# libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
-# keeps the resolution at the validated release instead of floating to
-# the newest one.
-requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
-
-# No tag at pinning time; revision was one commit after v0.2.0.
-requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
-
 # Pin the Mix and shared RLN adapter integration revisions.
-requires "https://github.com/logos-co/nim-libp2p-mix#3f256aa03d2d36fea0b5206b41a6328da4f5c412"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#7b5c7cfafbffe4e47aeb46838633645afacdb73c"
+requires "https://github.com/logos-co/nim-libp2p-mix#ed6a72a990143cfc6b667223c7d0c38e408b348e"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#f1b2430297cad2bc4034fce0207f1d59ded6a47e"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
@@ -116,6 +108,10 @@ proc getMyCPU(): string =
 proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
+proc getMmFlag(): string =
+  ## The Makefile's NIM_MM: orc or refc.
+  return " --mm:" & getEnv("NIM_MM", "orc") & " "
+
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
@@ -125,7 +121,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  selfExec "c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  selfExec "c --out:build/" & filepath & ".bin" & getMmFlag() & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -134,7 +130,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  selfExec "c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  selfExec "c --out:build/" & name & getMmFlag() & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 proc test(name: string, params = "-d:chronicles_log_level=INFO") =

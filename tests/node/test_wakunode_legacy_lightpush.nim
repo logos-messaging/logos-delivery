@@ -199,8 +199,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "RLN rejection schedules a refresh and surfaces the tagged error":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult[void]] {.async.} =
         inc callCount
         return err(RlnValidatorErrorMsg & ": simulated stale merkle path")
@@ -218,8 +218,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "no retry when error does not contain RlnValidatorErrorMsg":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult[void]] {.async.} =
         inc callCount
         return err("unrelated failure")
@@ -242,8 +242,8 @@ suite "RLN Proofs as a Lightpush Service":
       reset(server.rlnPlugin)
 
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult[void]] {.async.} =
         inc callCount
         return err(RlnValidatorErrorMsg & ": simulated")

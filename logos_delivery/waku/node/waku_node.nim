@@ -21,7 +21,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
@@ -284,7 +283,7 @@ proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
     if ma in node.explicitAnnounced or ma notin base:
       addrs.add(ma)
       continue
-    node.onLearnedHost(ma).withValue(moved):
+    node.onLearnedHost(ma).ifValue(moved):
       if moved notin addrs:
         addrs.add(moved)
   return addrs
@@ -309,7 +308,14 @@ proc updateMixSelfHop(node: WakuNode) =
   ## endpoint, a relay route known from outside, then the announced set.
   if node.wakuMix.isNil():
     return
-  let before = node.wakuMix.localMixPubInfo().multiAddr
+  # The hop from before only feeds the log below. Mix has no record to read
+  # while it has no mix key, and the hop must still be set then.
+  let beforeInfo = node.wakuMix.localMixPubInfo()
+  let before =
+    if beforeInfo.isOk():
+      Opt.some(beforeInfo.get().multiAddr)
+    else:
+      Opt.none(MultiAddress)
   let wasMissing = node.wakuMix.selfHopMissing()
   let outside = node.enrAddresses()
   var preferred = outside.filterIt(not it.isCircuitRelayMA())
@@ -331,8 +337,13 @@ proc updateMixSelfHop(node: WakuNode) =
         "Announce an IPv4 TCP or QUIC-v1 address that peers can reach",
         announced = $node.announcedAddresses
     return
-  if chosen.get() != before or wasMissing:
-    info "Mix self hop set", hop = $chosen.get(), before = $before
+  if chosen != before or wasMissing:
+    let beforeText =
+      if before.isSome():
+        $before.get()
+      else:
+        "unknown"
+    info "Mix self hop set", hop = $chosen.get(), before = beforeText
 
 proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
   ## A dns4 name can answer differently at start, so the scalars follow that
@@ -620,7 +631,10 @@ proc mountMix*(
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    allowAllAddresses: bool = false,
 ): Future[Result[void, string]] {.async.} =
+  ## With `allowAllAddresses`, a path can use a mix node at a private, a loopback or
+  ## a circuit relay address. See `WakuMix.new`.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
@@ -633,7 +647,8 @@ proc mountMix*(
   let (literals, names, dropped) = node.splitMixNodes(mixnodes)
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection,
+    allowAllAddresses,
   ).valueOr:
     return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
@@ -693,9 +708,9 @@ proc mountStoreSync*(
     storeSyncRelayJitter: uint32,
     maxMessageSize: int,
 ): Future[Result[void, string]] {.async.} =
-  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, ContentTopic)](0)
+  let idsChannel = newAsyncQueue[(SyncID, PubsubTopic, PeerId)](0)
   let wantsChannel = newAsyncQueue[(PeerId)](0)
-  let needsChannel = newAsyncQueue[(PeerId, WakuMessageHash)](0)
+  let needsChannel = newAsyncQueue[(PeerId, SyncID)](0)
 
   let recon = ?await SyncReconciliation.new(
     cluster, shards, node.peerManager, node.wakuArchive, storeSyncRange.seconds,
@@ -720,6 +735,8 @@ proc mountStoreSync*(
     needsChannel,
     maxMessageSize,
     recon.getEffectiveSyncRange(),
+    proc(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+      recon.checkPush(id),
   )
 
   node.wakuStoreTransfer = transfer

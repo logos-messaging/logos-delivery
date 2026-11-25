@@ -2,6 +2,7 @@
 
 import std/[base64, sequtils]
 import chronos, results, testutils/unittests
+import libp2p/crypto/curve25519, libp2p_mix/mix_protocol
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/self_advertisement,
@@ -17,6 +18,7 @@ type FakeBackend = ref object of IPeerDiscovery
   kinds: seq[string]
   advertised: seq[string]
   advertisedData: seq[seq[byte]]
+  advertisedSecondary: seq[seq[DiscoveredService]]
   interests: seq[string]
 
 BrokerImplement FakeBackend of IPeerDiscovery:
@@ -29,10 +31,11 @@ BrokerImplement FakeBackend of IPeerDiscovery:
     ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
 
   method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte]
+      self: FakeBackend, key: string, data: seq[byte], secondary: seq[DiscoveredService]
   ): Future[Result[void, string]] {.async.} =
     self.advertised.add(key)
     self.advertisedData.add(data)
+    self.advertisedSecondary.add(secondary)
     ok()
 
   method registerInterest(
@@ -88,6 +91,23 @@ const CoreFlags =
 const EdgeFlags = CapabilitiesBitfield.init()
 const TestShards = @[0'u16, 3'u16]
 
+proc mixKeyBytes(): seq[byte] =
+  var b = newSeq[byte](Curve25519KeySize)
+  for i in 0 ..< Curve25519KeySize:
+    b[i] = byte(i + 1)
+  b
+
+proc withMix(conf: WakuConf): WakuConf =
+  ## The node mounts mix. The builder sets the Mix flag whenever it does.
+  conf.mixConf = Opt.some(MixConf(mixPubKey: intoCurve25519Key(mixKeyBytes())))
+  conf.wakuFlags = CapabilitiesBitfield(
+    byte(conf.wakuFlags) or byte(CapabilitiesBitfield.init(mix = true))
+  )
+  conf
+
+proc advertisedCaps(kad: FakeBackend): CapabilitiesBitfield =
+  advertisedCapabilities(kad.advertisedData[0]).expect("a delivery payload")
+
 suite "Self advertisement":
   asyncTest "a serving node advertises and registers interest":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
@@ -129,6 +149,54 @@ suite "Self advertisement":
       plugin.advertised.len == 1
       discv5.advertised.len == 0
       discv5.interests.len == 0
+
+  asyncTest "a relay node that mounts mix lists its mix key in the delivery record":
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(
+      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards
+    )
+    check:
+      ## One registration, and no interest in a mix service of its own.
+      kad.advertised == @["service:" & LogosDeliveryServiceId]
+      kad.interests == @["service:" & LogosDeliveryServiceId]
+      kad.advertisedSecondary[0] ==
+        @[DiscoveredService(id: MixProtocolID, data: mixKeyBytes())]
+      kad.advertisedCaps().supportsCapability(Capabilities.Mix)
+      ## What a reader of this record takes.
+      advertisedMixKey(
+        @[DiscoveredService(id: LogosDeliveryServiceId, data: kad.advertisedData[0])] &
+          kad.advertisedSecondary[0]
+      ) == Opt.some(intoCurve25519Key(mixKeyBytes()))
+
+  asyncTest "a relay node without mix lists the delivery service alone":
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(@[IPeerDiscovery(kad)], confWith(CoreFlags), TestShards)
+    check:
+      kad.advertisedSecondary[0].len == 0
+      not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
+
+  asyncTest "a serving node without relay does not advertise its mix key":
+    ## It mounts mix to send through it; it is no hop for others.
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(
+      @[IPeerDiscovery(kad)],
+      confWith(CapabilitiesBitfield.init(filter = true)).withMix(),
+      TestShards,
+    )
+    check:
+      kad.advertised == @["service:" & LogosDeliveryServiceId]
+      kad.advertisedSecondary[0].len == 0
+      not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
+      kad.advertisedCaps().supportsCapability(Capabilities.Filter)
+
+  asyncTest "an edge node that mounts mix advertises nothing":
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(
+      @[IPeerDiscovery(kad)], confWith(EdgeFlags).withMix(), TestShards
+    )
+    check:
+      kad.advertised.len == 0
+      kad.interests == @["service:" & LogosDeliveryServiceId]
 
   test "the payload carries version, cluster, capabilities and shards":
     let raw = cast[seq[byte]](base64.decode(

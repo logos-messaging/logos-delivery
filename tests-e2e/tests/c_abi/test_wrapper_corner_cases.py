@@ -5,11 +5,13 @@ from src.libs.custom_logger import get_custom_logger
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
     EventCollector,
+    assert_message_hash,
     create_message_bindings,
     enr_udp_port,
     get_node_bound_ports,
     get_node_multiaddr,
     get_node_tcp_port,
+    wait_for_connected,
     wait_for_propagated,
 )
 from tests.c_abi.conftest import build_node_config, free_port
@@ -73,13 +75,13 @@ class TestWrapperAutoPortAllocation(StepsCommon):
             assert peer_result.is_ok(), f"peer start failed: {peer_result.err()}"
 
             with peer_result.ok_value:
+                # send() refuses a Disconnected sender.
+                assert wait_for_connected(collector) is not None, f"sender did not connect. Events: {collector.events}"
+
                 send_result = sender.send_message(message=create_message_bindings())
-                assert send_result.is_ok(), f"send failed: {send_result.err()}"
+                message_hash = assert_message_hash(send_result)
 
-                request_id = send_result.ok_value
-                assert request_id, "send returned empty RequestId"
-
-                propagated = wait_for_propagated(collector, request_id, PROPAGATED_TIMEOUT_S)
+                propagated = wait_for_propagated(collector, message_hash, PROPAGATED_TIMEOUT_S)
                 assert propagated is not None, f"no message_propagated event. Events: {collector.events}"
 
     @pytest.mark.parametrize("port_field, bound_key, enable_service, default_port", SERVICE_PORTS)

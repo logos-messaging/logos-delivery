@@ -9,12 +9,22 @@ const
   DefaultSyncRange*: Duration = 1.hours
   DefaultGossipSubJitter*: Duration = 20.seconds
 
+const DefaultMaxPayloadSize* = 64 * 1024 * 1024
+  ## The largest reconciliation payload that a node reads, and the default
+  ## frame size limit for what it sends.
+
 # Placeholder topic for SyncIDs a peer promised us whose messages haven't arrived yet.
 # Local only: never sent on the wire; the entry is replaced by the real topics on message arrival.
 const PendingPubsubTopic* = "/waku/2/sync/pending"
 
 type
   Fingerprint* = array[32, byte]
+
+  PushCheck* {.pure.} = enum
+    ## What the transfer does with a pushed message.
+    Wanted # a round asked for the message, and it did not arrive yet
+    Held # the node already has the message
+    Unwanted # no round asked for the message
 
   SyncID* = object
     time*: Timestamp
@@ -84,6 +94,3 @@ proc cmp*(x, y: SyncID): int =
 
 proc `<`*(x, y: SyncID): bool =
   cmp(x, y) == -1
-
-proc `>`*(x, y: SyncID): bool =
-  cmp(x, y) == 1

@@ -9,9 +9,11 @@ import
   libp2p/crypto/crypto
 
 import
+  logos_delivery/api/events/kernel_events,
   logos_delivery/waku/[
     waku_core,
     waku_core/topics/sharding,
+    waku_relay,
     node/peer_manager,
     waku_node,
     waku_lightpush,
@@ -28,7 +30,7 @@ const PublishedToOnePeer = 1
 suite "Waku Lightpush - End To End":
   var
     handlerFuture {.threadvar.}: Future[(PubsubTopic, WakuMessage)]
-    handler {.threadvar.}: PushMessageHandler
+    handler {.threadvar.}: PushRequestHandler
 
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
@@ -231,8 +233,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "RLN-related 420 surfaces as 504 and schedules a merkle proof refresh":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return
@@ -263,8 +265,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "504 (OUT_OF_RLN_PROOF) from the service passes through without republish":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
@@ -281,8 +283,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "caller retry after 504 lands on the refreshed merkle path":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         if callCount == 1:
@@ -309,8 +311,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "420 without the RLN error text passes through unchanged":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return
@@ -326,8 +328,8 @@ suite "RLN Proofs as a Lightpush Service":
 
     asyncTest "error codes outside 420/504 pass through unchanged":
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
@@ -347,8 +349,8 @@ suite "RLN Proofs as a Lightpush Service":
       ## published. The fault is in the request, so it is the client's
       ## INVALID_MESSAGE, not the node's OUT_OF_RLN_PROOF.
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
@@ -374,8 +376,8 @@ suite "RLN Proofs as a Lightpush Service":
       reset(server.rlnPlugin)
 
       var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+      let stub: PushRequestHandler = proc(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
@@ -505,6 +507,143 @@ suite "Waku Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), serviceNode.stop(), filterNode.stop())
+
+  asyncTest "A message lightpushed through the service node is announced to its app":
+    ## Setup
+    let
+      lightNode = newTestWakuNode(generateSecp256k1Key())
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
+      destNode = newTestWakuNode(generateSecp256k1Key())
+
+    await allFutures(destNode.start(), serviceNode.start(), lightNode.start())
+    defer:
+      await allFutures(lightNode.stop(), serviceNode.stop(), destNode.stop())
+
+    (await destNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+    lightNode.mountLightPushClient()
+
+    discard await lightNode.peerManager.dialPeer(
+      serviceNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
+    )
+    await sleepAsync(100.milliseconds)
+    await destNode.connectToNodes(@[serviceNode.peerInfo.toRemotePeerInfo()])
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let message = fakeWakuMessage()
+
+    proc noopHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      discard
+
+    # The nodes of a test share one broker context. `destNode` subscribes on
+    # relay only, so that its app does not emit the event that this test awaits.
+    let relayOnlyHandler: WakuRelayHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async.} =
+      discard
+    destNode.wakuRelay.subscribe(CustomPubsubTopic, relayOnlyHandler)
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), noopHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+    await sleepAsync(100.millis)
+
+    let seenFut = newFuture[WakuMessage]()
+    let listener = MessageSeenEvent.listen(
+      serviceNode.brokerCtx,
+      proc(event: MessageSeenEvent) {.async: (raises: []).} =
+        if not seenFut.finished():
+          seenFut.complete(event.message)
+      ,
+    )
+    require listener.isOk()
+    defer:
+      await MessageSeenEvent.dropListener(serviceNode.brokerCtx, listener.get())
+
+    ## When the light node lightpushes a message through the service node
+    let res = await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+    assert res.isOk(), $res.error
+
+    ## Then the app of the service node is told that the message was seen, as
+    ## the message did not come from the app of the service node itself
+    require await seenFut.withTimeout(5.seconds)
+    check seenFut.read() == message
+
+  asyncTest "A lightpushed message reaches the relay subscribers of the service node":
+    ## The service node publishes it, so gossipsub never brings it back. The
+    ## message is the client's, so the service node's own subscribers get it.
+    ## Setup
+    let
+      lightNode = newTestWakuNode(generateSecp256k1Key())
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
+
+    await allFutures(lightNode.start(), serviceNode.start())
+
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+    lightNode.mountLightPushClient()
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let
+      message = fakeWakuMessage(contentTopic = DefaultContentTopic)
+      serviceRemotePeerInfo = serviceNode.peerInfo.toRemotePeerInfo()
+
+    var received: seq[(PubsubTopic, WakuMessage)]
+    proc relayHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      received.add((topic, msg))
+
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), relayHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+
+    discard
+      await lightNode.peerManager.dialPeer(serviceRemotePeerInfo, WakuLightPushCodec)
+
+    ## When the light node lightpushes a message through the service node, which
+    ## has no relay peer
+    discard await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+
+    ## Then the relay subscriber of the service node gets it, once
+    check received == @[(CustomPubsubTopic, message)]
+
+    ## Cleanup
+    await allFutures(lightNode.stop(), serviceNode.stop())
+
+  asyncTest "A node's own lightpush does not reach its relay subscribers":
+    ## The message is the node's own, as with a relay publish.
+    ## Setup
+    let serviceNode = newTestWakuNode(generateSecp256k1Key())
+    await serviceNode.start()
+
+    (await serviceNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    check (await serviceNode.mountLightPush()).isOk()
+
+    const CustomPubsubTopic = "/waku/2/rs/0/1"
+    let message = fakeWakuMessage(contentTopic = DefaultContentTopic)
+
+    var received: seq[(PubsubTopic, WakuMessage)]
+    proc relayHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      received.add((topic, msg))
+
+    serviceNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), relayHandler).isOkOr:
+      assert false, "Failed to subscribe to relay"
+
+    ## When the node lightpushes a message to itself
+    discard await serviceNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
+
+    ## Then its relay subscriber does not get it
+    check received.len == 0
+
+    ## Cleanup
+    await serviceNode.stop()
 
   asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
     ## Setup

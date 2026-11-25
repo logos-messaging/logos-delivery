@@ -151,6 +151,13 @@ proc initNode(
 
 ## Mount protocols
 
+func metricTopicLabels(conf: WakuConf): TopicLabels =
+  ## Every shard the node is configured with; any other topic is labelled "other".
+  var shards = conf.subscribeShards & conf.extraListenShards
+  if conf.shardingConf.kind == AutoSharding:
+    shards.add(conf.shardingConf.shards)
+  return TopicLabels.init(conf.clusterId, shards)
+
 proc setupProtocols(
     node: WakuNode, conf: WakuConf
 ): Future[Result[void, string]] {.async.} =
@@ -175,15 +182,23 @@ proc setupProtocols(
       node.wakuMixRln = ModuleRlnProtection.new(mixConf.mixRlnConfig.get(), rlnMixCall).valueOr:
         return err("failed to create Mix RLN adapter: " & error)
       protection = Opt.some(SpamProtection(node.wakuMixRln))
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes, protection)).isOkOr:
+    (
+      await node.mountMix(
+        conf.clusterId,
+        mixConf.mixKey,
+        mixConf.mixnodes,
+        protection,
+        allowAllAddresses = mixConf.allowAllAddresses,
+      )
+    ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
   # Setup service discovery
   if conf.kademliaDiscoveryConf.isSome():
     var kadConf = conf.kademliaDiscoveryConf.get()
 
-    # Mix is no longer injected here: it is advertised at runtime through
-    # IPeerDiscovery (see advertiseMix), so plugin-hosted kademlia gets it too.
+    # Mix is not injected here: its key is advertised at runtime in the
+    # delivery record (see advertiseSelf), so plugin-hosted kademlia gets it too.
 
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
@@ -410,6 +425,15 @@ proc setupProtocols(
 
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
+
+  let metricTopics = metricTopicLabels(conf)
+  node.peerManager.metricTopics = metricTopics
+  if not node.wakuRelay.isNil():
+    node.wakuRelay.metricTopics = metricTopics
+  if not node.wakuArchive.isNil():
+    node.wakuArchive.metricTopics = metricTopics
+  if not node.wakuStoreClient.isNil():
+    node.wakuStoreClient.metricTopics = metricTopics
 
   return ok()
 

@@ -12,7 +12,11 @@ proc getNilPushHandler*(): PushMessageHandler =
   ): Future[WakuLightPushResult] {.async.} =
     return lightpushResultInternalError("no waku relay found")
 
-proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
+type RelayPublish = proc(
+  w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
+): Future[Result[int, PublishOutcome]] {.async, nimcall.}
+
+proc relayPushHandler(wakuRelay: WakuRelay, publish: RelayPublish): PushMessageHandler =
   return proc(
       pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
@@ -27,10 +31,30 @@ proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
     (await wakuRelay.validateMessage(pubSubTopic, message)).isOkOr:
       return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, $error)
 
-    let publishedResult = (await wakuRelay.publish(pubsubTopic, message)).valueOr:
+    let published = await publish(wakuRelay, pubsubTopic, message)
+    let publishedResult = published.valueOr:
       let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
       debug "Lightpush request has not been published to any peers",
         msg_hash = msgHash, reason = $error
       return mapPubishingErrorToPushResult(error, wakuRelay.maxEncodedMessageSize)
 
     return lightpushSuccessResult(publishedResult.uint32)
+
+proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
+  ## Publishes the messages of this node.
+  return relayPushHandler(wakuRelay, publish)
+
+proc getRelayServerPushHandler*(
+    wakuRelay: WakuRelay, selfPeerId: PeerId
+): PushRequestHandler =
+  ## Publishes the messages a lightpush server receives from its clients, so
+  ## its own subscribers receive them too (see `WakuRelay.publishForPeer`). A
+  ## request this node makes to itself publishes its own message.
+  let ownPush = relayPushHandler(wakuRelay, publish)
+  let peerPush = relayPushHandler(wakuRelay, publishForPeer)
+  return proc(
+      peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+  ): Future[WakuLightPushResult] {.async.} =
+    if peerId == selfPeerId:
+      return await ownPush(pubsubTopic, message)
+    return await peerPush(pubsubTopic, message)

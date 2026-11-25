@@ -16,7 +16,6 @@ type DeliveryState* {.pure.} = enum
   FailedToDeliver # final state of failed delivery
 
 type DeliveryTask* = ref object
-  requestId*: RequestId
   pubsubTopic*: PubsubTopic
   msg*: WakuMessage
   msgHash*: WakuMessageHash
@@ -27,22 +26,31 @@ type DeliveryTask* = ref object
     ## Anchors the archive wait before the first Store query (see
     ## `nextStoreValidationBatch`).
   firstAdmittedTime*: Opt[Moment]
-    ## Set when the task first passes rate-limit admission; `none` while parked
-    ## waiting for epoch budget. Guards re-admission on retry and anchors the
-    ## delivery window (`isDeliveryTimedOut`), so a task parked for budget is not
-    ## aged out before it can be sent.
+    ## Set when `send` charges the rate-limit budget. A rejected RLN proof clears
+    ## it, so the new proof gets a new admission.
+  admittedInEpoch*: Opt[uint64]
+    ## The epoch, as `RateLimitManager` counts them, that `send` admitted the
+    ## message in. It is the manager's own epoch serial (1, 2, 3…), not the RLN
+    ## epoch index. `none` when the manager does not limit sends: the message was
+    ## admitted and nothing was counted. A new RLN proof after a rejected one takes
+    ## a new admission and replaces it.
+  admissionRefundable*: bool
+    ## True when `send` took one unit of the epoch budget for this message and
+    ## the message has not used it yet: no RLN proof drew a message id for it,
+    ## and no send attempt went out. If the task ends while this is true,
+    ## `finish` returns the unit to the budget with `RateLimitManager.release`.
+
   propagatedEventEmitted*: bool
     ## Set when the task emits `MessagePropagatedEvent`. After a restart, the send
     ## service does not send the task again.
-  queuedEventEmitted*: bool
-    ## Set once the task has reported itself queued for rate-limit budget, so
-    ## the event fires on the first park only and not on every retry.
   anonymized*: bool
     ## Set at the first anonymous send attempt and never cleared; from then on,
     ## the INFO and ERROR records of this task withhold the hash.
   propagatedAnonymously*: bool
     ## Set when an anonymous path propagated the message. No store node confirms
     ## it: the query would name the message from this node's own address.
+  lastMixAttemptTime*: Opt[Moment]
+    ## When the last mix attempt of this task started, none before the first one.
   lastStoreQueryTime*: Opt[Moment]
     ## When a Store peer was last asked about this task, none before the first query.
   storeValidationWaited*: timer.Duration
@@ -63,23 +71,24 @@ type DeliveryTask* = ref object
 
 proc new*(
     T: typedesc[DeliveryTask],
-    requestId: RequestId,
     envelop: MessageEnvelope,
     brokerCtx: BrokerContext,
+    timestamp: Timestamp,
 ): Result[T, string] =
-  let msg = envelop.toWakuMessage()
+  ## Stamps the message with `timestamp`. The timestamp, and so the hash, never
+  ## changes after this.
+  let msg = envelop.toWakuMessage(timestamp)
   # TODO: use sync request for such as soon as available
   let relayShardRes = (
     RequestRelayShard.request(brokerCtx, Opt.none(PubsubTopic), envelop.contentTopic)
   ).valueOr:
     debug "RequestRelayShard.request failed", error = error
-    return err("Failed create DeliveryTask: " & $error)
+    return err("failed to create DeliveryTask: " & $error)
 
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()
   let msgHash = computeMessageHash(pubsubTopic, msg)
 
-  return
-    ok(T(requestId: requestId, pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
+  return ok(T(pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
 
 proc loggedHash*(task: DeliveryTask): string =
   ## The hash for INFO and ERROR records, withheld once the task is anonymized.
@@ -89,11 +98,10 @@ proc loggedHash*(task: DeliveryTask): string =
     task.msgHash.to0xHex()
 
 proc messageAge*(self: DeliveryTask): timer.Duration =
+  ## How far the message timestamp is from the clock of this node. A validator
+  ## compares the same two values, so a timestamp ahead of the clock also counts.
   let actual = getNanosecondTime(getTime().toUnixFloat())
-  if self.msg.timestamp >= 0 and self.msg.timestamp < actual:
-    return nanoseconds(actual - self.msg.timestamp)
-  else:
-    return ZeroDuration
+  return nanoseconds(abs(actual - self.msg.timestamp))
 
 proc propagationAge*(self: DeliveryTask): timer.Duration =
   ## Time elapsed since the message was first successfully propagated.
@@ -103,28 +111,11 @@ proc propagationAge*(self: DeliveryTask): timer.Duration =
   else:
     return ZeroDuration
 
-proc admissionAge*(self: DeliveryTask): timer.Duration =
-  ## Time since the task first passed admission; ZeroDuration while never
-  ## admitted (still parked waiting for epoch budget).
-  if self.firstAdmittedTime.isSome():
-    return timer.Moment.now() - self.firstAdmittedTime.get()
-  else:
-    return ZeroDuration
-
-proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
-  ## True when an admitted task has been trying to deliver longer than `maxTime`
-  ## without ever propagating. A task never admitted (parked for budget) is
-  ## exempt: the clock runs from admission time, so waiting for budget does not count
-  ## against it.
-  return
-    self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
-    self.admissionAge() > maxTime
-
-proc isParkedExpired*(self: DeliveryTask, maxAge: timer.Duration): bool =
-  ## True when a task never admitted (parked for budget) has outlived `maxAge`,
-  ## measured from the message timestamp, so parking cannot grow the backlog
-  ## and deliver arbitrarily late.
-  return self.firstAdmittedTime.isNone() and self.messageAge() > maxAge
+proc isDeliveryTimedOut*(self: DeliveryTask, window: timer.Duration): bool =
+  ## True when the task did not propagate within `window` of its message
+  ## timestamp. Store and RLN validators refuse a message far off their clock, so
+  ## a later attempt would be refused anyway.
+  return self.firstPropagatedTime.isNone() and self.messageAge() > window
 
 proc isEphemeral*(self: DeliveryTask): bool =
   return self.msg.ephemeral

@@ -9,39 +9,40 @@ from src.steps.messaging import StepsMessaging
 class TestMessagingRest(StepsMessaging):
     def test_subscribe_send_receive(self):
         self.node2.messaging_subscribe([self.test_content_topic])
-        self.send_and_get_request_id(self.node1, "hello messaging")
+        message_hash = self.send_and_get_message_hash(self.node1, "hello messaging")
         record = self.collect_received(self.node2, 1)[0]
         assert record["seq"] == 1  # the node's first received record
         assert record["source"] == "live"
         assert record["message"]["contentTopic"] == self.test_content_topic
         assert self.decode_payload(record) == "hello messaging"
-        assert record["messageHash"].startswith("0x") and len(record["messageHash"]) == 66
+        # The receiver gets the hash that `send` returned.
+        assert record["messageHash"] == message_hash
         # evict-after-poll: a second poll is empty
         assert self.node2.messaging_received() == []
 
     def test_send_events_propagated_then_sent(self):
         # node1 is the Store peer of node2
-        request_id = self.send_and_get_request_id(self.node2)
-        self.collect_send_kinds(self.node2, request_id, ["propagated", "sent"])
-        # the poll above cleared the id
+        message_hash = self.send_and_get_message_hash(self.node2)
+        self.collect_send_kinds(self.node2, message_hash, ["propagated", "sent"])
+        # the poll above cleared the hash
         with pytest.raises(Exception, match=r"^Error: 404 "):
-            self.node2.messaging_send_events_by_id(request_id)
+            self.node2.messaging_send_events_by_hash(message_hash)
 
     def test_burst_is_confirmed(self):
         # 60 sends span more than one Store page (20); each must reach "sent"
         for i in range(60):
-            self.send_and_get_request_id(self.node2, f"burst-{i}")
-        self.collect_sent_request_ids(self.node2, 60, timeout=90)
+            self.send_and_get_message_hash(self.node2, f"burst-{i}")
+        self.collect_sent_message_hashes(self.node2, 60, timeout=90)
 
     def test_unsubscribe_stops_delivery(self):
         sentinel_topic = "/test/1/messaging-rest-sentinel/proto"
         self.node2.messaging_subscribe([self.test_content_topic, sentinel_topic])
-        self.send_and_get_request_id(self.node1, "before unsubscribe")
+        self.send_and_get_message_hash(self.node1, "before unsubscribe")
         self.collect_received(self.node2, 1)
         self.node2.messaging_unsubscribe([self.test_content_topic])
-        request_id = self.send_and_get_request_id(self.node1, "after unsubscribe")
-        self.collect_send_kinds(self.node1, request_id, ["propagated"])
-        self.send_and_get_request_id(self.node1, "sentinel", contentTopic=sentinel_topic)
+        message_hash = self.send_and_get_message_hash(self.node1, "after unsubscribe")
+        self.collect_send_kinds(self.node1, message_hash, ["propagated"])
+        self.send_and_get_message_hash(self.node1, "sentinel", contentTopic=sentinel_topic)
         # 2 live deliveries: the message before the unsubscribe and the sentinel
         self.wait_for_live_received_count(self.node2, 2)
         records = self.node2.messaging_received()
@@ -54,6 +55,13 @@ class TestMessagingRest(StepsMessaging):
             self.node2.messaging_send({"payload": "@@not-base64@@", "contentTopic": self.test_content_topic})
         with pytest.raises(Exception, match=r"^Error: 400 "):
             self.node2.messaging_send({"payload": "aGVsbG8=", "contentTopic": "not-a-content-topic"})
+        with pytest.raises(Exception, match=r"^Error: 400 "):
+            self.node2.messaging_send_events_by_hash("not-a-message-hash")
+
+    def test_oversized_message_is_refused_as_too_large(self):
+        # 200 KiB is above DefaultMaxWakuMessageSize (150 KiB); send refuses it before any network attempt.
+        with pytest.raises(Exception, match=r"^Error: 413 "):
+            self.send_and_get_message_hash(self.node2, "x" * 200 * 1024)
 
 
 class TestMessagingRestNodeConfig(StepsMessaging):
@@ -62,7 +70,7 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         self.setup_client_messaging_node(rest_messaging_cache_capacity="10")
         self.node2.messaging_subscribe([self.test_content_topic])
         for i in range(15):
-            self.send_and_get_request_id(self.node1, f"cap-{i}")
+            self.send_and_get_message_hash(self.node1, f"cap-{i}")
         # the metric counts deliveries without a poll
         self.wait_for_live_received_count(self.node2, 15)
         records = self.node2.messaging_received()
@@ -86,16 +94,16 @@ class TestMessagingRestNodeConfig(StepsMessaging):
         self.node2 = WakuNode(NODE_2, f"node2_{self.test_id}")
         self.node2.start(**self.messaging_args(staticnode=self.node1.get_multiaddr_with_id()))
         self.wait_for_autoconnection([self.node1, self.node2])
-        request_id = self.send_and_get_request_id(self.node2)
-        assert self.collect_send_events(self.node2, request_id, timeout=90) == [
-            ("propagated", None),
-            ("error", "Propagated but not confirmed by a store node within the store validation window"),
+        message_hash = self.send_and_get_message_hash(self.node2)
+        assert self.collect_send_events(self.node2, message_hash, timeout=90) == [
+            ("propagated", None, None),
+            ("error", "NotStored", "Propagated but not confirmed by a store node within the store validation window"),
         ]
         wait_until(
             lambda: self.node2.search_log_for_keywords(
-                [rf"^INF .*Message propagated but not validated by a store node within time window; stop trying\..*requestId={request_id}"],
+                [rf"^INF .*Message propagated but not validated by a store node within time window; stop trying\..*msgHash={message_hash}"],
                 use_regex=True,
             ),
-            message=f"Expected the INFO line of the store validation timeout of {request_id}",
+            message=f"Expected the INFO line of the store validation timeout of {message_hash}",
         )
-        assert self.node2.search_log_for_keywords([rf"^(WRN|ERR) .*requestId={request_id}"], use_regex=True) is None
+        assert self.node2.search_log_for_keywords([rf"^(WRN|ERR) .*msgHash={message_hash}"], use_regex=True) is None

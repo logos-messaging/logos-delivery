@@ -284,11 +284,8 @@ suite "Waku Store Sync - reconciliation header":
       res.get().shards == @[3'u16]
       res.get().ranges.len == 0
 
-  test "a zero-length payload decodes as empty":
-    let res = RangesData.deltaDecode(@[])
-    check:
-      res.isOk()
-      res.get().ranges.len == 0
+  test "a zero-length payload is a decode error":
+    check RangesData.deltaDecode(@[]).isErr()
 
 suite "Waku Store Sync - first range":
   let
@@ -515,3 +512,57 @@ suite "Store sync - codec bounds":
     check:
       res.isErr()
       res.error == "Cannot decode shard. Shard index: 0"
+
+suite "Store sync - encoded sizes":
+  test "encodedSize is the length of an item set's encoding":
+    var rng = initRand()
+    for count in [0, 1, 7, 100]:
+      var
+        elements: seq[SyncID]
+        time = Timestamp(1_000)
+      for i in 0 ..< count:
+        # Equal timestamps, small gaps and large gaps give time deltas of
+        # different encoded lengths.
+        time += [0'i64, 1, 1_000, 1_000_000_000_000][rng.rand(3)]
+        elements.add(SyncID(time: time, hash: randomHash(rng)))
+      let itemSet = ItemSet(elements: elements, reconciled: rng.rand(1) == 1)
+
+      check itemSet.encodedSize() == itemSet.deltaEncode().len
+
+  test "a payload encodes within the sum of its size bounds":
+    var rng = initRand()
+    let
+      b1 = SyncID(time: Timestamp(100), hash: EmptyFingerprint)
+      b2 = SyncID(time: Timestamp(5_000), hash: randomHash(rng))
+      # Same timestamp as b2, so its hash bytes are written.
+      b3 = SyncID(time: Timestamp(5_000), hash: FullFingerprint)
+      b4 = SyncID(time: Timestamp(9_000_000_000), hash: EmptyFingerprint)
+      b5 = SyncID(time: Timestamp(9_500_000_000), hash: EmptyFingerprint)
+      # b1 is not zero, so the encoding starts with a Skip range.
+      payload = RangesData(
+        cluster: 2,
+        shards: @[3'u16, 300],
+        ranges: @[
+          (b1 .. b2, RangeType.ItemSet),
+          (b2 .. b3, RangeType.Fingerprint),
+          (b3 .. b4, RangeType.Skip),
+          (b4 .. b5, RangeType.ItemSet),
+        ],
+        fingerprints: @[randomHash(rng)],
+        itemSets: @[
+          randomItemSet(20, Timestamp(200), rng),
+          randomItemSet(5, Timestamp(9_000_000_001), rng),
+        ],
+      )
+
+    var
+      bound = maxEncodedHeaderSize(payload.shards.len)
+      j = 0
+    for (_, rangeType) in payload.ranges:
+      if rangeType == RangeType.ItemSet:
+        bound += maxEncodedRangeSize(rangeType, payload.itemSets[j])
+        j.inc()
+      else:
+        bound += maxEncodedRangeSize(rangeType)
+
+    check payload.deltaEncode().len <= bound

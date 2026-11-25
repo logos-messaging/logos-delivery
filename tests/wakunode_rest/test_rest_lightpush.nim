@@ -431,6 +431,8 @@ suite "Waku v2 Rest API - lightpush":
       await allFutures(serviceServer.stop(), consumerServer.stop())
       await allFutures(serviceServer.closeWait(), consumerServer.closeWait())
 
+    restLightPushTest.serviceNode.setLabelDefaultShard()
+    restLightPushTest.consumerNode.setLabelDefaultShard()
     let
       serviceClient = newRestHttpClient(serviceServer.localAddress())
       consumerClient = newRestHttpClient(consumerServer.localAddress())
@@ -454,7 +456,7 @@ suite "Waku v2 Rest API - lightpush":
     # When the same message is pushed twice, with the service node's messages read in between
     let firstResponse = await restLightPushTest.restClient.sendPushRequest(requestBody)
     let onConsumer = await consumerClient.waitForRelayMessages(DefaultPubsubTopic, 1)
-    let firstOnService = await serviceClient.relayGetMessagesV1(DefaultPubsubTopic)
+    let firstOnService = await serviceClient.waitForRelayMessages(DefaultPubsubTopic, 1)
     let sentAfterFirst = relayNetworkBytes(netOut)
     let secondResponse = await restLightPushTest.restClient.sendPushRequest(requestBody)
 
@@ -464,8 +466,7 @@ suite "Waku v2 Rest API - lightpush":
     check:
       firstResponse.status == 200
       firstResponse.data.relayPeerCount == Opt.some(1.uint32)
-      firstOnService.status == 200
-      firstOnService.data.len == 0
+      firstOnService.mapIt(it.payload) == @[message.payload]
       onConsumer.mapIt(it.payload) == @[message.payload]
       sentAfterFirst > sentBefore
       secondResponse.status == 400

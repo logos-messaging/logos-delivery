@@ -89,25 +89,25 @@ proc setupLogOutput(output: string): Result[void, string] =
 
     when defaultChroniclesStream.outputs.type.arity != 2:
       return err("log output is not supported by this build: " & output)
+    else:
+      let file =
+        case output
+        of StdoutLogOutput:
+          syncio.stdout
+        of StderrLogOutput:
+          syncio.stderr
+        else:
+          try:
+            open(output, fmAppend)
+          except IOError as e:
+            return err("could not open log output file: " & output & ": " & e.msg)
 
-    let file =
-      case output
-      of StdoutLogOutput:
-        syncio.stdout
-      of StderrLogOutput:
-        syncio.stderr
-      else:
-        try:
-          open(output, fmAppend)
-        except IOError as e:
-          return err("could not open log output file: " & output & ": " & e.msg)
-
-    withLock(logOutputLock):
-      if not logOutputFile.isConsole():
-        logOutputFile.close()
-      logOutputFile = file
-      logOutputName = output
-    return ok()
+      withLock(logOutputLock):
+        if not logOutputFile.isConsole():
+          logOutputFile.close()
+        logOutputFile = file
+        logOutputName = output
+      return ok()
 
 proc useColors(): bool =
   ## Colors only on a terminal, and never when NO_COLOR is set

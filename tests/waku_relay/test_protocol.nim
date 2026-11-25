@@ -1246,6 +1246,33 @@ suite "Waku Relay":
         ownMessageSeq == @[(pubsubTopic, wakuMessage)]
         messageSeq.len == 0
 
+    asyncTest "A message published for a peer reaches the subscribe handlers once, not the own message handler":
+      # Given a subscribed node with an own message handler and no relay peer
+      var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]
+      node.ownMessageHandler = proc(
+          topic: PubsubTopic, message: WakuMessage
+      ): Future[void] {.async, closure, gcsafe.} =
+        ownMessageSeq.add((topic, message))
+      node.subscribe(pubsubTopic, simpleFutureHandler)
+
+      # When publishing a message for a peer, as a lightpush server does
+      let firstPublish = await node.publishForPeer(pubsubTopic, wakuMessage)
+
+      # Then the subscribe handler gets it, as a message from the network
+      check:
+        firstPublish.isErr() and firstPublish.error == PublishOutcome.NoPeersToPublish
+        messageSeq == @[(pubsubTopic, wakuMessage)]
+        ownMessageSeq.len == 0
+
+      # When the publish is retried
+      let retry = await node.publishForPeer(pubsubTopic, wakuMessage)
+
+      # Then the subscribe handler does not get it again
+      check:
+        retry.isErr() and retry.error == PublishOutcome.NoPeersToPublish
+        messageSeq == @[(pubsubTopic, wakuMessage)]
+        ownMessageSeq.len == 0
+
     asyncTest "A message published to a topic the node is not subscribed to skips the own message handler":
       # Given a node with an own message handler, not subscribed to the topic
       var ownMessageSeq: seq[(PubsubTopic, WakuMessage)]

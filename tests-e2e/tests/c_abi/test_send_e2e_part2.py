@@ -5,10 +5,17 @@ from src.libs.common import delay, to_base64
 from src.libs.custom_logger import get_custom_logger
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    DELIVERY_WINDOW_S,
+    SEND_REFUSED_NOT_CONNECTED,
+    SEND_REFUSED_TOO_LARGE,
     EventCollector,
     assert_event_invariants,
+    assert_message_hash,
+    assert_no_message_events,
+    assert_send_refused,
     create_message_bindings,
     get_node_multiaddr,
+    send_once_connected,
     wait_for_connected,
     wait_for_propagated,
     wait_for_sent,
@@ -23,87 +30,16 @@ SENT_TIMEOUT_S = 10.0
 NO_SENT_OBSERVATION_S = 5.0
 SENT_AFTER_STORE_TIMEOUT_S = 60.0
 OVERSIZED_PAYLOAD_BYTES = 200 * 1024
-RECOVERY_TIMEOUT_S = 45.0
 SERVICE_DOWN_SETTLE_S = 3.0
-
-# MaxTimeInCache from send_service.nim.
-MAX_TIME_IN_CACHE_S = 60.0
-# Extra slack to cover the background retry loop tick after the window expires.
-CACHE_EXPIRY_SLACK_S = 10.0
-ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S = MAX_TIME_IN_CACHE_S + CACHE_EXPIRY_SLACK_S
-RETRY_WINDOW_EXPIRED_MSG = "Unable to send within retry time window"
-
-
-class TestS02AutoSubscribeOnFirstSend(StepsCommon):
-    """
-    S02 — Auto-subscribe on first send.
-    Sender never calls subscribe_content_topic() before send().
-    The send API must auto-subscribe to the content topic used in the message.
-    Expected: send() returns Ok(RequestId), message_propagated arrives.
-    """
-
-    def test_s02_send_without_explicit_subscribe(self, node_config):
-        sender_collector = EventCollector()
-
-        node_config.update(
-            {
-                "relay": True,
-                "store": False,
-                "lightpush": False,
-                "filter": False,
-                "discv5Discovery": False,
-                "numShardsInNetwork": 1,
-            }
-        )
-
-        sender_result = WrapperManager.create_and_start(
-            config=node_config,
-            event_cb=sender_collector.event_callback,
-        )
-        assert sender_result.is_ok(), f"Failed to start sender: {sender_result.err()}"
-
-        with sender_result.ok_value as sender:
-            peer_config = {
-                **node_config,
-                "staticnodes": [get_node_multiaddr(sender)],
-            }
-
-            peer_result = WrapperManager.create_and_start(config=peer_config)
-            assert peer_result.is_ok(), f"Failed to start relay peer: {peer_result.err()}"
-
-            with peer_result.ok_value:
-                assert wait_for_connected(sender_collector) is not None, "Sender did not reach Connected/PartiallyConnected state"
-
-                message = create_message_bindings(
-                    payload=to_base64("S02 auto-subscribe test payload"),
-                    contentTopic="/test/1/s02-auto-subscribe/proto",
-                )
-
-                send_result = sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
-
-                propagated = wait_for_propagated(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=PROPAGATED_TIMEOUT_S,
-                )
-                assert propagated is not None, (
-                    f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
-                )
-                assert propagated["requestId"] == request_id
-
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
-                assert error is None, f"Unexpected message_error event: {error}"
+# A refused send gets no event; how long to watch for one.
+NO_EVENT_OBSERVATION_S = 3.0
 
 
 class TestS06CoreSenderRelayOnly(StepsCommon):
     """
     S06 — Core sender with relay peers only, no store.
     Sender has local relay enabled and is connected to one relay peer.
-    Expected: send() returns Ok(RequestId), message_propagated event arrives,
+    Expected: send() returns Ok(messageHash), message_propagated event arrives,
     no message_sent (store disabled), no message_error.
     """
 
@@ -146,28 +82,25 @@ class TestS06CoreSenderRelayOnly(StepsCommon):
                 )
 
                 send_result = sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                message_hash = assert_message_hash(send_result)
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id,
+                    message_hash=message_hash,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == message_hash
 
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
 
-                sent = wait_for_sent(sender_collector, request_id, timeout_s=0)
+                sent = wait_for_sent(sender_collector, message_hash, timeout_s=0)
                 assert sent is None, f"Unexpected message_sent event (store is disabled): {sent}"
 
-                assert_event_invariants(sender_collector, request_id)
+                assert_event_invariants(sender_collector, message_hash)
 
 
 class TestS07CoreSenderRelayAndStore(StepsCommon):
@@ -210,41 +143,40 @@ class TestS07CoreSenderRelayAndStore(StepsCommon):
             assert peer_result.is_ok(), f"Failed to start store peer: {peer_result.err()}"
 
             with peer_result.ok_value:
+                assert wait_for_connected(sender_collector) is not None, "Sender did not reach Connected/PartiallyConnected state"
+
                 message = create_message_bindings(
                     payload=to_base64("S07 relay+store test payload"),
                     contentTopic="/test/1/s07-relay-store/proto",
                 )
 
                 send_result = sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                message_hash = assert_message_hash(send_result)
 
                 propagated = wait_for_propagated(
                     collector=sender_collector,
-                    request_id=request_id,
+                    message_hash=message_hash,
                     timeout_s=PROPAGATED_TIMEOUT_S,
                 )
                 assert propagated is not None, (
                     f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                 )
-                assert propagated["requestId"] == request_id
+                assert propagated["messageHash"] == message_hash
 
                 sent = wait_for_sent(
                     collector=sender_collector,
-                    request_id=request_id,
+                    message_hash=message_hash,
                     timeout_s=SENT_TIMEOUT_S,
                 )
                 assert sent is not None, (
                     f"No message_sent event within {SENT_TIMEOUT_S}s after propagation. " f"Collected events: {sender_collector.events}"
                 )
-                assert sent["requestId"] == request_id
+                assert sent["messageHash"] == message_hash
 
-                error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                 assert error is None, f"Unexpected message_error event: {error}"
 
-                assert_event_invariants(sender_collector, request_id)
+                assert_event_invariants(sender_collector, message_hash)
 
 
 class TestRelayToLightpushFallback(StepsCommon):
@@ -304,29 +236,26 @@ class TestRelayToLightpushFallback(StepsCommon):
 
                 with sender_result.ok_value as sender:
                     message = create_message_bindings()
-                    send_result = sender.send_message(message=message)
-                    assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                    request_id = send_result.ok_value
-                    assert request_id, "send() returned an empty RequestId"
+                    send_result = send_once_connected(sender, message)
+                    message_hash = assert_message_hash(send_result)
 
                     propagated = wait_for_propagated(
                         collector=sender_collector,
-                        request_id=request_id,
+                        message_hash=message_hash,
                         timeout_s=PROPAGATED_TIMEOUT_S,
                     )
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == message_hash
 
-                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                    error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                     assert error is None, f"Unexpected message_error event: {error}"
 
-                    sent = wait_for_sent(sender_collector, request_id, timeout_s=0)
+                    sent = wait_for_sent(sender_collector, message_hash, timeout_s=0)
                     assert sent is None, f"Unexpected message_sent event (no store peer): {sent}"
 
-                    assert_event_invariants(sender_collector, request_id)
+                    assert_event_invariants(sender_collector, message_hash)
 
     def test_s09_relay_fallback_to_lightpush_with_store_validation(self, node_config):
         """S09: S08 + store peer + reliability → Propagated, then Sent."""
@@ -368,37 +297,34 @@ class TestRelayToLightpushFallback(StepsCommon):
 
                 with sender_result.ok_value as sender:
                     message = create_message_bindings()
-                    send_result = sender.send_message(message=message)
-                    assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                    request_id = send_result.ok_value
-                    assert request_id, "send() returned an empty RequestId"
+                    send_result = send_once_connected(sender, message)
+                    message_hash = assert_message_hash(send_result)
 
                     propagated = wait_for_propagated(
                         collector=sender_collector,
-                        request_id=request_id,
+                        message_hash=message_hash,
                         timeout_s=PROPAGATED_TIMEOUT_S,
                     )
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == message_hash
 
                     sent = wait_for_sent(
                         collector=sender_collector,
-                        request_id=request_id,
+                        message_hash=message_hash,
                         timeout_s=SENT_AFTER_STORE_TIMEOUT_S,
                     )
                     assert sent is not None, (
                         f"No message_sent event within {SENT_AFTER_STORE_TIMEOUT_S}s "
                         f"after propagation. Collected events: {sender_collector.events}"
                     )
-                    assert sent["requestId"] == request_id
+                    assert sent["messageHash"] == message_hash
 
-                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                    error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                     assert error is None, f"Unexpected message_error event: {error}"
 
-                    assert_event_invariants(sender_collector, request_id)
+                    assert_event_invariants(sender_collector, message_hash)
 
 
 class TestS10EdgeSenderLightpushOnly(StepsCommon):
@@ -455,40 +381,37 @@ class TestS10EdgeSenderLightpushOnly(StepsCommon):
                         contentTopic="/test/1/s10-edge-lightpush/proto",
                     )
 
-                    send_result = edge_sender.send_message(message=message)
-                    assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-
-                    request_id = send_result.ok_value
-                    assert request_id, "send() returned an empty RequestId"
+                    send_result = send_once_connected(edge_sender, message)
+                    message_hash = assert_message_hash(send_result)
 
                     propagated = wait_for_propagated(
                         collector=sender_collector,
-                        request_id=request_id,
+                        message_hash=message_hash,
                         timeout_s=PROPAGATED_TIMEOUT_S,
                     )
                     assert propagated is not None, (
                         f"No message_propagated event within {PROPAGATED_TIMEOUT_S}s. " f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == message_hash
 
-                    sent = wait_for_sent(sender_collector, request_id, timeout_s=NO_SENT_OBSERVATION_S)
+                    sent = wait_for_sent(sender_collector, message_hash, timeout_s=NO_SENT_OBSERVATION_S)
                     assert sent is None, f"Unexpected message_sent event (no store peer): {sent}"
 
-                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                    error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                     assert error is None, f"Unexpected message_error event: {error}"
 
-                    assert_event_invariants(sender_collector, request_id)
+                    assert_event_invariants(sender_collector, message_hash)
 
 
 class TestS12IsolatedSenderNoPeers(StepsCommon):
     """
     S12 — Isolated sender, no peers.
-    Sender has relay enabled but zero relay peers and zero lightpush peers.
-    Expected: send() returns Ok(RequestId), but eventually a message_error
-    event arrives (no route to propagate).
+    Sender has relay enabled but zero relay peers and zero lightpush peers,
+    so its connection status is Disconnected.
+    Expected: send() is refused with NotConnected, and the message gets no event.
     """
 
-    def test_s12_send_with_no_peers_produces_error(self, node_config):
+    def test_s12_send_with_no_peers_is_refused(self, node_config):
         sender_collector = EventCollector()
 
         node_config.update(
@@ -515,37 +438,20 @@ class TestS12IsolatedSenderNoPeers(StepsCommon):
             )
 
             send_result = sender.send_message(message=message)
-            assert send_result.is_ok(), f"send() must return Ok(RequestId) even with no peers, got: {send_result.err()}"
+            assert_send_refused(send_result, SEND_REFUSED_NOT_CONNECTED)
 
-            request_id = send_result.ok_value
-            assert request_id, "send() returned an empty RequestId"
-
-            error = wait_for_error(
-                collector=sender_collector,
-                request_id=request_id,
-                timeout_s=ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S,
-            )
-            assert error is not None, (
-                f"No message_error event within {ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S}s "
-                f"(MaxTimeInCache={MAX_TIME_IN_CACHE_S}s + slack) for isolated sender. "
-                f"Collected events: {sender_collector.events}"
-            )
-            assert error["requestId"] == request_id
-
-            propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
-            assert propagated is None, f"Unexpected message_propagated event for isolated sender: {propagated}"
+            assert_no_message_events(sender_collector, NO_EVENT_OBSERVATION_S)
 
 
-class TestS14LightpushNonRetryableError(StepsCommon):
+class TestS14OversizedMessageRefused(StepsCommon):
     """
-    S14 — Lightpush non-retryable error via oversized message.
-    Edge sender publishes a message exceeding DefaultMaxWakuMessageSize (150KiB)
-    through a lightpush service node. The server validates message size and
-    returns INVALID_MESSAGE (420), a non-retryable error.
-    Expected: send() returns Ok(RequestId), then message_error event.
+    S14 — Oversized message.
+    Edge sender sends a message exceeding DefaultMaxWakuMessageSize (150KiB).
+    send() checks the size, with the RLN proof, before any network attempt.
+    Expected: send() is refused with TooLarge, and the message gets no event.
     """
 
-    def test_s14_oversized_message_triggers_error(self):
+    def test_s14_oversized_message_is_refused(self):
         sender_collector = EventCollector()
 
         common = {
@@ -581,32 +487,12 @@ class TestS14LightpushNonRetryableError(StepsCommon):
                     contentTopic="/test/1/s14-oversized/proto",
                 )
 
-                send_result = edge_sender.send_message(message=message)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
+                # Retried until the edge has a peer, so the refusal comes from the size check.
+                send_result = send_once_connected(edge_sender, message)
+                error = assert_send_refused(send_result, SEND_REFUSED_TOO_LARGE)
+                assert "exceeds the maximum message size" in error, f"Error doesn't indicate a size violation: {error!r}"
 
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
-
-                error = wait_for_error(
-                    collector=sender_collector,
-                    request_id=request_id,
-                    timeout_s=PROPAGATED_TIMEOUT_S,
-                )
-                assert error is not None, (
-                    f"No message_error event within {PROPAGATED_TIMEOUT_S}s "
-                    f"after sending oversized message. "
-                    f"Collected events: {sender_collector.events}"
-                )
-                assert error["requestId"] == request_id
-                logger.info(f"S14 received error event: {error}")
-
-                error_msg = error.get("error", "").lower()
-                assert "size exceeded" in error_msg, f"Error message doesn't indicate size violation: {error}"
-
-                propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
-                assert propagated is None, f"Unexpected message_propagated for an invalid message: {propagated}"
-
-                assert_event_invariants(sender_collector, request_id)
+                assert_no_message_events(sender_collector, NO_EVENT_OBSERVATION_S)
 
 
 class TestS15LightpushRetryableErrorRecovery(StepsCommon):
@@ -615,9 +501,9 @@ class TestS15LightpushRetryableErrorRecovery(StepsCommon):
     Edge sender publishes via a lightpush service node that has NO relay peers.
     The service accepts the lightpush request but returns NO_PEERS_TO_RELAY —
     a retryable error (explicitly listed in the S15 spec).  The message enters
-    the retry loop.  A relay peer then joins the service node, and the next
-    retry succeeds.
-    Expected: send() returns Ok(RequestId), then eventually Propagated.
+    the retry loop.  A relay peer then joins the service node, and a retry
+    within the delivery window succeeds.
+    Expected: send() returns Ok(messageHash), then Propagated within the delivery window.
     """
 
     def test_s15_lightpush_retryable_error_then_recovery(self):
@@ -654,14 +540,12 @@ class TestS15LightpushRetryableErrorRecovery(StepsCommon):
                     payload=to_base64("S15 retryable error recovery"),
                     contentTopic="/test/1/s15-recovery/proto",
                 )
-                send_result = edge_sender.send_message(message=msg)
-                assert send_result.is_ok(), f"send() failed: {send_result.err()}"
-                request_id = send_result.ok_value
-                assert request_id, "send() returned an empty RequestId"
+                send_result = send_once_connected(edge_sender, msg)
+                message_hash = assert_message_hash(send_result)
 
                 delay(SERVICE_DOWN_SETTLE_S)
 
-                early_propagated = wait_for_propagated(sender_collector, request_id, timeout_s=0)
+                early_propagated = wait_for_propagated(sender_collector, message_hash, timeout_s=0)
                 assert early_propagated is None, (
                     f"message_propagated arrived before relay peer joined — " f"retryable error path was not exercised: {early_propagated}"
                 )
@@ -675,19 +559,20 @@ class TestS15LightpushRetryableErrorRecovery(StepsCommon):
                 assert relay_result.is_ok(), f"Failed to start relay peer: {relay_result.err()}"
 
                 with relay_result.ok_value:
+                    # The task fails once the delivery window from the message timestamp ends.
                     propagated = wait_for_propagated(
                         collector=sender_collector,
-                        request_id=request_id,
-                        timeout_s=RECOVERY_TIMEOUT_S,
+                        message_hash=message_hash,
+                        timeout_s=DELIVERY_WINDOW_S,
                     )
                     assert propagated is not None, (
-                        f"No message_propagated within {RECOVERY_TIMEOUT_S}s "
+                        f"No message_propagated within the {DELIVERY_WINDOW_S}s delivery window "
                         f"after relay peer joined. "
                         f"Collected events: {sender_collector.events}"
                     )
-                    assert propagated["requestId"] == request_id
+                    assert propagated["messageHash"] == message_hash
 
-                    error = wait_for_error(sender_collector, request_id, timeout_s=0)
+                    error = wait_for_error(sender_collector, message_hash, timeout_s=0)
                     assert error is None, f"Unexpected message_error after recovery: {error}"
 
-                    assert_event_invariants(sender_collector, request_id)
+                    assert_event_invariants(sender_collector, message_hash)

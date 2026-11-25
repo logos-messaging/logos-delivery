@@ -1,4 +1,4 @@
-import std/random, chronos, metrics
+import std/[random, sets], chronos, metrics
 
 import
   logos_delivery/waku/[
@@ -12,6 +12,31 @@ import
   ../testlib/wakucore
 
 randomize()
+
+var requestedInTest* {.threadvar.}: HashSet[WakuMessageHash]
+  ## The hashes that a test receiver accepts as asked for by a round.
+
+proc checkPushInTest*(id: SyncID): PushCheck {.gcsafe, raises: [].} =
+  if requestedInTest.contains(id.hash): PushCheck.Wanted else: PushCheck.Unwanted
+
+var pendingNowInTest* {.threadvar.}: Moment
+  ## The time of the promises of a reconciliation that uses `pendingClockInTest`,
+  ## which a test moves forward in place of a wait.
+
+proc pendingClockInTest*(): Moment {.gcsafe, raises: [].} =
+  pendingNowInTest
+
+func syncId*(msg: WakuMessage, pubsubTopic = DefaultPubsubTopic): SyncID =
+  SyncID(time: msg.timestamp, hash: computeMessageHash(pubsubTopic, msg))
+
+func containsPush*(
+    queue: AsyncQueue[(PeerId, SyncID)], peer: PeerId, hash: WakuMessageHash
+): bool =
+  ## True when `queue` holds a push of `hash` to `peer`.
+  for (queuedPeer, id) in queue:
+    if queuedPeer == peer and id.hash == hash:
+      return true
+  return false
 
 type TransferDirection* {.pure.} = enum
   Sent
@@ -29,6 +54,22 @@ proc transferCount*(direction: TransferDirection): float64 =
   except ValueError:
     return 0.0
 
+proc reasonCount(counter: Counter, reason: string): float64 =
+  ## Counters are registered with the '_total' suffix; see archive_utils.insertCount.
+  try:
+    return counter.valueByName(counter.name & "_total", [reason])
+  except ValueError:
+    return 0.0
+
+# The counters are globals; reading them from a test is safe.
+proc failureCount*(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_transfer_receive_failures, reason)
+
+proc reconciliationFailures*(reason: string): float64 =
+  {.gcsafe.}:
+    reasonCount(logos_delivery_reconciliation_failures, reason)
+
 proc randomHash*(rng: var Rand): WakuMessageHash =
   var hash = EmptyWakuMessageHash
 
@@ -41,16 +82,23 @@ proc newTestWakuRecon*(
     switch: Switch,
     shards: seq[uint16] = @[],
     syncRange: timer.Duration = DefaultSyncRange,
-    idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsRx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     wantsTx: AsyncQueue[PeerId],
-    needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    needsTx: AsyncQueue[(PeerId, SyncID)],
     relayJitter: timer.Duration = 0.seconds,
     syncInterval: timer.Duration = DefaultSyncInterval,
     clock: proc(): Timestamp {.gcsafe, raises: [].} = getNowInNanosecondTime,
     cluster: uint16 = DefaultClusterId,
     pendingTimeout: timer.Duration = DefaultSyncInterval,
+    pendingClock: proc(): Moment {.gcsafe, raises: [].} = monotonicNow,
+    peerManager: PeerManager = nil,
+    frameSizeLimit = DefaultMaxPayloadSize,
 ): Future[SyncReconciliation] {.async.} =
-  let peerManager = PeerManager.new(switch)
+  let peerManager =
+    if peerManager.isNil():
+      PeerManager.new(switch)
+    else:
+      peerManager
 
   let res = await SyncReconciliation.new(
     cluster = cluster,
@@ -65,6 +113,8 @@ proc newTestWakuRecon*(
     remoteNeedsTx = needsTx,
     clock = clock,
     pendingTimeout = pendingTimeout,
+    pendingClock = pendingClock,
+    frameSizeLimit = frameSizeLimit,
   )
 
   let proto = res.get()
@@ -76,9 +126,9 @@ proc newTestWakuRecon*(
 
 proc newTestWakuTransfer*(
     switch: Switch,
-    idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
+    idsTx: AsyncQueue[(SyncID, PubsubTopic, PeerId)],
     wantsRx: AsyncQueue[PeerId],
-    needsRx: AsyncQueue[(PeerId, WakuMessageHash)],
+    needsRx: AsyncQueue[(PeerId, SyncID)],
 ): Future[SyncTransfer] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -89,6 +139,7 @@ proc newTestWakuTransfer*(
     localWantsRx = wantsRx,
     remoteNeedsRx = needsRx,
     maxMessageSize = int(DefaultMaxWakuMessageSize),
+    checkPush = checkPushInTest,
   )
 
   await proto.start()

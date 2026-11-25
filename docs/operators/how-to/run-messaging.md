@@ -1,6 +1,6 @@
 # Run a Messaging API node
 
-A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{requestId}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
+A node started with `--entry-layer=messaging` runs the Messaging API. With `--rest=true`, it serves the API at `/messaging/v1`. A client sends a message with `POST /messaging/v1/messages`. Then it reads the events of the send, such as `propagated`, `sent` and `error`, as JSON from `GET /messaging/v1/events/send/{messageHash}`, about once per second. [REST API](../../api/rest-api.md#messaging-api) describes the API.
 
 ## Network
 
@@ -12,6 +12,8 @@ A node started with `--entry-layer=messaging` runs the Messaging API. With `--re
 |---|---|---|
 | `--reliability` | Confirm each send with a Store node | on, off for the `twn`, `status.prod` and `status.staging` presets |
 | `--anonymity-level` | Mix anonymity level: `None`, `Preferred` or `Required`. A level above `None` mounts mix. | `None` |
+
+By default, a mix path uses a mix node only at a public address. On a local simulation or a private network, set `--mix-allow-all-addresses` on each node.
 
 ## Store nodes
 

@@ -127,14 +127,9 @@ proc setupSwitchServices*(
     else:
       Service(autonatService)
 
+  # Switch.start configures and starts every service that is in this list, so
+  # the service must be added before the node starts.
   node.switch.services.add(newService)
-
-  # libp2p runs Service.setup only at build time.
-  # This service attaches after build, so run its setup here.
-  try:
-    newService.setup(node.switch)
-  except ServiceSetupError as e:
-    error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
 
@@ -645,7 +640,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.conf,
     waku.node.getShardsGetter(waku.conf.subscribeShards)(),
   )
-  await advertiseMix(waku.node.discoveries, waku.conf)
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:

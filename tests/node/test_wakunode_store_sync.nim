@@ -17,6 +17,7 @@ import
     waku_archive/archive_metrics,
     waku_archive/retention_policy/retention_policy_time,
     waku_store_sync,
+    waku_store_sync/codec,
   ],
   ../waku_relay/utils,
   ../waku_archive/archive_utils,
@@ -245,6 +246,59 @@ suite "Waku Store Sync - End to End":
     # Then C holds the message: B's relay handler indexed what its archive stored
     checkUntilTimeout:
       await nodeC.wakuArchive.holdsMessages(@[freshHash])
+
+  asyncTest "A node that holds nothing gets every message of the peer that starts the session":
+    # Given a node holding three messages, and an empty node
+    let
+      msgs = @[
+        fakeWakuMessage(@[byte 0], ts = now() - 3.seconds.nanos),
+        fakeWakuMessage(@[byte 1], ts = now() - 2.seconds.nanos),
+        fakeWakuMessage(@[byte 2], ts = now() - 1.seconds.nanos),
+      ]
+      hashes = msgs.mapIt(computeMessageHash(DefaultPubsubTopic, it))
+      nodeA = await newStoreSyncNode(
+        await newArchiveDriverWithMessages(DefaultPubsubTopic, msgs)
+      )
+      nodeB = await newStoreSyncNode(newSqliteArchiveDriver())
+    nodes = @[nodeA, nodeB]
+    await allFutures(nodes.mapIt(it.start()))
+
+    let syncInsertsBefore = insertCount(syncIngress)
+
+    # When the node that holds the messages starts the session
+    let res = await nodeA.syncWith(nodeB)
+
+    # Then the empty node learns what to accept in an extra round and archives all three
+    check res.isOk()
+    checkUntilTimeout:
+      await nodeB.wakuArchive.holdsMessages(hashes)
+    check insertCount(syncIngress) == syncInsertsBefore + 3
+
+  asyncTest "A message pushed with no reconciliation round is not archived":
+    # Given a store sync node, and a peer that only opens a transfer stream
+    let
+      node = await newStoreSyncNode(newSqliteArchiveDriver())
+      peerSwitch = newTestSwitch()
+      msg = fakeWakuMessage(@[byte 0], ts = now() - 1.seconds.nanos)
+      hash = computeMessageHash(DefaultPubsubTopic, msg)
+    nodes = @[node]
+    await allFutures(node.start(), peerSwitch.start())
+    let notRequestedBefore = failureCount("not_requested")
+
+    # When the peer pushes a message that no round asked for
+    let conn = await peerSwitch.dial(
+      node.switch.peerInfo.peerId, node.switch.peerInfo.addrs, WakuTransferCodec
+    )
+    await conn.writeLp(
+      WakuMessageAndTopic(pubsub: DefaultPubsubTopic, message: msg).encode()
+    )
+
+    # Then the node counts the message and does not archive it
+    checkUntilTimeout:
+      failureCount("not_requested") == notRequestedBefore + 1
+    check not await node.wakuArchive.holdsMessages(@[hash])
+    await conn.close()
+    await peerSwitch.stop()
 
   asyncTest "The sync range is clamped to the archive's time retention":
     # Given a node whose time retention is shorter than the sync range plus jitter

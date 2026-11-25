@@ -12,4 +12,10 @@ type PushMessageHandler* = proc(
   pubsubTopic: PubsubTopic, message: WakuMessage
 ): Future[WakuLightPushResult[void]] {.async.}
 
+type PushRequestHandler* = proc(
+  peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+): Future[WakuLightPushResult[void]] {.async.}
+  ## Handles the push request of `peerId`, this node's own id for a request
+  ## the node makes to itself.
+
 const TooManyRequestsMessage* = "TOO_MANY_REQUESTS"

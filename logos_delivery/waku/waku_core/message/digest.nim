@@ -41,14 +41,17 @@ converter toBytes*(digest: MDigest[256]): seq[byte] =
   toSeq(digest.data)
 
 proc hexToHash*(hexString: string): Result[WakuMessageHash, string] =
-  var hash: WakuMessageHash
-
+  ## Reads a hex message hash, with or without `0x`. A hash of another length is
+  ## an error, because `fromBytes` pads or cuts the bytes to 32.
+  var bytes: seq[byte]
   try:
-    hash = hexString.hexToSeqByte().fromBytes()
+    bytes = hexString.hexToSeqByte()
   except ValueError as e:
     return err("Exception converting hex string to hash: " & e.msg)
 
-  return ok(hash)
+  if bytes.len != 32:
+    return err("a message hash has 32 bytes, the hex string has: " & $bytes.len)
+  return ok(bytes.fromBytes())
 
 proc computeMessageHash*(pubsubTopic: PubsubTopic, msg: WakuMessage): WakuMessageHash =
   var ctx: sha256

@@ -101,7 +101,8 @@ proc mountLegacyLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting legacy lightpush with relay"
-  let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay)
+  let pushHandler =
+    legacy_lightpush_protocol.getRelayServerPushHandler(node.wakuRelay, node.peerId())
 
   node.wakuLegacyLightPush = WakuLegacyLightPush.new(
     node.peerManager,
@@ -240,7 +241,8 @@ proc mountLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting lightpush with relay"
-  let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay)
+  let pushHandler =
+    lightpush_protocol.getRelayServerPushHandler(node.wakuRelay, node.peerId())
 
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager,
@@ -387,7 +389,7 @@ proc lightpushPublish*(
     if size > limit:
       return lighpushErrorResult(
         LightPushErrorCode.INVALID_MESSAGE,
-        "message too large for mix: the request has " & $size & " bytes, the limit is " &
+        "message too large for mix: the request has: " & $size & " bytes, the limit is: " &
           $limit & " bytes",
       )
 

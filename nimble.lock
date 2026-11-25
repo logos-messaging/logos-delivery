@@ -2,13 +2,13 @@
   "version": 2,
   "packages": {
     "nim": {
-      "version": "2.2.6",
-      "vcsRevision": "372826d4317f1f8cb99abd750698f4a00c5cd39a",
+      "version": "2.2.12",
+      "vcsRevision": "8e8fbf60693418dc95bb0d762fd660231d08a583",
       "url": "https://github.com/nim-lang/Nim.git",
       "downloadMethod": "git",
       "dependencies": [],
       "checksums": {
-        "sha1": "b3179cffd77e51d16ea343b5493d895e8bc8c085"
+        "sha1": "1ce02ec327934128234547c648d5ee3612c21b50"
       }
     },
     "npeg": {
@@ -87,15 +87,15 @@
       }
     },
     "boringssl": {
-      "version": "0.0.13",
-      "vcsRevision": "fbf9c2762241be3f004d45b9a32b7bfd6ea136a8",
+      "version": "0.0.16",
+      "vcsRevision": "c3161dc2bda0bb6ca63a8b3b63a22889fd4b58e6",
       "url": "https://github.com/vacp2p/nim-boringssl",
       "downloadMethod": "git",
       "dependencies": [
         "nim"
       ],
       "checksums": {
-        "sha1": "706b29a12b4462400524c570b953752dfb285d4d"
+        "sha1": "9b27a551f5b86def6f53c7603683b142360652d8"
       }
     },
     "unittest2": {
@@ -147,33 +147,6 @@
       ],
       "checksums": {
         "sha1": "e3a004381e8c2ec0d37bebc2e48b42c34353e9cf"
-      }
-    },
-    "bearssl_pkey_decoder": {
-      "version": "#d34aa46bf9d0a3ffff810fbd3c4d2fa024eb9368",
-      "vcsRevision": "d34aa46bf9d0a3ffff810fbd3c4d2fa024eb9368",
-      "url": "https://github.com/vacp2p/bearssl_pkey_decoder",
-      "downloadMethod": "git",
-      "dependencies": [
-        "nim",
-        "bearssl"
-      ],
-      "checksums": {
-        "sha1": "8666edbcb77cb9f97c659114d57c4ba0e7ab74c3"
-      }
-    },
-    "jwt": {
-      "version": "#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2",
-      "vcsRevision": "057ec95eb5af0eea9c49bfe9025b3312c95dc5f2",
-      "url": "https://github.com/vacp2p/nim-jwt.git",
-      "downloadMethod": "git",
-      "dependencies": [
-        "nim",
-        "bearssl",
-        "bearssl_pkey_decoder"
-      ],
-      "checksums": {
-        "sha1": "3cd368666fd2bc7f99f253452289e827abcac13c"
       }
     },
     "stew": {
@@ -408,8 +381,8 @@
       }
     },
     "lsquic": {
-      "version": "#fb293834a3f90368e1f6c57aec2360cf8d840c5a",
-      "vcsRevision": "fb293834a3f90368e1f6c57aec2360cf8d840c5a",
+      "version": "0.11.3",
+      "vcsRevision": "f09db7565f79327c76faff547b1a33bfaf68d047",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
       "dependencies": [
@@ -422,7 +395,7 @@
         "boringssl"
       ],
       "checksums": {
-        "sha1": "6ca2849ff7c7a0d5271dc57ce869c72ba3111a2f"
+        "sha1": "3aba53cb29a83ddf8f7bd761ee24d75cf3d60c8d"
       }
     },
     "presto": {
@@ -658,8 +631,8 @@
       }
     },
     "libp2p": {
-      "version": "2.4.1",
-      "vcsRevision": "8768d4dadcd55de1c23a0056a9b3facdd55c9bbb",
+      "version": "2.5.0",
+      "vcsRevision": "ab8e5e613b2d6c70287a8333e891c8529ed90740",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
@@ -681,12 +654,12 @@
         "libplum"
       ],
       "checksums": {
-        "sha1": "8f732364f2f94c472e3d2753d92ae1266bf14ea1"
+        "sha1": "4f06076eab52d238a8f7a2e898e6bf26c33cd1d8"
       }
     },
     "libp2p_mix": {
-      "version": "#3f256aa03d2d36fea0b5206b41a6328da4f5c412",
-      "vcsRevision": "3f256aa03d2d36fea0b5206b41a6328da4f5c412",
+      "version": "#ed6a72a990143cfc6b667223c7d0c38e408b348e",
+      "vcsRevision": "ed6a72a990143cfc6b667223c7d0c38e408b348e",
       "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
@@ -701,12 +674,12 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "a084ffe241acf33ad918525ad7de568e4f6d488a"
+        "sha1": "d8af3cc61aef764dad042a85abd99ab2e1918fe5"
       }
     },
     "mix_rln_spam_protection": {
-      "version": "#7b5c7cfafbffe4e47aeb46838633645afacdb73c",
-      "vcsRevision": "7b5c7cfafbffe4e47aeb46838633645afacdb73c",
+      "version": "#f1b2430297cad2bc4034fce0207f1d59ded6a47e",
+      "vcsRevision": "f1b2430297cad2bc4034fce0207f1d59ded6a47e",
       "url": "https://github.com/logos-co/mix-rln-spam-protection-plugin",
       "downloadMethod": "git",
       "dependencies": [
@@ -719,11 +692,12 @@
         "nimcrypto",
         "secp256k1",
         "json_serialization",
+        "protobuf_serialization",
         "libp2p",
         "libp2p_mix"
       ],
       "checksums": {
-        "sha1": "95f93240ff590b87bda3aab8b695bf66c189a910"
+        "sha1": "2a19612a522bf99307ecb70e54ae8ceb5123efc2"
       }
     },
     "eth": {

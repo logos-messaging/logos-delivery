@@ -4,7 +4,7 @@
   nixConfig = {
     extra-substituters = [ "https://cache.nix.logos.co/public" ];
     extra-trusted-public-keys = [
-      "public:l4HrXgL4nw246+LBh2SOJyhz64BoGegOYLheT/iIAPU="
+      "public:zaDAOkd+E3cQyFm9J7qejQYd9HoLJc1SJvnk68hNWeI="
     ];
   };
 
@@ -63,9 +63,32 @@
         });
       };
 
+      # The compiler version comes from the nim entry in nimble.lock, so Nix
+      # and Nimble cannot drift. nixpkgs' nim-2_2 is older than the pin.
+      nimVersion = (builtins.fromJSON (builtins.readFile ./nimble.lock)).packages.nim.version;
+
+      nimOverlay = final: prev: {
+        nim-unwrapped-2_2 = prev.nim-unwrapped-2_2.overrideAttrs (old: {
+          version = nimVersion;
+          # nixpkgs' own patches target 2.2.4 and no longer apply; these are
+          # the nixpkgs-unstable versions that match 2.2.12.
+          patches = [
+            ./nix/patches/nim/NIM_CONFIG_DIR.patch
+            ./nix/patches/nim/nixbuild.patch
+            ./nix/patches/nim/extra-mangling.patch
+            ./nix/patches/nim/openssl.patch
+          ];
+          src = prev.fetchurl {
+            url = "https://nim-lang.org/download/nim-${nimVersion}.tar.xz";
+            # Update together with the nim entry in nimble.lock.
+            hash = "sha256-Jjmgal6np/z1ffHn4e9NGyvuWMesm9ANvSqlvqHlpWo=";
+          };
+        });
+      };
+
       pkgsFor = system: import nixpkgs {
         inherit system;
-        overlays = [ (import rust-overlay) nimbleOverlay ];
+        overlays = [ (import rust-overlay) nimbleOverlay nimOverlay ];
       };
 
       # One host platform's packages.
@@ -110,9 +133,10 @@
           # here and one built by the MSYS2 CI job share a C runtime.
           libc = "msvcrt";
         };
-        # nimbleOverlay is deliberately absent: nimble is a devShell tool and
-        # a mingw-hosted nimble neither builds nor is ever run.
-        overlays = [ (import rust-overlay) ];
+        # nimOverlay keeps the cross build on the locked Nim. nimbleOverlay is
+        # deliberately absent: nimble is a devShell tool and a mingw-hosted
+        # nimble neither builds nor is ever run.
+        overlays = [ (import rust-overlay) nimOverlay ];
       };
 
       windowsPackagesFor = system:

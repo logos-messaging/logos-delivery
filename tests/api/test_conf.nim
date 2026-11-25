@@ -248,6 +248,34 @@ suite "parseLogosDeliveryConf - JSON parsing":
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
+  test "the mix option to allow all addresses is a kernel key":
+    let lc = parseLogosDeliveryConf(
+      """{"mix": true, "mix-allow-all-addresses": true}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+      raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().allowAllAddresses
+
+  test "an anonymity level and the mix option to allow all addresses combine":
+    let lc = parseLogosDeliveryConf(
+      """{"anonymityLevel": "Required", "mix-allow-all-addresses": true}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+      raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().allowAllAddresses
+
+  test "a mix conf does not allow all addresses by default":
+    let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+      raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check not wakuConf.mixConf.get().allowAllAddresses
+
   test "an anonymity level with mix disabled is rejected":
     check parseLogosDeliveryConf("""{"anonymityLevel": "Required", "mix": false}""")
       .isErr()
