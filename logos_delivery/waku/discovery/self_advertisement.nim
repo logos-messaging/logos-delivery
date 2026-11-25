@@ -51,7 +51,9 @@ func advertisesMix*(conf: WakuConf): bool =
   ## edge node mounts mix to send through it and is no hop for others.
   conf.mixConf.isSome() and conf.wakuFlags.supportsCapability(Capabilities.Relay)
 
-proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
+proc selfAdvertisementData*(
+    conf: WakuConf, shards: seq[uint16], mixReady = true
+): seq[byte] =
   ## The payload published alongside the advertisement: base64 of a compact
   ## binary record, at most `MaxAdvertLen` bytes on the wire.
   ##
@@ -70,8 +72,8 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   ## string used to be included and is not: it is the single largest field, it
   ## is not a selection criterion, and it does not fit the budget.
   ##
-  ## The Mix bit is set only when `advertisesMix`: a reader takes this node's
-  ## mix key on the strength of it.
+  ## The Mix bit is set only when `advertisesMix` and `mixReady`: a reader takes
+  ## this node's mix key on the strength of it.
   ##
   ## Base64 rather than the raw bytes, even though the plugin ABI carries
   ## `data` as a length-counted byte array and the in-process backend would
@@ -86,7 +88,7 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   raw[1] = byte(conf.clusterId shr 8)
   raw[2] = byte(conf.clusterId and 0xff)
   raw[3] = byte(conf.wakuFlags)
-  if not conf.advertisesMix():
+  if not (conf.advertisesMix() and mixReady):
     raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
 
   for shard in shards:
@@ -104,7 +106,10 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   return cast[seq[byte]](base64.encode(raw))
 
 proc advertiseSelf*(
-    discoveries: seq[IPeerDiscovery], conf: WakuConf, shards: seq[uint16]
+    discoveries: seq[IPeerDiscovery],
+    conf: WakuConf,
+    shards: seq[uint16],
+    mixReady = true,
 ): Future[void] {.async: (raises: []).} =
   ## Registers interest in `/logos/delivery` on every service-capable backend,
   ## and advertises this node there when it serves something. `shards` is what
@@ -116,16 +121,20 @@ proc advertiseSelf*(
   ## registrar makes a node wait for a second registration, and other nodes
   ## find mix nodes among the delivery nodes they look up anyway.
   ##
+  ## `mixReady` is false while the node cannot act as a mix node although it
+  ## mounts mix: with Mix RLN, while it holds no usable Mix membership and so
+  ## cannot prove a hop. It then advertises as a delivery node without the key.
+  ##
   ## Best-effort per backend: a node whose discovery could not announce it is
   ## degraded, not broken, and the other backends should still get their turn.
   let serves = conf.wakuFlags.isServiceNode()
   let data =
     if serves:
-      selfAdvertisementData(conf, shards)
+      selfAdvertisementData(conf, shards, mixReady)
     else:
       @[]
   let secondary =
-    if conf.advertisesMix():
+    if conf.advertisesMix() and mixReady:
       @[DiscoveredService(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))]
     else:
       @[]
