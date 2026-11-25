@@ -254,7 +254,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     ).valueOr:
       raiseAssert error
     let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
-      raiseAssert error
+        raiseAssert error
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().allowAllAddresses
 
@@ -264,7 +264,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     ).valueOr:
       raiseAssert error
     let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
-      raiseAssert error
+        raiseAssert error
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().allowAllAddresses
 
@@ -272,7 +272,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
       raiseAssert error
     let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
-      raiseAssert error
+        raiseAssert error
     require wakuConf.mixConf.isSome()
     check not wakuConf.mixConf.get().allowAllAddresses
 
