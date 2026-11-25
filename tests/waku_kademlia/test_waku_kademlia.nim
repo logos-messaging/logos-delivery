@@ -421,17 +421,19 @@ suite "Waku Kademlia advertises records this node signs":
         byte(CapabilitiesBitfield.init(relay = true, mix = true)),
       ]
     ))
-    wkA.addServiceToAdvertise(
-      ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
-      signedServiceRecord(
-        infoA,
-        infoA.privateKey,
-        LogosDeliveryServiceId,
-        payload,
-        @[DiscoveredService(id: MixProtocolID, data: mixKey)],
+    wkA
+      .addServiceToAdvertise(
+        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+        signedServiceRecord(
+          infoA,
+          infoA.privateKey,
+          LogosDeliveryServiceId,
+          payload,
+          @[DiscoveredService(id: MixProtocolID, data: mixKey)],
+        )
+          .expect("signs"),
       )
-        .expect("signs"),
-    )
+      .expect("libp2p takes the record")
 
     var delivery: seq[RemotePeerInfo]
     for _ in 0 ..< 30:
@@ -505,13 +507,15 @@ suite "Waku Kademlia advertises records this node signs":
           @[DiscoveredService(id: MixProtocolID, data: key)]
         else:
           @[]
-      await wkA.replaceServiceToAdvertise(
-        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
-        signedServiceRecord(
-          infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+      wkA
+        .addServiceToAdvertise(
+          ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+          signedServiceRecord(
+            infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+          )
+            .expect("signs"),
         )
-          .expect("signs"),
-      )
+        .expect("libp2p takes the record")
 
     proc foundMixKey(): Future[Opt[Opt[Curve25519Key]]] {.async.} =
       ## The mix key B finds for A; the outer `none` when B does not find A.
@@ -549,6 +553,16 @@ suite "Waku Kademlia advertises records this node signs":
       if found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey))):
         break
     check found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
+
+    ## A record libp2p refuses is reported, and the advertised one stays.
+    let tooLarge = newSeq[byte](MaxServiceDataSize + 1)
+    check wkA
+      .addServiceToAdvertise(
+        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(tooLarge)), @[]
+      )
+      .isErr()
+    await sleepAsync(2.seconds)
+    check (await foundMixKey()) == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
 
     await wkB.stop()
     await wkA.stop()
