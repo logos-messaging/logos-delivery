@@ -700,7 +700,7 @@ hence would have reachability issues.""",
   ## Rendez vous
   rendezvous* {.
     desc:
-      "Enable waku rendezvous discovery server. Default is true without service discovery (kademlia, in-process or plugin-hosted), false with it.",
+      "Enable waku rendezvous discovery server. Default is true on a relay node without service discovery (kademlia, in-process or plugin-hosted), false otherwise.",
     defaultValue: Opt.none(bool),
     name: "rendezvous"
   .}: Opt[bool]

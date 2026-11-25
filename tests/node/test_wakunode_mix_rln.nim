@@ -291,24 +291,34 @@ suite "Waku Mix - a hop for others":
       node.advertisedMixKey().isNone()
       node.rendezvousMixKey().len == 0
 
-  asyncTest "a relay node advertises its mix key only while AutoNAT reports it reachable":
+  asyncTest "a relay node with no AutoNAT verdict advertises its mix key":
+    ## A busy node may never get a verdict, and no verdict is no proof of NAT.
     let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
     check:
       node.mixReachability == NetworkReachability.Unknown
-      not node.mixHopReady()
-      node.advertisedMixKey().isNone()
+      node.mixHopReady()
+      node.advertisedMixKey() == Opt.some(mixKey)
+      node.rendezvousMixKey() == mixKey.to0xHex()
 
+  asyncTest "a relay node that AutoNAT reports reachable advertises its mix key":
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
     node.setMixReachability(NetworkReachability.Reachable)
     check:
       node.mixHopReady()
       node.advertisedMixKey() == Opt.some(mixKey)
       node.rendezvousMixKey() == mixKey.to0xHex()
 
+  asyncTest "a relay node that AutoNAT reports not reachable advertises no mix key":
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
     node.setMixReachability(NetworkReachability.NotReachable)
     check:
       not node.mixHopReady()
       node.advertisedMixKey().isNone()
+      node.rendezvousMixKey().len == 0
       node.mixAdvertReady()
+
+    node.setMixReachability(NetworkReachability.Reachable)
+    check node.advertisedMixKey() == Opt.some(mixKey)
 
   asyncTest "with allowAllAddresses a relay node does not wait for AutoNAT":
     let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = true)
@@ -318,7 +328,7 @@ suite "Waku Mix - a hop for others":
       node.mixHopReady()
       node.advertisedMixKey() == Opt.some(mixKey)
 
-  asyncTest "only a change of reachability reports a record change":
+  asyncTest "only a change of whether the node is a hop reports a record change":
     let
       (node, _) = await newMixNode(relay = true, allowAllAddresses = false)
       changes = new int
@@ -326,11 +336,16 @@ suite "Waku Mix - a hop for others":
       inc changes[]
     discard listening.expect("listens")
 
+    ## Unknown and Reachable both make the node a hop.
     node.setMixReachability(NetworkReachability.Reachable)
     node.setMixReachability(NetworkReachability.Reachable)
     await sleepAsync(chronos.milliseconds(10))
-    check changes[] == 1
+    check changes[] == 0
 
     node.setMixReachability(NetworkReachability.NotReachable)
+    await sleepAsync(chronos.milliseconds(10))
+    check changes[] == 1
+
+    node.setMixReachability(NetworkReachability.Reachable)
     await sleepAsync(chronos.milliseconds(10))
     check changes[] == 2

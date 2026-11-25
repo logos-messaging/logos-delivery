@@ -372,6 +372,16 @@ suite "Waku Kademlia node advertising":
     checkUntilTimeout:
       node.advertListsMixKey()
 
+  asyncTest "a mix node with no AutoNAT verdict in time advertises its mix key":
+    ## A busy node may never get a verdict, and no verdict is no proof of NAT.
+    let node = await newHeldMixNode(mixRln = false, allowAllAddresses = false)
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising(mixMembershipHold = 300.milliseconds)
+    checkUntilTimeout:
+      node.advertListsMixKey()
+    check node.mixReachability == NetworkReachability.Unknown
+
   asyncTest "a mix node that is not reachable advertises without mix":
     let node = await newHeldMixNode(mixRln = false, allowAllAddresses = false)
     defer:

@@ -288,9 +288,21 @@ func mixAdvertReady*(node: WakuNode): bool =
   node.wakuMixRln.isNil() or node.mixMembershipUsable
 
 func mixReachable*(node: WakuNode): bool =
-  ## Whether AutoNAT lets this node be a hop: it reports the node reachable,
-  ## or the node does not wait for it (`mountMix` with `allowAllAddresses`).
-  not node.mixNeedsReachability or node.mixReachability == NetworkReachability.Reachable
+  ## Whether AutoNAT lets this node be a hop, or the node does not wait for it
+  ## (`mountMix` with `allowAllAddresses`).
+  if not node.mixNeedsReachability:
+    return true
+  case node.mixReachability
+  of NetworkReachability.Reachable:
+    true
+  of NetworkReachability.NotReachable:
+    false
+  of NetworkReachability.Unknown:
+    # No verdict is no proof of NAT. A busy node may never get one: AutoNAT
+    # asks only outbound peers, and only while 2 inbound slots are free, and
+    # needs all 3 answers to agree. The hop address policy already keeps a
+    # node with only private addresses off mix paths.
+    true
 
 func mixHopReady*(node: WakuNode): bool =
   ## Whether this node can act as a mix node for others, and so advertises its
@@ -829,14 +841,18 @@ proc mixAdvertChanged*(node: WakuNode, reason: string) =
 
 proc setMixReachability*(node: WakuNode, reachability: NetworkReachability) =
   ## Takes AutoNAT's verdict on this node. A change decides again whether the
-  ## node advertises its mix key: only a reachable node is a hop for others.
+  ## node advertises its mix key: a node that is not reachable is no hop for
+  ## others. The record changes only when that decision does, or when the first
+  ## advert waits for the verdict.
   if reachability == node.mixReachability:
     return
   let before = node.mixReachability
+  let wasHop = node.mixHopReady()
   node.mixReachability = reachability
   if not node.wakuMix.isNil():
     info "Reachability changed", before = $before, now = $reachability
-    node.mixAdvertChanged("reachability")
+    if node.mixHopReady() != wasHop or not node.advertHold.isNil():
+      node.mixAdvertChanged("reachability")
 
 const MixMembershipAdvertHold* = 2.minutes
   ## How long a mix node holds its first advert back for its Mix RLN membership
@@ -866,10 +882,13 @@ proc endAdvertHoldAfter(node: WakuNode, hold: Duration) {.async: (raises: []).} 
     await sleepAsync(hold)
   except CancelledError:
     return
-  notice "This node cannot act as a mix node yet; advertising it without mix",
-    waited = hold,
-    membershipUsable = node.mixAdvertReady(),
-    reachability = $node.mixReachability
+  if node.mixHopReady():
+    info "No AutoNAT verdict yet; advertising this node as a mix node", waited = hold
+  else:
+    notice "This node cannot act as a mix node yet; advertising it without mix",
+      waited = hold,
+      membershipUsable = node.mixAdvertReady(),
+      reachability = $node.mixReachability
   node.advertHold = nil
   node.readvertise()
 

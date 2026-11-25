@@ -800,10 +800,11 @@ suite "Network presets":
           "/p2p/16Uiu2" in storeNode
 
 suite "Waku Conf - Rendezvous and the Mix capability":
-  test "unset, Rendezvous runs without service discovery":
+  test "unset, Rendezvous runs on a relay node without service discovery":
     var builder = WakuConfBuilder.init()
     builder.withClusterId(1)
     builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(true)
 
     let conf = builder.build().valueOr:
       raiseAssert "Conf build failed: " & $error
@@ -811,6 +812,21 @@ suite "Waku Conf - Rendezvous and the Mix capability":
     check:
       conf.kademliaDiscoveryConf.isNone()
       conf.rendezvous
+
+  test "unset, Rendezvous is off on a node without relay":
+    ## `mountRendezvous` also mounts the server, and a node without relay
+    ## (Edge) stores no other peers' registrations.
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(false)
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.kademliaDiscoveryConf.isNone()
+      not conf.rendezvous
 
   test "unset, Rendezvous is off with service discovery":
     var builder = WakuConfBuilder.init()

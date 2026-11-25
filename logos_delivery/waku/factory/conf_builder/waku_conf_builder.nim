@@ -784,12 +784,14 @@ proc build*(
     )
 
   ## Rendezvous serves only Mix discovery here, and service discovery covers
-  ## that, so unless it is set, Rendezvous runs only without service discovery.
+  ## that, so unless it is set, Rendezvous runs only on a relay node without
+  ## service discovery. `mountRendezvous` also mounts the server, which stores
+  ## other peers' registrations, and a node without relay (Edge) serves none.
   let rendezvous =
     if builder.rendezvous.isSome():
       builder.rendezvous.get()
     else:
-      kademliaDiscoveryConf.isNone() and externalDiscoveryConf.isNone()
+      relay and kademliaDiscoveryConf.isNone() and externalDiscoveryConf.isNone()
 
   # End - Build sub-configs
 
