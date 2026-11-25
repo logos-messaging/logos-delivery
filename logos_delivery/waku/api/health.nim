@@ -7,11 +7,12 @@ import logos_delivery/waku/waku
 import
   logos_delivery/waku/[
     node/health_monitor,
+    node/health_monitor/mix_readiness,
     node/health_monitor/online_monitor,
     node/health_monitor/protocol_health,
   ]
 
-export protocol_health
+export mix_readiness, protocol_health
 
 proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
   try:
@@ -36,6 +37,10 @@ proc setConnectionStatusAdjuster*(self: Waku, adjuster: ConnectionStatusAdjuster
   if self.healthMonitor.isNil():
     return
   self.healthMonitor.adjustConnectionStatus = adjuster
+
+proc mixUnusable*(self: Waku): MixUnusable =
+  ## Why mix cannot carry any message of this node now, or `None`.
+  return self.node.mixUnusable()
 
 func reportedProtocolHealth*(self: Waku, protocol: WakuProtocol): ProtocolHealth =
   ## The record the health monitor stored for `protocol` on its last pass.

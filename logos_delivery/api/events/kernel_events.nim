@@ -24,6 +24,11 @@ EventBroker:
     shard*: PubsubTopic
     contentTopic*: ContentTopic
 
+# Emitted when this node's Mix RLN membership becomes usable or ends.
+EventBroker:
+  type MixMembershipChangedEvent* = object
+    usable*: bool
+
 # Emitted by the health monitor when overall node connectivity changes.
 EventBroker:
   type EventConnectionStatusChange* = object
