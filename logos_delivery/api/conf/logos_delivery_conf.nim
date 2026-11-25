@@ -33,6 +33,16 @@ proc init*(
       return
         err("anonymityLevel=" & $anonymityLevel & " needs mix, but mix=false was set")
     kernel.mix = Opt.some(true)
+  if messagingConf.mixKey.isSome():
+    kernel.mixkey = messagingConf.mixKey
+  if messagingConf.mixNodes.isSome():
+    kernel.mixnodes = messagingConf.mixNodes.get()
+  if messagingConf.mixRlnRegistryId.isSome():
+    kernel.mixRlnRegistryId = messagingConf.mixRlnRegistryId.get()
+  if messagingConf.mixRlnIdentifierHex.isSome():
+    kernel.mixRlnIdentifierHex = messagingConf.mixRlnIdentifierHex.get()
+  if messagingConf.mixRlnMetadataTopic.isSome():
+    kernel.mixRlnMetadataTopic = messagingConf.mixRlnMetadataTopic.get()
   if messagingConf.mixAllowAllAddresses.isSome():
     kernel.mixAllowAllAddresses = messagingConf.mixAllowAllAddresses.get()
   return ok(

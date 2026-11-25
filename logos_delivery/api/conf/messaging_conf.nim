@@ -4,6 +4,7 @@ import results, libp2p/crypto/crypto
 import logos_delivery/api/conf/kernel_conf
 import logos_delivery/waku/common/logging
 import logos_delivery/waku/factory/networks_config
+import logos_delivery/waku/waku_mix
 import logos_delivery/messaging/rate_limit_manager/rate_limit_config
 
 export kernel_conf, rate_limit_config
@@ -32,6 +33,10 @@ type MessagingClientConf* = object
   quicPort* {.name: "quic-port".}: Opt[Port] ## QUIC (UDP) listening port.
   listenIpv4* {.name: "listen-address".}: Opt[IpAddress] ## Inbound bind address.
   nat* {.name: "nat".}: Opt[string] ## Public address discovery strategy.
+  extMultiAddrs* {.name: "ext-multiaddr".}: Opt[seq[string]]
+    ## External multiaddresses to advertise to the network.
+  dns4DomainName* {.name: "dns4-domain-name".}: Opt[string]
+    ## Domain name that resolves to the node's public IPv4 address.
   maxMessageSize* {.name: "max-msg-size".}: Opt[string]
     ## Maximum accepted message size (e.g. "150 KiB").
   entryNodes* {.name: "entry-node".}: Opt[seq[string]]
@@ -64,8 +69,24 @@ type MessagingClientConf* = object
     ## RLN epoch size, in seconds.
   rlnUserMessageLimit* {.name: "rln-relay-user-message-limit".}: Opt[uint64]
     ## Per-epoch message limit requested for the RLN membership.
+  rlnRelayCredPath* {.name: "rln-relay-cred-path".}: Opt[string]
+    ## Path of the keystore with the node's RLN membership.
+  rlnRelayCredPassword* {.name: "rln-relay-cred-password".}: Opt[string]
+    ## Password of the keystore, required with `rln-relay-cred-path`.
+  rlnRelayCredIndex* {.name: "rln-relay-membership-index".}: Opt[uint]
+    ## Index of the membership to use on the RLN contract.
   rlnDisableValidation* {.name: "rln-disable-validation".}: Opt[bool]
     ## Disable RLN message proof validation.
+  mixKey* {.name: "mixkey".}: Opt[string]
+    ## Mix private key (64-char hex), generated at each start when unset.
+  mixNodes* {.name: "mixnode".}: Opt[seq[MixNodePubInfo]]
+    ## Mix nodes to seed the pool with, each as `multiaddr:mixPubKey`.
+  mixRlnRegistryId* {.name: "mix-rln-registry-id".}: Opt[string]
+    ## RLN registry for mix's per-hop proofs, which are on only when this is set.
+  mixRlnIdentifierHex* {.name: "mix-rln-identifier-hex".}: Opt[string]
+    ## Mix's RLN identifier, 32 bytes in hex.
+  mixRlnMetadataTopic* {.name: "mix-rln-metadata-topic".}: Opt[string]
+    ## Content topic for mix's proof metadata, required with `mix-rln-registry-id`.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
   anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
@@ -95,6 +116,8 @@ type MessagingClientConf* = object
     ## applied by the kernel on node creation. Unset keeps the current one.
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
+  rateLimits* {.name: "rate-limit".}: Opt[seq[string]]
+    ## Request limits of the service protocols, e.g. `lightpush:100/1s`.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
     ## Enforce the per-epoch send rate limit (default false).
   rateLimitEpochPeriodSec* {.name: "rate-limit-epoch-sec".}: Opt[uint64]
@@ -146,6 +169,10 @@ proc toWakuNodeConf*(
     conf.listenAddress = self.listenIpv4.get()
   if self.nat.isSome():
     conf.nat = self.nat.get()
+  if self.extMultiAddrs.isSome():
+    conf.extMultiAddrs = self.extMultiAddrs.get()
+  if self.dns4DomainName.isSome():
+    conf.dns4DomainName = self.dns4DomainName.get()
   if self.maxMessageSize.isSome():
     conf.maxMessageSize = self.maxMessageSize.get()
   if self.entryNodes.isSome():
@@ -178,8 +205,24 @@ proc toWakuNodeConf*(
     conf.rlnEpochSizeSec = Opt.some(self.rlnEpochSizeSec.get().uint64)
   if self.rlnUserMessageLimit.isSome():
     conf.rlnRelayUserMessageLimit = self.rlnUserMessageLimit
+  if self.rlnRelayCredPath.isSome():
+    conf.rlnRelayCredPath = self.rlnRelayCredPath.get()
+  if self.rlnRelayCredPassword.isSome():
+    conf.rlnRelayCredPassword = self.rlnRelayCredPassword.get()
+  if self.rlnRelayCredIndex.isSome():
+    conf.rlnRelayCredIndex = self.rlnRelayCredIndex
   if self.rlnDisableValidation.isSome():
     conf.rlnDisableValidation = self.rlnDisableValidation.get()
+  if self.mixKey.isSome():
+    conf.mixkey = self.mixKey
+  if self.mixNodes.isSome():
+    conf.mixnodes = self.mixNodes.get()
+  if self.mixRlnRegistryId.isSome():
+    conf.mixRlnRegistryId = self.mixRlnRegistryId.get()
+  if self.mixRlnIdentifierHex.isSome():
+    conf.mixRlnIdentifierHex = self.mixRlnIdentifierHex.get()
+  if self.mixRlnMetadataTopic.isSome():
+    conf.mixRlnMetadataTopic = self.mixRlnMetadataTopic.get()
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():
@@ -188,6 +231,8 @@ proc toWakuNodeConf*(
     conf.logOutput = self.logOutput.get()
   if self.nodeKey.isSome():
     conf.nodekey = self.nodeKey
+  if self.rateLimits.isSome():
+    conf.rateLimits = self.rateLimits.get()
 
   conf.tcpPort = self.p2pTcpPort.get(Port(0))
   conf.discv5UdpPort = self.discv5UdpPort.get(Port(0))
