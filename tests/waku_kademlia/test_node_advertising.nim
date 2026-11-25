@@ -8,7 +8,7 @@ import libp2p/protocols/kademlia/types
 import libp2p_mix, libp2p_mix/curve25519
 import
   logos_delivery/waku/[waku_core, waku_mix],
-  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/[waku_node, waku_node/relay],
   logos_delivery/waku/discovery/[waku_kademlia, service_discovery, self_advertisement],
   logos_delivery/waku/[factory/waku_conf, waku_enr/capabilities],
   tools/confutils/cli_args,
@@ -171,12 +171,13 @@ suite "Waku Kademlia node advertising":
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
     let shards = @[0'u16]
-    node.advertiseRecord = proc(
-        isCurrent: proc(): bool {.gcsafe, raises: [].}
-    ) {.async: (raises: []).} =
-      await advertiseSelf(
-        node.discoveries, conf, shards, node.advertisedMixKey(), isCurrent
-      )
+    node.provideAdvertPart(
+      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
+        return ok(deliveryAdvertPart(conf, shards))
+    ).isOkOr:
+      raiseAssert "Failed to provide the delivery part: " & error
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
     await node.start()
     await node.startRecordAdvertising()
     let delivery = ServiceInfo(

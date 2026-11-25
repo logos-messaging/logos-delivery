@@ -47,6 +47,22 @@ proc withMix(conf: WakuConf): WakuConf =
   )
   conf
 
+proc advertiseSelf(
+    discoveries: seq[IPeerDiscovery],
+    conf: WakuConf,
+    shards: seq[uint16],
+    mixKey = Opt.none(Curve25519Key),
+) {.async.} =
+  ## Advertises the record of a node with this configuration, as the node puts
+  ## it together: the delivery part when it serves something, and the mix part
+  ## while it has a mix key to advertise.
+  var parts: seq[SelfAdvertPart]
+  if conf.wakuFlags.isServiceNode():
+    parts.add(deliveryAdvertPart(conf, shards))
+  if mixKey.isSome():
+    parts.add(mixAdvertPart(mixKey.get()))
+  await advertiseSelf(discoveries, assembleAdvert(parts).expect("a record"))
+
 proc advertisedCaps(kad: FakeBackend): CapabilitiesBitfield =
   advertisedCapabilities(kad.advertisedData[0]).expect("a delivery payload")
 
@@ -121,6 +137,26 @@ suite "Self advertisement":
       kad.advertisedSecondary[0].len == 0
       not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
       kad.advertisedCaps().supportsCapability(Capabilities.Relay)
+
+  test "a record takes one delivery part":
+    let part = deliveryAdvertPart(confWith(CoreFlags), TestShards)
+    check:
+      assembleAdvert([part, part]).isErr()
+      ## Without a delivery part the node advertises nothing.
+      assembleAdvert([mixAdvertPart(mixKey().get())]) ==
+        Result[SelfAdvert, string].ok(SelfAdvert())
+      assembleAdvert([]) == Result[SelfAdvert, string].ok(SelfAdvert())
+
+  test "a part of another service is listed in the record as it is":
+    let other =
+      SelfAdvertPart(service: DiscoveredService(id: "/other/1.0.0", data: @[7'u8]))
+    let advert = assembleAdvert(
+        [other, deliveryAdvertPart(confWith(CoreFlags), TestShards)]
+      )
+      .expect("a record")
+    check:
+      advert.data == Opt.some(selfAdvertisementData(confWith(CoreFlags), TestShards))
+      advert.secondary == @[other.service]
 
   asyncTest "a relay node without mix lists the delivery service alone":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])

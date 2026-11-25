@@ -120,7 +120,7 @@ proc refreshMixMembership*(node: WakuNode) {.async: (raises: [CancelledError]).}
   MixMembershipChangedEvent.emit(
     node.brokerCtx, MixMembershipChangedEvent(usable: usable)
   )
-  node.readvertise()
+  node.mixAdvertChanged("mix membership")
 
 proc watchMixMembership(node: WakuNode) {.async: (raises: [CancelledError]).} =
   while true:

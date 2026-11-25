@@ -637,16 +637,16 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## the ones we are actually on.
   ## The node advertises again when its record changes: a new mix key, or a Mix
   ## membership that arrives or ends later.
-  waku.node.advertiseRecord = proc(
-      isCurrent: proc(): bool {.gcsafe, raises: [].}
-  ) {.async: (raises: []).} =
-    await advertiseSelf(
-      waku.node.discoveries,
-      waku.conf,
-      waku.node.getShardsGetter(waku.conf.subscribeShards)(),
-      waku.node.advertisedMixKey(),
-      isCurrent,
-    )
+  if waku.conf.wakuFlags.isServiceNode():
+    waku.node.provideAdvertPart(
+      proc(): Future[Result[SelfAdvertPart, string]] {.async.} =
+        return ok(
+          deliveryAdvertPart(
+            waku.conf, waku.node.getShardsGetter(waku.conf.subscribeShards)()
+          )
+        )
+    ).isOkOr:
+      return err("failed to provide the delivery advertisement: " & error)
   await waku.node.startRecordAdvertising()
 
   ## Health Monitor

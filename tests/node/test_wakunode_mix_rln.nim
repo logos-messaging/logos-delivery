@@ -11,6 +11,7 @@ import
     node/waku_node,
     node/waku_node/mix_rln,
     waku_mix,
+    discovery/self_advert_brokers,
   ],
   ../testlib/[wakucore, wakunode]
 
@@ -89,10 +90,12 @@ suite "Waku Mix RLN - membership":
 
 proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
   let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
-  node.advertiseRecord = proc(
-      isCurrent: proc(): bool {.gcsafe, raises: [].}
-  ) {.async: (raises: []).} =
+  ## `changes` counts the reports that this node's record changed. A report
+  ## reaches a listener on a later turn of the event loop, so a test waits.
+  proc onChanged(event: SelfAdvertChangedEvent): Future[void] {.async: (raises: []).} =
     inc changes[]
+
+  discard SelfAdvertChangedEvent.listen(node.brokerCtx, onChanged).expect("listens")
   return node
 
 suite "Waku Mix RLN - membership changes":
@@ -103,6 +106,7 @@ suite "Waku Mix RLN - membership changes":
       node = module.nodeWith(changes)
 
     await node.refreshMixMembership()
+    await sleepAsync(chronos.milliseconds(10))
     check:
       not node.mixMembershipUsable
       changes[] == 0
@@ -110,6 +114,7 @@ suite "Waku Mix RLN - membership changes":
     module.state = "active"
     await node.refreshMixMembership()
     await node.refreshMixMembership()
+    await sleepAsync(chronos.milliseconds(10))
     check:
       node.mixMembershipUsable
       changes[] == 1
@@ -123,6 +128,7 @@ suite "Waku Mix RLN - membership changes":
 
     module.state = "expired"
     await node.refreshMixMembership()
+    await sleepAsync(chronos.milliseconds(10))
 
     check:
       not node.mixMembershipUsable
@@ -137,6 +143,7 @@ suite "Waku Mix RLN - membership changes":
 
     module.state = ""
     await node.refreshMixMembership()
+    await sleepAsync(chronos.milliseconds(10))
 
     check:
       node.mixMembershipUsable
