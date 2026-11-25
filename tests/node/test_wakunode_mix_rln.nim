@@ -64,12 +64,21 @@ suite "Waku Mix RLN - membership":
   asyncTest "a backend that does not answer is an error, not a missing membership":
     let module = FakeRlnModule(state: "")
 
-    check (await module.mixRln().readMixMembership()).isErr()
+    let read = await module.mixRln().readMixMembership()
 
-  asyncTest "a state this node does not know is an error":
+    check:
+      read.isErr()
+      read.error.failure == MixMembershipReadFailure.NoAnswer
+
+  asyncTest "a state this node does not know is an answer of its own, not a missed one":
     let module = FakeRlnModule(state: "some-new-state")
 
-    check (await module.mixRln().readMixMembership()).isErr()
+    let read = await module.mixRln().readMixMembership()
+
+    check:
+      read.isErr()
+      read.error.failure == MixMembershipReadFailure.UnknownState
+      read.error.state == "some-new-state"
 
 proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
   let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
@@ -123,6 +132,53 @@ suite "Waku Mix RLN - membership changes":
     check:
       node.mixMembershipUsable
       changes[] == 1
+
+  asyncTest "an unknown state keeps the last known answer and is remembered until a known one":
+    let
+      module = FakeRlnModule(state: "active")
+      changes = new int
+      node = module.nodeWith(changes)
+    await node.refreshMixMembership()
+
+    module.state = "revoked"
+    await node.refreshMixMembership()
+    await node.refreshMixMembership()
+    check:
+      node.mixMembershipUsable
+      changes[] == 1
+      node.mixMembershipUnknownState == Opt.some("revoked")
+
+    module.state = "expired"
+    await node.refreshMixMembership()
+    check:
+      not node.mixMembershipUsable
+      changes[] == 2
+      node.mixMembershipUnknownState.isNone()
+
+  asyncTest "stopping Mix RLN drops the change callback":
+    let
+      module = FakeRlnModule(state: "active")
+      changes = new int
+      node = module.nodeWith(changes)
+
+    await node.stopMixRln()
+
+    check node.onMixMembershipChanged.isNil()
+
+  asyncTest "an unanswered check after an unknown state keeps both":
+    let
+      module = FakeRlnModule(state: "revoked")
+      changes = new int
+      node = module.nodeWith(changes)
+    await node.refreshMixMembership()
+
+    module.state = ""
+    await node.refreshMixMembership()
+
+    check:
+      not node.mixMembershipUsable
+      changes[] == 0
+      node.mixMembershipUnknownState == Opt.some("revoked")
 
 suite "Waku Mix RLN - readiness to advertise":
   test "a node without Mix RLN is ready":

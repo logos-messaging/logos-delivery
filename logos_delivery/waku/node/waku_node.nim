@@ -171,6 +171,9 @@ type
     mixMembershipUsable*: bool
       ## The last known answer to "does this node hold a usable membership in
       ## the Mix registry". Meaningful only with `wakuMixRln` set.
+    mixMembershipUnknownState*: Opt[string]
+      ## The last membership state the RLN module answered that this node does
+      ## not know, so that it is warned about once. None after a known state.
     mixMembershipLoop*: Future[void].Raising([CancelledError])
       ## Re-reads the Mix membership while Mix RLN runs; `nil` otherwise.
     onMixMembershipChanged*: proc(): Future[void] {.async: (raises: []), gcsafe.}
