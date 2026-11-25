@@ -168,6 +168,9 @@ type
     subscriptionManager*: SubscriptionManager
     wakuMixRln*: ModuleRlnProtection
     wakuMixRlnListener*: Opt[MessageSeenEventListener]
+    mixMembershipUsable*: bool
+      ## The last known answer to "does this node hold a usable membership in
+      ## the Mix registry". Meaningful only with `wakuMixRln` set.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
       ## The background lookup of the `dns4` mix node names; `nil` when none.

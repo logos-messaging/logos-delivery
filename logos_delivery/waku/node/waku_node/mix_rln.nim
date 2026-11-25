@@ -1,11 +1,30 @@
 {.push raises: [].}
+import std/json
 import chronos, chronicles, results
 import mix_rln_spam_protection/module_api
 import logos_delivery/api/events/kernel_events
 import
-  logos_delivery/waku/
-    [waku_core, node/waku_node, node/subscription_manager, rln/rln_plugin]
+  logos_delivery/waku/[
+    waku_core,
+    node/waku_node,
+    node/subscription_manager,
+    rln/rln_plugin,
+    rln/types,
+    rln/rln_lez/transport,
+  ]
 import ./[relay, lightpush]
+
+proc readMixMembership*(
+    plugin: ModuleRlnProtection
+): Future[Result[MembershipStatus, string]] {.async: (raises: [CancelledError]).} =
+  ## The state of this node's membership in the Mix registry, read from the RLN
+  ## module on the Mix scope. The library does not acquire the membership: the
+  ## host's RLN module adopts, pays for or is granted one.
+  let reply = (await plugin.scopedCall("get_membership_state")).valueOr:
+    return err(error)
+  let status = parseRlnMembershipStatus(reply{"state"}.getStr("")).valueOr:
+    return err($error)
+  return ok(status)
 
 proc publishMetadata(
     node: WakuNode, topic: string, data: seq[byte]
@@ -65,6 +84,17 @@ proc startMixRln*(
   )
   (await plugin.start()).isOkOr:
     return err("Failed to start Mix RLN plugin: " & $error)
+  # A node without a usable Mix membership cannot prove a hop. That does not
+  # stop startup: the membership can arrive later.
+  let membership = await plugin.readMixMembership()
+  node.mixMembershipUsable = membership.isOk() and membership.get().isUsable()
+  if membership.isErr():
+    warn "RLN backend did not answer the Mix membership check", error = membership.error
+  elif not node.mixMembershipUsable:
+    notice "No usable Mix RLN membership; this node cannot prove a Mix hop until it is active",
+      status = $membership.get()
+  else:
+    info "Mix RLN membership verified", status = $membership.get()
   if node.wakuMixRlnListener.isSome():
     return ok()
   let handler = proc(event: MessageSeenEvent): Future[void] {.async: (raises: []).} =
