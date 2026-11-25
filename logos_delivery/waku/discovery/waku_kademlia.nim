@@ -65,7 +65,11 @@ type KademliaDiscoveryConf* = object
 func discoveredServices(record: ExtendedPeerRecord): seq[DiscoveredService] =
   record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
 
-proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
+proc remotePeerInfoFrom*(
+    record: ExtendedPeerRecord, clusterId = Opt.none(uint16)
+): Opt[RemotePeerInfo] =
+  ## The codecs and shards the record's delivery payload claims are stored
+  ## with the peer, see `advertisedServing`.
   if record.addresses.len == 0:
     trace "Missing addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
@@ -75,7 +79,8 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
     trace "No dialable addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
 
-  let protocols = record.services.mapIt(it.id)
+  let (codecs, shards) = advertisedServing(record.discoveredServices(), clusterId)
+  let protocols = deduplicate(record.services.mapIt(it.id) & codecs)
 
   let mixPubKey = advertisedMixKey(record.discoveredServices())
   if mixPubKey.isSome():
@@ -87,6 +92,7 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
       record.peerId,
       addrs = addrs,
       protocols = protocols,
+      shards = shards,
       origin = PeerOrigin.Kademlia,
       mixPubKey = mixPubKey,
     )
@@ -97,7 +103,7 @@ proc processRecords*(
 ): seq[RemotePeerInfo] =
   var discovered: seq[RemotePeerInfo]
   for record in records:
-    let peerInfo = remotePeerInfoFrom(record).valueOr:
+    let peerInfo = remotePeerInfoFrom(record, self.peerManager.ownClusterId()).valueOr:
       continue
 
     # An older record than the one that last told this peer's mix key neither

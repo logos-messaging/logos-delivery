@@ -180,6 +180,11 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
       protos.add($new_proto)
   peerStore[ProtoBook][peer.peerId] = protos
 
+  ## A discovery record names the peer's shards; the peer's current claim
+  ## replaces what was stored, as metadata does through `setShardInfo`.
+  if peer.shards.len > 0:
+    peerStore[ShardBook][peer.peerId] = peer.shards
+
   ## We don't care whether the item was already present in the table or not. Hence, we always discard the hasKeyOrPut's bool returned value
 
   discard peerStore[AgentBook].book.hasKeyOrPut(peer.peerId, peer.agent)

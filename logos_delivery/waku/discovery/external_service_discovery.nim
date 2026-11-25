@@ -135,7 +135,7 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
     return
 
   for peer in peers:
-    let peerInfo = peer.toRemotePeerInfo().valueOr:
+    let peerInfo = peer.toRemotePeerInfo(peerManager.ownClusterId()).valueOr:
       debug "discarding discovered peer", reason = error
       continue
 

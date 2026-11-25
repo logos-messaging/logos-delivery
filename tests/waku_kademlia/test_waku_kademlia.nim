@@ -19,6 +19,7 @@ import
   logos_delivery/waku/waku_enr/capabilities,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/waku_core/codecs,
   logos_delivery/waku/node/peer_manager/waku_peer_store
 import ../testlib/[wakucore, futures]
 import ./utils as kad_utils
@@ -442,7 +443,7 @@ suite "Waku Kademlia advertises records this node signs":
     require delivery.len == 1
     check:
       delivery[0].peerId == infoA.peerId
-      delivery[0].protocols == @[LogosDeliveryServiceId, MixProtocolID]
+      delivery[0].protocols == @[LogosDeliveryServiceId, MixProtocolID, WakuRelayCodec]
       delivery[0].mixPubKey == Opt.some(intoCurve25519Key(mixKey))
 
     ## Mix is not a service of its own: nothing is filed under it.

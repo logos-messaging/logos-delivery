@@ -35,6 +35,46 @@ func advertisedCapabilities*(data: openArray[byte]): Opt[CapabilitiesBitfield] =
     return Opt.none(CapabilitiesBitfield)
   Opt.some(CapabilitiesBitfield(raw[3].byte))
 
+func advertisedShards*(data: openArray[byte]): Opt[(uint16, seq[uint16])] =
+  ## The cluster id and the shards of a `/logos/delivery` payload, or none
+  ## when it is not one this version reads.
+  let raw =
+    try:
+      base64.decode(cast[string](@data))
+    except ValueError:
+      return Opt.none((uint16, seq[uint16]))
+  if raw.len < AdvertHeaderLen or raw[0].byte != AdvertFormatVersion:
+    return Opt.none((uint16, seq[uint16]))
+  let cluster = (uint16(raw[1].byte) shl 8) or uint16(raw[2].byte)
+  var shards: seq[uint16]
+  for byteIdx in AdvertHeaderLen ..< raw.len:
+    for bit in 0 .. 7:
+      if (raw[byteIdx].byte and byte(1'u8 shl bit)) != 0:
+        shards.add(uint16((byteIdx - AdvertHeaderLen) * 8 + bit))
+  Opt.some((cluster, shards))
+
+func advertisedServing*(
+    services: openArray[DiscoveredService], clusterId: Opt[uint16]
+): (seq[string], seq[uint16]) =
+  ## The protocol codecs and the shards the delivery payload of a record with
+  ## these services claims, so that a peer known only from its record can be
+  ## selected for a protocol and a shard without being connected first.
+  ##
+  ## A record of another cluster than `clusterId` claims nothing here: its
+  ## shard indexes mean other shards, and the peer store keeps shards without
+  ## their cluster. With no `clusterId` known, the record is taken as it is.
+  for service in services:
+    if service.id != LogosDeliveryServiceId:
+      continue
+    let caps = advertisedCapabilities(service.data).valueOr:
+      continue
+    let (cluster, shards) = advertisedShards(service.data).valueOr:
+      continue
+    if clusterId.isSome() and clusterId.get() != cluster:
+      continue
+    return (caps.toCodecs(), shards)
+  (newSeq[string](), newSeq[uint16]())
+
 func withoutMixClaim*(data: seq[byte]): seq[byte] =
   ## The `/logos/delivery` payload `data` with the Mix capability cleared.
   ## A payload this version does not read is returned as it is.

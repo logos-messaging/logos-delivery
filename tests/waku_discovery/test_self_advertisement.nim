@@ -11,9 +11,13 @@ import
   logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
-  logos_delivery/waku/waku_enr/capabilities
+  logos_delivery/waku/waku_enr/capabilities,
+  logos_delivery/waku/discovery/delivery_advert,
+  logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core
 import tools/confutils/cli_args
-import ../testlib/fake_discovery
+import ../testlib/[fake_discovery, wakucore]
 
 proc confWith(flags: CapabilitiesBitfield): WakuConf =
   var conf = defaultKernelConf().valueOr:
@@ -233,3 +237,47 @@ suite "Self advertisement":
     check:
       raw.len == 5
       raw[4] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
+
+suite "Delivery record into the peer store":
+  let
+    serving = CapabilitiesBitfield.init(relay = true, filter = true, lightpush = true)
+    shardTopic = Opt.some(PubsubTopic("/waku/2/rs/16/3"))
+
+  proc discovered(conf: WakuConf): DiscoveredPeer =
+    DiscoveredPeer(
+      peerId: $newTestSwitch().peerInfo.peerId,
+      addrs: @["/ip4/10.0.0.1/tcp/60000"],
+      services: @[
+        DiscoveredService(
+          id: LogosDeliveryServiceId, data: selfAdvertisementData(conf, TestShards)
+        )
+      ],
+    )
+
+  test "the payload gives back its cluster and shards":
+    check:
+      advertisedShards(selfAdvertisementData(confWith(serving), TestShards)) ==
+        Opt.some((16'u16, TestShards))
+      advertisedShards(cast[seq[byte]](base64.encode("\x09abc"))).isNone()
+
+  test "a record's codecs and shards make its peer selectable unconnected":
+    let pm = PeerManager.new(newTestSwitch())
+    let info = discovered(confWith(serving)).toRemotePeerInfo(Opt.some(16'u16)).valueOr:
+        raiseAssert error
+    pm.addPeer(info, PeerOrigin.Kademlia)
+
+    check:
+      LogosDeliveryServiceId in info.protocols
+      info.shards == TestShards
+      pm.selectPeer(WakuLightPushCodec, shardTopic).isSome()
+      pm.selectPeer(WakuFilterSubscribeCodec, shardTopic).isSome()
+      pm.switch.peerStore.hasShard(info.peerId, 16'u16, 3'u16)
+      pm.selectPeer(WakuStoreCodec, shardTopic).isNone()
+      pm.selectPeer(WakuLightPushCodec, Opt.some(PubsubTopic("/waku/2/rs/16/1"))).isNone()
+
+  test "a record of another cluster claims nothing":
+    let info = discovered(confWith(serving)).toRemotePeerInfo(Opt.some(7'u16)).valueOr:
+        raiseAssert error
+    check:
+      info.protocols == @[LogosDeliveryServiceId]
+      info.shards.len == 0
