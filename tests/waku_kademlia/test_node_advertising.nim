@@ -1,7 +1,8 @@
 {.used.}
 
-import std/[net, sequtils, sets, strutils, tables]
+import std/[json, net, sequtils, sets, strutils, tables]
 import testutils/unittests, chronos, results
+import mix_rln_spam_protection/module_api
 import libp2p/extended_peer_record
 import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/protocols/kademlia/types
@@ -255,6 +256,94 @@ suite "Waku Kademlia node advertising":
       )
         .isNone()
       node.publishedServices().allIt(it.id != MixProtocolID)
+
+  proc newHeldMixNode(): Future[WakuNode] {.async.} =
+    ## A started mix node with Mix RLN and no usable membership yet.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    node.wakuMixRln = ModuleRlnProtection
+      .new(
+        ModuleRlnConfig(
+          registryId: "logos:local:mix",
+          rlnIdentifierHex:
+            "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f7631000000000000",
+          epochSeconds: 10,
+          maxEpochGap: 3,
+          metadataTopic: "/test/1/mix-rln-metadata/proto",
+        ),
+        proc(
+            methodName: string, args: JsonNode
+        ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+          return err("no backend in this test"),
+      )
+      .expect("a valid Mix RLN config")
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
+    conf.mixConf = Opt.some(MixConf())
+    let shards = @[0'u16]
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, shards))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
+    await node.start()
+    return node
+
+  proc advertListsMixKey(node: WakuNode): bool =
+    let advert = node.wakuKademlia.protocol.advertiser.providedAdverts.getOrDefault(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+    let signed = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+      return false
+    signed.data.services.anyIt(it.id == MixProtocolID)
+
+  asyncTest "a mix node holds its first advert until its Mix RLN membership is usable":
+    ## A registrar makes a second advert from the same address wait for up to
+    ## the advert expiry, so the first one has to carry the mix key.
+    let node = await newHeldMixNode()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    await sleepAsync(500.milliseconds)
+    check not node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+
+    ## A change of another part of the record does not end the hold.
+    node.switch.peerInfo.notifyObservers()
+    await sleepAsync(500.milliseconds)
+    check not node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+
+    node.mixMembershipUsable = true
+    node.mixAdvertChanged("mix membership")
+    checkUntilTimeout:
+      node.advertListsMixKey()
+
+  asyncTest "a mix node advertises without mix when no membership comes in time":
+    let node = await newHeldMixNode()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising(mixMembershipHold = 300.milliseconds)
+    checkUntilTimeout:
+      node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+        LogosDeliveryServiceId.hashServiceId()
+      )
+    check not node.advertListsMixKey()
+
+    ## The membership still makes it a mix node later.
+    node.mixMembershipUsable = true
+    node.mixAdvertChanged("mix membership")
+    checkUntilTimeout:
+      node.advertListsMixKey()
 
   asyncTest "a node advertises its record again when its addresses change":
     ## libp2p refreshes no record the node signed itself, so the node signs
