@@ -3,7 +3,9 @@
 import std/json
 import chronos, results, testutils/unittests
 import mix_rln_spam_protection/module_api
-import logos_delivery/waku/[rln/types, node/waku_node/mix_rln]
+import
+  logos_delivery/waku/
+    [rln/types, net/bound_ports, node/waku_node, node/waku_node/mix_rln]
 
 const
   MixRegistry = "logos:local:mix"
@@ -68,3 +70,56 @@ suite "Waku Mix RLN - membership":
     let module = FakeRlnModule(state: "some-new-state")
 
     check (await module.mixRln().readMixMembership()).isErr()
+
+proc nodeWith(module: FakeRlnModule, changes: ref int): WakuNode =
+  let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: module.mixRln())
+  node.onMixMembershipChanged = proc() {.async: (raises: []).} =
+    inc changes[]
+  return node
+
+suite "Waku Mix RLN - membership changes":
+  asyncTest "a membership that becomes usable is reported once":
+    let
+      module = FakeRlnModule(state: "pending")
+      changes = new int
+      node = module.nodeWith(changes)
+
+    await node.refreshMixMembership()
+    check:
+      not node.mixMembershipUsable
+      changes[] == 0
+
+    module.state = "active"
+    await node.refreshMixMembership()
+    await node.refreshMixMembership()
+    check:
+      node.mixMembershipUsable
+      changes[] == 1
+
+  asyncTest "a membership that stops being usable is reported":
+    let
+      module = FakeRlnModule(state: "active")
+      changes = new int
+      node = module.nodeWith(changes)
+    await node.refreshMixMembership()
+
+    module.state = "expired"
+    await node.refreshMixMembership()
+
+    check:
+      not node.mixMembershipUsable
+      changes[] == 2
+
+  asyncTest "an unanswered check keeps the last known answer":
+    let
+      module = FakeRlnModule(state: "active")
+      changes = new int
+      node = module.nodeWith(changes)
+    await node.refreshMixMembership()
+
+    module.state = ""
+    await node.refreshMixMembership()
+
+    check:
+      node.mixMembershipUsable
+      changes[] == 1

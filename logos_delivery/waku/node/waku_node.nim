@@ -171,6 +171,11 @@ type
     mixMembershipUsable*: bool
       ## The last known answer to "does this node hold a usable membership in
       ## the Mix registry". Meaningful only with `wakuMixRln` set.
+    mixMembershipLoop*: Future[void].Raising([CancelledError])
+      ## Re-reads the Mix membership while Mix RLN runs; `nil` otherwise.
+    onMixMembershipChanged*: proc(): Future[void] {.async: (raises: []), gcsafe.}
+      ## Runs after `mixMembershipUsable` changed. waku.nim uses it to
+      ## advertise this node again.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
       ## The background lookup of the `dns4` mix node names; `nil` when none.
