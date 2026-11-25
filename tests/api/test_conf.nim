@@ -1,13 +1,23 @@
 {.used.}
 
-import std/[net, strutils], results, chronos, testutils/unittests
+import std/[net, strutils, tables], results, chronos, testutils/unittests
+import libp2p/multiaddress
 import brokers/broker_context
 import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
+import logos_delivery/waku/waku_mix
+import logos_delivery/waku/common/rate_limit/setting
 import tools/confutils/cli_args
 import logos_delivery/waku/common/logging
 import ../testlib/wakunodeconf
+
+const TestMixRlnRegistryId = "logos:local:mix"
+const TestMixRlnIdentifierHex = repeat("ab", 32)
+const TestMixRlnMetadataTopic = "/mix/1/metadata/proto"
+const TestMixKey = repeat("11", 32)
+const TestMixNode =
+  "/ip4/203.0.113.9/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby:c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f"
 
 suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
   test "Core mode enables relay + service protocols":
@@ -91,6 +101,30 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.tcpPort == Port(1234)
       kc.websocketSupport == true
       kc.quicSupport == false
+
+  test "the mix key and the mix nodes reach the kernel":
+    let mixNode = parseMixNode(TestMixNode).valueOr:
+      raiseAssert error
+    let mc =
+      MessagingClientConf(mixKey: Opt.some(TestMixKey), mixNodes: Opt.some(@[mixNode]))
+    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+      raiseAssert error
+    check:
+      kc.mixkey == Opt.some(TestMixKey)
+      kc.mixnodes == @[mixNode]
+
+  test "the mix RLN options reach the kernel":
+    let mc = MessagingClientConf(
+      mixRlnRegistryId: Opt.some(TestMixRlnRegistryId),
+      mixRlnIdentifierHex: Opt.some(TestMixRlnIdentifierHex),
+      mixRlnMetadataTopic: Opt.some(TestMixRlnMetadataTopic),
+    )
+    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+      raiseAssert error
+    check:
+      kc.mixRlnRegistryId == TestMixRlnRegistryId
+      kc.mixRlnIdentifierHex == TestMixRlnIdentifierHex
+      kc.mixRlnMetadataTopic == TestMixRlnMetadataTopic
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":
@@ -248,6 +282,73 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
+
+  test "a messaging override sets the external addresses":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"ext-multiaddr": ["/dns4/node.example.org/tcp/30303"], "dns4-domain-name": "node.example.org"}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.endpointConf.extMultiAddrs ==
+        @[MultiAddress.init("/dns4/node.example.org/tcp/30303").get()]
+      wakuConf.endpointConf.dns4DomainName == Opt.some("node.example.org")
+
+  test "a messaging override sets the RLN credentials":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rln-relay-eth-contract-address": "0x0000000000000000000000000000000000000001", "rln-relay-chain-id": 1, "rln-relay-eth-client-address": ["http://localhost:8545"], "rln-relay-cred-path": "/keystore.json", "rln-relay-cred-password": "secret", "rln-relay-membership-index": 7}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.rlnEvmConf.isSome()
+    let rlnConf = wakuConf.rlnEvmConf.get()
+    let creds = rlnConf.creds.valueOr:
+      RlnCreds(path: "", password: "")
+    check:
+      creds.path == "/keystore.json"
+      creds.password == "secret"
+      rlnConf.credIndex == Opt.some(7'u)
+
+  test "a messaging override sets the service rate limits":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rate-limit": ["lightpush:100/1s"]}}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check wakuConf.rateLimit[LIGHTPUSH] == (100, 1.seconds)
+
+  test "a messaging override sets the mix key and the mix nodes":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"anonymityLevel": "Required", "mixkey": "$1", "mixnode": ["$2"]}}""" %
+        [TestMixKey, TestMixNode]
+    ).valueOr:
+      raiseAssert error
+    let kernel = WakuNodeConf(lc.kernelConf)
+    let wakuConf = kernel.toWakuConf().valueOr:
+      raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check:
+      kernel.mixkey == Opt.some(TestMixKey)
+      wakuConf.mixConf.get().mixNodes == @[parseMixNode(TestMixNode).get()]
+
+  test "a messaging override sets the mix RLN options":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"anonymityLevel": "Required", "mix-rln-registry-id": "$1", "mix-rln-identifier-hex": "$2", "mix-rln-metadata-topic": "$3"}}""" %
+        [TestMixRlnRegistryId, TestMixRlnIdentifierHex, TestMixRlnMetadataTopic]
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    let mixRlnConfig = wakuConf.mixConf.get().mixRlnConfig
+    require mixRlnConfig.isSome()
+    check:
+      mixRlnConfig.get().registryId == TestMixRlnRegistryId
+      mixRlnConfig.get().rlnIdentifierHex == TestMixRlnIdentifierHex
+      mixRlnConfig.get().metadataTopic == TestMixRlnMetadataTopic
 
   test "a flat blob sets the mix option to allow all addresses":
     let lc = parseLogosDeliveryConf(
@@ -615,6 +716,42 @@ suite "LogosDeliveryConf - anonymity level":
       .toWakuConf().valueOr:
         raiseAssert error
     check wakuConf.mixConf.isSome()
+
+  test "a raw kernel config takes the mix key and the mix nodes from the messaging config":
+    let mixNode = parseMixNode(TestMixNode).valueOr:
+      raiseAssert error
+    let conf = LogosDeliveryConf.init(
+      KernelConf(defaultTestWakuNodeConf()),
+      MessagingClientConf(
+        anonymityLevel: Opt.some(AnonymityLevel.Required),
+        mixKey: Opt.some(TestMixKey),
+        mixNodes: Opt.some(@[mixNode]),
+      ),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
+    let kernel = WakuNodeConf(conf.kernelConf)
+    check:
+      kernel.mixkey == Opt.some(TestMixKey)
+      kernel.mixnodes == @[mixNode]
+
+  test "a raw kernel config takes the mix RLN options from the messaging config":
+    let conf = LogosDeliveryConf.init(
+      KernelConf(defaultTestWakuNodeConf()),
+      MessagingClientConf(
+        anonymityLevel: Opt.some(AnonymityLevel.Required),
+        mixRlnRegistryId: Opt.some(TestMixRlnRegistryId),
+        mixRlnIdentifierHex: Opt.some(TestMixRlnIdentifierHex),
+        mixRlnMetadataTopic: Opt.some(TestMixRlnMetadataTopic),
+      ),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
+    let kernel = WakuNodeConf(conf.kernelConf)
+    check:
+      kernel.mixRlnRegistryId == TestMixRlnRegistryId
+      kernel.mixRlnIdentifierHex == TestMixRlnIdentifierHex
+      kernel.mixRlnMetadataTopic == TestMixRlnMetadataTopic
 
 suite "LogosDelivery.new - raw kernel construction":
   asyncTest "a kernel-only node mounts the kernel only; start/stop tolerate the nil layers":
