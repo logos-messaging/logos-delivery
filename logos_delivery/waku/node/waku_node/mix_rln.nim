@@ -79,7 +79,7 @@ proc publishMetadata(
   # without Relay a publisher that drops it.
   try:
     let peers = (await node.publish(Opt.none(PubsubTopic), message)).valueOr:
-      return err(error)
+      return err("Mix coordination publish failed: " & error)
     if peers == 0:
       return err("No Relay peers for Mix coordination")
   except CancelledError as exc:
@@ -137,7 +137,7 @@ proc stopMixRln*(node: WakuNode) {.async: (raises: []).} =
 proc startMixRln*(
     node: WakuNode
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  ## Starts Mix RLN. A node that relays (Core) also coordinates: it publishes
+  ## A node that relays (Core) also coordinates: it publishes
   ## the metadata of the proofs it verifies over Relay, with a Relay RLN proof,
   ## and applies what other nodes publish. A node without Relay (Edge) is no
   ## hop for others and takes no part in coordination: it needs no Relay RLN
