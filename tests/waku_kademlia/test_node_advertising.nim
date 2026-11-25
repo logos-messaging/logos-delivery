@@ -22,9 +22,14 @@ import
 ## before it starts ServiceDiscovery. The node advertises its services after.
 
 proc isAdvertised(node: WakuNode, service: ServiceInfo): bool =
+  ## True when libp2p holds an advert for `service` whose record lists it.
+  ## libp2p 2.5 keeps a caller-signed advert out of `services`, so the stored
+  ## advert is read rather than `services`.
   let disco = node.wakuKademlia.protocol
-  service in disco.services and
-    disco.advertiser.providedAdverts.hasKey(service.id.hashServiceId())
+  let advert = disco.advertiser.providedAdverts.getOrDefault(service.id.hashServiceId())
+  let record = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+    return false
+  service in record.data.services
 
 proc selfRecordKey(node: WakuNode): RecordKey =
   ## The table key of the node's self record.
@@ -202,10 +207,11 @@ suite "Waku Kademlia node advertising":
     check not node.isAdvertised(delivery)
     await node.stop()
 
-  asyncTest "the self record of a mix node claims mix but lists no mix key":
+  asyncTest "the self record of a mix node lists no mix key":
     ## The record libp2p publishes under the node's peer id, which a random
-    ## lookup returns, lists the registered delivery service with its payload,
-    ## not the `/mix/1.0.0` entry of the record the node signs for its advert.
+    ## lookup returns, does not carry the `/mix/1.0.0` entry of the record the
+    ## node signs for its advert. libp2p 2.5 keeps a caller-signed advert out of
+    ## that record altogether, the delivery service included.
     let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
     let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
     let mixKeys = generateKeyPair().expect("mix key pair")
@@ -247,8 +253,9 @@ suite "Waku Kademlia node advertising":
     ## An address change makes libp2p publish its self record again.
     node.switch.peerInfo.notifyObservers()
     checkUntilTimeout:
-      delivery in node.publishedServices()
+      node.publishedRecord().isSome()
     check:
+      delivery notin node.publishedServices()
       advertisedMixKey(
         node.publishedServices().mapIt(
           DiscoveredService(id: it.id, data: it.data.get(@[]))
