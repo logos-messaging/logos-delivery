@@ -531,7 +531,7 @@ suite "ExternalServiceDiscovery":
 
   asyncTest "a delivery record that claims no mix removes the peer's mix key":
     ## The peer lost its Mix RLN membership and advertises as a delivery node.
-    proc peersJson(caps: CapabilitiesBitfield, withKey: bool): string =
+    proc peersJson(caps: CapabilitiesBitfield, withKey: bool, seqNo = 7): string =
       ## Service data travels base64-encoded, and the delivery payload is
       ## base64 text itself.
       let payload = base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, byte(caps)])
@@ -542,7 +542,7 @@ suite "ExternalServiceDiscovery":
         %*[
           {
             "peerId": FakePeerId,
-            "seqNo": 7,
+            "seqNo": seqNo,
             "addrs": ["/ip4/1.2.3.4/tcp/60000"],
             "services": services,
           }
@@ -564,6 +564,28 @@ suite "ExternalServiceDiscovery":
     check pid in peerManager.switch.peerStore[MixPubKeyBook]
 
     setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid notin peerManager.switch.peerStore[MixPubKeyBook]
+
+    ## A registrar serves the record it was handed until that expires, so a
+    ## lookup can return a record older than one seen before. A mix node
+    ## advertises without a key until its Mix RLN membership is usable: that
+    ## older record must not take the key away again.
+    let mixNode = CapabilitiesBitfield.init(relay = true, mix = true)
+    setPeersJson(peersJson(mixNode, true, seqNo = 9))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid in peerManager.switch.peerStore[MixPubKeyBook]
+
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false, seqNo = 8))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid in peerManager.switch.peerStore[MixPubKeyBook]
+
+    ## Nor does an older record bring a key back that a newer one removed.
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false, seqNo = 10))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid notin peerManager.switch.peerStore[MixPubKeyBook]
+
+    setPeersJson(peersJson(mixNode, true, seqNo = 9))
     check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
     check pid notin peerManager.switch.peerStore[MixPubKeyBook]
 

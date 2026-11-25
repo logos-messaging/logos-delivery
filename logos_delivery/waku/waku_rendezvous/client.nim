@@ -79,6 +79,10 @@ proc requestAll*(
         trace "Rejecting rendezvous record with malformed mix key",
           peerId = record.peerId, mixKey = record.mixKey
       continue
+    # The record is signed at each registration, so it also outdates the keyless
+    # record that service discovery may still return for this peer.
+    if not self.switch.peerStore.admitMixRecord(record.peerId, record.seqNo):
+      continue
     trace "adding peer from rendezvous",
       peerId = record.peerId, addresses = $record.addresses, mixKey = record.mixKey
     let rInfo = RemotePeerInfo.init(
