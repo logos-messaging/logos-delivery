@@ -145,6 +145,16 @@ suite "Waku Mix - key rotation":
     await sleepAsync(chronos.milliseconds(100))
     check backend.advertisedData.len == 1
 
+  asyncTest "a stopped node withdraws its record":
+    ## Stopping destroys the mix key the record carries.
+    let (node, backend) = await advertisingNode()
+    checkUntilTimeout:
+      backend.advertisedData.len == 1
+    check backend.withdrawn.len == 0
+
+    await node.stop()
+    check backend.withdrawn == @[ServiceKeyPrefix & LogosDeliveryServiceId]
+
   asyncTest "a key replaced during a stuck advert is never published":
     ## The first advert waits inside `startAdvertising`. Two rotations replace its
     ## key twice: the middle key is never published, and the newest is last.

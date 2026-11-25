@@ -9,7 +9,9 @@ import libp2p_mix, libp2p_mix/curve25519
 import
   logos_delivery/waku/[waku_core, waku_mix],
   logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/discovery/[waku_kademlia, service_discovery],
+  logos_delivery/waku/discovery/[waku_kademlia, service_discovery, self_advertisement],
+  logos_delivery/waku/[factory/waku_conf, waku_enr/capabilities],
+  tools/confutils/cli_args,
   ../testlib/[wakucore, wakunode, testasync]
 
 ## The default deployment binds 0.0.0.0. switch.start resolves peerInfo.addrs
@@ -147,4 +149,43 @@ suite "Waku Kademlia node advertising":
     check:
       res.isErr()
       not node.isAdvertised(first)
+    await node.stop()
+
+  asyncTest "a restarted node with mix key rotation does not advertise a destroyed key":
+    ## Stopping destroys the mix key, and kademlia republishes its stored adverts
+    ## at start, so the stop withdraws the record that carries the key.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId,
+        mixKeys.privateKey,
+        @[],
+        allowAllAddresses = true,
+        keyRotation = true,
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
+    conf.mixConf = Opt.some(MixConf())
+    let shards = @[0'u16]
+    node.advertiseRecord = proc(
+        isCurrent: proc(): bool {.gcsafe, raises: [].}
+    ) {.async: (raises: []).} =
+      await advertiseSelf(
+        node.discoveries, conf, shards, node.advertisedMixKey(), isCurrent
+      )
+    await node.start()
+    await node.startRecordAdvertising()
+    let delivery = ServiceInfo(
+      id: LogosDeliveryServiceId, data: Opt.some(selfAdvertisementData(conf, shards))
+    )
+    checkUntilTimeout:
+      node.isAdvertised(delivery)
+
+    await node.stop()
+    await node.start()
+    check not node.isAdvertised(delivery)
     await node.stop()
