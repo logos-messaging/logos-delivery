@@ -189,7 +189,9 @@ proc mountRelay*(
   ## The default relay topics is the union of all configured topics plus default PubsubTopic(s)
   info "mounting relay protocol"
 
-  node.wakuRelay = WakuRelay.new(node.switch, maxMessageSize).valueOr:
+  node.wakuRelay = WakuRelay.new(
+    node.switch, maxMessageSize, Opt.some(node.peerManager.maxRelayPeers)
+  ).valueOr:
     error "failed mounting relay protocol", error = error
     return err("failed mounting relay protocol: " & error)
 

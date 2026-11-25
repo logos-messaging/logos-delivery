@@ -76,6 +76,9 @@ const
   # Delay between consecutive relayConnectivityLoop runs
   ConnectivityLoopInterval = chronos.seconds(30)
 
+  # Connection age from which a relay peer without relay or service stream is closed
+  IdleRelayConnTimeout = chronos.minutes(1)
+
   # How often the peer store is pruned
   PrunePeerStoreInterval = chronos.minutes(10)
 
@@ -116,6 +119,12 @@ type PeerManager* = ref object
   metricTopics*: TopicLabels
   maxConnections: int
   activeStoreRequests*: Table[PeerId, int]
+  joinedAt: Table[PeerId, Moment]
+  relayEvictionGrace*: chronos.Duration
+    ## Time a new peer gets to open a service stream before relay pruning may pick it.
+  idleRelayConnTimeout*: chronos.Duration
+    ## Connection age from which a relay peer with neither a relay nor a service
+    ## stream is closed.
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -350,7 +359,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # require pre-connection
-proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.}
+proc pruneInRelayConns(pm: PeerManager, amount: int): Future[int] {.async.}
 
 # Connects to a given node. Note that this function uses `connect` and
 # does not provide a protocol. Streams for relay (gossipsub) are created
@@ -593,6 +602,11 @@ proc connectedPeers*(
 
   return (inPeers, outPeers)
 
+proc connectedSince*(pm: PeerManager, peerId: PeerId): Opt[Moment] =
+  pm.joinedAt.withValue(peerId, joined):
+    return Opt.some(joined[])
+  return Opt.none(Moment)
+
 proc evictPeer*(pm: PeerManager, peerId: PeerId) {.async.} =
   ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
   ## Skips the disconnect when the peer has an in-flight store request to
@@ -719,10 +733,11 @@ proc connectToRelayPeers*(pm: PeerManager) {.async.} =
   var (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
   let totalRelayPeers = inRelayPeers.len + outRelayPeers.len
 
-  if inRelayPeers.len > pm.inRelayPeersTarget:
-    await pm.pruneInRelayConns(inRelayPeers.len - pm.inRelayPeersTarget)
+  let evicted = await pm.pruneInRelayConns(inRelayPeers.len - pm.inRelayPeersTarget)
 
-  if outRelayPeers.len >= pm.outRelayPeersTarget:
+  # Slots under the relay peer limit, with the ones that pruning frees
+  let freeRelaySlots = pm.maxRelayPeers - totalRelayPeers + evicted
+  if outRelayPeers.len >= pm.outRelayPeersTarget or freeRelaySlots <= 0:
     return
 
   let notConnectedPeers = pm.switch.peerStore.getDisconnectedPeers()
@@ -732,9 +747,10 @@ proc connectToRelayPeers*(pm: PeerManager) {.async.} =
   shuffle(outsideBackoffPeers)
 
   var index = 0
-  var numPendingConnReqs =
-    min(outsideBackoffPeers.len, pm.outRelayPeersTarget - outRelayPeers.len)
-    ## number of outstanding connection requests
+  var numPendingConnReqs = min(
+    outsideBackoffPeers.len,
+    min(pm.outRelayPeersTarget - outRelayPeers.len, freeRelaySlots),
+  ) ## number of outstanding connection requests
 
   while numPendingConnReqs > 0 and outRelayPeers.len < pm.outRelayPeersTarget:
     let numPeersToConnect = min(numPendingConnReqs, MaxParallelDials)
@@ -900,16 +916,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Joined:
     direction = if event.initiator: Outbound else: Inbound
     connectedness = Connected
-
-    ## Check max allowed in-relay peers
-    let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
-    if inRelayPeers.len > pm.inRelayPeersTarget and
-        peerStore.hasPeer(peerId, WakuRelayCodec):
-      debug "relay peer limit reached, evicting peer",
-        peerId = peerId,
-        inRelayPeers = inRelayPeers.len,
-        inRelayPeersTarget = pm.inRelayPeersTarget
-      await pm.evictPeer(peerId)
+    pm.joinedAt[peerId] = Moment.now()
 
     ## Apply max ip colocation limit
     if (let ip = pm.getPeerIp(peerId); ip.isSome()):
@@ -933,6 +940,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Left:
     direction = UnknownDirection
     connectedness = CanConnect
+    pm.joinedAt.del(peerId)
 
     # note we cant access the peerId ip here as the connection was already closed
     for ip, peerIds in pm.ipTable.pairs:
@@ -1058,6 +1066,7 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
 
   # Get all connected peers for Waku Relay
   var (inPeers, outPeers) = pm.connectedPeers(WakuRelayCodec)
+  let totalRelayPeers = inPeers.len + outPeers.len
 
   # Calculate in/out target number of peers for each shards
   let inTarget = pm.inRelayPeersTarget div shardsCount
@@ -1115,12 +1124,16 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
       trace "Peer To Connect To", peerId = $peer.peerId
       peersToConnect.incl(peer.peerId)
 
-  await pm.pruneInRelayConns(peersToDisconnect)
+  let evicted = await pm.pruneInRelayConns(peersToDisconnect)
 
-  if peersToConnect.len == 0:
+  # Slots under the relay peer limit, with the ones that pruning frees
+  let freeRelaySlots = pm.maxRelayPeers - totalRelayPeers + evicted
+  if peersToConnect.len == 0 or freeRelaySlots <= 0:
     return
 
-  let uniquePeers = toSeq(peersToConnect).mapIt(peerStore.getPeer(it))
+  let uniquePeers = toSeq(peersToConnect)[0 ..< min(peersToConnect.len, freeRelaySlots)].mapIt(
+    peerStore.getPeer(it)
+  )
 
   # Connect to all nodes
   for i in countup(0, uniquePeers.len, MaxParallelDials):
@@ -1216,10 +1229,52 @@ proc prunePeerStoreLoop(pm: PeerManager) {.async.} =
       debug "pruned stale ENRs", count = prunedEnrs
     await sleepAsync(PrunePeerStoreInterval)
 
+proc hasServiceStream*(pm: PeerManager, peerId: PeerId): bool =
+  for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
+    for stream in muxer.getStreams():
+      if stream.protocol.len > 0 and stream.protocol != WakuRelayCodec and
+          stream.protocol notin BaseLibp2pProtocols and not stream.isClosed:
+        return true
+  return false
+
+proc isRelayEvictable(pm: PeerManager, peerId: PeerId): bool =
+  ## Returns whether relay pruning may evict the peer: it joined more than
+  ## `relayEvictionGrace` ago and holds no service stream.
+  let joined = pm.connectedSince(peerId).valueOr:
+    # A peer whose join is not recorded yet has only just connected
+    return false
+  return
+    Moment.now() - joined >= pm.relayEvictionGrace and not pm.hasServiceStream(peerId)
+
+proc mountsRelay(pm: PeerManager): bool =
+  pm.switch.ms.handlers.anyIt(WakuRelayCodec in it.protos)
+
+proc pruneIdleRelayConns*(pm: PeerManager) {.async.} =
+  ## Closes the connection to each relay peer that joined more than
+  ## `idleRelayConnTimeout` ago and holds neither a relay nor a service stream.
+  if not pm.mountsRelay():
+    # A node without relay reaches relay peers only through services
+    return
+
+  let (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
+  let relayPeers = (inRelayPeers & outRelayPeers).toHashSet()
+  let now = Moment.now()
+
+  for peerId in toSeq(pm.switch.connManager.getConnections().keys):
+    if peerId in relayPeers or not pm.switch.peerStore.hasPeer(peerId, WakuRelayCodec):
+      continue
+    let joined = pm.connectedSince(peerId).valueOr:
+      continue
+    if now - joined < pm.idleRelayConnTimeout or pm.hasServiceStream(peerId):
+      continue
+    debug "Disconnecting relay peer without relay or service stream", peerId = peerId
+    asyncSpawn(pm.evictPeer(peerId))
+
 # Ensures a healthy amount of connected relay peers
 proc relayConnectivityLoop*(pm: PeerManager) {.async.} =
   trace "Starting relay connectivity loop"
   while pm.started:
+    await pm.pruneIdleRelayConns()
     if pm.shardedPeerManagement:
       await pm.manageRelayPeers()
     else:
@@ -1240,16 +1295,20 @@ proc relayConnectivityLoop*(pm: PeerManager) {.async.} =
     # Shorten the connectivity loop interval dynamically based on percentage of peers to fill or connections to prune
     await sleepAsync(max(dynamicSleepInterval, chronos.seconds(1)))
 
-proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.} =
+proc pruneInRelayConns(pm: PeerManager, amount: int): Future[int] {.async.} =
+  ## Evicts at most `amount` inbound relay peers and returns how many it evicts.
   if amount <= 0:
-    return
+    return 0
 
   let (inRelayPeers, _) = pm.connectedPeers(WakuRelayCodec)
-  let connsToPrune = min(amount, inRelayPeers.len)
+  let evictable = inRelayPeers.filterIt(pm.isRelayEvictable(it))
+  let connsToPrune = min(amount, evictable.len)
 
-  for p in inRelayPeers[0 ..< connsToPrune]:
+  for p in evictable[0 ..< connsToPrune]:
     trace "Pruning Peer", Peer = $p
     asyncSpawn(pm.evictPeer(p))
+
+  return connsToPrune
 
 proc addExtPeerEventHandler*(
     pm: PeerManager, eventHandler: PeerEventHandler, eventKind: PeerEventKind
@@ -1320,8 +1379,10 @@ proc new*(
   var serviceRatio: float64
   (relayRatio, serviceRatio) = parseRelayServiceRatio(relayServiceRatio).get()
 
-  var relayPeers = int(ceil(float(maxConnections) * relayRatio))
-  var servicePeers = int(floor(float(maxConnections) * serviceRatio))
+  let relayPeers = maxRelayPeers.valueOr:
+    int(ceil(float(maxConnections) * relayRatio))
+  let servicePeers = maxServicePeers.valueOr:
+    int(floor(float(maxConnections) * serviceRatio))
 
   let minRelayPeers = WakuRelay.getDHigh()
 
@@ -1361,6 +1422,11 @@ proc new*(
     shardedPeerManagement: shardedPeerManagement,
     online: true,
     maxConnections: maxConnections,
+    # A peer that dials us for a service opens its stream within its own dial timeout.
+    relayEvictionGrace: DefaultDialTimeout,
+    # libp2p retries a refused relay stream at least once every 16 s, so a waiting
+    # peer gets several chances at a slot that frees up.
+    idleRelayConnTimeout: IdleRelayConnTimeout,
   )
 
   proc peerHook(
@@ -1389,6 +1455,7 @@ proc new*(
   pm.serviceSlots = initTable[string, RemotePeerInfo]()
   pm.ipTable = initTable[string, seq[PeerId]]()
   pm.activeStoreRequests = initTable[PeerId, int]()
+  pm.joinedAt = initTable[PeerId, Moment]()
 
   if not storage.isNil():
     trace "found persistent peer storage"

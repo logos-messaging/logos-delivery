@@ -33,8 +33,8 @@ type
     peerStorageCapacity: Opt[int]
 
     # Peer manager config
-    maxRelayPeers: int
-    maxServicePeers: int
+    maxRelayPeers: Opt[int]
+    maxServicePeers: Opt[int]
     colocationLimit: int
     shardAware: bool
 
@@ -122,8 +122,8 @@ proc withPeerManagerConfig*(
   var relayPeers = int(ceil(float(maxConnections) * relayRatio))
   var servicePeers = int(floor(float(maxConnections) * serviceRatio))
 
-  builder.maxServicePeers = servicePeers
-  builder.maxRelayPeers = relayPeers
+  builder.maxServicePeers = Opt.some(servicePeers)
+  builder.maxRelayPeers = Opt.some(relayPeers)
   builder.shardAware = shardAware
 
 proc withColocationLimit*(builder: var WakuNodeBuilder, colocationLimit: int) =
@@ -210,8 +210,8 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
   let peerManager = PeerManager.new(
     switch = switch,
     storage = builder.peerStorage.get(nil),
-    maxRelayPeers = Opt.some(builder.maxRelayPeers),
-    maxServicePeers = Opt.some(builder.maxServicePeers),
+    maxRelayPeers = builder.maxRelayPeers,
+    maxServicePeers = builder.maxServicePeers,
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
     maxConnections = builder.switchMaxConnections.get(MaxConnections),

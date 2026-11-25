@@ -6,7 +6,9 @@ import
   chronos,
   metrics,
   libp2p/protocols/pubsub/[pubsub, gossipsub],
-  libp2p/[stream/connection, switch],
+  libp2p/protocols/protocol,
+  libp2p/crypto/rng,
+  libp2p/[stream/connection, switch, peerid],
   ./crypto_utils,
   std/json
 
@@ -1411,3 +1413,83 @@ suite "Waku Relay":
         await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         (pubsubTopic, atLimit) == handlerFuture.read()
         tooLargeMessages("receive") == refusedBefore + 1
+
+suite "Waku Relay - relay peer limit":
+  proc recordingRelayStub(opened: ref int): LPProtocol =
+    ## Records the relay streams it receives and never opens one itself.
+    let proto = LPProtocol(codecs: @[WakuRelayCodec])
+    proto.handler = proc(
+        stream: Stream, proto: string
+    ) {.async: (raises: [CancelledError]).} =
+      opened[].inc()
+      await stream.join()
+    proto
+
+  proc startRelay(switch: Switch, atLimit: bool): Future[WakuRelay] {.async.} =
+    let relay = WakuRelay.new(switch, maxRelayPeers = Opt.some(1)).tryGet()
+    if atLimit:
+      doAssert relay.reserveIncoming(PeerId.random(newRng()).tryGet())
+    switch.mount(relay)
+    await switch.start()
+    return relay
+
+  asyncTest "a node at its relay peer limit opens no relay stream to a peer that it dials":
+    let (fullSwitch, roomSwitch) = (newTestSwitch(), newTestSwitch())
+    discard await startRelay(fullSwitch, atLimit = true)
+    discard await startRelay(roomSwitch, atLimit = false)
+
+    let (byFullOpened, byRoomOpened) = (new int, new int)
+    let (byFull, byRoom) = (newTestSwitch(), newTestSwitch())
+    byFull.mount(recordingRelayStub(byFullOpened))
+    byRoom.mount(recordingRelayStub(byRoomOpened))
+    await allFutures(byFull.start(), byRoom.start())
+
+    await fullSwitch.connect(byFull.peerInfo.peerId, byFull.peerInfo.addrs)
+    await roomSwitch.connect(byRoom.peerInfo.peerId, byRoom.peerInfo.addrs)
+
+    checkUntilTimeout:
+      byRoomOpened[] == 1
+    await sleepAsync(300.milliseconds)
+    check:
+      byFullOpened[] == 0
+      fullSwitch.isConnected(byFull.peerInfo.peerId)
+
+    await allFutures(fullSwitch.stop(), roomSwitch.stop(), byFull.stop(), byRoom.stop())
+
+  asyncTest "a second relay stream from one peer is refused and leaves the other slots free":
+    # Given a relay node with a relay peer limit of 2 and a peer connected to it
+    let nodeSwitch = newTestSwitch()
+    let relay = WakuRelay.new(nodeSwitch, maxRelayPeers = Opt.some(2)).tryGet()
+    nodeSwitch.mount(relay)
+    await nodeSwitch.start()
+
+    let peerSwitch = newTestSwitch()
+    peerSwitch.mount(recordingRelayStub(new int))
+    await peerSwitch.start()
+    await peerSwitch.connect(nodeSwitch.peerInfo.peerId, nodeSwitch.peerInfo.addrs)
+
+    proc opensRelayStream(): Future[bool] {.async.} =
+      ## Dials relay on the node and reads once from the stream. libp2p can
+      ## return a dialled stream before the node answers, and the first read
+      ## then takes the node's answer.
+      let stream =
+        try:
+          await peerSwitch.dial(nodeSwitch.peerInfo.peerId, WakuRelayCodec)
+        except DialFailedError:
+          return false
+      var buf: array[1, byte]
+      let read = stream.readOnce(addr buf[0], buf.len)
+      discard await read.withTimeout(FUTURE_TIMEOUT)
+      return not read.failed()
+
+    # When the peer opens two relay streams
+    let firstAdmitted = await opensRelayStream()
+    let secondAdmitted = await opensRelayStream()
+
+    # Then the node admits only the first one and keeps a slot for another peer
+    check:
+      firstAdmitted
+      not secondAdmitted
+      relay.canAcceptIncoming(PeerId.random(newRng()).tryGet())
+
+    await allFutures(nodeSwitch.stop(), peerSwitch.stop())

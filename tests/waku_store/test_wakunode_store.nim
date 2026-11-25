@@ -27,6 +27,7 @@ import
   ],
   ../waku_store/store_utils,
   ../waku_archive/archive_utils,
+  ../testlib/testasync,
   ../testlib/wakucore,
   ../testlib/wakunode
 
@@ -434,3 +435,103 @@ procSuite "WakuNode - Store":
 
     # Cleanup
     waitFor allFutures(client.stop(), server.stop())
+
+  asyncTest "a relay node that joins a node over its inbound relay target gets its store answer":
+    ## Setup
+    # maxConnections 16 gives an inbound relay target of 6
+    let
+      server = newTestWakuNode(generateSecp256k1Key(), maxConnections = 16)
+      client = newTestWakuNode(generateSecp256k1Key())
+      others = toSeq(0 ..< 7).mapIt(newTestWakuNode(generateSecp256k1Key()))
+      nodes = @[server, client] & others
+
+    await allFutures(nodes.mapIt(it.start()))
+    for node in nodes:
+      (await node.mountRelay()).isOkOr:
+        raiseAssert "failed to mount relay: " & error
+      # No relay pruning or dialling: only the join of the client is under test
+      node.peerManager.stop()
+
+    server.mountArchive(archiveA).isOkOr:
+      raiseAssert "failed to mount archive: " & error
+    await server.mountStore()
+    client.mountStoreClient()
+
+    let serverPeer = server.peerInfo.toRemotePeerInfo()
+    let clientId = client.peerInfo.peerId
+
+    ## Given the server knows that the client speaks relay
+    require await client.peerManager.connectPeer(serverPeer)
+    checkUntilTimeout:
+      server.peerManager.switch.peerStore.hasPeer(clientId, WakuRelayCodec)
+    await client.peerManager.disconnectNode(server.peerInfo.peerId)
+    checkUntilTimeout:
+      not server.switch.isConnected(clientId)
+
+    ## And the server is over its inbound relay target
+    for other in others:
+      require await other.peerManager.connectPeer(serverPeer)
+    checkUntilTimeout:
+      server.peerManager.connectedPeers(WakuRelayCodec)[0].len == 7
+
+    ## When
+    let req =
+      StoreQueryRequest(includeData: true, contentTopics: @[DefaultContentTopic])
+    let queryRes = await client.query(req, peer = serverPeer)
+
+    ## Then
+    check:
+      queryRes.isOk()
+      queryRes.get().messages == kvs
+
+    # Cleanup
+    await allFutures(nodes.mapIt(it.stop()))
+
+  asyncTest "a node at its relay peer limit refuses a new relay peer, keeps the connection and answers its store query":
+    ## Setup
+    # maxConnections 16 gives a relay peer limit of 8
+    let
+      server = newTestWakuNode(generateSecp256k1Key(), maxConnections = 16)
+      client = newTestWakuNode(generateSecp256k1Key())
+      others = toSeq(0 ..< 8).mapIt(newTestWakuNode(generateSecp256k1Key()))
+      nodes = @[server, client] & others
+
+    await allFutures(nodes.mapIt(it.start()))
+    for node in nodes:
+      (await node.mountRelay()).isOkOr:
+        raiseAssert "failed to mount relay: " & error
+      # No relay pruning or dialling: only the relay peer limit is under test
+      node.peerManager.stop()
+
+    server.mountArchive(archiveA).isOkOr:
+      raiseAssert "failed to mount archive: " & error
+    await server.mountStore()
+    client.mountStoreClient()
+
+    let serverPeer = server.peerInfo.toRemotePeerInfo()
+    let clientId = client.peerInfo.peerId
+
+    ## Given the server is at its relay peer limit
+    for other in others:
+      require await other.peerManager.connectPeer(serverPeer)
+    checkUntilTimeout:
+      server.peerManager.connectedPeers(WakuRelayCodec)[0].len == 8
+
+    ## When a relay node queries the server's store
+    let req =
+      StoreQueryRequest(includeData: true, contentTopics: @[DefaultContentTopic])
+    let queryRes = await client.query(req, peer = serverPeer)
+    # Without the limit, the client's relay stream would be open by now.
+    await sleepAsync(300.milliseconds)
+
+    ## Then the server answers but does not take the client as a relay peer
+    let (inRelayPeers, outRelayPeers) =
+      server.peerManager.connectedPeers(WakuRelayCodec)
+    check:
+      queryRes.isOk()
+      queryRes.get().messages == kvs
+      server.switch.isConnected(clientId)
+      clientId notin inRelayPeers & outRelayPeers
+
+    # Cleanup
+    await allFutures(nodes.mapIt(it.stop()))
