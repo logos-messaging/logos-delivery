@@ -691,6 +691,7 @@ suite "Waku Conf - the Mix capability follows the mount":
   test "a node that mounts mix advertises Mix":
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(true)
     builder.mixConf.withEnabled(true)
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
 
@@ -722,6 +723,7 @@ suite "Waku Conf - the Mix capability follows the mount":
     ## mix is mounted and advertised.
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(true)
     builder.withMix(false)
     builder.mixConf.withEnabled(true)
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
@@ -796,3 +798,68 @@ suite "Network presets":
         check:
           MultiAddress.init(storeNode).isOk()
           "/p2p/16Uiu2" in storeNode
+
+suite "Waku Conf - Rendezvous and the Mix capability":
+  test "unset, Rendezvous runs without service discovery":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.discv5Conf.withUdpPort(9000)
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.kademliaDiscoveryConf.isNone()
+      conf.rendezvous
+
+  test "unset, Rendezvous is off with service discovery":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.kademliaDiscoveryConf.isSome()
+      not conf.rendezvous
+
+  test "an explicit Rendezvous runs with service discovery":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+    builder.withRendezvous(true)
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.kademliaDiscoveryConf.isSome()
+      conf.rendezvous
+
+  test "a node with mix and relay claims the Mix capability":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(true)
+    builder.mixConf.withEnabled(true)
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check conf.wakuFlags.supportsCapability(Capabilities.Mix)
+
+  test "a node with mix and without relay does not claim the Mix capability":
+    ## A node without relay (Edge) mounts mix to send through it and is no hop.
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(false)
+    builder.mixConf.withEnabled(true)
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check:
+      conf.mixConf.isSome()
+      not conf.wakuFlags.supportsCapability(Capabilities.Mix)

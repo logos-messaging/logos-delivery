@@ -29,7 +29,8 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
       kc.lightpush == Opt.some(true)
       kc.discv5Discovery == Opt.some(true)
       kc.peerExchange == Opt.some(true)
-      kc.rendezvous == Opt.some(true)
+      kc.rendezvous.isNone()
+        # the conf builder decides: on only without service discovery
 
   test "Edge mode is client-only (no relay/filter/lightpush/store)":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Edge).valueOr:

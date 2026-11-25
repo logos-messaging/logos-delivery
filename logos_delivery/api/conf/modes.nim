@@ -40,7 +40,6 @@ proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
       lightpush: Opt.some(true),
       discv5Discovery: Opt.some(true),
       peerExchange: Opt.some(true),
-      rendezvous: Opt.some(true),
     )
   of LogosDeliveryMode.Edge:
     ModeProtocolFlags(

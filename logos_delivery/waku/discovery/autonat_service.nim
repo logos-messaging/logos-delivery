@@ -8,7 +8,13 @@ import
 
 const AutonatCheckInterval = Opt.some(chronos.seconds(30))
 
-proc getAutonatService*(rng: crypto.Rng): AutonatService =
+type ReachabilityHandler* =
+  proc(reachability: NetworkReachability) {.gcsafe, raises: [].}
+  ## Takes each AutoNAT verdict that comes with a confidence.
+
+proc getAutonatService*(
+    rng: crypto.Rng, onReachability: ReachabilityHandler = nil
+): AutonatService =
   ## AutonatService request other peers to dial us back
   ## flagging us as Reachable or NotReachable.
   ## minConfidence is used as threshold to determine the state.
@@ -32,6 +38,8 @@ proc getAutonatService*(rng: crypto.Rng): AutonatService =
     if confidence.isSome():
       debug "Peer reachability status",
         networkReachability = networkReachability, confidence = confidence.get()
+      if not onReachability.isNil():
+        onReachability(networkReachability)
 
   discard autonatService.reachabilityObservers.add(reachabilityHandler)
 
