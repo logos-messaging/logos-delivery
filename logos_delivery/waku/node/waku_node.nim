@@ -136,6 +136,10 @@ type
     libp2pPing*: Ping
     rng*: crypto.Rng
     brokerCtx*: BrokerContext
+    advertCtx*: BrokerContext
+      ## Where the parts of this node's advertised record meet. A context of
+      ## this node alone: `brokerCtx` is shared by every node of a thread that
+      ## did not set its own, and a node must not collect another node's parts.
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
@@ -418,7 +422,7 @@ proc copyCommittedAddresses*(node: WakuNode) =
     ).isOkOr:
       error "failed to refresh the ENR addresses", error = error
   if changed:
-    AdvertChangedEvent.emit(node.brokerCtx, AdvertChangedEvent(reason: "addresses"))
+    AdvertChangedEvent.emit(node.advertCtx, AdvertChangedEvent(reason: "addresses"))
 
 proc new*(
     T: type WakuNode,
@@ -441,6 +445,7 @@ proc new*(
     switch: switch,
     rng: rng,
     brokerCtx: brokerCtx,
+    advertCtx: NewBrokerContext(),
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
@@ -741,7 +746,7 @@ proc advertiseRecordAfter(
     return
   # A record that cannot be put together is not advertised: the one that is
   # advertised stays.
-  let parts = (await GetSelfAdvert.request(node.brokerCtx)).valueOr:
+  let parts = (await GetSelfAdvert.request(node.advertCtx)).valueOr:
     error "Failed to collect this node's record; the advertised one stays",
       error = error
     return
@@ -765,7 +770,7 @@ proc readvertise(node: WakuNode) =
 
 proc keepAdvertProvider*(node: WakuNode, provider: GetSelfAdvertProviderHandle) =
   ## Keeps a part of this node's record, provided with `GetSelfAdvert.provideIt`
-  ## on `node.brokerCtx`, until `stop` removes it. The provider is asked for
+  ## on `node.advertCtx`, until `stop` removes it. The provider is asked for
   ## the part each time the record is advertised.
   node.advertProviders.add(provider)
 
@@ -780,10 +785,10 @@ proc syncMixAdvertProvider(node: WakuNode) =
   if wanted == provided:
     return
   if not wanted:
-    GetSelfAdvert.removeProvider(node.brokerCtx, node.mixAdvertProvider.get())
+    GetSelfAdvert.removeProvider(node.advertCtx, node.mixAdvertProvider.get())
     node.mixAdvertProvider = Opt.none(GetSelfAdvertProviderHandle)
     return
-  let registered = GetSelfAdvert.provideIt(node.brokerCtx):
+  let registered = GetSelfAdvert.provideIt(node.advertCtx):
     let key = node.wakuMix.currentMixPubKey().valueOr:
       return err("mix holds no key for this node")
     return ok(mixAdvertPart(key))
@@ -796,7 +801,7 @@ proc mixAdvertChanged*(node: WakuNode, reason: string) =
   ## Reports that this node's mix part of the record changed: its mix key, or
   ## whether the node can act as a mix node.
   node.syncMixAdvertProvider()
-  AdvertChangedEvent.emit(node.brokerCtx, AdvertChangedEvent(reason: reason))
+  AdvertChangedEvent.emit(node.advertCtx, AdvertChangedEvent(reason: reason))
 
 proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
   ## Advertises this node's record and returns once it is advertised. From then
@@ -806,7 +811,7 @@ proc startRecordAdvertising*(node: WakuNode) {.async: (raises: []).} =
   ## With mix key rotation it returns at once, and the first advertisement runs
   ## in the background too.
   if node.advertListener.isNone():
-    let listening = AdvertChangedEvent.listenIt(node.brokerCtx):
+    let listening = AdvertChangedEvent.listenIt(node.advertCtx):
       debug "Advertising this node's record again", reason = it.reason
       node.readvertise()
     let listener = listening.valueOr:
@@ -835,11 +840,11 @@ proc stopRecordAdvertising(node: WakuNode) {.async: (raises: []).} =
     return
   if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
     node.wakuMix.keyRing().get().setKeyHandler(nil)
-  await AdvertChangedEvent.dropListener(node.brokerCtx, node.advertListener.get())
+  await AdvertChangedEvent.dropListener(node.advertCtx, node.advertListener.get())
   node.advertListener = Opt.none(AdvertChangedEventListener)
   node.syncMixAdvertProvider()
   for provider in node.advertProviders:
-    GetSelfAdvert.removeProvider(node.brokerCtx, provider)
+    GetSelfAdvert.removeProvider(node.advertCtx, provider)
   node.advertProviders = @[]
   node.recordVersion.inc()
   if not node.recordAdvertisement.isNil():

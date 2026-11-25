@@ -638,7 +638,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## The node advertises again when its record changes: a new mix key, or a Mix
   ## membership that arrives or ends later.
   if waku.conf.wakuFlags.isServiceNode():
-    let provided = GetSelfAdvert.provideIt(waku.node.brokerCtx):
+    let provided = GetSelfAdvert.provideIt(waku.node.advertCtx):
       return ok(
         deliveryAdvertPart(
           waku.conf, waku.node.getShardsGetter(waku.conf.subscribeShards)()
