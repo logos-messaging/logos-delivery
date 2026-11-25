@@ -14,6 +14,7 @@ import
   libp2p/stream/connection,
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_mix,
+  logos_delivery/waku/waku_relay,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/api/publish,
   logos_delivery/waku/node/peer_manager,
@@ -1445,8 +1446,13 @@ suite "Mix RLN coordination protection":
   test "the default Mix scope is a 32-byte identifier":
     check defaultTestWakuNodeConf().mixRlnIdentifierHex.hexToSeqByte().len == 32
 
-  asyncTest "shared Mix refuses to start without Relay RLN":
-    let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: ModuleRlnProtection())
+  asyncTest "a relay node's Mix refuses to start without Relay RLN":
+    # Only the relay matters here, so the relay is never started.
+    let node = WakuNode(
+      ports: BoundPorts.init(),
+      wakuMixRln: ModuleRlnProtection(),
+      wakuRelay: WakuRelay(),
+    )
     let started = await node.startMixRln()
     check:
       started.isErr()
