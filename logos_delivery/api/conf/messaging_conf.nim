@@ -89,8 +89,12 @@ type MessagingClientConf* = object
     ## Content topic for mix's proof metadata, required with `mix-rln-registry-id`.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
+  mix* {.name: "mix".}: Opt[bool]
+    ## Mount mix. Unset, Core mode and an anonymity level above `None` mount
+    ## it. `false` turns it off, and with no level the level is then `None`.
   anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
     ## Sender anonymity level. A level above `None` mounts and uses mix.
+    ## Default `DefaultAnonymityLevel`, or `None` with `mix=false`.
   mixAllowAllAddresses* {.name: "mix-allow-all-addresses".}: Opt[bool]
     ## Let mix paths use a mix node at a private, a loopback or a circuit relay address. For a
     ## local simulation, a test or a private network.
@@ -196,6 +200,8 @@ proc toWakuNodeConf*(
     conf.kadServiceLookupIntervalSec = self.kadServiceLookupIntervalSec.get()
   if self.maxPureLibp2pPeers.isSome():
     conf.maxPureLibp2pPeers = self.maxPureLibp2pPeers
+  if self.mix.isSome():
+    conf.mix = self.mix
   if self.mixAllowAllAddresses.isSome():
     conf.mixAllowAllAddresses = self.mixAllowAllAddresses.get()
   if self.mixKeyRotation.isSome():

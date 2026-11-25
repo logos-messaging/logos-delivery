@@ -29,6 +29,7 @@ type ModeProtocolFlags* = object
   discv5Discovery*: Opt[bool]
   peerExchange*: Opt[bool]
   rendezvous*: Opt[bool]
+  mix*: Opt[bool]
 
 proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
   ## The single source of what each mode means.
@@ -40,6 +41,9 @@ proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
       lightpush: Opt.some(true),
       discv5Discovery: Opt.some(true),
       peerExchange: Opt.some(true),
+      # A Core node is a mix node, also when it runs the kernel alone and so
+      # never reads an anonymity level.
+      mix: Opt.some(true),
     )
   of LogosDeliveryMode.Edge:
     ModeProtocolFlags(
@@ -69,6 +73,7 @@ proc applyModeFlags*[T](conf: var T, flags: ModeProtocolFlags) =
   apply(conf.discv5Discovery, flags.discv5Discovery)
   apply(conf.peerExchange, flags.peerExchange)
   apply(conf.rendezvous, flags.rendezvous)
+  apply(conf.mix, flags.mix)
 
 proc applyMode*[T](conf: var T, mode: LogosDeliveryMode) =
   ## Applies the mode's protocol flags (`protocolFlags`) to any config that
@@ -85,3 +90,7 @@ type AnonymityLevel* {.pure.} = enum
     ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
     ## keep trying for a short grace (`MixUnusableGrace`), then fail.
     ## A message that does not fit in one Mix message fails at once.
+
+const DefaultAnonymityLevel* = AnonymityLevel.Preferred
+  ## The level of a node with the Messaging API that sets none, in both modes.
+  ## An explicit `mix=false` without a level means `None`.

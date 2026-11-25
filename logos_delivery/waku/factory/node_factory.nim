@@ -182,6 +182,8 @@ proc setupProtocols(
       node.wakuMixRln = ModuleRlnProtection.new(mixConf.mixRlnConfig.get(), rlnMixCall).valueOr:
         return err("failed to create Mix RLN adapter: " & error)
       protection = Opt.some(SpamProtection(node.wakuMixRln))
+    else:
+      warn "Mix runs without Mix RLN: no hop is rate limited. Set mix-rln-registry-id, or turn mix off with mix=false"
     (
       await node.mountMix(
         conf.clusterId,
