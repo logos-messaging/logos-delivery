@@ -31,6 +31,12 @@ type ModeProtocolFlags* = object
   rendezvous*: Opt[bool]
   mix*: Opt[bool]
 
+const CoreModeMix* = Opt.none(bool)
+  ## Whether Core mode turns Mix on by itself. Unset: Mix is off until a level
+  ## above `None`, a preset or `mix=true` turns it on. `Opt.some(true)` makes
+  ## every Core node a mix node, also at the kernel entry, which never reads an
+  ## anonymity level.
+
 proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
   ## The single source of what each mode means.
   case mode
@@ -41,9 +47,7 @@ proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
       lightpush: Opt.some(true),
       discv5Discovery: Opt.some(true),
       peerExchange: Opt.some(true),
-      # A Core node is a mix node, also when it runs the kernel alone and so
-      # never reads an anonymity level.
-      mix: Opt.some(true),
+      mix: CoreModeMix,
     )
   of LogosDeliveryMode.Edge:
     ModeProtocolFlags(
@@ -91,6 +95,11 @@ type AnonymityLevel* {.pure.} = enum
     ## keep trying for a short grace (`MixUnusableGrace`), then fail.
     ## A message that does not fit in one Mix message fails at once.
 
-const DefaultAnonymityLevel* = AnonymityLevel.Preferred
-  ## The level of a node with the Messaging API that sets none, in both modes.
-  ## An explicit `mix=false` without a level means `None`.
+const DefaultAnonymityLevel* = AnonymityLevel.None
+  ## The level of a node with the Messaging API that sets none and whose network
+  ## preset runs no Mix, in both modes. A level above `None` mounts Mix.
+
+const PresetMixAnonymityLevel* = AnonymityLevel.Preferred
+  ## The level of a node that sets none on a network preset that runs Mix
+  ## (`NetworkPresetConf.mix`, the `logos.dev` and `logos.test` presets).
+  ## An explicit `mix=false` without a level means `None` on any preset.

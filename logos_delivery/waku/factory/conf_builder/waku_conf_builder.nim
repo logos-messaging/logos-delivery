@@ -140,6 +140,7 @@ type WakuConfBuilder* = object
 
   staticNodes: seq[string]
   presetStoreNodes: seq[string]
+  presetMix: bool
   configuredStoreNodesOnly: Opt[bool]
 
   remoteStoreNode: Opt[string]
@@ -539,7 +540,9 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   )
 
   # Mounting and the ENR bit read `mixConf`, so the preset's `mix` value only
-  # feeds this `info` line. The user decides whether this node mounts mix.
+  # feeds this `info` line and `presetMix`. The Messaging API turns mix on for
+  # a preset that runs it (`presetAnonymityLevel`); the user's setting wins.
+  builder.presetMix = networkPresetConf.mix
   if builder.mix.isSome() and builder.mix.get() != networkPresetConf.mix:
     info "Mix setting differs from the network conf, the user's setting wins",
       used = builder.mix.get(), preset = networkPresetConf.mix
@@ -965,6 +968,7 @@ proc build*(
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
     presetStoreNodes: builder.presetStoreNodes,
+    presetMix: builder.presetMix,
     configuredStoreNodesOnly: builder.configuredStoreNodesOnly.get(false),
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,

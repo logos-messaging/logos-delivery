@@ -21,7 +21,7 @@ type MessagingNodeConf* = object
 
   anonymityLevel* {.
     desc:
-      "Sender anonymity level: None, Preferred or Required. A level above None mounts mix. Default is Preferred, or None with --mix=false.",
+      "Sender anonymity level: None, Preferred or Required. A level above None mounts mix. Default is Preferred on a preset that runs mix (logos.dev, logos.test), else None. None with --mix=false.",
     defaultValue: Opt.none(AnonymityLevel),
     name: "anonymity-level"
   .}: Opt[AnonymityLevel]

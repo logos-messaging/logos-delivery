@@ -174,6 +174,7 @@ type WakuConf* {.requiresInit.} = ref object
   staticNodes*: seq[string]
   presetStoreNodes*: seq[string]
     ## The multiaddrs of the store nodes of the network preset.
+  presetMix*: bool ## The network preset runs Mix (`NetworkPresetConf.mix`).
   configuredStoreNodesOnly*: bool
     ## Query only `presetStoreNodes` and `remoteStoreNode`, never discovered store peers.
   remoteStoreNode*: Opt[string]

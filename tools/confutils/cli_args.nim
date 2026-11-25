@@ -709,7 +709,7 @@ hence would have reachability issues.""",
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   mix* {.
     desc:
-      "Enable mix protocol: true|false. Default is true in Core mode and with an anonymity level above None, else " &
+      "Enable mix protocol: true|false. Default is true with an anonymity level above None (the default on the logos.dev and logos.test presets), else " &
       $DefaultMix & ".",
     defaultValue: Opt.none(bool),
     name: "mix"
