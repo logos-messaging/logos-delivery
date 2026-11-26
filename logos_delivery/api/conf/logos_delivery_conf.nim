@@ -45,6 +45,8 @@ proc init*(
     kernel.mixRlnMetadataTopic = messagingConf.mixRlnMetadataTopic.get()
   if messagingConf.mixAllowAllAddresses.isSome():
     kernel.mixAllowAllAddresses = messagingConf.mixAllowAllAddresses.get()
+  if messagingConf.mixKeyRotation.isSome():
+    kernel.mixKeyRotation = messagingConf.mixKeyRotation.get()
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernel),

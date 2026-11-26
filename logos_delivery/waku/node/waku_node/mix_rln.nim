@@ -120,8 +120,7 @@ proc refreshMixMembership*(node: WakuNode) {.async: (raises: [CancelledError]).}
   MixMembershipChangedEvent.emit(
     node.brokerCtx, MixMembershipChangedEvent(usable: usable)
   )
-  if not node.onMixMembershipChanged.isNil():
-    await node.onMixMembershipChanged()
+  node.readvertise()
 
 proc watchMixMembership(node: WakuNode) {.async: (raises: [CancelledError]).} =
   while true:
@@ -134,9 +133,6 @@ proc stopMixRln*(node: WakuNode) {.async: (raises: []).} =
   if not node.mixMembershipLoop.isNil():
     await node.mixMembershipLoop.cancelAndWait()
     node.mixMembershipLoop = nil
-  # A restart reinstalls it after the shard subscriptions. Until then a change
-  # must not advertise on backends that are not started.
-  node.onMixMembershipChanged = nil
   if node.wakuMixRlnListener.isSome():
     await MessageSeenEvent.dropListener(node.brokerCtx, node.wakuMixRlnListener.get())
   node.wakuMixRlnListener = Opt.none(MessageSeenEventListener)

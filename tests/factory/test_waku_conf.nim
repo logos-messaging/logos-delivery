@@ -561,6 +561,18 @@ suite "Waku Conf - mix nodes from a network preset":
     check conf.mixConf.get().mixnodes.len ==
       NetworkPresetConf.LogosDevConf().mixnodes.len
 
+  test "with mix key rotation a preset's mix nodes stay out of the built conf":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.mixConf.withEnabled(true)
+    builder.mixConf.withKeyRotation(true)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+
+    check conf.mixConf.get().mixnodes.len == 0
+
   test "mix nodes given by the user are kept alongside the preset's":
     let extra = MixNodePubInfo(
       multiAddr:

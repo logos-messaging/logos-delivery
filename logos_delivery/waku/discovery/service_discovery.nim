@@ -126,8 +126,17 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     ## ours here, so identity and key are read from it directly.
     let serviceId = ?serviceIdOf(key)
     let peerInfo = self.inner.protocol.switch.peerInfo
-    let record =
-      ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data, secondary)
+    let record = signedServiceRecord(
+      peerInfo, peerInfo.privateKey, serviceId, data, secondary
+    ).valueOr:
+      # The record that is advertised is outdated, so it stops even though the
+      # new one cannot be signed.
+      let signError = error
+      let removed = catch:
+        await self.inner.removeServiceToAdvertise(serviceId)
+      removed.isOkOr:
+        return err("service backend: stop advertising failed: " & error.msg)
+      return err(signError)
     let res = catch:
       await self.inner.replaceServiceToAdvertise(
         ServiceInfo(id: serviceId, data: Opt.some(data)), record

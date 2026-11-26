@@ -5,7 +5,9 @@ import testutils/unittests, chronos, results
 import libp2p/extended_peer_record
 import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/protocols/kademlia/types
+import libp2p_mix, libp2p_mix/curve25519
 import
+  logos_delivery/waku/[waku_core, waku_mix],
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/discovery/[waku_kademlia, service_discovery],
   ../testlib/[wakucore, wakunode, testasync]
@@ -124,4 +126,25 @@ suite "Waku Kademlia node advertising":
     check node.isAdvertised(service)
     checkUntilTimeout:
       service in node.publishedServices()
+    await node.stop()
+
+  asyncTest "an advert that cannot be signed still stops the one with other data":
+    ## The record carries the node's addresses, so without any it cannot be signed.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    await node.start()
+    let backend = node.discoveries[0]
+    let key = ServiceKeyPrefix & "/test/other/1.0.0"
+    let first = ServiceInfo(id: "/test/other/1.0.0", data: Opt.some(@[1'u8]))
+    check:
+      (await backend.startAdvertising(key, @[1'u8], @[])).isOk()
+      node.isAdvertised(first)
+
+    let addrs = node.switch.peerInfo.addrs
+    node.switch.peerInfo.addrs = @[]
+    let res = await backend.startAdvertising(key, @[2'u8], @[])
+    node.switch.peerInfo.addrs = addrs
+    check:
+      res.isErr()
+      not node.isAdvertised(first)
     await node.stop()
