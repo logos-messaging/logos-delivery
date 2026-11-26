@@ -209,7 +209,7 @@ proc toWakuNodeConf*(
   if self.mixAllowAllAddresses.isSome():
     conf.mixAllowAllAddresses = self.mixAllowAllAddresses.get()
   if self.mixKeyRotation.isSome():
-    conf.mixKeyRotation = self.mixKeyRotation.get()
+    conf.mixKeyRotation = self.mixKeyRotation
   if self.ethRpcEndpoints.isSome():
     conf.ethClientUrls = self.ethRpcEndpoints.get()
   if self.rlnContractAddress.isSome():
@@ -228,7 +228,7 @@ proc toWakuNodeConf*(
   if self.rlnRelayCredIndex.isSome():
     conf.rlnRelayCredIndex = self.rlnRelayCredIndex
   if self.rlnDisableValidation.isSome():
-    conf.rlnDisableValidation = self.rlnDisableValidation.get()
+    conf.rlnDisableValidation = self.rlnDisableValidation
   if self.mixKey.isSome():
     conf.mixkey = self.mixKey
   if self.mixNodes.isSome():

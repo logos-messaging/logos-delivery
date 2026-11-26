@@ -29,9 +29,15 @@ type NetworkPresetConf* = object
   rlnRelayDynamic*: bool
   rlnEpochSizeSec*: uint64
   rlnRelayUserMessageLimit*: uint64
+  rlnDisableValidation*: bool
+    ## Received messages pass unchecked, while published ones still carry
+    ## proofs. A node that sets `rln-disable-validation` decides for itself.
   shardingConf*: ShardingConf
   discv5Discovery*: bool
   discv5BootstrapNodes*: seq[string]
+  rendezvous*: Opt[bool]
+    ## Unset leaves the builder's rule: on for a relay node without service
+    ## discovery.
   enableKadDiscovery*: bool
   kadBootstrapNodes*: seq[string]
   entryNodes*: seq[string]
@@ -40,6 +46,9 @@ type NetworkPresetConf* = object
     ## Mix bootstrap nodes as `multiaddr:mixPublicKey`, the `--mixnode` form. The
     ## addresses are `dns4` names, which stay valid when a fleet node moves hosts;
     ## the node resolves them in the background after the mount.
+  mixKeyRotation*: bool
+    ## Rotate the mix key. Every node of the network must do the same, so a node
+    ## then takes mix keys from discovery only and ignores `mixnodes`.
   p2pReliability*: bool
   extraListenShards*: seq[uint16]
     ## Shards every subscribed content topic is also received on. Deprecated:
@@ -106,15 +115,20 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
   return NetworkPresetConf(
     maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 3,
-    rlnRelay: false,
+    # Relay RLN runs on the plugin a host installs (the delivery module's), so
+    # there is no contract address: a relaying node without a plugin turns it
+    # off with rln-relay=false. Received proofs are not checked yet.
+    rlnRelay: true,
     rlnRelayEthContractAddress: "",
     rlnRelayDynamic: false,
     rlnRelayChainId: ZeroChainId,
-    rlnEpochSizeSec: 0,
-    rlnRelayUserMessageLimit: 0,
+    rlnEpochSizeSec: 600,
+    rlnRelayUserMessageLimit: 600,
+    rlnDisableValidation: true,
     shardingConf: ShardingConf.autoSharding(numShards = 8),
     enableKadDiscovery: true,
     mix: true,
+    mixKeyRotation: true,
     mixnodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby:c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH:9d92279057940efd2e5e98c8922c079c24e45c083b00360c8dc6a298b1661716",
@@ -132,8 +146,10 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmGBJ6wbRC2QGJreX3bA25g5yhMFajNVVKM9483CgcPkSu",
     ],
     p2pReliability: true,
-    discv5Discovery: true,
+    discv5Discovery: false,
     discv5BootstrapNodes: @[],
+    # Service discovery carries mix keys; Rendezvous would be a second source.
+    rendezvous: Opt.some(false),
     entryNodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",

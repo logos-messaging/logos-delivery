@@ -58,7 +58,7 @@ proc init*(
   if messagingConf.mixAllowAllAddresses.isSome():
     kernel.mixAllowAllAddresses = messagingConf.mixAllowAllAddresses.get()
   if messagingConf.mixKeyRotation.isSome():
-    kernel.mixKeyRotation = messagingConf.mixKeyRotation.get()
+    kernel.mixKeyRotation = messagingConf.mixKeyRotation
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernel),
