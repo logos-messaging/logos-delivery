@@ -2142,6 +2142,33 @@ suite "Peer Manager - relay limit":
 
     await allFutures((@[node] & peers).mapIt(it.stop()))
 
+  asyncTest "a full node admits a new relay peer and the next pass prunes back to the inbound target":
+    # maxConnections 16 gives a relay peer limit of 8: 6 inbound and 2 outbound
+    let node = (await newRelayNodes(1, maxConnections = 16))[0]
+    let peers = await newRelayNodes(9)
+    node.peerManager.evictionGrace = ZeroDuration
+
+    await node.connectAllTo(peers[0 ..< 6])
+    await node.peerManager.connectToNodes(
+      peers[6 ..< 8].mapIt(it.peerInfo.toRemotePeerInfo())
+    )
+    checkUntilTimeout:
+      node.peerManager.connectedPeers(WakuRelayCodec)[0].len == 6
+      node.peerManager.connectedPeers(WakuRelayCodec)[1].len == 2
+
+    # Relay admits 1 peer above a limit of 8
+    await node.connectAllTo(@[peers[8]])
+    checkUntilTimeout:
+      node.inRelayPeers() == 7
+
+    await node.peerManager.connectToRelayPeers()
+
+    checkUntilTimeout:
+      node.inRelayPeers() == 6
+    check node.peerManager.connectedPeers(WakuRelayCodec)[1].len == 2
+
+    await allFutures((@[node] & peers).mapIt(it.stop()))
+
   asyncTest "a sharded node at its relay peer limit dials a relay peer into the slot that pruning frees":
     let node = (await newRelayNodes(1, maxConnections = 16, sharded = true))[0]
     let peers = await newRelayNodes(9, sharded = true)

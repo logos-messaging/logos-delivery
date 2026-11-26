@@ -487,13 +487,13 @@ procSuite "WakuNode - Store":
     # Cleanup
     await allFutures(nodes.mapIt(it.stop()))
 
-  asyncTest "a node at its relay peer limit refuses a new relay peer, keeps the connection and answers its store query":
+  asyncTest "a node with a full relay headroom refuses a new relay peer, keeps the connection and answers its store query":
     ## Setup
-    # maxConnections 16 gives a relay peer limit of 8
+    # maxConnections 16 gives a relay peer limit of 8, and relay admits 1 peer above it
     let
       server = newTestWakuNode(generateSecp256k1Key(), maxConnections = 16)
       client = newTestWakuNode(generateSecp256k1Key())
-      others = toSeq(0 ..< 8).mapIt(newTestWakuNode(generateSecp256k1Key()))
+      others = toSeq(0 ..< 9).mapIt(newTestWakuNode(generateSecp256k1Key()))
       nodes = @[server, client] & others
 
     await allFutures(nodes.mapIt(it.start()))
@@ -511,11 +511,11 @@ procSuite "WakuNode - Store":
     let serverPeer = server.peerInfo.toRemotePeerInfo()
     let clientId = client.peerInfo.peerId
 
-    ## Given the server is at its relay peer limit
+    ## Given the server admits no more relay peers
     for other in others:
       require await other.peerManager.connectPeer(serverPeer)
     checkUntilTimeout:
-      server.peerManager.connectedPeers(WakuRelayCodec)[0].len == 8
+      server.peerManager.connectedPeers(WakuRelayCodec)[0].len == 9
 
     ## When a relay node queries the server's store
     let req =

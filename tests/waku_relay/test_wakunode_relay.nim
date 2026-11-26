@@ -960,11 +960,11 @@ suite "WakuNode - Relay":
     await allFutures(server.stop(), dialer.stop())
 
   asyncTest "A refused relay peer becomes a relay peer once a slot frees":
-    # maxConnections 16 gives a relay peer limit of 8
+    # maxConnections 16 gives a relay peer limit of 8, and relay admits 1 peer above it
     let
       server = newTestWakuNode(generateSecp256k1Key(), maxConnections = 16)
       client = newTestWakuNode(generateSecp256k1Key())
-      others = toSeq(0 ..< 8).mapIt(newTestWakuNode(generateSecp256k1Key()))
+      others = toSeq(0 ..< 9).mapIt(newTestWakuNode(generateSecp256k1Key()))
       nodes = @[server, client] & others
 
     await allFutures(nodes.mapIt(it.start()))
@@ -980,11 +980,11 @@ suite "WakuNode - Relay":
       let (inPeers, outPeers) = server.peerManager.connectedPeers(WakuRelayCodec)
       inPeers & outPeers
 
-    # The server is at its relay peer limit and it refuses the client
+    # The server admits no more relay peers and it refuses the client
     for other in others:
       require await other.peerManager.connectPeer(serverPeer)
     checkUntilTimeout:
-      relayPeers().len == 8
+      relayPeers().len == 9
     require await client.peerManager.connectPeer(serverPeer)
     await sleepAsync(300.milliseconds)
     check clientId notin relayPeers()

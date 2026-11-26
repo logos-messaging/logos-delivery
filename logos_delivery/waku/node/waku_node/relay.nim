@@ -189,8 +189,12 @@ proc mountRelay*(
   ## The default relay topics is the union of all configured topics plus default PubsubTopic(s)
   info "mounting relay protocol"
 
+  # Relay admits a tenth more peers than the relay peer limit, at least 1. A full node
+  # then still takes a new relay peer, and its next pruning pass evicts an older one.
+  let maxRelayPeers = node.peerManager.maxRelayPeers
+  let headroom = max(1, maxRelayPeers div 10)
   node.wakuRelay = WakuRelay.new(
-    node.switch, maxMessageSize, Opt.some(node.peerManager.maxRelayPeers)
+    node.switch, maxMessageSize, Opt.some(maxRelayPeers + headroom)
   ).valueOr:
     error "failed mounting relay protocol", error = error
     return err("failed mounting relay protocol: " & error)
