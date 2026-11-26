@@ -12,6 +12,7 @@ import
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
+  logos_delivery/waku/factory/preset_registry,
   logos_delivery/waku/rln/rln_lez/transport,
   rest/rest_service,
   ../declare_lib,
@@ -210,6 +211,16 @@ proc logosdelivery_create_node(
     return err(error)
 
   return ok(lib)
+
+proc logosdelivery_add_preset(
+    name: string, presetJson: string
+): Future[Result[string, string]] {.ffi.} =
+  ## Adds the network preset `name`, or replaces it, for the nodes created
+  ## afterwards. Needs no node context. `presetJson` is a JSON object of preset
+  ## fields that may name a `base` preset; see `registerPreset`.
+  registerPreset(name, presetJson).isOkOr:
+    return err("add_preset failed: " & error)
+  return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   # The REST stop runs inside `stop`, after the state is `Stopping`, so that a

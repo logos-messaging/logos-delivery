@@ -25,7 +25,8 @@ import
   logos_delivery/api/conf/modes,
   logos_delivery/api/conf/messaging_node_conf,
   logos_delivery/waku/net/nat_strategy,
-  logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
+  logos_delivery/waku/factory/
+    [waku_conf, conf_builder/conf_builder, networks_config, preset_registry],
   logos_delivery/waku/factory/conf_builder/rest_server_conf_builder,
   logos_delivery/waku/common/[logging],
   logos_delivery/waku/[
@@ -1156,21 +1157,7 @@ proc toNetworkPresetConf*(
     )
     lcPreset = "twn"
 
-  case lcPreset
-  of "":
-    ok(Opt.none(NetworkPresetConf))
-  of "twn":
-    ok(Opt.some(NetworkPresetConf.TheWakuNetworkConf()))
-  of "logos.dev", "logosdev":
-    ok(Opt.some(NetworkPresetConf.LogosDevConf()))
-  of "logos.test", "logostest":
-    ok(Opt.some(NetworkPresetConf.LogosTestConf()))
-  of "status.prod", "statusprod":
-    ok(Opt.some(NetworkPresetConf.StatusProdConf()))
-  of "status.staging", "statusstaging":
-    ok(Opt.some(NetworkPresetConf.StatusStagingConf()))
-  else:
-    err("Invalid --preset value passed: " & lcPreset)
+  return lookupPreset(lcPreset)
 
 func ignoredFlagWarnings*(
     n: WakuNodeConf, defaults: WakuNodeConf, conf: WakuConf
