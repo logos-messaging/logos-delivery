@@ -2046,7 +2046,7 @@ suite "Peer Manager - relay limit":
 
     await allFutures(nodes.mapIt(it.stop()))
 
-  asyncTest "hasServiceStream() is true only while a non-relay stream is open":
+  asyncTest "hasStreamBesides() is true only while a stream of another protocol is open":
     let nodes = await newRelayNodes(2)
     await allFutures(nodes.mapIt(it.mountFilter()))
     let (client, server) = (nodes[0], nodes[1])
@@ -2054,7 +2054,7 @@ suite "Peer Manager - relay limit":
     await server.connectAllTo(@[client])
     checkUntilTimeout:
       server.inRelayPeers() == 1
-      not server.peerManager.hasServiceStream(client.peerInfo.peerId)
+      not server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
 
     let stream = (
       await client.peerManager.dialPeer(
@@ -2068,12 +2068,12 @@ suite "Peer Manager - relay limit":
     discard
       await stream.readOnce(addr buf[0], buf.len).withTimeout(chronos.milliseconds(200))
     checkUntilTimeout:
-      server.peerManager.hasServiceStream(client.peerInfo.peerId)
-      client.peerManager.hasServiceStream(server.peerInfo.peerId)
+      server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
+      client.peerManager.hasStreamBesides(server.peerInfo.peerId, WakuRelayCodec)
 
     await stream.close()
     checkUntilTimeout:
-      not server.peerManager.hasServiceStream(client.peerInfo.peerId)
+      not server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
 
     await allFutures(nodes.mapIt(it.stop()))
 
@@ -2082,7 +2082,7 @@ suite "Peer Manager - relay limit":
     let node = (await newRelayNodes(1, maxConnections = 16))[0]
     await node.mountFilter()
     let peers = await newRelayNodes(8)
-    node.peerManager.relayEvictionGrace = ZeroDuration
+    node.peerManager.evictionGrace = ZeroDuration
 
     await node.connectAllTo(peers)
     let stream = (
@@ -2093,7 +2093,7 @@ suite "Peer Manager - relay limit":
       raiseAssert "failed to open a filter stream"
     checkUntilTimeout:
       node.inRelayPeers() == 8
-      node.peerManager.hasServiceStream(peers[0].peerInfo.peerId)
+      node.peerManager.hasStreamBesides(peers[0].peerInfo.peerId, WakuRelayCodec)
 
     await node.peerManager.connectToRelayPeers()
 
@@ -2107,7 +2107,7 @@ suite "Peer Manager - relay limit":
   asyncTest "a node at its relay peer limit dials no relay peer":
     let node = (await newRelayNodes(1, maxConnections = 16))[0]
     let peers = await newRelayNodes(9)
-    node.peerManager.relayEvictionGrace = chronos.hours(1)
+    node.peerManager.evictionGrace = chronos.hours(1)
 
     await node.connectAllTo(peers[0 ..< 8])
     checkUntilTimeout:
@@ -2127,7 +2127,7 @@ suite "Peer Manager - relay limit":
   asyncTest "a node at its relay peer limit dials a relay peer into the slot that pruning frees":
     let node = (await newRelayNodes(1, maxConnections = 16))[0]
     let peers = await newRelayNodes(9)
-    node.peerManager.relayEvictionGrace = ZeroDuration
+    node.peerManager.evictionGrace = ZeroDuration
 
     await node.connectAllTo(peers[0 ..< 8])
     checkUntilTimeout:
@@ -2145,7 +2145,7 @@ suite "Peer Manager - relay limit":
   asyncTest "a sharded node at its relay peer limit dials a relay peer into the slot that pruning frees":
     let node = (await newRelayNodes(1, maxConnections = 16, sharded = true))[0]
     let peers = await newRelayNodes(9, sharded = true)
-    node.peerManager.relayEvictionGrace = ZeroDuration
+    node.peerManager.evictionGrace = ZeroDuration
 
     # Sharded peer management covers the shards that relay is subscribed to
     proc noHandler(
@@ -2172,11 +2172,11 @@ suite "Peer Manager - relay limit":
 
     await allFutures((@[node] & peers).mapIt(it.stop()))
 
-  asyncTest "pruneIdleRelayConns() closes a relay peer with no stream and keeps one with a service stream":
+  asyncTest "pruneIdleConns() closes a relay peer with no stream and keeps one with a service stream":
     let node = (await newRelayNodes(1))[0]
     await node.mountFilter()
     let peer = (await newRelayNodes(1))[0]
-    node.peerManager.idleRelayConnTimeout = ZeroDuration
+    node.peerManager.idleConnTimeout = ZeroDuration
 
     await node.connectAllTo(@[peer])
     let idle = await node.newRelayLessPeer()
@@ -2186,12 +2186,12 @@ suite "Peer Manager - relay limit":
     )
     checkUntilTimeout:
       node.inRelayPeers() == 1
-      node.peerManager.hasServiceStream(busy.peerInfo.peerId)
+      node.peerManager.hasStreamBesides(busy.peerInfo.peerId, WakuRelayCodec)
       @[idle.peerInfo.peerId, busy.peerInfo.peerId].allIt(
         node.peerManager.connectedSince(it).isSome()
       )
 
-    await node.peerManager.pruneIdleRelayConns()
+    await node.peerManager.pruneIdleConns(WakuRelayCodec)
 
     checkUntilTimeout:
       not node.switch.isConnected(idle.peerInfo.peerId)
