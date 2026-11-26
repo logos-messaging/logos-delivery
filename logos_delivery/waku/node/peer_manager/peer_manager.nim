@@ -247,6 +247,43 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
+proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
+  # Returns if we can try to connect to this peer, based on past failed attempts
+  # It uses an exponential backoff. Each connection attempt makes us
+  # wait more before trying again.
+  let peerStore = pm.switch.peerStore
+  let failedAttempts = peerStore[NumberFailedConnBook][peerId]
+
+  # if it never errored, we can try to connect
+  if failedAttempts == 0:
+    return true
+
+  # if there are too many failed attempts, do not reconnect
+  if failedAttempts >= pm.maxFailedAttempts:
+    return false
+
+  # If it errored we wait an exponential backoff from last connection
+  # the more failed attempts, the greater the backoff since last attempt
+  let now = Moment.init(getTime().toUnix, Second)
+  let lastFailed = peerStore[LastFailedConnBook][peerId]
+  let backoff =
+    calculateBackoff(pm.initialBackoffInSec, pm.backoffFactor, failedAttempts)
+
+  return now >= (lastFailed + backoff)
+
+type PeerSelectionRank {.pure.} = enum
+  ## `selectPeers` returns the peers in this order, the most likely to serve first.
+  Connected
+  Dialable ## no connection, and `canBeConnected`
+  InBackoff ## no connection, and not `canBeConnected`
+
+proc selectionRank(pm: PeerManager, peerId: PeerId): PeerSelectionRank =
+  if pm.switch.isConnected(peerId):
+    return PeerSelectionRank.Connected
+  if pm.canBeConnected(peerId):
+    return PeerSelectionRank.Dialable
+  return PeerSelectionRank.InBackoff
+
 proc candidatePeers*(pm: PeerManager, proto: string): seq[RemotePeerInfo] =
   ## Copies of the exclusive peers of `proto` when set, otherwise the peer
   ## store's peers that support it. Unordered and not filtered by shard.
@@ -258,7 +295,8 @@ proc selectPeers*(
     pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
-  ## shuffled randomly. Callers can further filter or pick from this list.
+  ## ordered by `PeerSelectionRank` and shuffled randomly in each rank. Callers
+  ## can further filter or pick from this list.
   var peers = pm.candidatePeers(proto)
   trace "Selecting peers from peerstore",
     protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
@@ -271,7 +309,13 @@ proc selectPeers*(
     peers.keepItIf(it.supportsShard(shardInfo.clusterId, shardInfo.shardId))
 
   shuffle(peers)
-  return peers
+  var byRank: array[PeerSelectionRank, seq[RemotePeerInfo]]
+  for peer in peers:
+    byRank[pm.selectionRank(peer.peerId)].add(peer)
+  var ranked = newSeqOfCap[RemotePeerInfo](peers.len)
+  for rankPeers in byRank:
+    ranked.add(rankPeers)
+  return ranked
 
 proc slotPeer*(pm: PeerManager, proto: string): Opt[RemotePeerInfo] =
   ## The peer in the service slot of `proto`, if any. Relay has no service slot.
@@ -352,6 +396,25 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 # require pre-connection
 proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.}
 
+proc recordFailedDial(pm: PeerManager, peerId: PeerId) =
+  let peerStore = pm.switch.peerStore
+  peerStore[NumberFailedConnBook][peerId] = peerStore[NumberFailedConnBook][peerId] + 1
+  peerStore[LastFailedConnBook][peerId] = Moment.init(getTime().toUnix, Second)
+  peerStore[ConnectionBook][peerId] = CannotConnect
+
+proc recordFailedStreamDial(pm: PeerManager, peerId: PeerId) =
+  ## Records a failed `dialPeer` when it shows that the node cannot connect to `peerId`.
+  # The peer refused the protocol.
+  if pm.switch.isConnected(peerId):
+    return
+  # The peer store keeps no state of a peer that it does not have.
+  if not pm.switch.peerStore.peerExists(peerId):
+    return
+  # Dials of one peer at the same time count as one failed dial.
+  if not pm.canBeConnected(peerId):
+    return
+  pm.recordFailedDial(peerId)
+
 # Connects to a given node. Note that this function uses `connect` and
 # does not provide a protocol. Streams for relay (gossipsub) are created
 # automatically without the needing to dial.
@@ -418,9 +481,7 @@ proc connectPeer*(
     peerStore[ConnectionBook][peerId] = Connected
     return true
 
-  peerStore[NumberFailedConnBook][peerId] = peerStore[NumberFailedConnBook][peerId] + 1
-  peerStore[LastFailedConnBook][peerId] = Moment.init(getTime().toUnix, Second)
-  peerStore[ConnectionBook][peerId] = CannotConnect
+  pm.recordFailedDial(peerId)
 
   trace "Connecting peer failed",
     peerId = peerId,
@@ -496,12 +557,18 @@ proc dialPeer(
 
   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
 
+  # A stream on an open connection is not a dial, so it clears no failed dial.
+  let wasConnected = pm.switch.isConnected(peerId)
+
   # Dial Peer
   let dialFut = pm.switch.dial(peerId, addrs, proto)
 
   let res = catch:
     if await dialFut.withTimeout(dialTimeout):
-      return Opt.some(dialFut.read())
+      let conn = dialFut.read()
+      if not wasConnected:
+        pm.switch.peerStore[NumberFailedConnBook][peerId] = 0
+      return Opt.some(conn)
     else:
       await cancelAndWait(dialFut)
 
@@ -511,6 +578,8 @@ proc dialPeer(
   let reasonFailed = if res.isOk: "timed out" else: res.error.msg
 
   trace "Dialing peer failed", peerId = peerId, reason = reasonFailed, proto = proto
+
+  pm.recordFailedStreamDial(peerId)
 
   return Opt.none(Connection)
 
@@ -547,30 +616,6 @@ proc dialPeer*(
 
   let addrs = pm.switch.peerStore[AddressBook][peerId]
   return await pm.dialPeer(peerId, addrs, proto, dialTimeout, source)
-
-proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
-  # Returns if we can try to connect to this peer, based on past failed attempts
-  # It uses an exponential backoff. Each connection attempt makes us
-  # wait more before trying again.
-  let peerStore = pm.switch.peerStore
-  let failedAttempts = peerStore[NumberFailedConnBook][peerId]
-
-  # if it never errored, we can try to connect
-  if failedAttempts == 0:
-    return true
-
-  # if there are too many failed attempts, do not reconnect
-  if failedAttempts >= pm.maxFailedAttempts:
-    return false
-
-  # If it errored we wait an exponential backoff from last connection
-  # the more failed attempts, the greater the backoff since last attempt
-  let now = Moment.init(getTime().toUnix, Second)
-  let lastFailed = peerStore[LastFailedConnBook][peerId]
-  let backoff =
-    calculateBackoff(pm.initialBackoffInSec, pm.backoffFactor, failedAttempts)
-
-  return now >= (lastFailed + backoff)
 
 proc connectedPeers*(
     pm: PeerManager, protocol: string = ""

@@ -1974,3 +1974,196 @@ procSuite "Peer Manager":
       selectedPeer1.get().peerId == peerInfo.peerId
 
     await allFutures(node.stop(), peer.stop())
+
+suite "Peer Manager - failed dials and selection order":
+  var
+    node {.threadvar.}: WakuNode
+    server {.threadvar.}: WakuNode ## serves the filter protocol
+    silent {.threadvar.}: StreamServer ## accepts TCP and never answers
+    held {.threadvar.}: seq[StreamTransport]
+
+  proc hold(listener: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+    held.add(client)
+
+  proc unreachablePeer(protocols: seq[string] = @[]): RemotePeerInfo =
+    ## A new peer on an address that refuses a connection.
+    return RemotePeerInfo.init(
+      PeerId.init(generateSecp256k1Key()).tryGet(),
+      @[MultiAddress.init("/ip4/127.0.0.1/tcp/1").tryGet()],
+      protocols = protocols,
+    )
+
+  proc silentPeer(): RemotePeerInfo =
+    ## A new peer on the address of `silent`.
+    return RemotePeerInfo.init(
+      PeerId.init(generateSecp256k1Key()).tryGet(),
+      @[MultiAddress.init("/ip4/127.0.0.1/tcp/" & $silent.localAddress().port).tryGet()],
+    )
+
+  proc failedDials(peerId: PeerId): int =
+    return node.peerManager.switch.peerStore[NumberFailedConnBook][peerId]
+
+  asyncSetup:
+    let loopback = parseIpAddress("127.0.0.1")
+    node = newTestWakuNode(generateSecp256k1Key(), loopback, quicEnabled = false)
+    server = newTestWakuNode(generateSecp256k1Key(), loopback, quicEnabled = false)
+    await allFutures(node.start(), server.start())
+    await server.mountFilter()
+    held = @[]
+    silent = createStreamServer(initTAddress("127.0.0.1:0"), hold, {ReuseAddr})
+    silent.start()
+
+  asyncTeardown:
+    for client in held:
+      await client.closeWait()
+    silent.stop()
+    await silent.closeWait()
+    await allFutures(node.stop(), server.stop())
+
+  asyncTest "selectPeers() returns connected peers first":
+    ## A send must not use its time on a dial while the node has a connected peer.
+    let pm = node.peerManager
+    for _ in 0 ..< 9:
+      pm.addPeer(unreachablePeer(@[WakuFilterSubscribeCodec]))
+    let connected = server.peerInfo.toRemotePeerInfo()
+    connected.protocols = @[WakuFilterSubscribeCodec]
+    let isConnected = await pm.connectPeer(connected)
+    check isConnected
+
+    # The order in a rank is random, so one selection shows nothing.
+    for _ in 0 ..< 20:
+      let selected = pm.selectPeers(WakuFilterSubscribeCodec).mapIt(it.peerId)
+      check selected.len == 10 and selected[0] == connected.peerId
+
+  asyncTest "selectPeers() returns a connected peer in dial backoff first":
+    ## A peer behind a NAT fails each dial and then connects in, and it can serve.
+    let pm = node.peerManager
+    let peerId = server.peerInfo.peerId
+    let closedPort = RemotePeerInfo.init(
+      peerId, unreachablePeer().addrs, protocols = @[WakuFilterSubscribeCodec]
+    )
+    let failed = await pm.dialPeer(closedPort, WakuFilterSubscribeCodec)
+    let connectedIn =
+      await server.peerManager.connectPeer(node.peerInfo.toRemotePeerInfo())
+    check:
+      failed.isNone()
+      connectedIn
+    checkUntilTimeout:
+      node.switch.isConnected(peerId)
+    for _ in 0 ..< 3:
+      pm.addPeer(unreachablePeer(@[WakuFilterSubscribeCodec]))
+
+    check not pm.canBeConnected(peerId)
+    # The order in a rank is random, so one selection shows nothing.
+    for _ in 0 ..< 20:
+      let selected = pm.selectPeers(WakuFilterSubscribeCodec).mapIt(it.peerId)
+      check selected.len == 4 and selected[0] == peerId
+
+  asyncTest "selectPeers() returns peers in dial backoff last":
+    ## The peer whose dial failed is the one that most likely fails the next dial.
+    let pm = node.peerManager
+    let failed = unreachablePeer(@[WakuLightPushCodec])
+    pm.addPeer(failed)
+    for _ in 0 ..< 3:
+      pm.addPeer(unreachablePeer(@[WakuLightPushCodec]))
+    let conn = await pm.dialPeer(failed, WakuLightPushCodec)
+    check conn.isNone()
+
+    # The order in a rank is random, so one selection shows nothing.
+    for _ in 0 ..< 20:
+      let selected = pm.selectPeers(WakuLightPushCodec).mapIt(it.peerId)
+      check selected.len == 4 and selected[^1] == failed.peerId
+
+  asyncTest "dialPeer() counts one failed dial per backoff":
+    ## A count for each parallel dial takes a peer to `maxFailedAttempts` in one burst.
+    let pm = node.peerManager
+    let peer = unreachablePeer()
+
+    await allFutures(toSeq(0 ..< 4).mapIt(pm.dialPeer(peer, WakuStoreCodec)))
+    check:
+      failedDials(peer.peerId) == 1
+      pm.switch.peerStore[ConnectionBook][peer.peerId] == CannotConnect
+      not pm.canBeConnected(peer.peerId)
+
+    # The backoff of the peer is over.
+    pm.switch.peerStore[LastFailedConnBook][peer.peerId] =
+      Moment.init(getTime().toUnix - pm.initialBackoffInSec, Second)
+    let conn = await pm.dialPeer(peer, WakuStoreCodec)
+    check:
+      conn.isNone()
+      failedDials(peer.peerId) == 2
+
+  asyncTest "dialPeer() counts a dial that times out":
+    ## A dial with no answer is the dial that costs a send the most time.
+    let peer = silentPeer()
+    let conn = await node.peerManager.dialPeer(
+      peer, WakuStoreCodec, dialTimeout = chronos.milliseconds(100)
+    )
+    check:
+      conn.isNone()
+      failedDials(peer.peerId) == 1
+
+  asyncTest "dialPeer() counts no failed dial when cancelled":
+    ## A send that gives up cancels its dial, and that says nothing about the peer.
+    let peer = silentPeer()
+    let dial = node.peerManager.dialPeer(peer, WakuStoreCodec)
+    checkUntilTimeout:
+      held.len == 1
+
+    await dial.cancelAndWait()
+    check:
+      dial.cancelled()
+      failedDials(peer.peerId) == 0
+
+  asyncTest "dialPeer() counts no failed dial when the peer refuses the protocol":
+    ## The node can connect to this peer, and a backoff would say that it cannot.
+    let peer = server.peerInfo.toRemotePeerInfo()
+    let conn = await node.peerManager.dialPeer(peer, WakuStoreCodec)
+    check:
+      conn.isNone()
+      node.switch.isConnected(peer.peerId)
+      failedDials(peer.peerId) == 0
+
+  asyncTest "dialPeer() counts no failed dial for a peer outside the peer store":
+    ## A failed dial must not put a peer that left the peer store back in its books.
+    let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let conn = await node.peerManager.dialPeer(peerId, WakuStoreCodec)
+    check:
+      conn.isNone()
+      not node.peerManager.switch.peerStore[NumberFailedConnBook].contains(peerId)
+
+  asyncTest "dialPeer() clears failed dials when it connects":
+    ## An edge dials its service peers only here, so nothing else clears their count.
+    let pm = node.peerManager
+    let peer = server.peerInfo.toRemotePeerInfo()
+    let closedPort = RemotePeerInfo.init(peer.peerId, unreachablePeer().addrs)
+    let failed = await pm.dialPeer(closedPort, WakuFilterSubscribeCodec)
+    check:
+      failed.isNone()
+      failedDials(peer.peerId) == 1
+
+    let conn = await pm.dialPeer(peer, WakuFilterSubscribeCodec)
+    check:
+      conn.isSome()
+      failedDials(peer.peerId) == 0
+
+  asyncTest "dialPeer() on an open connection keeps failed dials":
+    ## A stream to a peer that connected in does not show that the node can dial it.
+    let pm = node.peerManager
+    let peerId = server.peerInfo.peerId
+    let closedPort = RemotePeerInfo.init(peerId, unreachablePeer().addrs)
+    let failed = await pm.dialPeer(closedPort, WakuFilterSubscribeCodec)
+    check:
+      failed.isNone()
+      failedDials(peerId) == 1
+
+    let connectedIn =
+      await server.peerManager.connectPeer(node.peerInfo.toRemotePeerInfo())
+    check connectedIn
+    checkUntilTimeout:
+      node.switch.isConnected(peerId)
+
+    let conn = await pm.dialPeer(peerId, WakuFilterSubscribeCodec)
+    check:
+      conn.isSome()
+      failedDials(peerId) == 1
