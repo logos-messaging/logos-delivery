@@ -79,14 +79,6 @@ method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.asy
   task.state = DeliveryState.NextRoundRetry
   task.errorDesc = self.reason
 
-type NeverValidProcessor = ref object of BaseSendProcessor
-  ## Takes no task, as a processor with no usable peer does.
-
-method isValidProcessor(
-    self: NeverValidProcessor, task: DeliveryTask
-): bool {.gcsafe.} =
-  return false
-
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
@@ -819,26 +811,30 @@ suite "SendService - anonymity level with a mounted mix":
       # The pool has no exit, so a pool check would give `NoExit`.
       mix.fellBackFor() == MixUnusable.None
 
-  asyncTest "a Preferred task without a plain attempt retries over mix when an exit returns":
-    for _ in 0 ..< MinMixPoolSize:
-      addMixPeer(lightpush = false)
-    check waku.mixReady()
+  asyncTest "a Preferred task that sent nothing retries over mix when an exit returns":
+    fillPoolWithNoExit()
+    let mix = preferredMix()
+    mix.chain(LightpushSendProcessor.new(waku, waku.brokerCtx))
 
-    let plain = NeverValidProcessor()
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
-    mix.chain(plain)
-
-    let task = buildTask("no-plain-then-exit", chronos.seconds(5))
-    await mix.process(task)
-    check not task.deanonymized
+    # With no lightpush peer, the lightpush processor takes no task.
+    let noPeer = buildTask("no-lightpush-peer", chronos.seconds(5))
+    await mix.process(noPeer)
+    # Nothing listens at the address of this lightpush service peer, so the dial fails.
+    addLightpushServicePeer()
+    let failedDial = buildTask("failed-lightpush-dial", chronos.seconds(5))
+    check await mix.process(failedDial).withTimeout(FUTURE_TIMEOUT_MEDIUM)
+    check:
+      noPeer.tryCount == 0
+      failedDial.tryCount == 1
+      not noPeer.deanonymized
+      not failedDial.deanonymized
 
     addMixPeer(lightpush = true)
     check waku.selectMixLightpushPeer(shard).isSome()
-    let fut = mix.process(task)
-    check task.anonymized
-    await fut.cancelAndWait()
+    for task in [noPeer, failedDial]:
+      let attempt = mix.process(task)
+      check task.anonymized # mix attempts it
+      await attempt.cancelAndWait()
 
   asyncTest "a cancelled plain attempt deanonymizes the task":
     let stalled = newFuture[WakuLightPushResult]("stalled-publish")
