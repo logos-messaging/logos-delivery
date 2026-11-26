@@ -1456,6 +1456,25 @@ suite "Waku Relay - relay peer limit":
 
     await allFutures(fullSwitch.stop(), roomSwitch.stop(), byFull.stop(), byRoom.stop())
 
+  asyncTest "a node opens no relay stream to a peer that dials it and opens none itself":
+    let nodeSwitch = newTestSwitch()
+    discard await startRelay(nodeSwitch, atLimit = false)
+
+    let opened = new int
+    let dialler = newTestSwitch()
+    dialler.mount(recordingRelayStub(opened))
+    await dialler.start()
+
+    await dialler.connect(nodeSwitch.peerInfo.peerId, nodeSwitch.peerInfo.addrs)
+    await sleepAsync(300.milliseconds)
+
+    # The node admits a peer that dialled it before it opens its own stream
+    check:
+      opened[] == 0
+      nodeSwitch.isConnected(dialler.peerInfo.peerId)
+
+    await allFutures(nodeSwitch.stop(), dialler.stop())
+
   asyncTest "a second relay stream from one peer is refused and leaves the other slots free":
     # Given a relay node with a relay peer limit of 2 and a peer connected to it
     let nodeSwitch = newTestSwitch()

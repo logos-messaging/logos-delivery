@@ -402,10 +402,12 @@ proc initRelayObservers(w: WakuRelay) =
   w.addObserver(administrativeObserver)
 
 method subscribePeer*(w: WakuRelay, peer: PeerId) {.gcsafe.} =
-  ## Opens our relay stream to `peer` when it connects, unless the relay peer
-  ## limit would refuse the peer's own stream. Gossipsub opens ours later, when
-  ## it handles the stream of an admitted peer.
-  if w.canAcceptIncoming(peer):
+  ## Opens our relay stream to a peer that we dialled, unless the relay peer limit
+  ## would refuse the peer's own stream. A peer that dialled us opens its stream
+  ## first, and gossipsub opens ours when it handles that stream. The limit then
+  ## admits such a peer before we open a stream to it.
+  let dialled = not w.switch.connManager.selectMuxer(peer, Direction.Out).isNil()
+  if dialled and w.canAcceptIncoming(peer):
     procCall GossipSub(w).subscribePeer(peer)
 
 proc new*(
