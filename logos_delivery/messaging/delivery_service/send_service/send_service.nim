@@ -540,8 +540,9 @@ proc waitForStoreValidation(
   try:
     if left > ZeroDuration and await task.storeAnswer.withTimeout(left):
       task.state = DeliveryState.SuccessfullyValidated
-      # An anonymized task gets here only through the clear republish of a
-      # `Preferred` send whose mix reply was lost.
+      # An anonymized task reaches Store validation only on the plain fallback
+      # of a `Preferred` send. Mix did not confirm propagation. The fallback
+      # published the message or got a duplicate reply from lightpush.
       info "Message successfully sent", msgHash = task.loggedHash()
       self.finish(task)
       MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())

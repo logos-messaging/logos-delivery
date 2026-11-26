@@ -60,6 +60,12 @@ method sendImpl*(
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
+    if error.isDuplicateMessage():
+      debug "The lightpush service already has the message, the task propagated",
+        msgHash = task.msgHash.to0xHex()
+      task.markPropagated()
+      return
+
     error "LightpushSendProcessor.sendImpl failed",
       msgHash = task.msgHash.to0xHex(), error = error.desc.get($error.code)
 
@@ -80,9 +86,7 @@ method sendImpl*(
 
   if numLightpushServers > 0:
     debug "Message propagated via Lightpush", msgHash = task.msgHash.to0xHex()
-    task.state = DeliveryState.SuccessfullyPropagated
-    if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = Opt.some(Moment.now())
+    task.markPropagated()
     # TODO: with a simple retry processor it might be more accurate to say `Sent`
   else:
     # Controversial state, publish says ok but no peer. It should not happen.
