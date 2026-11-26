@@ -1,80 +1,19 @@
 {.used.}
 
 import std/[base64, sequtils]
-import chronos, results, testutils/unittests
-import libp2p/crypto/curve25519, libp2p_mix/mix_protocol
-import brokers/broker_implement
+import
+  chronos,
+  results,
+  testutils/unittests,
+  libp2p/crypto/curve25519,
+  libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/waku_enr/capabilities
 import tools/confutils/cli_args
-
-## A backend that records what it was asked to do, so the fan-out rules can be
-## checked without standing up a DHT.
-type FakeBackend = ref object of IPeerDiscovery
-  id: string
-  kinds: seq[string]
-  advertised: seq[string]
-  advertisedData: seq[seq[byte]]
-  advertisedSecondary: seq[seq[DiscoveredService]]
-  interests: seq[string]
-
-BrokerImplement FakeBackend of IPeerDiscovery:
-  proc new(T: typedesc[FakeBackend], id: string, kinds: seq[string]): FakeBackend =
-    FakeBackend(id: id, kinds: kinds)
-
-  method backendInfo(
-      self: FakeBackend
-  ): Future[Result[DiscoveryBackendInfo, string]] {.async.} =
-    ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
-
-  method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte], secondary: seq[DiscoveredService]
-  ): Future[Result[void, string]] {.async.} =
-    self.advertised.add(key)
-    self.advertisedData.add(data)
-    self.advertisedSecondary.add(secondary)
-    ok()
-
-  method registerInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    self.interests.add(key)
-    ok()
-
-  ## Not exercised here; the interface requires every verb.
-  method startDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method stopDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method lookupServicePeers(
-      self: FakeBackend, key: string, limit: int
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method lookupRandom(
-      self: FakeBackend
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method stopAdvertising(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method unregisterInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method addBootstrapEntries(
-      self: FakeBackend, entries: seq[string]
-  ): Future[Result[void, string]] {.async.} =
-    ok()
+import ../testlib/fake_discovery
 
 proc confWith(flags: CapabilitiesBitfield): WakuConf =
   var conf = defaultKernelConf().valueOr:
@@ -97,13 +36,32 @@ proc mixKeyBytes(): seq[byte] =
     b[i] = byte(i + 1)
   b
 
+proc mixKey(): Opt[Curve25519Key] =
+  Opt.some(intoCurve25519Key(mixKeyBytes()))
+
 proc withMix(conf: WakuConf): WakuConf =
   ## The node mounts mix. The builder sets the Mix flag whenever it does.
-  conf.mixConf = Opt.some(MixConf(mixPubKey: intoCurve25519Key(mixKeyBytes())))
+  conf.mixConf = Opt.some(MixConf())
   conf.wakuFlags = CapabilitiesBitfield(
     byte(conf.wakuFlags) or byte(CapabilitiesBitfield.init(mix = true))
   )
   conf
+
+proc advertiseSelf(
+    discoveries: seq[IPeerDiscovery],
+    conf: WakuConf,
+    shards: seq[uint16],
+    mixKey = Opt.none(Curve25519Key),
+) {.async.} =
+  ## Advertises the record of a node with this configuration, as the node puts
+  ## it together: the delivery part when it serves something, and the mix part
+  ## while it has a mix key to advertise.
+  var parts: seq[GetSelfAdvert]
+  if conf.wakuFlags.isServiceNode():
+    parts.add(deliveryAdvertPart(conf, shards))
+  if mixKey.isSome():
+    parts.add(mixAdvertPart(mixKey.get()))
+  await advertiseSelf(discoveries, assembleAdvert(parts).expect("a record"))
 
 proc advertisedCaps(kad: FakeBackend): CapabilitiesBitfield =
   advertisedCapabilities(kad.advertisedData[0]).expect("a delivery payload")
@@ -153,7 +111,7 @@ suite "Self advertisement":
   asyncTest "a relay node that mounts mix lists its mix key in the delivery record":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
-      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards
+      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards, mixKey()
     )
     check:
       ## One registration, and no interest in a mix service of its own.
@@ -172,16 +130,33 @@ suite "Self advertisement":
     ## With Mix RLN, a node without a usable Mix membership cannot prove a hop.
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
-      @[IPeerDiscovery(kad)],
-      confWith(CoreFlags).withMix(),
-      TestShards,
-      mixReady = false,
+      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards
     )
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
       kad.advertisedSecondary[0].len == 0
       not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
       kad.advertisedCaps().supportsCapability(Capabilities.Relay)
+
+  test "a record takes one delivery part":
+    let part = deliveryAdvertPart(confWith(CoreFlags), TestShards)
+    check:
+      assembleAdvert([part, part]).isErr()
+      ## Without a delivery part the node advertises nothing.
+      assembleAdvert([mixAdvertPart(mixKey().get())]) ==
+        Result[SelfAdvert, string].ok(SelfAdvert())
+      assembleAdvert([]) == Result[SelfAdvert, string].ok(SelfAdvert())
+
+  test "a part of another service is listed in the record as it is":
+    let other =
+      GetSelfAdvert(service: DiscoveredService(id: "/other/1.0.0", data: @[7'u8]))
+    let advert = assembleAdvert(
+        [other, deliveryAdvertPart(confWith(CoreFlags), TestShards)]
+      )
+      .expect("a record")
+    check:
+      advert.data == Opt.some(selfAdvertisementData(confWith(CoreFlags), TestShards))
+      advert.secondary == @[other.service]
 
   asyncTest "a relay node without mix lists the delivery service alone":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
@@ -197,6 +172,7 @@ suite "Self advertisement":
       @[IPeerDiscovery(kad)],
       confWith(CapabilitiesBitfield.init(filter = true)).withMix(),
       TestShards,
+      mixKey(),
     )
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
@@ -207,7 +183,7 @@ suite "Self advertisement":
   asyncTest "an edge node that mounts mix advertises nothing":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
-      @[IPeerDiscovery(kad)], confWith(EdgeFlags).withMix(), TestShards
+      @[IPeerDiscovery(kad)], confWith(EdgeFlags).withMix(), TestShards, mixKey()
     )
     check:
       kad.advertised.len == 0

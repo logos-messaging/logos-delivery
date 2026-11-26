@@ -456,6 +456,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       mixPrivKey,
       conf.mixnodes,
       allowAllAddresses = conf.mixAllowAllAddresses,
+      keyRotation = conf.mixKeyRotation,
     )
   ).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error

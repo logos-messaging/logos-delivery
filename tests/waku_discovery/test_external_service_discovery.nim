@@ -1,11 +1,14 @@
 {.used.}
 
-import std/[atomics, os, sequtils, strutils]
+import std/[atomics, base64, json, os, sequtils, strutils]
 import chronos, chronos/threadsync, results, testutils/unittests
 import brokers/broker_context
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
+import libp2p_mix/pool
 import
   logos_delivery/waku/discovery/external_service_discovery,
+  logos_delivery/waku/discovery/delivery_advert,
+  logos_delivery/waku/waku_enr/capabilities,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/node/peer_manager/peer_manager,
   logos_delivery/waku/waku_core,
@@ -43,8 +46,16 @@ type FakeState = object
   lastKey: array[128, char]
   lastData: array[32, uint8]
   lastRecord: array[512, uint8]
+  peersJsonLen: Atomic[int] ## when non-zero, lookups return `peersJson`
+  peersJson: array[1024, char]
 
 var fake: ptr FakeState
+
+proc setPeersJson(s: string) =
+  doAssert s.len <= fake.peersJson.len
+  for i in 0 ..< s.len:
+    fake.peersJson[i] = s[i]
+  fake.peersJsonLen.store(s.len)
 
 proc setKey(s: cstring) =
   var n = 0
@@ -100,9 +111,13 @@ const FakePeersJson =
 
 proc emitJson(outJson: ptr cstring) =
   ## Hands out a heap copy the way a real plugin would; freed via freeString.
-  let n = FakePeersJson.len
+  let custom = fake.peersJsonLen.load()
+  let n = if custom > 0: custom else: FakePeersJson.len
   let buf = cast[cstring](allocShared0(n + 1))
-  copyMem(buf, FakePeersJson.cstring, n)
+  if custom > 0:
+    copyMem(buf, fake.peersJson[0].addr, n)
+  else:
+    copyMem(buf, FakePeersJson.cstring, n)
   outJson[] = buf
 
 proc fakeLookup(
@@ -512,6 +527,68 @@ suite "ExternalServiceDiscovery":
 
     ## The random walk feeds the node too, not just the service lookup.
     check (await iface.lookupRandom()).isOk()
+    check (await iface.stopDiscovery()).isOk()
+
+  asyncTest "a delivery record that claims no mix removes the peer's mix key":
+    ## The peer lost its Mix RLN membership and advertises as a delivery node.
+    proc peersJson(caps: CapabilitiesBitfield, withKey: bool, seqNo = 7): string =
+      ## Service data travels base64-encoded, and the delivery payload is
+      ## base64 text itself.
+      let payload = base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, byte(caps)])
+      var services = %*[{"id": LogosDeliveryServiceId, "data": base64.encode(payload)}]
+      if withKey:
+        services.add(%*{"id": "/mix/1.0.0", "data": base64.encode(newSeq[byte](32))})
+      $(
+        %*[
+          {
+            "peerId": FakePeerId,
+            "seqNo": seqNo,
+            "addrs": ["/ip4/1.2.3.4/tcp/60000"],
+            "services": services,
+          }
+        ]
+      )
+
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    let peerManager = PeerManager.new(switch = newTestSwitch(), storage = nil)
+    discard GetNodePeerManager.reprovideIt(ctx):
+      ok(peerManager)
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    let pid = PeerId.init(FakePeerId).get()
+
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true, mix = true), true))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid in peerManager.switch.peerStore[MixPubKeyBook]
+
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid notin peerManager.switch.peerStore[MixPubKeyBook]
+
+    ## A registrar serves the record it was handed until that expires, so a
+    ## lookup can return a record older than one seen before. A mix node
+    ## advertises without a key until its Mix RLN membership is usable: that
+    ## older record must not take the key away again.
+    let mixNode = CapabilitiesBitfield.init(relay = true, mix = true)
+    setPeersJson(peersJson(mixNode, true, seqNo = 9))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid in peerManager.switch.peerStore[MixPubKeyBook]
+
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false, seqNo = 8))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid in peerManager.switch.peerStore[MixPubKeyBook]
+
+    ## Nor does an older record bring a key back that a newer one removed.
+    setPeersJson(peersJson(CapabilitiesBitfield.init(relay = true), false, seqNo = 10))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid notin peerManager.switch.peerStore[MixPubKeyBook]
+
+    setPeersJson(peersJson(mixNode, true, seqNo = 9))
+    check (await iface.lookupServicePeers("service:/logos/delivery", 1)).isOk()
+    check pid notin peerManager.switch.peerStore[MixPubKeyBook]
+
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "the first service lookup does not wait a whole interval":

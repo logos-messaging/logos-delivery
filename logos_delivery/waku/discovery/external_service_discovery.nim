@@ -25,6 +25,7 @@ import libp2p/peerinfo
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/discovery/delivery_advert,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
@@ -138,10 +139,24 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
       debug "discarding discovered peer", reason = error
       continue
 
+    # An older record than the one that last told this peer's mix key neither
+    # sets nor removes it.
+    let disclaims = disclaimsMix(peer.services)
+    let admitted =
+      (peerInfo.mixPubKey.isSome() or disclaims) and
+      peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, peer.seqNo)
+    if not admitted:
+      reset(peerInfo.mixPubKey)
+
     peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if admitted and disclaims:
+      peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via external service discovery",
       peerId = $peerInfo.peerId,
+      seqNo = peer.seqNo,
+      mixKey = peerInfo.mixPubKey.isSome(),
+      disclaimsMix = disclaims,
       addresses = peerInfo.addrs.mapIt($it),
       protocols = peerInfo.protocols
 

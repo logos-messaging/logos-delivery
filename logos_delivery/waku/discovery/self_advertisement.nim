@@ -14,16 +14,18 @@
 ## whose advertising means mutating our own ENR and which rejects `service:` keys
 ## outright.
 
-import std/base64
+import std/[base64, sequtils]
 import chronos, chronicles, results
+import libp2p/crypto/curve25519
 import libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/self_advert_brokers,
   logos_delivery/waku/discovery/delivery_advert,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/waku_enr/capabilities
 
-export delivery_advert
+export delivery_advert, self_advert_brokers
 
 logScope:
   topics = "waku discovery advertise"
@@ -51,9 +53,7 @@ func advertisesMix*(conf: WakuConf): bool =
   ## edge node mounts mix to send through it and is no hop for others.
   conf.mixConf.isSome() and conf.wakuFlags.supportsCapability(Capabilities.Relay)
 
-proc selfAdvertisementData*(
-    conf: WakuConf, shards: seq[uint16], mixReady = true
-): seq[byte] =
+proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   ## The payload published alongside the advertisement: base64 of a compact
   ## binary record, at most `MaxAdvertLen` bytes on the wire.
   ##
@@ -72,8 +72,9 @@ proc selfAdvertisementData*(
   ## string used to be included and is not: it is the single largest field, it
   ## is not a selection criterion, and it does not fit the budget.
   ##
-  ## The Mix bit is set only when `advertisesMix` and `mixReady`: a reader takes
-  ## this node's mix key on the strength of it.
+  ## The Mix bit is set only when `advertisesMix`: a reader takes this node's
+  ## mix key on the strength of it. `assembleAdvert` clears it for a record
+  ## that lists no mix key.
   ##
   ## Base64 rather than the raw bytes, even though the plugin ABI carries
   ## `data` as a length-counted byte array and the in-process backend would
@@ -88,7 +89,7 @@ proc selfAdvertisementData*(
   raw[1] = byte(conf.clusterId shr 8)
   raw[2] = byte(conf.clusterId and 0xff)
   raw[3] = byte(conf.wakuFlags)
-  if not (conf.advertisesMix() and mixReady):
+  if not conf.advertisesMix():
     raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
 
   for shard in shards:
@@ -105,41 +106,95 @@ proc selfAdvertisementData*(
 
   return cast[seq[byte]](base64.encode(raw))
 
+type SelfAdvert* = object
+  ## This node's record as it is advertised: the delivery payload, and the
+  ## services listed in the same record.
+  data*: Opt[seq[byte]] ## None for a node that serves nothing: it advertises nothing.
+  secondary*: seq[DiscoveredService]
+
+proc deliveryAdvertPart*(conf: WakuConf, shards: seq[uint16]): GetSelfAdvert =
+  ## The record's own service. `shards` is what the node is actually subscribed
+  ## to -- the caller resolves that, since the configured list is not the same
+  ## thing under autosharding.
+  GetSelfAdvert(
+    service: DiscoveredService(
+      id: LogosDeliveryServiceId, data: selfAdvertisementData(conf, shards)
+    )
+  )
+
+func mixAdvertPart*(mixKey: Curve25519Key): GetSelfAdvert =
+  ## This node's current mix key, as the `/mix/1.0.0` service of the record.
+  GetSelfAdvert(service: DiscoveredService(id: MixProtocolID, data: @mixKey))
+
+func assembleAdvert*(parts: openArray[GetSelfAdvert]): Result[SelfAdvert, string] =
+  ## The record these parts make. The delivery part is the record: without it
+  ## the node advertises nothing, whatever else is provided.
+  ##
+  ## A mix node lists its mix key in the same record, as the `/mix/1.0.0`
+  ## service. Mix is not registered as a service of its own: a registrar makes
+  ## a node wait for a second registration, and other nodes find mix nodes among
+  ## the delivery nodes they look up anyway.
+  ##
+  ## The mix part is absent while the node cannot act as a mix node although it
+  ## mounts mix: with Mix RLN, while it holds no usable Mix membership and so
+  ## cannot prove a hop. The record then claims no Mix. A mix key is listed only
+  ## in a record that claims Mix (`advertisesMix`).
+  var advert = SelfAdvert()
+  for part in parts:
+    if part.service.id != LogosDeliveryServiceId:
+      advert.secondary.add(part.service)
+    elif advert.data.isSome():
+      return err("more than one delivery part")
+    else:
+      advert.data = Opt.some(part.service.data)
+  if advert.data.isNone():
+    return ok(SelfAdvert())
+
+  let claimsMix = advertisedCapabilities(advert.data.get())
+    .get(CapabilitiesBitfield(0))
+    .supportsCapability(Capabilities.Mix)
+  var hasMixKey = false
+  for service in advert.secondary:
+    if service.id == MixProtocolID:
+      hasMixKey = true
+  if claimsMix and not hasMixKey:
+    # Through a local: under refc the result of the call is built in
+    # `advert.data`, which is emptied first, and that is the argument too.
+    let payload = advert.data.get()
+    advert.data = Opt.some(withoutMixClaim(payload))
+  elif hasMixKey and not claimsMix:
+    var kept: seq[DiscoveredService]
+    for service in advert.secondary:
+      if service.id != MixProtocolID:
+        kept.add(service)
+    advert.secondary = kept
+  return ok(advert)
+
 proc advertiseSelf*(
     discoveries: seq[IPeerDiscovery],
-    conf: WakuConf,
-    shards: seq[uint16],
-    mixReady = true,
+    advert: SelfAdvert,
+    isCurrent: proc(): bool {.gcsafe, raises: [].} = nil,
 ): Future[void] {.async: (raises: []).} =
   ## Registers interest in `/logos/delivery` on every service-capable backend,
-  ## and advertises this node there when it serves something. `shards` is what
-  ## the node is actually subscribed to -- the caller resolves that, since the
-  ## configured list is not the same thing under autosharding.
+  ## and advertises `advert` there when the node serves something.
   ##
-  ## A mix node (`advertisesMix`) lists its mix key in the same record, as the
-  ## `/mix/1.0.0` service. Mix is not registered as a service of its own: a
-  ## registrar makes a node wait for a second registration, and other nodes
-  ## find mix nodes among the delivery nodes they look up anyway.
-  ##
-  ## `mixReady` is false while the node cannot act as a mix node although it
-  ## mounts mix: with Mix RLN, while it holds no usable Mix membership and so
-  ## cannot prove a hop. It then advertises as a delivery node without the key.
+  ## Once `isCurrent` returns false (the record changed again, or the node is
+  ## stopping), the advertisement stops after its current step, so a record that
+  ## is no longer current is not published.
+  ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#4-key-publication
   ##
   ## Best-effort per backend: a node whose discovery could not announce it is
   ## degraded, not broken, and the other backends should still get their turn.
-  let serves = conf.wakuFlags.isServiceNode()
-  let data =
-    if serves:
-      selfAdvertisementData(conf, shards, mixReady)
-    else:
-      @[]
-  let secondary =
-    if conf.advertisesMix() and mixReady:
-      @[DiscoveredService(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))]
-    else:
-      @[]
+  template current(): bool =
+    isCurrent.isNil() or isCurrent()
+
+  let serves = advert.data.isSome()
+  let data = advert.data.get(@[])
+  let secondary = advert.secondary
 
   for discovery in discoveries:
+    if not current():
+      return
     let info = (await discovery.backendInfo()).valueOr:
       debug "skipping backend with unreadable info", reason = error
       continue
@@ -147,19 +202,41 @@ proc advertiseSelf*(
     if ServiceKind notin info.keyKinds:
       continue
 
-    (await discovery.registerInterest(SvcKey)).isOkOr:
+    # The record can change while a step runs, and a cancelled step returns an
+    # error, so each result is read only while the record is current.
+    let registered = await discovery.registerInterest(SvcKey)
+    if not current():
+      return
+    registered.isOkOr:
       warn "could not register interest in the delivery network",
         backend = info.id, reason = error
 
     if not serves:
       continue
 
-    (await discovery.startAdvertising(SvcKey, data, secondary)).isOkOr:
+    let advertised = await discovery.startAdvertising(SvcKey, data, secondary)
+    if not current():
+      return
+    advertised.isOkOr:
       warn "could not advertise this node on the delivery network",
         backend = info.id, reason = error
       continue
 
     info "advertising this node on the delivery network",
       backend = info.id,
-      protocols = conf.wakuFlags.toCodecs(),
-      mixNode = secondary.len > 0
+      protocols = advertisedCapabilities(data).get(CapabilitiesBitfield(0)).toCodecs(),
+      listed = secondary.mapIt(it.id)
+
+proc withdrawSelf*(discoveries: seq[IPeerDiscovery]) {.async: (raises: []).} =
+  ## Stops advertising this node on every service-capable backend. A backend
+  ## keeps the record it was given and publishes it again at the next start,
+  ## when the mix key in it may be gone.
+  for discovery in discoveries:
+    let info = (await discovery.backendInfo()).valueOr:
+      debug "skipping backend with unreadable info", reason = error
+      continue
+    if ServiceKind notin info.keyKinds:
+      continue
+    (await discovery.stopAdvertising(SvcKey)).isOkOr:
+      warn "could not withdraw this node's advertisement",
+        backend = info.id, reason = error

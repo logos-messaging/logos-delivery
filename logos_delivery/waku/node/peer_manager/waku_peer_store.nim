@@ -50,6 +50,10 @@ type
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
 
+  # Keeps track of the sequence number of the newest record, from service
+  # discovery or rendezvous, that set or removed the peer's mix key
+  MixRecordSeqBook* = ref object of PeerBook[uint64]
+
 const DiscoveredEnrTtl* = chronos.minutes(15)
   ## How long a discovered ENR is trusted without being rediscovered or connected.
 
@@ -107,6 +111,30 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
     .toHashSet()
 
   return allKeys.mapIt(peerStore.getPeer(it))
+
+proc removeMixPubKey*(peerStore: PeerStore, peerId: PeerId) =
+  ## Takes the peer out of the mix pool. For a peer whose delivery record says
+  ## it is no mix node (any more): it lost its Mix RLN membership, or it stopped
+  ## relaying. See `disclaimsMix`.
+  if peerStore[MixPubKeyBook].del(peerId):
+    debug "removed the mix pub key of a peer that advertises none any more",
+      peer_id = $peerId
+
+proc admitMixRecord*(peerStore: PeerStore, peerId: PeerId, seqNo: uint64): bool =
+  ## Whether a discovered record with this sequence number may set or remove
+  ## the peer's mix key: not when a newer record did so before. A registrar
+  ## serves the record it was handed until that expires, so a lookup can return
+  ## a record older than one seen earlier or one that rendezvous delivered, for
+  ## instance the keyless record a mix node advertises until its Mix RLN
+  ## membership is usable. Every sequence number is the Unix time of signing.
+  ##
+  ## Call it only for a record that carries a mix key or disclaims mix. A
+  ## record that says neither, like the one libp2p publishes under a node's own
+  ## peer id, has a sequence of its own and must not outdate the node's advert.
+  if seqNo < peerStore[MixRecordSeqBook][peerId]:
+    return false
+  peerStore[MixRecordSeqBook][peerId] = seqNo
+  return true
 
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new

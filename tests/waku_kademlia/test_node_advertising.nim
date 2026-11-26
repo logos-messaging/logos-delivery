@@ -1,22 +1,35 @@
 {.used.}
 
-import std/[net, sequtils, sets, strutils, tables]
+import std/[json, net, sequtils, sets, strutils, tables]
 import testutils/unittests, chronos, results
+import mix_rln_spam_protection/module_api
 import libp2p/extended_peer_record
 import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/protocols/kademlia/types
+import libp2p_mix, libp2p_mix/curve25519
 import
-  logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/discovery/[waku_kademlia, service_discovery],
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/[waku_node, waku_node/relay],
+  logos_delivery/waku/discovery/[
+    waku_kademlia, service_discovery, self_advertisement, delivery_advert,
+    peer_discovery_interface,
+  ],
+  logos_delivery/waku/[factory/waku_conf, waku_enr/capabilities],
+  tools/confutils/cli_args,
   ../testlib/[wakucore, wakunode, testasync]
 
 ## The default deployment binds 0.0.0.0. switch.start resolves peerInfo.addrs
 ## before it starts ServiceDiscovery. The node advertises its services after.
 
 proc isAdvertised(node: WakuNode, service: ServiceInfo): bool =
+  ## True when libp2p holds an advert for `service` whose record lists it.
+  ## libp2p 2.5 keeps a caller-signed advert out of `services`, so the stored
+  ## advert is read rather than `services`.
   let disco = node.wakuKademlia.protocol
-  service in disco.services and
-    disco.advertiser.providedAdverts.hasKey(service.id.hashServiceId())
+  let advert = disco.advertiser.providedAdverts.getOrDefault(service.id.hashServiceId())
+  let record = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+    return false
+  service in record.data.services
 
 proc selfRecordKey(node: WakuNode): RecordKey =
   ## The table key of the node's self record.
@@ -40,6 +53,15 @@ proc publishedAddresses(node: WakuNode): seq[MultiAddress] =
   let record = node.publishedRecord().valueOr:
     return @[]
   record.addresses.mapIt(it.address)
+
+proc advertisedAddresses(node: WakuNode, serviceId: string): seq[MultiAddress] =
+  ## The addresses in the record this node signed and handed to libp2p for
+  ## `serviceId`.
+  let disco = node.wakuKademlia.protocol
+  let advert = disco.advertiser.providedAdverts.getOrDefault(serviceId.hashServiceId())
+  let record = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+    return @[]
+  record.data.addresses.mapIt(it.address)
 
 proc newAdvertisingNode(
     bindIp: IpAddress, service: ServiceInfo, extMultiAddrs: seq[MultiAddress] = @[]
@@ -125,3 +147,257 @@ suite "Waku Kademlia node advertising":
     checkUntilTimeout:
       service in node.publishedServices()
     await node.stop()
+
+  asyncTest "an advert that cannot be signed still stops the one with other data":
+    ## The record carries the node's addresses, so without any it cannot be signed.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    await node.start()
+    let backend = node.discoveries[0]
+    let key = ServiceKeyPrefix & "/test/other/1.0.0"
+    let first = ServiceInfo(id: "/test/other/1.0.0", data: Opt.some(@[1'u8]))
+    check:
+      (await backend.startAdvertising(key, @[1'u8], @[])).isOk()
+      node.isAdvertised(first)
+
+    let addrs = node.switch.peerInfo.addrs
+    node.switch.peerInfo.addrs = @[]
+    let res = await backend.startAdvertising(key, @[2'u8], @[])
+    node.switch.peerInfo.addrs = addrs
+    check:
+      res.isErr()
+      not node.isAdvertised(first)
+    await node.stop()
+
+  asyncTest "a restarted node with mix key rotation does not advertise a destroyed key":
+    ## Stopping destroys the mix key, and kademlia republishes its stored adverts
+    ## at start, so the stop withdraws the record that carries the key.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId,
+        mixKeys.privateKey,
+        @[],
+        allowAllAddresses = true,
+        keyRotation = true,
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
+    conf.mixConf = Opt.some(MixConf())
+    let shards = @[0'u16]
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, shards))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
+    await node.start()
+    await node.startRecordAdvertising()
+    let delivery = ServiceInfo(
+      id: LogosDeliveryServiceId, data: Opt.some(selfAdvertisementData(conf, shards))
+    )
+    checkUntilTimeout:
+      node.isAdvertised(delivery)
+
+    await node.stop()
+    await node.start()
+    check not node.isAdvertised(delivery)
+    await node.stop()
+
+  asyncTest "the self record of a mix node lists no mix key":
+    ## The record libp2p publishes under the node's peer id, which a random
+    ## lookup returns, does not carry the `/mix/1.0.0` entry of the record the
+    ## node signs for its advert. libp2p 2.5 keeps a caller-signed advert out of
+    ## that record altogether, the delivery service included.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId,
+        mixKeys.privateKey,
+        @[],
+        allowAllAddresses = true,
+        keyRotation = true,
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
+    conf.mixConf = Opt.some(MixConf())
+    let shards = @[0'u16]
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, shards))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
+    await node.start()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    let delivery = ServiceInfo(
+      id: LogosDeliveryServiceId, data: Opt.some(selfAdvertisementData(conf, shards))
+    )
+    checkUntilTimeout:
+      node.isAdvertised(delivery)
+    ## The advert the node signed lists its mix key.
+    let advert = node.wakuKademlia.protocol.advertiser.providedAdverts.getOrDefault(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+    let signed = SignedExtendedPeerRecord.decode(advert.bytes).expect("signed advert")
+    check signed.data.services.anyIt(it.id == MixProtocolID)
+
+    ## An address change makes libp2p publish its self record again.
+    node.switch.peerInfo.notifyObservers()
+    checkUntilTimeout:
+      node.publishedRecord().isSome()
+    check:
+      delivery notin node.publishedServices()
+      advertisedMixKey(
+        node.publishedServices().mapIt(
+          DiscoveredService(id: it.id, data: it.data.get(@[]))
+        )
+      )
+        .isNone()
+      node.publishedServices().allIt(it.id != MixProtocolID)
+
+  proc newHeldMixNode(): Future[WakuNode] {.async.} =
+    ## A started mix node with Mix RLN and no usable membership yet.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let mixKeys = generateKeyPair().expect("mix key pair")
+    (
+      await node.mountMix(
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+      )
+    ).isOkOr:
+      raiseAssert "Failed to mount mix: " & $error
+    node.wakuMixRln = ModuleRlnProtection
+      .new(
+        ModuleRlnConfig(
+          registryId: "logos:local:mix",
+          rlnIdentifierHex:
+            "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f7631000000000000",
+          epochSeconds: 10,
+          maxEpochGap: 3,
+          metadataTopic: "/test/1/mix-rln-metadata/proto",
+        ),
+        proc(
+            methodName: string, args: JsonNode
+        ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+          return err("no backend in this test"),
+      )
+      .expect("a valid Mix RLN config")
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
+    conf.mixConf = Opt.some(MixConf())
+    let shards = @[0'u16]
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, shards))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
+    await node.start()
+    return node
+
+  proc advertListsMixKey(node: WakuNode): bool =
+    let advert = node.wakuKademlia.protocol.advertiser.providedAdverts.getOrDefault(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+    let signed = SignedExtendedPeerRecord.decode(advert.bytes).valueOr:
+      return false
+    signed.data.services.anyIt(it.id == MixProtocolID)
+
+  asyncTest "a mix node holds its first advert until its Mix RLN membership is usable":
+    ## A registrar makes a second advert from the same address wait for up to
+    ## the advert expiry, so the first one has to carry the mix key.
+    let node = await newHeldMixNode()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    await sleepAsync(500.milliseconds)
+    check not node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+
+    ## A change of another part of the record does not end the hold.
+    node.switch.peerInfo.notifyObservers()
+    await sleepAsync(500.milliseconds)
+    check not node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+
+    node.mixMembershipUsable = true
+    node.mixAdvertChanged("mix membership")
+    checkUntilTimeout:
+      node.advertListsMixKey()
+
+  asyncTest "a mix node advertises without mix when no membership comes in time":
+    let node = await newHeldMixNode()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising(mixMembershipHold = 300.milliseconds)
+    checkUntilTimeout:
+      node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+        LogosDeliveryServiceId.hashServiceId()
+      )
+    check not node.advertListsMixKey()
+
+    ## The membership still makes it a mix node later.
+    node.mixMembershipUsable = true
+    node.mixAdvertChanged("mix membership")
+    checkUntilTimeout:
+      node.advertListsMixKey()
+
+  asyncTest "a node advertises its record again when its addresses change":
+    ## libp2p refreshes no record the node signed itself, so the node signs
+    ## one with the new addresses.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, @[0'u16]))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    await node.start()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    check:
+      node.advertisedAddresses(LogosDeliveryServiceId).len > 0
+      node.advertisedAddresses(LogosDeliveryServiceId) == node.announcedAddresses
+
+    ## What PeerInfo.update does once the address mappers give other addresses.
+    let moved = @[MultiAddress.init("/ip4/10.1.2.3/tcp/60123").get()]
+    node.switch.peerInfo.addrs = moved
+    node.switch.peerInfo.notifyObservers()
+    check node.announcedAddresses == moved
+    checkUntilTimeout:
+      node.advertisedAddresses(LogosDeliveryServiceId) == moved
+
+  asyncTest "a node collects only the parts of its own record":
+    ## Every node of a thread shares `brokerCtx` unless a host sets another, so
+    ## a part provided there, as by another node, must not reach this node's
+    ## record. A record with two delivery parts is not advertised at all.
+    let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
+    let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
+    let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
+    let foreign = GetSelfAdvert.provideIt(node.brokerCtx):
+      return ok(deliveryAdvertPart(conf, @[7'u16]))
+    defer:
+      GetSelfAdvert.removeProvider(node.brokerCtx, foreign.expect("provides"))
+    let provided = GetSelfAdvert.provideIt(node.advertCtx):
+      return ok(deliveryAdvertPart(conf, @[0'u16]))
+    node.keepAdvertProvider(provided.expect("provides the delivery part"))
+    await node.start()
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    check node.isAdvertised(
+      ServiceInfo(
+        id: LogosDeliveryServiceId,
+        data: Opt.some(selfAdvertisementData(conf, @[0'u16])),
+      )
+    )

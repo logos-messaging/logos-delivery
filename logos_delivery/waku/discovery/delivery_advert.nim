@@ -35,6 +35,19 @@ func advertisedCapabilities*(data: openArray[byte]): Opt[CapabilitiesBitfield] =
     return Opt.none(CapabilitiesBitfield)
   Opt.some(CapabilitiesBitfield(raw[3].byte))
 
+func withoutMixClaim*(data: seq[byte]): seq[byte] =
+  ## The `/logos/delivery` payload `data` with the Mix capability cleared.
+  ## A payload this version does not read is returned as it is.
+  var raw =
+    try:
+      base64.decode(cast[string](data))
+    except ValueError:
+      return data
+  if raw.len < AdvertHeaderLen or raw[0].byte != AdvertFormatVersion:
+    return data
+  raw[3] = char(raw[3].byte and not byte(1'u8 shl ord(Capabilities.Mix)))
+  cast[seq[byte]](base64.encode(raw))
+
 func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Key] =
   ## The mix key of a peer whose record lists these services.
   ##
@@ -58,3 +71,24 @@ func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Ke
   if not claimed:
     return Opt.none(Curve25519Key)
   key
+
+func disclaimsMix*(services: openArray[DiscoveredService]): bool =
+  ## Whether a record listing these services says that its peer is no mix
+  ## node: its delivery payload is one this version reads and claims not both
+  ## Relay and Mix. Only such a record removes a mix key stored before.
+  ##
+  ## A record without a delivery payload, or with one this version cannot read,
+  ## says nothing. Nor does a payload that claims Mix but comes without a key:
+  ## the record libp2p publishes under a node's own peer id, which a random
+  ## lookup returns, lists the delivery service with its payload but not the
+  ## `/mix/1.0.0` entry of the record the node signs for its advert.
+  var disclaimed = false
+  for service in services:
+    if service.id == LogosDeliveryServiceId:
+      let caps = advertisedCapabilities(service.data).valueOr:
+        continue
+      disclaimed = not (
+        caps.supportsCapability(Capabilities.Relay) and
+        caps.supportsCapability(Capabilities.Mix)
+      )
+  disclaimed

@@ -13,8 +13,10 @@ import
   libp2p_mix/multiaddr as mix_multiaddr,
   libp2p_mix/delay_strategy,
   libp2p_mix/spam_protection,
+  libp2p_mix/tag_manager,
   libp2p/[multiaddress, peerid, peeraddrpolicy, wire],
   eth/common/keys
+from libp2p/protocols/service_discovery/types import Default_E
 
 import
   logos_delivery/waku/node/peer_manager,
@@ -40,11 +42,27 @@ const DirectPublicHopAddressPolicy = proc(
   ## a node dials that only as a circuit relay client.
   publicHopAddressPolicy(maddr) and not isCircuitRelayMA(maddr)
 
+const
+  ReplacedRecordLifetime = Default_E * 2
+    ## How long discovery may still return a replaced mix record (spec: D):
+    ## twice libp2p service discovery's advert expiry, because a registrar serves
+    ## an expired advert until its next prune, and prunes once per expiry.
+  GraceWindow = chronos.minutes(105)
+    ## Grace window (spec: G). It exceeds U + D + 2 * max_transit (92 minutes
+    ## with the spec's U and max_transit) and leaves the destination 13 minutes
+    ## to respond, as the spec's recommended values do.
+  KeyRotationTiming = KeyRotationConfig
+    .init(graceWindow = GraceWindow, replacedRecordLifetime = ReplacedRecordLifetime)
+    .expect("valid mix key rotation timing")
+    ## The spec's recommended timing with `ReplacedRecordLifetime` and
+    ## `GraceWindow`. A timing that breaks the spec's constraints fails the build.
+    ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#8-parameters
+
 type
   WakuMix* = ref object of MixProtocol
     peerManager*: PeerManager
     clusterId: uint16
-    pubKey*: Curve25519Key
+    ring: Opt[MixKeyRing]
     hopMissing: bool
       ## `true` when the last hop derivation found no address the encoder accepts.
       ## The hop that mix still holds is then a leftover, unusable even if it
@@ -251,13 +269,19 @@ proc new*(
     bootnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
     allowAllAddresses: bool = false,
+    keyRotation: bool = false,
 ): WakuMixResult[T] =
   ## A path uses a pool member only at a public address, because each node of
   ## the path must dial the next one. With `allowAllAddresses`, a path also uses
   ## a private, a loopback or a circuit relay address. Set it for a local
   ## simulation, a test or a private network.
+  ##
+  ## With `keyRotation`, mix generates this node's mix keys and rotates them
+  ## with `KeyRotationTiming`, and `mixPrivKey` is unused. Every node of a
+  ## network uses the same timing.
   let mixPubKey = public(mixPrivKey)
-  info "mixPubKey", mixPubKey = mixPubKey
+  if not keyRotation:
+    info "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & $error)
   let localMixNodeInfo = initMixNodeInfo(
@@ -267,10 +291,19 @@ proc new*(
 
   let hopAddressPolicy =
     if allowAllAddresses: defaultAddressPolicy else: DirectPublicHopAddressPolicy
+  # DefaultMaxTags, the replay cache size without rotation, holds about 101
+  # packets per second over the 2 h 45 min each key is accepted; a full table
+  # discards packets.
+  # https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#34-replay-tables
+  let ring =
+    if keyRotation:
+      Opt.some(MixKeyRing.new(KeyRotationTiming, peermgr.switch.rng, DefaultMaxTags))
+    else:
+      Opt.none(MixKeyRing)
   var m = WakuMix(
     peerManager: peermgr,
     clusterId: clusterId,
-    pubKey: mixPubKey,
+    ring: ring,
     hopAddressPolicy: hopAddressPolicy,
   )
   procCall MixProtocol(m).init(
@@ -286,6 +319,7 @@ proc new*(
         )
     ),
     hopAddressPolicy = hopAddressPolicy,
+    keyRing = ring,
   )
 
   processBootNodes(bootnodes, peermgr, m)
@@ -302,10 +336,28 @@ proc selfHopMissing*(mix: WakuMix): bool =
   ## True when the last derivation of this node's own hop found nothing to set.
   mix.hopMissing
 
+func keyRing*(mix: WakuMix): Opt[MixKeyRing] =
+  ## The ring that rotates this node's mix key, or none without rotation.
+  mix.ring
+
+proc currentMixPubKey*(mix: WakuMix): Opt[Curve25519Key] =
+  ## This node's mix public key, or none while mix holds no key for this node's
+  ## record.
+  let info = mix.localMixPubInfo().valueOr:
+    return Opt.none(Curve25519Key)
+  return Opt.some(info.mixPubKey)
+
+proc selfHop*(mix: WakuMix): Opt[MultiAddress] =
+  ## This node's own hop, or none while mix holds no key for this node's record.
+  let info = mix.localMixPubInfo().valueOr:
+    return Opt.none(MultiAddress)
+  return Opt.some(info.multiAddr)
+
 proc selfHopUsable*(mix: WakuMix): bool =
   ## True when the encoder accepts this node's own hop (IPv4 TCP or QUIC-v1, or
-  ## a circuit relay over one) and `hopMissing` is not set. Every reply path and
-  ## cover packet fails at build time on a hop that the encoder rejects.
+  ## a circuit relay over one), `hopMissing` is not set and mix holds a key for
+  ## this node's record. Every reply path and cover packet fails at build time
+  ## without them.
   if mix.hopMissing:
     return false
   let info = mix.localMixPubInfo().valueOr:

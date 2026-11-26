@@ -62,6 +62,9 @@ type KademliaDiscoveryConf* = object
   clientMode*: bool
   xprPublishing*: bool
 
+func discoveredServices(record: ExtendedPeerRecord): seq[DiscoveredService] =
+  record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
+
 proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
   if record.addresses.len == 0:
     trace "Missing addresses", peerId = record.peerId
@@ -74,9 +77,7 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
 
   let protocols = record.services.mapIt(it.id)
 
-  let mixPubKey = advertisedMixKey(
-    record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
-  )
+  let mixPubKey = advertisedMixKey(record.discoveredServices())
   if mixPubKey.isSome():
     trace "Successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
@@ -91,7 +92,7 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
     )
   )
 
-proc processRecords(
+proc processRecords*(
     self: WakuKademlia, records: seq[ExtendedPeerRecord], source: string
 ): seq[RemotePeerInfo] =
   var discovered: seq[RemotePeerInfo]
@@ -99,7 +100,18 @@ proc processRecords(
     let peerInfo = remotePeerInfoFrom(record).valueOr:
       continue
 
+    # An older record than the one that last told this peer's mix key neither
+    # sets nor removes it.
+    let disclaims = disclaimsMix(record.discoveredServices())
+    let admitted =
+      (peerInfo.mixPubKey.isSome() or disclaims) and
+      self.peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, record.seqNo)
+    if not admitted:
+      reset(peerInfo.mixPubKey)
+
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if admitted and disclaims:
+      self.peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via service discovery",
       source,
