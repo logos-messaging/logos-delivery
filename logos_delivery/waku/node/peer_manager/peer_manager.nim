@@ -733,16 +733,17 @@ proc connectToRelayPeers*(pm: PeerManager) {.async.} =
   var (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
   let totalRelayPeers = inRelayPeers.len + outRelayPeers.len
 
+  # Read before pruning, so that the list holds no peer that this call evicts
+  let notConnectedPeers = pm.switch.peerStore.getDisconnectedPeers()
+
+  var outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
+
   let evicted = await pm.pruneInRelayConns(inRelayPeers.len - pm.inRelayPeersTarget)
 
   # Slots under the relay peer limit, with the ones that pruning frees
   let freeRelaySlots = pm.maxRelayPeers - totalRelayPeers + evicted
   if outRelayPeers.len >= pm.outRelayPeersTarget or freeRelaySlots <= 0:
     return
-
-  let notConnectedPeers = pm.switch.peerStore.getDisconnectedPeers()
-
-  var outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
 
   shuffle(outsideBackoffPeers)
 
