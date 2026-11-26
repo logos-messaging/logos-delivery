@@ -299,8 +299,8 @@
 
   libp2p = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-libp2p";
-    rev = "ab8e5e613b2d6c70287a8333e891c8529ed90740";
-    sha256 = "0wd1miifd3nb6ymh1lzaw3g7iaasn91hzp2nrzcwpnfkpwzdcc97";
+    rev = "1854b73740def63d806e081273ab70a92aac8b85";
+    sha256 = "1bdb5d0br4wflg16by49k31yysz8mzca3a4j0x4ydr4g6qgvhci8";
     fetchSubmodules = true;
   };
 
