@@ -1229,7 +1229,7 @@ proc prunePeerStoreLoop(pm: PeerManager) {.async.} =
       debug "pruned stale ENRs", count = prunedEnrs
     await sleepAsync(PrunePeerStoreInterval)
 
-proc hasStreamBesides*(pm: PeerManager, peerId: PeerId, protocol: string): bool =
+proc hasStreamOtherThan*(pm: PeerManager, peerId: PeerId, protocol: string): bool =
   ## Returns whether the peer holds an open stream of a protocol other than
   ## `protocol` and libp2p's base protocols.
   for muxer in pm.switch.connManager.getConnections().getOrDefault(peerId):
@@ -1247,7 +1247,7 @@ proc isEvictable(pm: PeerManager, peerId: PeerId, protocol: string): bool =
     return false
   return
     Moment.now() - joined >= pm.evictionGrace and
-    not pm.hasStreamBesides(peerId, protocol)
+    not pm.hasStreamOtherThan(peerId, protocol)
 
 proc mounts(pm: PeerManager, protocol: string): bool =
   pm.switch.ms.handlers.anyIt(protocol in it.protos)
@@ -1270,7 +1270,7 @@ proc pruneIdleConns*(pm: PeerManager, protocol: string) {.async.} =
       continue
     let joined = pm.connectedSince(peerId).valueOr:
       continue
-    if now - joined < pm.idleConnTimeout or pm.hasStreamBesides(peerId, protocol):
+    if now - joined < pm.idleConnTimeout or pm.hasStreamOtherThan(peerId, protocol):
       continue
     debug "Disconnecting peer that holds no stream",
       peerId = peerId, protocol = protocol

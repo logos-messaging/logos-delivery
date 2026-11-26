@@ -2046,7 +2046,7 @@ suite "Peer Manager - relay limit":
 
     await allFutures(nodes.mapIt(it.stop()))
 
-  asyncTest "hasStreamBesides() is true only while a stream of another protocol is open":
+  asyncTest "hasStreamOtherThan() is true only while a stream of another protocol is open":
     let nodes = await newRelayNodes(2)
     await allFutures(nodes.mapIt(it.mountFilter()))
     let (client, server) = (nodes[0], nodes[1])
@@ -2054,7 +2054,7 @@ suite "Peer Manager - relay limit":
     await server.connectAllTo(@[client])
     checkUntilTimeout:
       server.inRelayPeers() == 1
-      not server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
+      not server.peerManager.hasStreamOtherThan(client.peerInfo.peerId, WakuRelayCodec)
 
     let stream = (
       await client.peerManager.dialPeer(
@@ -2068,12 +2068,12 @@ suite "Peer Manager - relay limit":
     discard
       await stream.readOnce(addr buf[0], buf.len).withTimeout(chronos.milliseconds(200))
     checkUntilTimeout:
-      server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
-      client.peerManager.hasStreamBesides(server.peerInfo.peerId, WakuRelayCodec)
+      server.peerManager.hasStreamOtherThan(client.peerInfo.peerId, WakuRelayCodec)
+      client.peerManager.hasStreamOtherThan(server.peerInfo.peerId, WakuRelayCodec)
 
     await stream.close()
     checkUntilTimeout:
-      not server.peerManager.hasStreamBesides(client.peerInfo.peerId, WakuRelayCodec)
+      not server.peerManager.hasStreamOtherThan(client.peerInfo.peerId, WakuRelayCodec)
 
     await allFutures(nodes.mapIt(it.stop()))
 
@@ -2093,7 +2093,7 @@ suite "Peer Manager - relay limit":
       raiseAssert "failed to open a filter stream"
     checkUntilTimeout:
       node.inRelayPeers() == 8
-      node.peerManager.hasStreamBesides(peers[0].peerInfo.peerId, WakuRelayCodec)
+      node.peerManager.hasStreamOtherThan(peers[0].peerInfo.peerId, WakuRelayCodec)
 
     await node.peerManager.connectToRelayPeers()
 
@@ -2169,6 +2169,29 @@ suite "Peer Manager - relay limit":
 
     await allFutures((@[node] & peers).mapIt(it.stop()))
 
+  asyncTest "a full node gets a relay link to a peer that it dials with connectToNodes":
+    # maxConnections 16 gives a relay peer limit of 8: 6 inbound and 2 outbound
+    let node = (await newRelayNodes(1, maxConnections = 16))[0]
+    let peers = await newRelayNodes(9)
+
+    await node.connectAllTo(peers[0 ..< 6])
+    await node.peerManager.connectToNodes(
+      peers[6 ..< 8].mapIt(it.peerInfo.toRemotePeerInfo())
+    )
+    checkUntilTimeout:
+      node.peerManager.connectedPeers(WakuRelayCodec)[0].len == 6
+      node.peerManager.connectedPeers(WakuRelayCodec)[1].len == 2
+
+    # A static peer is dialled in this way, whatever the relay peer limit says
+    await node.peerManager.connectToNodes(@[peers[8].peerInfo.toRemotePeerInfo()])
+
+    # The headroom of 1 admits the stream of the ninth peer, so the link has both streams
+    checkUntilTimeout:
+      node.peerManager.connectedPeers(WakuRelayCodec)[1].len == 3
+      not node.wakuRelay.canAcceptIncoming(PeerId.random(crypto.newRng()).get())
+
+    await allFutures((@[node] & peers).mapIt(it.stop()))
+
   asyncTest "a sharded node at its relay peer limit dials a relay peer into the slot that pruning frees":
     let node = (await newRelayNodes(1, maxConnections = 16, sharded = true))[0]
     let peers = await newRelayNodes(9, sharded = true)
@@ -2213,7 +2236,7 @@ suite "Peer Manager - relay limit":
     )
     checkUntilTimeout:
       node.inRelayPeers() == 1
-      node.peerManager.hasStreamBesides(busy.peerInfo.peerId, WakuRelayCodec)
+      node.peerManager.hasStreamOtherThan(busy.peerInfo.peerId, WakuRelayCodec)
       @[idle.peerInfo.peerId, busy.peerInfo.peerId].allIt(
         node.peerManager.connectedSince(it).isSome()
       )
