@@ -2,6 +2,8 @@
 
 import std/json
 import chronos, results, testutils/unittests, libp2p_mix/curve25519
+import libp2p/crypto/curve25519
+import libp2p/protocols/connectivity/autonat/types as autonat_types
 import mix_rln_spam_protection/module_api
 import
   logos_delivery/waku/[
@@ -10,6 +12,7 @@ import
     net/bound_ports,
     node/waku_node,
     node/waku_node/mix_rln,
+    node/waku_node/relay,
     discovery/self_advert_brokers,
   ],
   ../testlib/[wakucore, wakunode]
@@ -205,6 +208,8 @@ suite "Waku Mix RLN - readiness to advertise":
 
     let node = newTestWakuNode(generateSecp256k1Key())
     let mixKeys = generateKeyPair().expect("mix key pair")
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
     (
       await node.mountMix(
         DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
@@ -258,3 +263,89 @@ suite "Waku Mix RLN - a node without Relay":
       module.calls[^1].methodName == "get_membership_state"
       module.calls[^1].args == %*[MixRegistry, MixIdentifierHex]
     await node.stopMixRln()
+
+proc newMixNode(
+    relay: bool, allowAllAddresses: bool
+): Future[(WakuNode, Curve25519Key)] {.async.} =
+  ## A node that mounts mix, with or without relay, and its mix public key.
+  let node = newTestWakuNode(generateSecp256k1Key())
+  if relay:
+    (await node.mountRelay()).isOkOr:
+      raiseAssert "Failed to mount relay: " & $error
+  let mixKeys = generateKeyPair().expect("mix key pair")
+  (
+    await node.mountMix(
+      DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = allowAllAddresses
+    )
+  ).isOkOr:
+    raiseAssert "Failed to mount mix: " & $error
+  return (node, mixKeys.publicKey)
+
+suite "Waku Mix - a hop for others":
+  asyncTest "a node without relay advertises no mix key, and can still prove":
+    let (node, _) = await newMixNode(relay = false, allowAllAddresses = true)
+
+    check:
+      node.mixAdvertReady()
+      not node.mixHopReady()
+      node.advertisedMixKey().isNone()
+      node.rendezvousMixKey().len == 0
+
+  asyncTest "a relay node with no AutoNAT verdict advertises its mix key":
+    ## A busy node may never get a verdict, and no verdict is no proof of NAT.
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
+    check:
+      node.mixReachability == NetworkReachability.Unknown
+      node.mixHopReady()
+      node.advertisedMixKey() == Opt.some(mixKey)
+      node.rendezvousMixKey() == mixKey.to0xHex()
+
+  asyncTest "a relay node that AutoNAT reports reachable advertises its mix key":
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
+    node.setMixReachability(NetworkReachability.Reachable)
+    check:
+      node.mixHopReady()
+      node.advertisedMixKey() == Opt.some(mixKey)
+      node.rendezvousMixKey() == mixKey.to0xHex()
+
+  asyncTest "a relay node that AutoNAT reports not reachable advertises no mix key":
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = false)
+    node.setMixReachability(NetworkReachability.NotReachable)
+    check:
+      not node.mixHopReady()
+      node.advertisedMixKey().isNone()
+      node.rendezvousMixKey().len == 0
+      node.mixAdvertReady()
+
+    node.setMixReachability(NetworkReachability.Reachable)
+    check node.advertisedMixKey() == Opt.some(mixKey)
+
+  asyncTest "with allowAllAddresses a relay node does not wait for AutoNAT":
+    let (node, mixKey) = await newMixNode(relay = true, allowAllAddresses = true)
+
+    check:
+      node.mixReachability == NetworkReachability.Unknown
+      node.mixHopReady()
+      node.advertisedMixKey() == Opt.some(mixKey)
+
+  asyncTest "only a change of whether the node is a hop reports a record change":
+    let
+      (node, _) = await newMixNode(relay = true, allowAllAddresses = false)
+      changes = new int
+    let listening = AdvertChangedEvent.listenIt(node.advertCtx):
+      inc changes[]
+    discard listening.expect("listens")
+
+    ## Unknown and Reachable both make the node a hop.
+    node.setMixReachability(NetworkReachability.Reachable)
+    node.setMixReachability(NetworkReachability.Reachable)
+    await sleepAsync(chronos.milliseconds(10))
+    check changes[] == 0
+
+    node.setMixReachability(NetworkReachability.NotReachable)
+    await sleepAsync(chronos.milliseconds(10))
+    check changes[] == 1
+
+    node.setMixReachability(NetworkReachability.Reachable)
+    await sleepAsync(chronos.milliseconds(10))
+    check changes[] == 2

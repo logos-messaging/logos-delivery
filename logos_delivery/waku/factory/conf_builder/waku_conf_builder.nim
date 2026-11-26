@@ -52,8 +52,6 @@ const
   DefaultLightPush: bool = false
   DefaultPeerExchange: bool = false
     # historical confbuilder default; the node CLI deviates (true)
-  DefaultRendezvous: bool = false
-    # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
   DefaultRelayPeerExchange: bool = false
   DefaultRlnDisableValidation: bool = false
@@ -679,13 +677,6 @@ proc build*(
       debug "Whether to mount peerExchange is not specified, defaulting to not mounting"
       DefaultPeerExchange
 
-  let rendezvous =
-    if builder.rendezvous.isSome():
-      builder.rendezvous.get()
-    else:
-      debug "Whether to mount rendezvous is not specified, defaulting to not mounting"
-      DefaultRendezvous
-
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
 
   let rlnDisableValidation =
@@ -791,6 +782,16 @@ proc build*(
         "in-process one: pass --enable-kad-discovery=false alongside " &
         "--plugin-kad-discovery to run the plugin instead."
     )
+
+  ## Rendezvous serves only Mix discovery here, and service discovery covers
+  ## that, so unless it is set, Rendezvous runs only on a relay node without
+  ## service discovery. `mountRendezvous` also mounts the server, which stores
+  ## other peers' registrations, and a node without relay (Edge) serves none.
+  let rendezvous =
+    if builder.rendezvous.isSome():
+      builder.rendezvous.get()
+    else:
+      relay and kademliaDiscoveryConf.isNone() and externalDiscoveryConf.isNone()
 
   # End - Build sub-configs
 
@@ -908,8 +909,9 @@ proc build*(
     relay = relay,
     sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
     # Advertise Mix only when `mixConf` mounts it, so a preset alone does not
-    # make a node claim a capability it does not run.
-    mix = mixConf.isSome(),
+    # make a node claim a capability it does not run, and only with relay: a
+    # node without relay (Edge) mounts mix to send through it and is no hop.
+    mix = mixConf.isSome() and relay,
   )
 
   ## A node that serves nothing has no reason to hold routing state for

@@ -7,6 +7,7 @@ import
   chronos,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
+  libp2p/protocols/connectivity/autonat/types as autonat_types,
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/ping,
@@ -114,7 +115,12 @@ proc setupSwitchServices*(
     ## keeps peerInfo unchanged and the route stays until the next update.
     info "circuit relay reservation change", addrs = $addresses
 
-  let autonatService = getAutonatService(rng)
+  # AutoNAT's verdict decides whether this node advertises its mix key.
+  let autonatService = getAutonatService(
+    rng,
+    proc(reachability: NetworkReachability) {.gcsafe, raises: [].} =
+      node.setMixReachability(reachability),
+  )
   let newService =
     if conf.circuitRelayClient:
       ## The node assumes it is behind NAT.

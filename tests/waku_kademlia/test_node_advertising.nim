@@ -6,6 +6,7 @@ import mix_rln_spam_protection/module_api
 import libp2p/extended_peer_record
 import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/protocols/kademlia/types
+import libp2p/protocols/connectivity/autonat/types as autonat_types
 import libp2p_mix, libp2p_mix/curve25519
 import
   logos_delivery/waku/waku_core,
@@ -264,33 +265,38 @@ suite "Waku Kademlia node advertising":
         .isNone()
       node.publishedServices().allIt(it.id != MixProtocolID)
 
-  proc newHeldMixNode(): Future[WakuNode] {.async.} =
-    ## A started mix node with Mix RLN and no usable membership yet.
+  proc newHeldMixNode(
+      mixRln = true, allowAllAddresses = true
+  ): Future[WakuNode] {.async.} =
+    ## A started mix node with Mix RLN and no usable membership yet, or, without
+    ## `mixRln`, one with no Mix RLN. Without `allowAllAddresses` it waits for
+    ## AutoNAT, which the test plays.
     let service = ServiceInfo(id: "/test/service/1.0.0", data: Opt.none(seq[byte]))
     let node = newAdvertisingNode(parseIpAddress("127.0.0.1"), service)
     let mixKeys = generateKeyPair().expect("mix key pair")
     (
       await node.mountMix(
-        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = true
+        DefaultClusterId, mixKeys.privateKey, @[], allowAllAddresses = allowAllAddresses
       )
     ).isOkOr:
       raiseAssert "Failed to mount mix: " & $error
-    node.wakuMixRln = ModuleRlnProtection
-      .new(
-        ModuleRlnConfig(
-          registryId: "logos:local:mix",
-          rlnIdentifierHex:
-            "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f7631000000000000",
-          epochSeconds: 10,
-          maxEpochGap: 3,
-          metadataTopic: "/test/1/mix-rln-metadata/proto",
-        ),
-        proc(
-            methodName: string, args: JsonNode
-        ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
-          return err("no backend in this test"),
-      )
-      .expect("a valid Mix RLN config")
+    if mixRln:
+      node.wakuMixRln = ModuleRlnProtection
+        .new(
+          ModuleRlnConfig(
+            registryId: "logos:local:mix",
+            rlnIdentifierHex:
+              "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f7631000000000000",
+            epochSeconds: 10,
+            maxEpochGap: 3,
+            metadataTopic: "/test/1/mix-rln-metadata/proto",
+          ),
+          proc(
+              methodName: string, args: JsonNode
+          ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+            return err("no backend in this test"),
+        )
+        .expect("a valid Mix RLN config")
     let conf = defaultKernelConf().expect("kernel conf").toWakuConf().expect("conf")
     conf.wakuFlags = CapabilitiesBitfield.init(relay = true, mix = true)
     conf.mixConf = Opt.some(MixConf())
@@ -351,6 +357,51 @@ suite "Waku Kademlia node advertising":
     node.mixAdvertChanged("mix membership")
     checkUntilTimeout:
       node.advertListsMixKey()
+
+  asyncTest "a mix node holds its first advert until AutoNAT gives a verdict":
+    let node = await newHeldMixNode(mixRln = false, allowAllAddresses = false)
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    await sleepAsync(500.milliseconds)
+    check not node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+      LogosDeliveryServiceId.hashServiceId()
+    )
+
+    node.setMixReachability(NetworkReachability.Reachable)
+    checkUntilTimeout:
+      node.advertListsMixKey()
+
+  asyncTest "a mix node with no AutoNAT verdict in time advertises its mix key":
+    ## A busy node may never get a verdict, and no verdict is no proof of NAT.
+    let node = await newHeldMixNode(mixRln = false, allowAllAddresses = false)
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising(mixMembershipHold = 300.milliseconds)
+    checkUntilTimeout:
+      node.advertListsMixKey()
+    check node.mixReachability == NetworkReachability.Unknown
+
+  asyncTest "a mix node that is not reachable advertises without mix":
+    let node = await newHeldMixNode(mixRln = false, allowAllAddresses = false)
+    defer:
+      await node.stop()
+    await node.startRecordAdvertising()
+    node.setMixReachability(NetworkReachability.NotReachable)
+    checkUntilTimeout:
+      node.wakuKademlia.protocol.advertiser.providedAdverts.hasKey(
+        LogosDeliveryServiceId.hashServiceId()
+      )
+    check not node.advertListsMixKey()
+
+    ## Once reachable, it advertises its mix key, and drops it again when it
+    ## is not reachable any more.
+    node.setMixReachability(NetworkReachability.Reachable)
+    checkUntilTimeout:
+      node.advertListsMixKey()
+    node.setMixReachability(NetworkReachability.NotReachable)
+    checkUntilTimeout:
+      not node.advertListsMixKey()
 
   asyncTest "a node advertises its record again when its addresses change":
     ## libp2p refreshes no record the node signed itself, so the node signs
