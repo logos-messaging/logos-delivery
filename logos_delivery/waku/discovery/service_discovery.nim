@@ -128,9 +128,12 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
     let peerInfo = self.inner.protocol.switch.peerInfo
     let record =
       ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data, secondary)
-    self.inner.addServiceToAdvertise(
-      ServiceInfo(id: serviceId, data: Opt.some(data)), record
-    )
+    let res = catch:
+      await self.inner.replaceServiceToAdvertise(
+        ServiceInfo(id: serviceId, data: Opt.some(data)), record
+      )
+    res.isOkOr:
+      return err("service backend: start advertising failed: " & error.msg)
     ok()
 
   method stopAdvertising(

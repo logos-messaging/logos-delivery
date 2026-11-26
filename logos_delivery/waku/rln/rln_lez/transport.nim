@@ -435,7 +435,7 @@ proc parseRlnEpochQuota*(resultJson: string): Result[EpochQuota, RlnError] =
     )
   )
 
-proc parseRlnMembershipStatus(s: string): Result[MembershipStatus, RlnError] =
+proc parseRlnMembershipStatus*(s: string): Result[MembershipStatus, RlnError] =
   case s
   of "unknown":
     ok(MembershipStatus.Unknown)

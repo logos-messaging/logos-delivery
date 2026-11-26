@@ -14,6 +14,7 @@ import logos_delivery/waku/waku
 import
   logos_delivery/waku/[
     waku_core,
+    node/health_monitor/mix_readiness,
     node/waku_node,
     rln/rln_api,
     rln/rln_plugin,
@@ -23,7 +24,6 @@ import
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
-    waku_mix,
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
@@ -136,28 +136,10 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   return Opt.some(peerStore.getPeer(exit))
 
 proc mixReady*(self: Waku): bool =
-  ## True when mix is mounted, mix can encode this node's own hop, and the pool
-  ## has enough nodes for a path. `lightpushPublishToAny` selects the exit and
-  ## reports SERVICE_NOT_AVAILABLE when it finds none.
-  if self.node.wakuMix.isNil():
-    return false
-  if not self.node.wakuMix.selfHopUsable():
-    return false
-  return self.node.getMixNodePoolSize() >= MinMixPoolSize
-
-proc mixMounted*(self: Waku): bool =
-  ## True when mix is mounted. A short pool or a missing exit can clear with
-  ## time; a node without mix never sends over mix.
-  return not self.node.wakuMix.isNil()
-
-proc mixSelfHopUsable*(self: Waku): bool =
-  ## True when mix is mounted and can encode this node's own hop. `mixReady`
-  ## also checks this; the send path reads it alone to name the reason.
-  return not self.node.wakuMix.isNil() and self.node.wakuMix.selfHopUsable()
-
-proc mixHasExcludedNodes*(self: Waku): bool =
-  ## True when mix knows mix nodes that no path can use.
-  return not self.node.wakuMix.isNil() and self.node.wakuMix.countExcluded() > 0
+  ## True when mix can carry a message of this node now, given an exit for it.
+  ## `lightpushPublishToAny` selects the exit and reports SERVICE_NOT_AVAILABLE
+  ## when it finds none.
+  return self.node.mixUnusable() == MixUnusable.None
 
 proc mixLightpushSize*(
     self: Waku, shard: PubsubTopic, message: WakuMessage

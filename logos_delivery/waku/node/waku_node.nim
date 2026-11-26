@@ -168,6 +168,17 @@ type
     subscriptionManager*: SubscriptionManager
     wakuMixRln*: ModuleRlnProtection
     wakuMixRlnListener*: Opt[MessageSeenEventListener]
+    mixMembershipUsable*: bool
+      ## The last known answer to "does this node hold a usable membership in
+      ## the Mix registry". Meaningful only with `wakuMixRln` set.
+    mixMembershipUnknownState*: Opt[string]
+      ## The last membership state the RLN module answered that this node does
+      ## not know, so that it is warned about once. None after a known state.
+    mixMembershipLoop*: Future[void].Raising([CancelledError])
+      ## Re-reads the Mix membership while Mix RLN runs; `nil` otherwise.
+    onMixMembershipChanged*: proc(): Future[void] {.async: (raises: []), gcsafe.}
+      ## Runs after `mixMembershipUsable` changed. waku.nim uses it to
+      ## advertise this node again.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
       ## The background lookup of the `dns4` mix node names; `nil` when none.
@@ -248,15 +259,24 @@ proc getCapabilitiesGetter(node: WakuNode): GetCapabilities =
       return @[]
     return node.enr.getCapabilities()
 
+func mixAdvertReady*(node: WakuNode): bool =
+  ## False while this node mounts mix but cannot act as a mix node: with Mix
+  ## RLN, while it holds no usable Mix membership.
+  node.wakuMixRln.isNil() or node.mixMembershipUsable
+
+func rendezvousMixKey*(node: WakuNode): string =
+  ## The mix key of this node's Rendezvous record: empty without mix, and while
+  ## the node cannot act as a mix node, so that no peer routes through it.
+  if node.wakuMix.isNil() or not node.mixAdvertReady():
+    return ""
+  return node.wakuMix.pubKey.to0xHex()
+
 proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
   return proc(): WakuPeerRecord {.closure, gcsafe, raises: [].} =
-    var mixKey: string
-    if not node.wakuMix.isNil():
-      mixKey = node.wakuMix.pubKey.to0xHex()
     return WakuPeerRecord.init(
       peerId = node.switch.peerInfo.peerId,
       addresses = node.announcedAddresses,
-      mixKey = mixKey,
+      mixKey = node.rendezvousMixKey(),
     )
 
 proc onLearnedHost(node: WakuNode, ma: MultiAddress): Opt[MultiAddress] =

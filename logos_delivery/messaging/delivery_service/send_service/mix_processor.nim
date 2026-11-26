@@ -1,29 +1,14 @@
 import chronicles, chronos, results, brokers/broker_context
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku
-import logos_delivery/waku/api/publish
-import logos_delivery/waku/waku_mix
+import logos_delivery/waku/api/[health, publish]
 import logos_delivery/api/conf/modes
 
 import ./[delivery_task, send_processor]
 
+export mix_readiness
+
 logScope:
   topics = "send service mix processor"
-
-const MixNotMountedReason* = "mix is not mounted"
-
-const MixPoolTooSmallReason* =
-  "mix knows fewer than " & $MinMixPoolSize & " usable mix nodes"
-  ## The pool counts only members with an address that mix routes.
-
-const MixNodesExcludedReason* =
-  MixPoolTooSmallReason & " and knows mix nodes that it cannot use. " &
-  MixAllowAllAddressesHint
-
-const MixSelfHopReason* = "this node has no address that mix can use for replies"
-  ## An IPv6-only or name-only announcement, or a NAT mapping not yet arrived.
-
-const MixNoExitReason* = "no mix node serves lightpush on the shard of the message"
-  ## No pool member serves lightpush on the message's shard.
 
 const MixTooLargeReason* = "message too large for mix"
   ## One mix message carries much less than the plain path.
@@ -38,33 +23,13 @@ const MixUnusableGrace* = chronos.seconds(3)
   ## How long after its message timestamp a `Required` task waits for a mounted
   ## mix that cannot attempt it. Retries come `RetryInterval` apart.
 
-type
-  MixUnusable* {.pure.} = enum
-    ## Why mix cannot attempt a task now.
-    None
-    NotMounted
-    PoolTooSmall
-    NodesExcluded
-    SelfHop
-    NoExit
-
-  MixSendProcessor* = ref object of BaseSendProcessor
-    waku: Waku
-    fallbackAllowed: bool
-    mixWindow: timer.Duration
-    fellBackReason: MixUnusable
-      ## Why the last task went to the plain path; `None` once mix can attempt
-      ## a task again. INFO logs each change.
-
-proc reason*(unusable: MixUnusable): string =
-  ## The text written to `errorDesc` and the log lines.
-  case unusable
-  of MixUnusable.None: ""
-  of MixUnusable.NotMounted: MixNotMountedReason
-  of MixUnusable.PoolTooSmall: MixPoolTooSmallReason
-  of MixUnusable.NodesExcluded: MixNodesExcludedReason
-  of MixUnusable.SelfHop: MixSelfHopReason
-  of MixUnusable.NoExit: MixNoExitReason
+type MixSendProcessor* = ref object of BaseSendProcessor
+  waku: Waku
+  fallbackAllowed: bool
+  mixWindow: timer.Duration
+  fellBackReason: MixUnusable
+    ## Why the last task went to the plain path; `None` once mix can attempt
+    ## a task again. INFO logs each change.
 
 proc fellBackFor*(self: MixSendProcessor): MixUnusable =
   ## Why the last task went to the plain path, or `None` once mix can attempt a
@@ -101,17 +66,12 @@ proc mixAttemptDue(task: DeliveryTask): bool =
     Moment.now() - task.lastMixAttemptTime.get() >= MixRetryInterval
 
 proc mixUnusable(self: MixSendProcessor, task: DeliveryTask): MixUnusable =
-  ## Why mix cannot attempt `task` now, with no network call. It splits
-  ## `mixReady()` into the mount, the self hop and the pool, then checks the exit with
-  ## `selectMixLightpushPeer`, as `lightpushPublishToAny(mixify = true)` does.
-  if not self.waku.mixReady():
-    if not self.waku.mixMounted():
-      return MixUnusable.NotMounted
-    if not self.waku.mixSelfHopUsable():
-      return MixUnusable.SelfHop
-    if self.waku.mixHasExcludedNodes():
-      return MixUnusable.NodesExcluded
-    return MixUnusable.PoolTooSmall
+  ## Why mix cannot attempt `task` now, with no network call. The exit must serve
+  ## the shard of the message, so `lightpushPublishToAny(mixify = true)` looks for
+  ## it in the same way.
+  let unusable = self.waku.mixUnusable()
+  if unusable != MixUnusable.None:
+    return unusable
   if self.waku.selectMixLightpushPeer(task.pubsubTopic).isNone():
     return MixUnusable.NoExit
   return MixUnusable.None
@@ -123,7 +83,7 @@ proc decideWithoutMix(
   ## with the reason, once its message is older than `MixUnusableGrace` while
   ## mix is mounted.
   if not self.fallbackAllowed:
-    if self.waku.mixMounted() and task.messageAge() <= MixUnusableGrace:
+    if unusable != MixUnusable.NotMounted and task.messageAge() <= MixUnusableGrace:
       task.errorDesc = unusable.reason()
       task.state = DeliveryState.NextRoundRetry
       return
