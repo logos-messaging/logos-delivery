@@ -440,6 +440,38 @@ suite "Store Client":
         connectedStore.queries == 6
         notConnectedStore.queries == 0
 
+    asyncTest "queryToAny counts no failure of a store peer that did not have the full timeout":
+      ## The first store peer fails after most of the timeout, and the time ends on the
+      ## second store peer. The second store peer did not fail, so the next queries
+      ## must still use its connection.
+      let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
+      let slowToFailStore = await newFakeStore()
+      let secondStore = await newFakeStore()
+      let notConnectedStore = await newFakeStore()
+      defer:
+        await allFutures(
+          slowToFailStore.switch.stop(),
+          secondStore.switch.stop(),
+          notConnectedStore.switch.stop(),
+        )
+      clientSwitch.addStorePeer(slowToFailStore, @[shard])
+      clientSwitch.addStorePeer(secondStore, @[shard])
+      # Only this store peer is connected, so the query asks it first.
+      await clientSwitch.connectTo(slowToFailStore)
+      slowToFailStore.failing = true
+      slowToFailStore.allowAnswer = sleepAsync(200.milliseconds)
+      secondStore.allowAnswer = newFuture[void]("allow answer")
+      check (await client.queryToAny(storeQuery, timeout = 400.milliseconds)).isErr()
+      secondStore.allowAnswer.complete()
+
+      clientSwitch.addStorePeer(notConnectedStore, @[shard])
+      await clientSwitch.connectTo(secondStore)
+      for _ in 0 ..< 5:
+        check (await client.queryToAny(storeQuery)).isOk()
+      check:
+        slowToFailStore.queries == 1
+        notConnectedStore.queries == 0
+
     asyncTest "queryToAny asks only the exclusive store peers":
       let peerManager = PeerManager.new(clientSwitch)
       let exclusiveClient = WakuStoreClient.new(peerManager, crypto.newRng())

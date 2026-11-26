@@ -110,24 +110,22 @@ proc timeLeft(timeout: Duration, start: Moment): Duration =
   return timeout - (Moment.now() - start)
 
 proc queryAndRecordFailure(
-    self: WakuStoreClient,
-    request: StoreQueryRequest,
-    peer: RemotePeerInfo,
-    timeout: Duration,
+    self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo
 ): Future[StoreQueryResult] {.async.} =
-  ## A query to `peer` that ends in `timeout`.
-  ## A query that fails or does not end in `timeout` counts as a failure of the peer.
-  ## A cancel by the caller counts as no failure.
-  let query = self.query(request, peer)
-  # A cancel by the caller that ends the query also ends this wait, with no failure.
-  if not await query.withTimeout(timeout): # the timeout cancels the query
-    self.failedAt[peer.peerId] = Moment.now()
-    return err(timedOutError())
-  let response = query.read().valueOr:
-    self.failedAt[peer.peerId] = Moment.now()
-    return err(error)
-  self.failedAt.del(peer.peerId)
-  return ok(response)
+  ## A query to `peer`. A query that fails counts as a failure of the peer.
+  ## A cancel of the query counts as no failure.
+  var failed = true
+  try:
+    let response = ?await self.query(request, peer)
+    failed = false
+    self.failedAt.del(peer.peerId)
+    return ok(response)
+  except CancelledError as e:
+    failed = false
+    raise e
+  finally:
+    if failed:
+      self.failedAt[peer.peerId] = Moment.now()
 
 proc queryInOrder(
     self: WakuStoreClient,
@@ -135,14 +133,28 @@ proc queryInOrder(
     peers: seq[RemotePeerInfo],
     timeout: Duration,
 ): Future[StoreQueryResult] {.async.} =
-  ## Asks `peers` in their order until one answers, for `timeout` at most.
+  ## Asks the store peers in `peers` in their order until one answers, for `timeout`
+  ## at most.
+  ## At first a call of `queryToAny` had no time limit.
+  ## #4227 gave each backfill call one time limit for all the store peers together.
+  ## #4351 gave each Store check of a send one time limit for all the store peers
+  ## together.
+  ## A store peer that has all of `timeout` and does not answer counts as failed.
+  ## A later store peer has only the time that is left, so it does not count as
+  ## failed when the time ends.
   let start = Moment.now()
+  var left = timeout
   var lastError: StoreError
   for peer in peers:
-    let left = timeout.timeLeft(start)
     if left <= ZeroDuration:
       return err(timedOutError())
-    let response = (await self.queryAndRecordFailure(request, peer, left)).valueOr:
+    let query = self.queryAndRecordFailure(request, peer)
+    if not await query.withTimeout(left): # the end of the time cancels the query
+      if left == timeout:
+        self.failedAt[peer.peerId] = Moment.now()
+      return err(timedOutError())
+    left = timeout.timeLeft(start)
+    let response = query.read().valueOr:
       debug "Store query failed, trying next peer", peerId = peer.peerId, error = $error
       lastError = error
       continue
@@ -233,7 +245,9 @@ proc queryToAny*(
   ## `shards` are the shards of the query. The pubsub topic of the request is
   ## the default.
   ## `timeout` is the longest time of the query, for all the store peers it asks.
-  ## A store peer that does not answer in this time counts as failed.
+  ## The first store peer has all of this time, and it counts as failed when it does
+  ## not answer. A later store peer has only the time that is left, so it does not
+  ## count as failed when the time ends.
 
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
