@@ -47,7 +47,9 @@ type DeliveryTask* = ref object
     ## Set at the first anonymous send attempt and never cleared; from then on,
     ## the INFO and ERROR records of this task withhold the hash.
   deanonymized*: bool
-    ## True once a plain attempt starts, even if no peer receives the message.
+    ## Set by a relay or lightpush attempt, unless nothing left this node.
+    ## A stop of the send service during such an attempt leaves it set.
+    ## No later attempt clears it.
   propagatedAnonymously*: bool
     ## Set when an anonymous path propagated the message. No store node confirms
     ## it: the query would name the message from this node's own address.

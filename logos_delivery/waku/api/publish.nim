@@ -22,6 +22,7 @@ import
     node/peer_manager,
     rln,
     waku_lightpush/common,
+    waku_lightpush/client,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
   ]
@@ -75,6 +76,12 @@ proc messageForSizeCheck*(
     self: Waku, message: WakuMessage
 ): Result[WakuMessage, RlnError] =
   return self.node.rlnPlugin.messageForSizeCheck(message)
+
+func isDialFailure*(error: ErrorStatus): bool =
+  ## True when the dial of the lightpush service peer failed, so no request was sent.
+  return
+    error.code == LightPushErrorCode.NO_PEERS_TO_RELAY and
+    error.desc.get("").startsWith(DialFailurePrefix)
 
 func isRlnRejection*(error: ErrorStatus): bool =
   ## True when a publish failure means "the RLN proof was not accepted", so the

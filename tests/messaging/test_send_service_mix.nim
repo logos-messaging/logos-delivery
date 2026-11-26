@@ -10,7 +10,7 @@ import
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/net/bound_ports,
   logos_delivery/waku/node/waku_node/mix_rln,
-  libp2p/[peerid, multiaddress],
+  libp2p/[peerid, multiaddress, switch, protocols/protocol],
   libp2p/stream/connection,
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_mix,
@@ -23,13 +23,17 @@ import
   logos_delivery/waku/rln/rln_plugin,
   logos_delivery/waku/rln/types as rln_types,
   logos_delivery/waku/waku_lightpush/common,
+  logos_delivery/waku/waku_lightpush/client,
+  logos_delivery/waku/waku_lightpush/rpc_codec,
   logos_delivery/waku/waku_core,
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
-  logos_delivery/messaging/delivery_service/send_service/
-    [send_service, send_processor, mix_processor, delivery_task]
+  logos_delivery/messaging/delivery_service/send_service/[
+    send_service, send_processor, mix_processor, relay_processor, lightpush_processor,
+    delivery_task,
+  ]
 import ../testlib/[futures, testasync, wakucore, wakunodeconf]
 
 ## Tests for the anonymity levels of the send path. The first suite mounts no
@@ -66,13 +70,11 @@ method process(self: PassCounter, task: DeliveryTask): Future[void] {.async.} =
 type RetryingProcessor = ref object of BaseSendProcessor
   ## Leaves every task for a retry, with `reason` as the outcome's `desc`.
   reason: string
-  calls: int
 
 method isValidProcessor(self: RetryingProcessor, task: DeliveryTask): bool {.gcsafe.} =
   return true
 
 method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.async.} =
-  inc self.calls
   task.tryCount.inc()
   task.state = DeliveryState.NextRoundRetry
   task.errorDesc = self.reason
@@ -84,23 +86,6 @@ method isValidProcessor(
     self: NeverValidProcessor, task: DeliveryTask
 ): bool {.gcsafe.} =
   return false
-
-type StallingProcessor = ref object of BaseSendProcessor
-  ## Overrides `sendImpl`, which the chain calls on each link. Each call waits on
-  ## a new reply in `replies`, then propagates the task.
-  replies: seq[Future[void]]
-
-method isValidProcessor(self: StallingProcessor, task: DeliveryTask): bool {.gcsafe.} =
-  return true
-
-method sendImpl(self: StallingProcessor, task: DeliveryTask): Future[void] {.async.} =
-  task.tryCount.inc()
-  let reply = newFuture[void]("stalling-reply")
-  self.replies.add(reply)
-  await reply
-  if task.firstPropagatedTime.isNone():
-    task.firstPropagatedTime = Opt.some(Moment.now())
-  task.state = DeliveryState.SuccessfullyPropagated
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -556,6 +541,54 @@ suite "SendService - anonymity level with a mounted mix":
       waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
     )
 
+  proc addLightpushServicePeer(port: int) =
+    waku.node.peerManager.addServicePeer(
+      RemotePeerInfo.init(
+        PeerId.init(generateSecp256k1Key()).tryGet(),
+        @[MultiAddress.init("/ip4/127.0.0.1/tcp/" & $port).tryGet()],
+      ),
+      WakuLightPushCodec,
+    )
+
+  proc addLightpushServicePeer() =
+    ## Adds a lightpush service peer at an address where nothing listens.
+    addLightpushServicePeer(1)
+
+  proc startLightpushService(handler: LPProtoHandler): Future[Switch] {.async.} =
+    ## Starts a libp2p node that answers lightpush requests with `handler`.
+    ## It is a lightpush service peer of the node.
+    let service = newTestSwitch()
+    service.mount(LPProtocol.new(@[WakuLightPushCodec], handler))
+    await service.start()
+    waku.node.peerManager.addServicePeer(
+      RemotePeerInfo.init(service.peerInfo.peerId, service.peerInfo.addrs),
+      WakuLightPushCodec,
+    )
+    return service
+
+  proc replyingWith(code: LightPushStatusCode, desc: string): LPProtoHandler =
+    ## Answers each lightpush request with `code` and `desc`.
+    return proc(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+      try:
+        let buffer = await conn.readLp(int(DefaultMaxWakuMessageSize))
+        let request = LightpushRequest.decode(buffer).valueOr:
+          return
+        await conn.writeLp(
+          LightPushResponse(
+            requestId: request.requestId, statusCode: code, statusDesc: Opt.some(desc)
+          ).encode()
+        )
+      except LPStreamError:
+        discard
+
+  proc relayReturning(outcome: WakuLightPushResult): RelaySendProcessor =
+    ## A relay processor whose publish returns `outcome`.
+    let publish: PushMessageHandler = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      return outcome
+    return RelaySendProcessor.new(true, publish, waku, waku.brokerCtx)
+
   asyncTest "a Required task waits for a short pool during its grace, then fails":
     ## A short pool is a reason mix cannot attempt the task. A `Required` task
     ## waits while its admission is within `MixUnusableGrace`, then fails with
@@ -742,31 +775,37 @@ suite "SendService - anonymity level with a mounted mix":
       mix.fellBackFor() == MixUnusable.None # ... and the recovery was logged
     await fut.cancelAndWait()
 
-  asyncTest "a Preferred task stays on the plain path after a plain attempt":
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60220 + i, lightpush = false)
-    check waku.mixReady()
+  asyncTest "a Preferred task stays on the plain path after a lightpush attempt with no answer":
+    fillPoolWithNoExit()
 
-    let plain = RetryingProcessor(reason: "no plain peer accepted it")
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
-    )
-    mix.chain(plain)
+    proc readAndClose(
+        conn: Connection, proto: string
+    ) {.async: (raises: [CancelledError]).} =
+      ## Takes the lightpush request and gives no answer.
+      try:
+        discard await conn.readLp(int(DefaultMaxWakuMessageSize))
+      except LPStreamError:
+        discard
+      await conn.close()
+
+    let service = await startLightpushService(readAndClose)
+    defer:
+      await service.stop()
+    let mix = preferredMix()
+    mix.chain(LightpushSendProcessor.new(waku, waku.brokerCtx))
 
     let task = buildTask("plain-then-exit", chronos.seconds(5))
-    await mix.process(task)
+    check await mix.process(task).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      plain.calls == 1
+      task.tryCount == 1 # the lightpush attempt
       task.deanonymized
 
-    addMixPeer(60224, lightpush = true)
+    addMixPeer(lightpush = true)
     check waku.selectMixLightpushPeer(shard).isSome()
-    let fut = mix.process(task)
+    check await mix.process(task).withTimeout(FUTURE_TIMEOUT_MEDIUM)
     check:
-      fut.completed()
-      plain.calls == 2
+      task.tryCount == 2 # lightpush again
       not task.anonymized
-    await fut.cancelAndWait()
 
   asyncTest "a Preferred task with deanonymized set goes to the plain path before the pool check":
     fillPoolWithNoExit()
@@ -781,8 +820,8 @@ suite "SendService - anonymity level with a mounted mix":
       mix.fellBackFor() == MixUnusable.None
 
   asyncTest "a Preferred task without a plain attempt retries over mix when an exit returns":
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60230 + i, lightpush = false)
+    for _ in 0 ..< MinMixPoolSize:
+      addMixPeer(lightpush = false)
     check waku.mixReady()
 
     let plain = NeverValidProcessor()
@@ -795,28 +834,118 @@ suite "SendService - anonymity level with a mounted mix":
     await mix.process(task)
     check not task.deanonymized
 
-    addMixPeer(60234, lightpush = true)
+    addMixPeer(lightpush = true)
     check waku.selectMixLightpushPeer(shard).isSome()
     let fut = mix.process(task)
     check task.anonymized
     await fut.cancelAndWait()
 
   asyncTest "a cancelled plain attempt deanonymizes the task":
-    for i in 0 ..< MinMixPoolSize:
-      addMixPeer(60240 + i, lightpush = false)
-    check waku.mixReady()
+    let stalled = newFuture[WakuLightPushResult]("stalled-publish")
+    let publish: PushMessageHandler = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      return await stalled
+    let relayTask = buildTask("cancelled-relay", ZeroDuration)
+    let relayAttempt =
+      RelaySendProcessor.new(true, publish, waku, waku.brokerCtx).process(relayTask)
+    check:
+      relayTask.tryCount == 1
+      not relayAttempt.finished() # the attempt waits in the publish
+    await relayAttempt.cancelAndWait()
+    check relayTask.deanonymized
 
-    let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
+    # The lightpush service peer accepts the connection and gives no answer.
+    var held: seq[StreamTransport]
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held.add(client)
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    defer:
+      for client in held:
+        await client.closeWait()
+      listener.stop()
+      await listener.closeWait()
+    addLightpushServicePeer(int(listener.localAddress().port))
+    let lightpushTask = buildTask("cancelled-lightpush", ZeroDuration)
+    let lightpushAttempt =
+      LightpushSendProcessor.new(waku, waku.brokerCtx).process(lightpushTask)
+    check:
+      lightpushTask.tryCount == 1
+      not lightpushAttempt.finished() # the attempt waits in the dial
+    await lightpushAttempt.cancelAndWait()
+    check lightpushTask.deanonymized
+
+  asyncTest "a relay attempt deanonymizes the task when it may have sent the message":
+    for (id, outcome, deanonymized) in [
+      ("relay-sent", lightpushSuccessResult(1), true),
+      # With no relay peer, this node's filter service and archive can get the message.
+      (
+        "relay-no-peer",
+        lighpushErrorResult(LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer"),
+        true,
+      ),
+      (
+        "relay-refused",
+        lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "refused"),
+        false,
+      ),
+    ]:
+      checkpoint id
+      let task = buildTask(id, ZeroDuration)
+      await relayReturning(outcome).process(task)
+      check task.deanonymized == deanonymized
+
+  asyncTest "a failed dial or a relay refusal keeps deanonymized from an earlier attempt":
+    addLightpushServicePeer()
+    let relay = relayReturning(
+      lighpushErrorResult(LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer")
     )
-    let plain = StallingProcessor()
-    mix.chain(plain)
+    relay.chain(LightpushSendProcessor.new(waku, waku.brokerCtx))
 
-    let task = buildTask("cancelled-plain", chronos.seconds(5))
-    let attempt = mix.process(task)
-    check plain.replies.len == 1
-    await attempt.cancelAndWait()
-    check task.deanonymized
+    # Relay finds no relay peer, and then the lightpush dial fails.
+    let task = buildTask("no-relay-peer-then-failed-dial", ZeroDuration)
+    check await relay.process(task).withTimeout(FUTURE_TIMEOUT_MEDIUM)
+    check:
+      task.tryCount == 2
+      task.deanonymized
+
+    await relayReturning(
+      lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "refused")
+    )
+      .process(task)
+    check:
+      task.tryCount == 3
+      task.deanonymized
+
+  asyncTest "a lightpush reply deanonymizes the task even with the text of a failed dial":
+    let dialText = DialFailurePrefix & "the service node wrote this"
+    for (id, code, desc, state) in [
+      (
+        "reply-no-relay-peers", LightPushErrorCode.NO_PEERS_TO_RELAY,
+        "No peers for topic, skipping publish", DeliveryState.NextRoundRetry,
+      ),
+      (
+        "reply-dial-text", LightPushErrorCode.NO_PEERS_TO_RELAY, dialText,
+        DeliveryState.NextRoundRetry,
+      ),
+      # The refusal keeps its code, so the task fails and gets no retry.
+      (
+        "refusal-dial-text", LightPushErrorCode.INVALID_MESSAGE, dialText,
+        DeliveryState.FailedToDeliver,
+      ),
+    ]:
+      checkpoint id
+      let service = await startLightpushService(replyingWith(code, desc))
+      let task = buildTask(id, ZeroDuration)
+      let attempt = LightpushSendProcessor.new(waku, waku.brokerCtx).process(task)
+      check await attempt.withTimeout(FUTURE_TIMEOUT_MEDIUM)
+      await service.stop()
+      check:
+        task.tryCount == 1
+        task.deanonymized
+        task.state == state
 
   asyncTest "an expired task reports the reason a processor left on it":
     ## A processor that leaves a task for a retry can write why in `errorDesc`.
@@ -1574,3 +1703,20 @@ suite "Mix RLN coordination protection":
     check:
       started.isErr()
       started.error == "Mix RLN coordination requires Relay RLN"
+
+suite "Lightpush publish results":
+  test "isDialFailure needs both the error code and the text of a failed dial":
+    let dialFailed =
+      (LightPushErrorCode.NO_PEERS_TO_RELAY, Opt.some(DialFailurePrefix & "the peer"))
+    # A reply of the service node and an error with another code are not failed dials.
+    let noRelayPeer = (
+      LightPushErrorCode.NO_PEERS_TO_RELAY,
+      Opt.some("No peers for topic, skipping publish"),
+    )
+    let unavailable = (
+      LightPushErrorCode.SERVICE_NOT_AVAILABLE, Opt.some(DialFailurePrefix & "the peer")
+    )
+    check:
+      dialFailed.isDialFailure()
+      not noRelayPeer.isDialFailure()
+      not unavailable.isDialFailure()
