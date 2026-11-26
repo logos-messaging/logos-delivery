@@ -445,3 +445,62 @@ suite "Waku Lightpush Client - response size":
     check res.isErr()
 
     await allFutures(clientSwitch.stop(), serverSwitch.stop())
+
+suite "Waku Lightpush Client - failed requests":
+  var
+    serverSwitch {.threadvar.}: Switch
+    clientSwitch {.threadvar.}: Switch
+    client {.threadvar.}: WakuLightPushClient
+    server {.threadvar.}: RemotePeerInfo
+    answer {.threadvar.}: LightPushStatusCode ## the code of each answer of the server
+
+  asyncSetup:
+    let handler = proc(
+        peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[WakuLightPushResult] {.async.} =
+      return lighpushErrorResult(answer, "refused")
+
+    serverSwitch = newTestSwitch()
+    clientSwitch = newTestSwitch()
+    discard await newTestWakuLightpushNode(serverSwitch, handler)
+    client = newTestWakuLightpushClient(clientSwitch)
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+    server = serverSwitch.peerInfo.toRemotePeerInfo()
+
+  asyncTeardown:
+    await allFutures(clientSwitch.stop(), serverSwitch.stop())
+
+  asyncTest "publish() records a failed request for an error of the peer":
+    ## A peer with no relay peer fails the next send too, and another peer can serve it.
+    answer = LightPushErrorCode.NO_PEERS_TO_RELAY
+    let res =
+      await client.publish(Opt.some(DefaultPubsubTopic), fakeWakuMessage(), server)
+    check:
+      res.isErr()
+      client.peerManager.hasFailedRequest(server.peerId)
+
+  asyncTest "publish() records no failed request for a refused message":
+    ## Each peer refuses such a message, so the peer that answered did not fail.
+    for code in [
+      LightPushErrorCode.BAD_REQUEST, LightPushErrorCode.PAYLOAD_TOO_LARGE,
+      LightPushErrorCode.INVALID_MESSAGE,
+    ]:
+      answer = code
+      let res =
+        await client.publish(Opt.some(DefaultPubsubTopic), fakeWakuMessage(), server)
+      check:
+        res.isErr()
+        not client.peerManager.hasFailedRequest(server.peerId)
+
+  asyncTest "publish() on a connection of the caller records no failed request":
+    ## A mix path can fail at a hop, so its error does not show that the peer failed.
+    answer = LightPushErrorCode.NO_PEERS_TO_RELAY
+    let conn = (await client.peerManager.dialPeer(server, WakuLightPushCodec)).valueOr:
+      check false
+      return
+    let res = await client.publishWithConn(
+      DefaultPubsubTopic, fakeWakuMessage(), conn, server.peerId
+    )
+    check:
+      res.isErr()
+      not client.peerManager.hasFailedRequest(server.peerId)

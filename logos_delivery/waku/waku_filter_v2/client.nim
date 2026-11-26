@@ -27,7 +27,7 @@ func generateRequestId(rng: crypto.Rng): string =
   rng.generate(bytes)
   return byteutils.toHex(bytes)
 
-proc sendSubscribeRequest(
+proc exchangeSubscribeRequest(
     wfc: WakuFilterClient,
     servicePeer: RemotePeerInfo,
     filterSubscribeRequest: FilterSubscribeRequest,
@@ -95,6 +95,20 @@ proc sendSubscribeRequest(
     return err(FilterSubscribeError.parse(response.statusCode, cause = cause))
 
   return ok()
+
+const RequestFaults =
+  {FilterSubscribeErrorKind.BAD_REQUEST, FilterSubscribeErrorKind.NOT_FOUND}
+  ## Each filter peer gives these errors for the same request and subscription.
+
+proc sendSubscribeRequest(
+    wfc: WakuFilterClient,
+    servicePeer: RemotePeerInfo,
+    filterSubscribeRequest: FilterSubscribeRequest,
+): Future[FilterSubscribeResult] {.async: (raises: []).} =
+  let res = await wfc.exchangeSubscribeRequest(servicePeer, filterSubscribeRequest)
+  if res.isErr() and res.error.kind notin RequestFaults:
+    wfc.peerManager.recordFailedRequest(servicePeer.peerId)
+  return res
 
 proc ping*(
     wfc: WakuFilterClient, servicePeer: RemotePeerInfo, timeout = chronos.seconds(0)

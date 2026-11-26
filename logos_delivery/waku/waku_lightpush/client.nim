@@ -23,6 +23,11 @@ type WakuLightPushClient* = ref object
 proc new*(T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 
+const RequestFaults = [
+  LightPushErrorCode.BAD_REQUEST, LightPushErrorCode.PAYLOAD_TOO_LARGE,
+  LightPushErrorCode.INVALID_MESSAGE,
+] ## Each lightpush peer gives these codes for the same request.
+
 ## Short log string for peer identifiers (overloads for convenience)
 func shortPeerId(peer: PeerId): string =
   shortLog(peer)
@@ -106,9 +111,15 @@ proc publish*(
 
   let relayPeerCount =
     when dest is Connection:
+      # The connection of the caller can be a mix path, where a hop can fail.
       ?await wl.sendPushRequest(request, dest.peerId, Opt.some(dest))
     else:
-      ?await wl.sendPushRequest(request, dest)
+      (await wl.sendPushRequest(request, dest)).valueOr:
+        if error.code notin RequestFaults:
+          wl.peerManager.recordFailedRequest(
+            when dest is PeerId: dest else: dest.peerId
+          )
+        return err(error)
 
   return lightpushSuccessResult(relayPeerCount)
 

@@ -85,6 +85,9 @@ const
   # Max peers that we allow from the same IP
   DefaultColocationLimit* = 5
 
+  # How long a failed request keeps a peer after the others in `selectPeers`
+  FailedRequestBackoff* = chronos.minutes(5)
+
 type ConnectionChangeHandler* = proc(
   peerId: PeerId, peerEvent: PeerEventKind
 ): Future[void] {.gcsafe, raises: [Defect].}
@@ -96,6 +99,8 @@ type PeerManager* = ref object
   initialBackoffInSec*: int
   backoffFactor*: int
   maxFailedAttempts*: int
+  failedRequestBackoff*: timer.Duration = FailedRequestBackoff
+    ## see `FailedRequestBackoff`, shorter in tests
   storage*: PeerStorage
   serviceSlots*: Table[string, RemotePeerInfo]
   exclusivePeers*: Table[string, seq[RemotePeerInfo]]
@@ -271,18 +276,33 @@ proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
 
   return now >= (lastFailed + backoff)
 
+proc recordFailedRequest*(pm: PeerManager, peerId: PeerId) =
+  ## A client calls this for a failed request that another peer may serve.
+  pm.switch.peerStore[LastFailedRequestBook][peerId] = Moment.now()
+
+proc hasFailedRequest*(pm: PeerManager, peerId: PeerId): bool =
+  ## True for `failedRequestBackoff` after `recordFailedRequest`.
+  let failedAt = pm.switch.peerStore[LastFailedRequestBook]
+  return
+    failedAt.contains(peerId) and
+    Moment.now() - failedAt[peerId] < pm.failedRequestBackoff
+
 type PeerSelectionRank {.pure.} = enum
   ## `selectPeers` returns the peers in this order, the most likely to serve first.
   Connected
   Dialable ## no connection, and `canBeConnected`
+  FailedRequest ## `hasFailedRequest`, with a connection or `canBeConnected`
   InBackoff ## no connection, and not `canBeConnected`
 
 proc selectionRank(pm: PeerManager, peerId: PeerId): PeerSelectionRank =
-  if pm.switch.isConnected(peerId):
+  let connected = pm.switch.isConnected(peerId)
+  if not connected and not pm.canBeConnected(peerId):
+    return PeerSelectionRank.InBackoff
+  if pm.hasFailedRequest(peerId):
+    return PeerSelectionRank.FailedRequest
+  if connected:
     return PeerSelectionRank.Connected
-  if pm.canBeConnected(peerId):
-    return PeerSelectionRank.Dialable
-  return PeerSelectionRank.InBackoff
+  return PeerSelectionRank.Dialable
 
 proc candidatePeers*(pm: PeerManager, proto: string): seq[RemotePeerInfo] =
   ## Copies of the exclusive peers of `proto` when set, otherwise the peer
