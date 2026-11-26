@@ -19,7 +19,6 @@ from logos_delivery/waku/waku_archive/archive import MaxMessageTimestampVariance
 
 const
   Base = 1_700_000_000_000_000_000'i64 ## 2023-11-14
-  QueryTimeout = chronos.seconds(10)
   Hour = chronos.hours(1).nanos
   Minute = chronos.minutes(1).nanos
   Second = chronos.seconds(1).nanos
@@ -58,7 +57,6 @@ proc fetchAll(
     start, stop: Timestamp,
     query: BackfillQuery,
     deliver: BackfillDeliver = accept,
-    queryTimeout = QueryTimeout,
 ): Future[Result[int, string]] {.async.} =
   ## Fetches `[start, stop)` of one topic page by page, as the worker does
   ## over its turns. The number of queries, or the error of the query that
@@ -66,7 +64,7 @@ proc fetchAll(
   var next = start
   var queries = 0
   while next < stop:
-    next = ?await fetchPage(topic, next, stop, queryTimeout, query, deliver)
+    next = ?await fetchPage(topic, next, stop, query, deliver)
     inc queries
   return ok(queries)
 
@@ -77,7 +75,7 @@ proc fetchFrom(
   ## of the worker keeps it.
   var next = start
   while next < stop:
-    let res = await fetchPage(topic, next, stop, QueryTimeout, query, accept)
+    let res = await fetchPage(topic, next, stop, query, accept)
     if res.isErr():
       return (false, next)
     next = res.get()
@@ -212,7 +210,7 @@ suite "Receive backfill":
     check (await fetchAll(busy, t0, t1, query, collect)).get() == 4
     check got.names() == toSeq(1 .. 5).mapIt("msg-" & $it)
     check got.count("msg-1") == 1
-    # Phase 4: a failure ends the fetch. An error, a timeout, a raising
+    # Phase 4: a failure ends the fetch. An error, a raising
     # query, a declined delivery, and malformed pages.
     calls = 0
     let failing: BackfillQuery = proc(
@@ -221,22 +219,6 @@ suite "Receive backfill":
       inc calls
       return err("peer gone")
     check (await fetchAll(TestTopic, t0, t1, failing)).isErr() and calls == 1
-    var cancelled = false
-    # The stub propagates the cancel; the Store client's `catch:` sites do not,
-    # so against a real peer the timeout ends the attempt, not the wait.
-    let slow: BackfillQuery = proc(
-        request: StoreQueryRequest
-    ): Future[Result[StoreQueryResponse, string]] {.async.} =
-      try:
-        await sleepAsync(1.hours)
-      except CancelledError as e:
-        cancelled = true
-        raise e
-      return page(@[])
-    check (
-      await fetchAll(TestTopic, t0, t1, slow, queryTimeout = chronos.milliseconds(50))
-    ).isErr()
-    check cancelled
     let raising: BackfillQuery = proc(
         request: StoreQueryRequest
     ): Future[Result[StoreQueryResponse, string]] {.async.} =
