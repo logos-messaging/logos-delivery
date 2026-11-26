@@ -674,7 +674,7 @@ proc selectFilterCandidates(
       for peer in otherState.peers:
         trackedOnOther.incl(peer.peerId)
 
-  # Prefer peers we already have a connection to first, preserving shuffle
+  # Prefer the filter peers of the other shards first, preserving the order
   var candidates =
     allCandidates.filterIt(it.peerId in trackedOnOther) &
     allCandidates.filterIt(it.peerId notin trackedOnOther)
