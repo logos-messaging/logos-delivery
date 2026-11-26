@@ -12,7 +12,7 @@ import
     rln/types,
     rln/rln_lez/transport,
   ]
-import ./[relay, lightpush]
+import ./relay
 
 type
   MixMembershipReadFailure* {.pure.} = enum
@@ -75,17 +75,13 @@ proc publishMetadata(
       raise exc
     except CatchableError as exc:
       return err("Relay RLN proof generation failed: " & exc.msg)
+  # Only a node that relays publishes coordination: `startMixRln` gives a node
+  # without Relay a publisher that drops it.
   try:
-    if not node.wakuRelay.isNil():
-      let peers = (await node.publish(Opt.none(PubsubTopic), message)).valueOr:
-        return err(error)
-      if peers == 0:
-        return err("No Relay peers for Mix coordination")
-    else:
-      discard (
-        await node.lightpushPublish(Opt.none(PubsubTopic), message, mixify = false)
-      ).valueOr:
-        return err("Mix coordination Lightpush failed: " & $error)
+    let peers = (await node.publish(Opt.none(PubsubTopic), message)).valueOr:
+      return err("Mix coordination publish failed: " & error)
+    if peers == 0:
+      return err("No Relay peers for Mix coordination")
   except CancelledError as exc:
     raise exc
   except CatchableError as exc:
@@ -141,15 +137,30 @@ proc stopMixRln*(node: WakuNode) {.async: (raises: []).} =
 proc startMixRln*(
     node: WakuNode
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
+  ## A node that relays (Core) also coordinates: it publishes
+  ## the metadata of the proofs it verifies over Relay, with a Relay RLN proof,
+  ## and applies what other nodes publish. A node without Relay (Edge) is no
+  ## hop for others and takes no part in coordination: it needs no Relay RLN
+  ## here, publishes nothing and does not subscribe to the metadata topic. It
+  ## still checks the proofs it verifies against its own nullifier log.
   if node.wakuMixRln.isNil():
     return err("Mix RLN is not configured")
-  if node.rlnPlugin.isNone():
+  let coordinates = not node.wakuRelay.isNil()
+  if coordinates and node.rlnPlugin.isNone():
     return err("Mix RLN coordination requires Relay RLN")
   let plugin = node.wakuMixRln
-  plugin.setPublishCallback(
-    proc(topic: string, data: seq[byte]): Future[Result[void, string]] {.async.} =
-      return await node.publishMetadata(topic, data)
-  )
+  if coordinates:
+    plugin.setPublishCallback(
+      proc(topic: string, data: seq[byte]): Future[Result[void, string]] {.async.} =
+        return await node.publishMetadata(topic, data)
+    )
+  else:
+    # The plugin refuses to start without a publisher.
+    plugin.setPublishCallback(
+      proc(topic: string, data: seq[byte]): Future[Result[void, string]] {.async.} =
+        return ok()
+    )
+    info "Mix RLN without coordination: this node does not relay"
   (await plugin.start()).isOkOr:
     return err("Failed to start Mix RLN plugin: " & $error)
   # A node without a usable Mix membership cannot prove a hop. That does not
@@ -171,7 +182,7 @@ proc startMixRln*(
     info "Mix RLN membership verified", status = $membership.get()
   if node.mixMembershipLoop.isNil():
     node.mixMembershipLoop = node.watchMixMembership()
-  if node.wakuMixRlnListener.isSome():
+  if not coordinates or node.wakuMixRlnListener.isSome():
     return ok()
   let handler = proc(event: MessageSeenEvent): Future[void] {.async: (raises: []).} =
     if event.message.contentTopic == plugin.config.metadataTopic:

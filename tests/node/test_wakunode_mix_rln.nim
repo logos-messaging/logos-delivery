@@ -27,6 +27,9 @@ proc call(module: FakeRlnModule): RlnModuleCall =
       methodName: string, args: JsonNode
   ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
     module.calls.add((methodName, args))
+    if methodName == "get_registry_parameters":
+      # The Mix profile the plugin checks at its start.
+      return ok(%*{"epoch_size_sec": 10, "max_epoch_gap": 3})
     if methodName != "get_membership_state":
       return err("unexpected call: " & methodName)
     if module.state.len == 0:
@@ -221,3 +224,37 @@ suite "Waku Mix RLN - readiness to advertise":
     node.wakuMixRln = nil
     node.mixMembershipUsable = false
     check node.rendezvousMixKey() == mixKeys.publicKey.to0xHex()
+
+suite "Waku Mix RLN - a node without Relay":
+  asyncTest "starts without Relay RLN and without coordination":
+    let
+      module = FakeRlnModule(state: "active")
+      changes = new int
+      node = module.nodeWith(changes)
+    check:
+      node.wakuRelay.isNil()
+      node.rlnPlugin.isNone()
+
+    # The node has no subscription manager: a subscription to the metadata
+    # topic would fail the start.
+    let started = await node.startMixRln()
+
+    check:
+      started.isOk()
+      node.mixMembershipUsable
+      node.wakuMixRlnListener.isNone()
+    await node.stopMixRln()
+
+  asyncTest "still reads its Mix membership":
+    let
+      module = FakeRlnModule(state: "pending")
+      changes = new int
+      node = module.nodeWith(changes)
+
+    check (await node.startMixRln()).isOk()
+
+    check:
+      not node.mixMembershipUsable
+      module.calls[^1].methodName == "get_membership_state"
+      module.calls[^1].args == %*[MixRegistry, MixIdentifierHex]
+    await node.stopMixRln()
