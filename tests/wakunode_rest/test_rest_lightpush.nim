@@ -32,6 +32,7 @@ import
   ../testlib/wakunode,
   ../testlib/testasync,
   ../testlib/rest_requests,
+  ../testlib/stub_rln,
   ../resources/payloads
 
 proc testWakuNode(): WakuNode =
@@ -181,6 +182,29 @@ suite "Waku v2 Rest API - lightpush":
       response.data.relayPeerCount == Opt.some(1.uint32)
 
     await restLightPushTest.shutdown()
+
+  asyncTest "A push that the RLN validator refuses once is sent again after the proof refresh":
+    let restLightPushTest = await RestLightPushTest.init(selfHostedLightPush = true)
+    defer:
+      await restLightPushTest.shutdown()
+    let node = restLightPushTest.serviceNode
+    let rlnCalls = node.mountStubRln(validProof = @[1'u8, 2, 3])
+    node.rejectFirstMessageAsRlnInvalid()
+
+    # The stub RLN backend accepts this proof, so the node does not make one.
+    var message =
+      fakeWakuMessage(contentTopic = DefaultContentTopic, payload = toBytes("TEST-1"))
+    message.proof = @[1'u8, 2, 3]
+    let requestBody = PushRequest(
+      pubsubTopic: Opt.some(DefaultPubsubTopic), message: message.toRelayWakuMessage()
+    )
+    let response = await restLightPushTest.restClient.sendPushRequest(requestBody)
+
+    # The second push finds no relay peer, so it gets 505.
+    # Without the second push, the answer is the 504 of the scheduled refresh.
+    check:
+      response.status == 505
+      rlnCalls.refreshCalls == 1
 
   asyncTest "A node running the lightpush service pushes through itself":
     # Given a service node set up as the node factory does: lightpush service

@@ -62,8 +62,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   let wasDeanonymized = task.deanonymized
   task.deanonymized = true
   let published = await self.publishProc(task.pubsubTopic, task.msg)
-  # With no relay peer, this node's filter service and archive can get the message.
-  if published.isErr() and published.error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
+  if published.isErr() and published.error.sent == LightPushSent.NotSent:
     task.deanonymized = wasDeanonymized
   let noOfPublishedPeers = published.valueOr:
     let errorMessage = error.desc.get($error.code)

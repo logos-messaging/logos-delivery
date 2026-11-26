@@ -10,6 +10,7 @@ import
     waku_lightpush,
     waku_lightpush/client,
     waku_lightpush/protocol_metrics,
+    rln/markers,
   ],
   ../testlib/[assertions, wakucore, testasync, futures],
   ./lightpush_utils,
@@ -445,3 +446,27 @@ suite "Waku Lightpush Client - response size":
     check res.isErr()
 
     await allFutures(clientSwitch.stop(), serverSwitch.stop())
+
+suite "Waku Lightpush error status":
+  test "only an INVALID_MESSAGE reply with the text of the RLN validator is an RLN refusal":
+    proc rlnOfReply(code: LightPushStatusCode, desc: string): LightPushRln =
+      let reply =
+        LightPushResponse(requestId: "1", statusCode: code, statusDesc: Opt.some(desc))
+      return reply.toPushResult().error.rln
+
+    check:
+      rlnOfReply(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg & ": x") ==
+        LightPushRln.Refused
+      rlnOfReply(LightPushErrorCode.SERVICE_NOT_AVAILABLE, RlnValidatorErrorMsg) ==
+        LightPushRln.None
+      rlnOfReply(LightPushErrorCode.INVALID_MESSAGE, "another refusal") ==
+        LightPushRln.None
+
+  test "isRlnRejection is true for OUT_OF_RLN_PROOF and for an RLN refusal":
+    proc isRejection(code: LightPushStatusCode, rln: LightPushRln): bool =
+      return ErrorStatus(code: code, rln: rln).isRlnRejection()
+
+    check:
+      isRejection(LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushRln.None)
+      isRejection(LightPushErrorCode.INVALID_MESSAGE, LightPushRln.Refused)
+      not isRejection(LightPushErrorCode.INVALID_MESSAGE, LightPushRln.None)

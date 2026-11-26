@@ -61,7 +61,7 @@ method sendImpl*(
   let wasDeanonymized = task.deanonymized
   task.deanonymized = true
   let published = await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
-  if published.isErr() and published.error.isDialFailure():
+  if published.isErr() and published.error.sent == LightPushSent.NotSent:
     task.deanonymized = wasDeanonymized
   let numLightpushServers = published.valueOr:
     error "LightpushSendProcessor.sendImpl failed",

@@ -1,7 +1,7 @@
 import libp2p/crypto/crypto
 {.push raises: [].}
 
-import std/strutils, results, chronicles, chronos, metrics, stew/byteutils
+import results, chronicles, chronos, metrics, stew/byteutils
 import libp2p/peerid, libp2p/stream/connection
 import
   ../waku_core/peers,
@@ -30,8 +30,6 @@ func shortPeerId(peer: PeerId): string =
 func shortPeerId(peer: RemotePeerInfo): string =
   shortLog(peer.peerId)
 
-const DialFailurePrefix* = dialFailure & ": "
-
 proc sendPushRequest(
     wl: WakuLightPushClient,
     req: LightPushRequest,
@@ -43,7 +41,8 @@ proc sendPushRequest(
       logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
       return lighpushErrorResult(
         LightPushErrorCode.NO_PEERS_TO_RELAY,
-        DialFailurePrefix & $peer & " is not accessible",
+        dialFailure & ": " & $peer & " is not accessible",
+        LightPushSent.NotSent,
       )
 
   defer:
@@ -78,16 +77,7 @@ proc sendPushRequest(
       requestId = req.requestId, responseRequestId = response.requestId
     return lightpushResultInternalError("response failure, requestId mismatch")
 
-  let pushed = toPushResult(response)
-  # Callers tell a failed dial by this code and text, so a reply must not have both.
-  if pushed.isErr() and pushed.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY and
-      pushed.error.desc.get("").startsWith(DialFailurePrefix):
-    debug "Response failure, the response has the text of a dial failure",
-      peerId = shortPeerId(peer),
-      statusCode = $pushed.error.code,
-      statusDesc = pushed.error.desc.get("")
-    return lightpushResultInternalError("response failure, dial failure text")
-  return pushed
+  return toPushResult(response)
 
 proc publish*(
     wl: WakuLightPushClient,

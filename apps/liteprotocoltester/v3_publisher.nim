@@ -23,8 +23,7 @@ method send*(
     )
   ).valueOr:
     if error.code == LightPushErrorCode.NO_PEERS_TO_RELAY and
-        error.desc != Opt.some("No peers for topic, skipping publish"):
-      # TODO: We need better separation of errors happening on the client side or the server side.-
+        error.sent == LightPushSent.NotSent:
       return err("dial_failure")
     else:
       return err($error.code)

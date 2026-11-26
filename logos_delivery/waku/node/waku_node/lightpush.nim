@@ -408,17 +408,8 @@ proc lightpushPublish*(
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
 
-  # Gate the refresh on unambiguously RLN-related failures: 504
-  # (OUT_OF_RLN_PROOF) is always RLN; 420 (INVALID_MESSAGE) also covers non-RLN
-  # rejections (e.g. oversized), so additionally require RlnValidatorErrorMsg.
-  if firstResult.isOk():
-    return firstResult
-  let isRlnRelatedFailure =
-    firstResult.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or (
-      firstResult.error.code == LightPushErrorCode.INVALID_MESSAGE and
-      firstResult.error.desc.get("").contains(RlnValidatorErrorMsg)
-    )
-  if not isRlnRelatedFailure:
+  # Gate the refresh on unambiguously RLN-related failures.
+  if firstResult.isOk() or not firstResult.error.isRlnRejection():
     return firstResult
 
   # Ask the backend to refresh what proofs are built against and return
@@ -433,4 +424,5 @@ proc lightpushPublish*(
     LightPushErrorCode.OUT_OF_RLN_PROOF,
     RlnProofRefreshScheduledMsg & ": " &
       firstResult.error.desc.get($firstResult.error.code),
+    rln = LightPushRln.RefreshScheduled,
   )

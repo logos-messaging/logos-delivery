@@ -26,10 +26,16 @@ proc relayPushHandler(wakuRelay: WakuRelay, publish: RelayPublish): PushMessageH
         LightPushErrorCode.PAYLOAD_TOO_LARGE,
         "Message size exceeded maximum of: " & $wakuRelay.maxEncodedMessageSize &
           " bytes",
+        LightPushSent.NotSent,
       )
 
     (await wakuRelay.validateMessage(pubSubTopic, message)).isOkOr:
-      return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, $error)
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE,
+        $error,
+        LightPushSent.NotSent,
+        rlnOf(LightPushErrorCode.INVALID_MESSAGE, $error),
+      )
 
     let published = await publish(wakuRelay, pubsubTopic, message)
     let publishedResult = published.valueOr:

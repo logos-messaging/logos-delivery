@@ -23,7 +23,6 @@ import
   logos_delivery/waku/rln/rln_plugin,
   logos_delivery/waku/rln/types as rln_types,
   logos_delivery/waku/waku_lightpush/common,
-  logos_delivery/waku/waku_lightpush/client,
   logos_delivery/waku/waku_lightpush/rpc_codec,
   logos_delivery/waku/waku_core,
   logos_delivery/api/types,
@@ -884,7 +883,9 @@ suite "SendService - anonymity level with a mounted mix":
       ),
       (
         "relay-refused",
-        lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "refused"),
+        lighpushErrorResult(
+          LightPushErrorCode.INVALID_MESSAGE, "refused", LightPushSent.NotSent
+        ),
         false,
       ),
     ]:
@@ -908,40 +909,30 @@ suite "SendService - anonymity level with a mounted mix":
       task.deanonymized
 
     await relayReturning(
-      lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "refused")
+      lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, "refused", LightPushSent.NotSent
+      )
     )
       .process(task)
     check:
       task.tryCount == 3
       task.deanonymized
 
-  asyncTest "a lightpush reply deanonymizes the task even with the text of a failed dial":
-    let dialText = DialFailurePrefix & "the service node wrote this"
-    for (id, code, desc, state) in [
-      (
-        "reply-no-relay-peers", LightPushErrorCode.NO_PEERS_TO_RELAY,
-        "No peers for topic, skipping publish", DeliveryState.NextRoundRetry,
-      ),
-      (
-        "reply-dial-text", LightPushErrorCode.NO_PEERS_TO_RELAY, dialText,
-        DeliveryState.NextRoundRetry,
-      ),
-      # The refusal keeps its code, so the task fails and gets no retry.
-      (
-        "refusal-dial-text", LightPushErrorCode.INVALID_MESSAGE, dialText,
-        DeliveryState.FailedToDeliver,
-      ),
-    ]:
-      checkpoint id
-      let service = await startLightpushService(replyingWith(code, desc))
-      let task = buildTask(id, ZeroDuration)
-      let attempt = LightpushSendProcessor.new(waku, waku.brokerCtx).process(task)
-      check await attempt.withTimeout(FUTURE_TIMEOUT_MEDIUM)
+  asyncTest "a lightpush reply with no relay peers deanonymizes the task":
+    let service = await startLightpushService(
+      replyingWith(
+        LightPushErrorCode.NO_PEERS_TO_RELAY, "No peers for topic, skipping publish"
+      )
+    )
+    defer:
       await service.stop()
-      check:
-        task.tryCount == 1
-        task.deanonymized
-        task.state == state
+
+    let task = buildTask("reply-with-no-relay-peers", ZeroDuration)
+    let attempt = LightpushSendProcessor.new(waku, waku.brokerCtx).process(task)
+    check await attempt.withTimeout(FUTURE_TIMEOUT_MEDIUM)
+    check:
+      task.tryCount == 1
+      task.deanonymized
 
   asyncTest "an expired task reports the reason a processor left on it":
     ## A processor that leaves a task for a retry can write why in `errorDesc`.
@@ -1699,20 +1690,3 @@ suite "Mix RLN coordination protection":
     check:
       started.isErr()
       started.error == "Mix RLN coordination requires Relay RLN"
-
-suite "Lightpush publish results":
-  test "isDialFailure needs both the error code and the text of a failed dial":
-    let dialFailed =
-      (LightPushErrorCode.NO_PEERS_TO_RELAY, Opt.some(DialFailurePrefix & "the peer"))
-    # A reply of the service node and an error with another code are not failed dials.
-    let noRelayPeer = (
-      LightPushErrorCode.NO_PEERS_TO_RELAY,
-      Opt.some("No peers for topic, skipping publish"),
-    )
-    let unavailable = (
-      LightPushErrorCode.SERVICE_NOT_AVAILABLE, Opt.some(DialFailurePrefix & "the peer")
-    )
-    check:
-      dialFailed.isDialFailure()
-      not noRelayPeer.isDialFailure()
-      not unavailable.isDialFailure()

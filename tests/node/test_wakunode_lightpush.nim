@@ -6,7 +6,8 @@ import
   testutils/unittests,
   chronos,
   std/strformat,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  libp2p/protocols/pubsub/pubsub
 
 import
   logos_delivery/api/events/kernel_events,
@@ -254,6 +255,7 @@ suite "RLN Proofs as a Lightpush Service":
         response.isErr()
         response.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF
         response.error.desc.get("").contains(RlnProofRefreshScheduledMsg)
+        response.error.rln == LightPushRln.RefreshScheduled
 
       # The refresh runs detached from the publish call: the cache was
       # dropped and a refetch is in flight. Once it settles the path is
@@ -735,3 +737,41 @@ suite "Waku Lightpush mounting behavior":
     check:
       res.isErr()
       res.error == MountWithoutRelayError
+
+suite "Waku Lightpush relay push handler":
+  proc pushWithNoRelayPeer(
+      refusal = Opt.none(string)
+  ): Future[WakuLightPushResult] {.async.} =
+    ## The result of the push handler of a node with relay and no relay peer.
+    ## With `refusal`, a validator refuses each message with that text.
+    proc refuse(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[pubsub.ValidationResult] {.async.} =
+      return pubsub.ValidationResult.Reject
+
+    let node = newTestWakuNode(generateSecp256k1Key())
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    if refusal.isSome():
+      node.wakuRelay.addValidator(refuse, refusal.get())
+    return
+      await getRelayPushHandler(node.wakuRelay)(DefaultPubsubTopic, fakeWakuMessage())
+
+  asyncTest "a validator refusal says that nothing was sent and whether RLN refused it":
+    for (refusal, rln) in [
+      (RlnValidatorErrorMsg, LightPushRln.Refused),
+      ("another refusal", LightPushRln.None),
+    ]:
+      checkpoint refusal
+      let res = await pushWithNoRelayPeer(Opt.some(refusal))
+      check:
+        res.isErr()
+        res.error.sent == LightPushSent.NotSent
+        res.error.rln == rln
+
+  asyncTest "a push with no relay peer does not say that nothing was sent":
+    let res = await pushWithNoRelayPeer()
+    check:
+      res.isErr()
+      res.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
+      res.error.sent == LightPushSent.Unknown
