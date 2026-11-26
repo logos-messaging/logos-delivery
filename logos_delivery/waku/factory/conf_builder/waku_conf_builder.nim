@@ -760,7 +760,7 @@ proc build*(
       builder.kademliaDiscoveryConf.enabled.isNone():
     builder.kademliaDiscoveryConf.enabled = Opt.some(false)
 
-  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
+  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build(clusterId).valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
   let externalDiscoveryConf = builder.externalDiscoveryConf.build(

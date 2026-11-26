@@ -7,7 +7,7 @@
 ## which `self_advertisement` (the writer) imports.
 
 import std/base64
-import results
+import results, chronicles, stew/[bitops2, endians2]
 import libp2p/crypto/curve25519
 import libp2p_mix/mix_protocol
 import
@@ -23,29 +23,71 @@ const
     ## [0] format version, [1..2] cluster id, [3] capabilities bitfield. The
     ## shard bitmap follows. See `selfAdvertisementData`.
 
-func advertisedCapabilities*(data: openArray[byte]): Opt[CapabilitiesBitfield] =
-  ## The capabilities of a `/logos/delivery` payload, or none when it is not
-  ## one this version reads.
+func decodedAdvert(data: openArray[byte]): Result[seq[byte], string] =
+  ## The raw bytes of a `/logos/delivery` payload this version reads.
   let raw =
     try:
-      base64.decode(cast[string](@data))
-    except ValueError:
-      return Opt.none(CapabilitiesBitfield)
-  if raw.len < AdvertHeaderLen or raw[0].byte != AdvertFormatVersion:
-    return Opt.none(CapabilitiesBitfield)
-  Opt.some(CapabilitiesBitfield(raw[3].byte))
+      cast[seq[byte]](base64.decode(cast[string](@data)))
+    except ValueError as exc:
+      return err("delivery advert is not base64: " & exc.msg)
+  if raw.len < AdvertHeaderLen:
+    return err("delivery advert shorter than its header: " & $raw.len)
+  if raw[0] != AdvertFormatVersion:
+    return err("unsupported delivery advert version: " & $raw[0])
+  ok(raw)
+
+func advertisedCapabilities*(
+    data: openArray[byte]
+): Result[CapabilitiesBitfield, string] =
+  ## The capabilities of a `/logos/delivery` payload.
+  let raw = decodedAdvert(data).valueOr:
+    return err("could not read delivery advert capabilities: " & error)
+  ok(CapabilitiesBitfield(raw[3]))
+
+func advertisedShards*(data: openArray[byte]): Result[(uint16, seq[uint16]), string] =
+  ## The cluster id and the shards of a `/logos/delivery` payload. Bit `i` of
+  ## the bitmap, least significant bit first, is shard `i`.
+  let raw = decodedAdvert(data).valueOr:
+    return err("could not read delivery advert shards: " & error)
+  let cluster = uint16.fromBytesBE(raw.toOpenArray(1, 2))
+  var shards: seq[uint16]
+  for shard in 0 ..< (raw.len - AdvertHeaderLen) * 8:
+    if raw.getBit(AdvertHeaderLen * 8 + shard):
+      shards.add(uint16(shard))
+  ok((cluster, shards))
+
+proc advertisedServing*(
+    services: openArray[DiscoveredService], ownClusterId: uint16
+): (seq[string], seq[uint16]) =
+  ## The protocol codecs and the shards the delivery payload of a record with
+  ## these services claims, so that a peer known only from its record can be
+  ## selected for a protocol and a shard without being connected first.
+  ##
+  ## A record of another cluster than this node's (`ownClusterId`) claims
+  ## nothing here: its shard indexes mean other shards, and the peer store
+  ## keeps shards without their cluster.
+  for service in services:
+    if service.id != LogosDeliveryServiceId:
+      continue
+    let caps = advertisedCapabilities(service.data).valueOr:
+      debug "Delivery record claims nothing", reason = error
+      continue
+    let (cluster, shards) = advertisedShards(service.data).valueOr:
+      debug "Delivery record claims nothing", reason = error
+      continue
+    if cluster != ownClusterId:
+      trace "Delivery record of another cluster claims nothing",
+        cluster = cluster, ownClusterId = ownClusterId
+      continue
+    return (caps.toCodecs(), shards)
+  (newSeq[string](), newSeq[uint16]())
 
 func withoutMixClaim*(data: seq[byte]): seq[byte] =
   ## The `/logos/delivery` payload `data` with the Mix capability cleared.
   ## A payload this version does not read is returned as it is.
-  var raw =
-    try:
-      base64.decode(cast[string](data))
-    except ValueError:
-      return data
-  if raw.len < AdvertHeaderLen or raw[0].byte != AdvertFormatVersion:
+  var raw = decodedAdvert(data).valueOr:
     return data
-  raw[3] = char(raw[3].byte and not byte(1'u8 shl ord(Capabilities.Mix)))
+  raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
   cast[seq[byte]](base64.encode(raw))
 
 func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Key] =

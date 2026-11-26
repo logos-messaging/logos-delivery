@@ -25,6 +25,7 @@ proc newTestKademlia*(
     clientMode: bool = false,
     xprPublishing: bool = true,
     discoConfig: ServiceDiscoveryConfig = ServiceDiscoveryConfig.new(),
+    ownClusterId: uint16 = 0,
 ): WakuKademlia =
   let peerManager = PeerManager.new(switch)
 
@@ -32,6 +33,7 @@ proc newTestKademlia*(
     .new(
       switch = switch,
       peerManager = peerManager,
+      ownClusterId = ownClusterId,
       bootstrapNodes = bootstrapNodes,
       servicesToAdvertise = toHashSet(servicesToAdvertise),
       servicesToDiscover = toHashSet(servicesToDiscover),

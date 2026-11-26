@@ -19,6 +19,7 @@ import
   logos_delivery/waku/waku_enr/capabilities,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/waku_core/codecs,
   logos_delivery/waku/node/peer_manager/waku_peer_store
 import ../testlib/[wakucore, futures]
 import ./utils as kad_utils
@@ -183,13 +184,13 @@ suite "Waku Kademlia service discovery":
     test "empty addresses returns none":
       let record = buildExtendedPeerRecord(randomPeerId(), @[])
       check:
-        remotePeerInfoFrom(record).isNone()
+        remotePeerInfoFrom(record, 0).isNone()
 
     test "origin set to PeerOrigin.Kademlia":
       let
         pid = randomPeerId()
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -203,7 +204,7 @@ suite "Waku Kademlia service discovery":
         svc = validMixService()
         record =
           buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), svc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -215,7 +216,7 @@ suite "Waku Kademlia service discovery":
       let
         pid = randomPeerId()
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[validMixService()])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -226,7 +227,7 @@ suite "Waku Kademlia service discovery":
         pid = randomPeerId()
         svc = ServiceInfo(id: "/other/1.0.0", data: Opt.some(@[1u8]))
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[svc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -237,7 +238,7 @@ suite "Waku Kademlia service discovery":
         pid = randomPeerId()
         addrs = @[testAddr(61600), testAddr(61601), testAddr(61602)]
         record = buildExtendedPeerRecord(pid, addrs)
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -263,7 +264,7 @@ suite "Waku Kademlia service discovery":
           @[testAddr(61600)],
           @[deliveryService(), mixService(firstBytes), mixService(secondBytes)],
         )
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       check:
@@ -275,7 +276,7 @@ suite "Waku Kademlia service discovery":
         badSvc = mixService(@[0u8, 1u8, 2u8])
         record =
           buildExtendedPeerRecord(pid, @[testAddr(61600)], @[deliveryService(), badSvc])
-        res = remotePeerInfoFrom(record)
+        res = remotePeerInfoFrom(record, 0)
       require:
         res.isSome()
       let peerInfo = res.get()
@@ -340,7 +341,7 @@ suite "Waku Kademlia service discovery":
       let
         peerStore = PeerStore.new(nil, capacity = 50)
         pid = randomPeerId()
-      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid)).get())
+      peerStore.addPeer(remotePeerInfoFrom(mixNodeRecord(pid), 0).get())
 
       peerStore.addPeer(
         RemotePeerInfo.init(
@@ -420,17 +421,19 @@ suite "Waku Kademlia advertises records this node signs":
         byte(CapabilitiesBitfield.init(relay = true, mix = true)),
       ]
     ))
-    wkA.addServiceToAdvertise(
-      ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
-      signedServiceRecord(
-        infoA,
-        infoA.privateKey,
-        LogosDeliveryServiceId,
-        payload,
-        @[DiscoveredService(id: MixProtocolID, data: mixKey)],
+    wkA
+      .addServiceToAdvertise(
+        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+        signedServiceRecord(
+          infoA,
+          infoA.privateKey,
+          LogosDeliveryServiceId,
+          payload,
+          @[DiscoveredService(id: MixProtocolID, data: mixKey)],
+        )
+          .expect("signs"),
       )
-        .expect("signs"),
-    )
+      .expect("libp2p takes the record")
 
     var delivery: seq[RemotePeerInfo]
     for _ in 0 ..< 30:
@@ -442,7 +445,7 @@ suite "Waku Kademlia advertises records this node signs":
     require delivery.len == 1
     check:
       delivery[0].peerId == infoA.peerId
-      delivery[0].protocols == @[LogosDeliveryServiceId, MixProtocolID]
+      delivery[0].protocols == @[LogosDeliveryServiceId, MixProtocolID, WakuRelayCodec]
       delivery[0].mixPubKey == Opt.some(intoCurve25519Key(mixKey))
 
     ## Mix is not a service of its own: nothing is filed under it.
@@ -504,13 +507,15 @@ suite "Waku Kademlia advertises records this node signs":
           @[DiscoveredService(id: MixProtocolID, data: key)]
         else:
           @[]
-      await wkA.replaceServiceToAdvertise(
-        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
-        signedServiceRecord(
-          infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+      wkA
+        .addServiceToAdvertise(
+          ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
+          signedServiceRecord(
+            infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+          )
+            .expect("signs"),
         )
-          .expect("signs"),
-      )
+        .expect("libp2p takes the record")
 
     proc foundMixKey(): Future[Opt[Opt[Curve25519Key]]] {.async.} =
       ## The mix key B finds for A; the outer `none` when B does not find A.
@@ -548,6 +553,16 @@ suite "Waku Kademlia advertises records this node signs":
       if found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey))):
         break
     check found == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
+
+    ## A record libp2p refuses is reported, and the advertised one stays.
+    let tooLarge = newSeq[byte](MaxServiceDataSize + 1)
+    check wkA
+      .addServiceToAdvertise(
+        ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(tooLarge)), @[]
+      )
+      .isErr()
+    await sleepAsync(2.seconds)
+    check (await foundMixKey()) == Opt.some(Opt.some(intoCurve25519Key(rotatedKey)))
 
     await wkB.stop()
     await wkA.stop()

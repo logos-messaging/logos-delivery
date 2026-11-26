@@ -137,12 +137,12 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
       removed.isOkOr:
         return err("service backend: stop advertising failed: " & error.msg)
       return err(signError)
-    let res = catch:
-      await self.inner.replaceServiceToAdvertise(
-        ServiceInfo(id: serviceId, data: Opt.some(data)), record
-      )
-    res.isOkOr:
-      return err("service backend: start advertising failed: " & error.msg)
+    # A refused record leaves the advertised one in place, and the caller sees
+    # the refusal.
+    self.inner.addServiceToAdvertise(
+      ServiceInfo(id: serviceId, data: Opt.some(data)), record
+    ).isOkOr:
+      return err("service backend: start advertising failed: " & error)
     ok()
 
   method stopAdvertising(
@@ -202,7 +202,7 @@ BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
 
     var found: seq[DiscoveredPeer]
     for record in records:
-      let rpi = remotePeerInfoFrom(record).valueOr:
+      let rpi = remotePeerInfoFrom(record, self.inner.ownClusterId).valueOr:
         continue
       found.add(rpi.toDiscoveredPeer())
     ok(found)

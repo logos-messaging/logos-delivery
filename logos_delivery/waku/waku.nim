@@ -257,7 +257,7 @@ proc new*(
   if wakuConf.externalDiscoveryConf.isSome():
     let extConf = wakuConf.externalDiscoveryConf.get()
     waku.externalDiscovery = ExternalServiceDiscovery.create(
-      extConf.serviceLookupInterval, extConf.randomLookupInterval
+      wakuConf.clusterId, extConf.serviceLookupInterval, extConf.randomLookupInterval
     )
     node.attachDiscovery(waku.externalDiscovery)
 
