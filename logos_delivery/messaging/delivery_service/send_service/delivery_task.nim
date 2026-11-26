@@ -50,6 +50,8 @@ type DeliveryTask* = ref object
     ## Set by a relay or lightpush attempt, unless nothing left this node.
     ## A stop of the send service during such an attempt leaves it set.
     ## No later attempt clears it.
+    ## Once it is set, a `Preferred` task gets no more mix attempts.
+    ## `anonymized` can be set too, when a mix attempt came first.
   propagatedAnonymously*: bool
     ## Set when an anonymous path propagated the message. No store node confirms
     ## it: the query would name the message from this node's own address.
