@@ -32,6 +32,9 @@ type
   # Keeps track of the number of failed connection attempts
   NumberFailedConnBook* = ref object of PeerBook[int]
 
+  # Keeps track of the time of the last failed request to a peer
+  LastFailedRequestBook* = ref object of PeerBook[Moment]
+
   # Keeps track of when peers were disconnected in Unix timestamps
   DisconnectBook* = ref object of PeerBook[int64]
 

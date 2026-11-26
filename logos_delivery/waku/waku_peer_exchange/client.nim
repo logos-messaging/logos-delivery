@@ -79,13 +79,17 @@ proc request*(
     let connOpt = await wpx.peerManager.dialPeer(peer, WakuPeerExchangeCodec)
     if connOpt.isNone():
       debug "Peer exchange request dial failed, no connection"
+      wpx.peerManager.recordFailedRequest(peer.peerId)
       return err(
         (
           status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
           status_desc: Opt.some(dialFailure),
         )
       )
-    return await wpx.request(numPeers, connOpt.get())
+    let res = await wpx.request(numPeers, connOpt.get())
+    if res.isErr():
+      wpx.peerManager.recordFailedRequest(peer.peerId)
+    return res
   except CatchableError:
     debug "Peer exchange request exception", error = getCurrentExceptionMsg()
     return err(

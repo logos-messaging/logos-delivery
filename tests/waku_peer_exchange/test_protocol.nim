@@ -430,3 +430,53 @@ suite "Waku Peer Exchange":
       check:
         response3.isOk
         response3.get().peerInfos.len == 1
+
+suite "Waku Peer Exchange Client - failed requests":
+  var
+    serverSwitch {.threadvar.}: Switch
+    clientSwitch {.threadvar.}: Switch
+    client {.threadvar.}: WakuPeerExchangeClient
+    server {.threadvar.}: RemotePeerInfo
+    answer {.threadvar.}: PeerExchangeResponseStatusCode
+      ## the status of each answer of the server
+
+  proc reply(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+    try:
+      discard await conn.readLp(DefaultMaxRpcSize.int)
+      await conn.writeLp(PeerExchangeRpc.makeErrorResponse(answer).encode())
+    except LPStreamError:
+      return
+
+  asyncSetup:
+    serverSwitch = newTestSwitch()
+    serverSwitch.mount(
+      LPProtocol.new(codecs = @[WakuPeerExchangeCodec], handler = reply)
+    )
+    clientSwitch = newTestSwitch()
+    client = WakuPeerExchangeClient.new(PeerManager.new(clientSwitch))
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+    server = serverSwitch.peerInfo.toRemotePeerInfo()
+
+  asyncTeardown:
+    await allFutures(clientSwitch.stop(), serverSwitch.stop())
+
+  asyncTest "request() records a failed request for an error of the peer":
+    ## A peer that limits the requests of this node refuses the next one too.
+    answer = PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS
+    let res = await client.request(1, server)
+    check:
+      res.isErr()
+      client.peerManager.hasFailedRequest(server.peerId)
+
+  asyncTest "request() records a failed request when the peer refuses the protocol":
+    ## The record of a peer can name a protocol that the peer no longer serves.
+    let otherSwitch = newTestSwitch()
+    await otherSwitch.start()
+    defer:
+      await otherSwitch.stop()
+
+    let other = otherSwitch.peerInfo.toRemotePeerInfo()
+    let res = await client.request(1, other)
+    check:
+      res.isErr()
+      client.peerManager.hasFailedRequest(other.peerId)

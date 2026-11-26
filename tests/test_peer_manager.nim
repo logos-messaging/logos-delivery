@@ -2167,3 +2167,35 @@ suite "Peer Manager - failed dials and selection order":
     check:
       conn.isSome()
       failedDials(peerId) == 1
+
+  asyncTest "selectPeers() returns peers with a failed request after dialable peers":
+    ## A connected peer that fails each request must not get the next request.
+    let pm = node.peerManager
+    let failing = server.peerInfo.toRemotePeerInfo()
+    failing.protocols = @[WakuFilterSubscribeCodec]
+    let isConnected = await pm.connectPeer(failing)
+    pm.addPeer(unreachablePeer(@[WakuFilterSubscribeCodec]))
+    let inBackoff = unreachablePeer(@[WakuFilterSubscribeCodec])
+    pm.addPeer(inBackoff)
+    let conn = await pm.dialPeer(inBackoff, WakuFilterSubscribeCodec)
+    check:
+      isConnected
+      conn.isNone()
+
+    pm.recordFailedRequest(failing.peerId)
+    let selected = pm.selectPeers(WakuFilterSubscribeCodec).mapIt(it.peerId)
+    check selected.len == 3 and selected[1 .. 2] == @[failing.peerId, inBackoff.peerId]
+
+  asyncTest "hasFailedRequest() is true for failedRequestBackoff after a failed request":
+    ## A peer that failed a request can serve again later.
+    let pm = node.peerManager
+    let peerId = server.peerInfo.peerId
+    # This backoff is longer than the time on the clock, to show a missing record.
+    pm.failedRequestBackoff = chronos.weeks(5000)
+    check not pm.hasFailedRequest(peerId)
+
+    pm.recordFailedRequest(peerId)
+    check pm.hasFailedRequest(peerId)
+
+    pm.failedRequestBackoff = ZeroDuration
+    check not pm.hasFailedRequest(peerId)

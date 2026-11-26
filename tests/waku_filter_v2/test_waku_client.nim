@@ -7,10 +7,11 @@ import
   logos_delivery/waku/waku_node,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_filter_v2/
-    [common, client, subscriptions, protocol, protocol_metrics, rpc_codec],
+    [common, client, subscriptions, protocol, protocol_metrics, rpc, rpc_codec],
   ../testlib/[wakucore, testasync, testutils, futures, sequtils, wakunode],
   ./waku_filter_utils,
   ../resources/payloads
+from ../testlib/common import rng
 
 suite "Waku Filter - End to End":
   suite "MessagePushHandler - Void":
@@ -2644,3 +2645,72 @@ suite "Waku Filter - End to End":
           ]
         )
       ).allIt(not it.read())
+
+suite "Waku Filter Client - failed requests":
+  var
+    serverSwitch {.threadvar.}: Switch
+    clientSwitch {.threadvar.}: Switch
+    peerManager {.threadvar.}: PeerManager
+    client {.threadvar.}: WakuFilterClient
+    server {.threadvar.}: RemotePeerInfo
+    answer {.threadvar.}: Opt[FilterSubscribeErrorKind]
+      ## the status of each answer of the server, none for no answer
+
+  proc reply(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+    try:
+      let buf = await conn.readLp(int(DefaultMaxWakuMessageSize))
+      let request = FilterSubscribeRequest.decode(buf).valueOr:
+        return
+      let status = answer.valueOr:
+        await conn.join()
+        return
+      await conn.writeLp(
+        FilterSubscribeResponse(
+          requestId: request.requestId, statusCode: uint32(status)
+        ).encode()
+      )
+    except LPStreamError:
+      return
+
+  asyncSetup:
+    answer = Opt.none(FilterSubscribeErrorKind)
+    serverSwitch = newStandardSwitch()
+    serverSwitch.mount(
+      LPProtocol.new(codecs = @[WakuFilterSubscribeCodec], handler = reply)
+    )
+    clientSwitch = newStandardSwitch()
+    peerManager = PeerManager.new(clientSwitch)
+    client = WakuFilterClient.new(peerManager, rng())
+    await client.start()
+    clientSwitch.mount(client)
+    await allFutures(serverSwitch.start(), clientSwitch.start())
+    server = serverSwitch.peerInfo.toRemotePeerInfo()
+
+  asyncTeardown:
+    await allFutures(client.stop(), clientSwitch.stop(), serverSwitch.stop())
+
+  asyncTest "subscribe() records a failed request for an error of the peer":
+    ## A filter peer with no free slot refuses the next subscribe too.
+    answer = Opt.some(FilterSubscribeErrorKind.SERVICE_UNAVAILABLE)
+    let res = await client.subscribe(server, DefaultPubsubTopic, DefaultContentTopic)
+    check:
+      res.isErr()
+      peerManager.hasFailedRequest(server.peerId)
+
+  asyncTest "subscribe() records no failed request for a refused request":
+    ## Each filter peer refuses such a request, so the peer that answered did not fail.
+    for kind in [
+      FilterSubscribeErrorKind.BAD_REQUEST, FilterSubscribeErrorKind.NOT_FOUND
+    ]:
+      answer = Opt.some(kind)
+      let res = await client.subscribe(server, DefaultPubsubTopic, DefaultContentTopic)
+      check:
+        res.isErr()
+        not peerManager.hasFailedRequest(server.peerId)
+
+  asyncTest "ping() records a failed request when it times out":
+    ## The edge removes a filter peer with no answer, and must not select it again.
+    let res = await client.ping(server, chronos.milliseconds(100))
+    check:
+      res.isErr()
+      peerManager.hasFailedRequest(server.peerId)
