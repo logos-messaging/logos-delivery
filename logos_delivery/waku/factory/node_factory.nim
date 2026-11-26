@@ -354,7 +354,7 @@ proc setupProtocols(
     rlnEvmDescriptor(conf.rlnEvmConf, onFatalErrorAction, node.brokerCtx),
   ]
 
-  let selectedRln = selectRlnPlugin(rlnDescriptors).valueOr:
+  let selectedRln = selectRlnPlugin(rlnDescriptors, conf.rlnRelay).valueOr:
     return err("failed call selectRlnPlugin: " & $error)
 
   if selectedRln.isNone():

@@ -946,6 +946,7 @@ proc build*(
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
     rlnEvmConf: rlnConfs.evm,
+    rlnRelay: builder.rlnRelayConf.enabled,
     rlnDisableValidation: rlnDisableValidation,
     metricsServerConf: metricsServerConf,
     restServerConf: restServerConf,

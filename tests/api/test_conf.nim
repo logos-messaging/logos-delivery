@@ -459,6 +459,24 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().keyRotation
 
+  test "a messaging override rln-relay=false is recorded for the node":
+    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"rln-relay": false}}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(false)
+      wakuConf.rlnEvmConf.isNone()
+
+  test "rln-relay=true with no on-chain source leaves the backend to the host":
+    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"rln-relay": true}}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(true)
+      wakuConf.rlnEvmConf.isNone()
+
   test "a mix conf does not allow all addresses by default":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
       raiseAssert error

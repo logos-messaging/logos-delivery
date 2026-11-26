@@ -138,16 +138,16 @@ proc startMixRln*(
     node: WakuNode
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   ## A node that relays (Core) also coordinates: it publishes
-  ## the metadata of the proofs it verifies over Relay, with a Relay RLN proof,
-  ## and applies what other nodes publish. A node without Relay (Edge) is no
-  ## hop for others and takes no part in coordination: it needs no Relay RLN
-  ## here, publishes nothing and does not subscribe to the metadata topic. It
-  ## still checks the proofs it verifies against its own nullifier log.
+  ## the metadata of the proofs it verifies over Relay, and applies what other
+  ## nodes publish. With Relay RLN mounted that publish carries a Relay RLN
+  ## proof; without it the metadata goes out unproven, as any message on a
+  ## network without Relay RLN does. A node without Relay (Edge) is no hop for
+  ## others and takes no part in coordination: it publishes nothing and does
+  ## not subscribe to the metadata topic. It still checks the proofs it
+  ## verifies against its own nullifier log.
   if node.wakuMixRln.isNil():
     return err("Mix RLN is not configured")
   let coordinates = not node.wakuRelay.isNil()
-  if coordinates and node.rlnPlugin.isNone():
-    return err("Mix RLN coordination requires Relay RLN")
   let plugin = node.wakuMixRln
   if coordinates:
     plugin.setPublishCallback(
