@@ -79,7 +79,7 @@ proc new*(
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
-  let anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None)
+  let anonymityLevel = conf.anonymityLevel.get(DefaultAnonymityLevel)
   let rateLimitConfig = conf.rateLimitConfig()
   let rateLimitManager = ?RateLimitManager.new(
     rateLimitConfig,

@@ -89,8 +89,13 @@ type MessagingClientConf* = object
     ## Content topic for mix's proof metadata, required with `mix-rln-registry-id`.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
+  mix* {.name: "mix".}: Opt[bool]
+    ## Mount mix. Unset, an anonymity level above `None` mounts it. `false`
+    ## turns it off, and with no level the level is then `None`.
   anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
     ## Sender anonymity level. A level above `None` mounts and uses mix.
+    ## Default `presetAnonymityLevel`: `Preferred` on a network preset that runs
+    ## Mix (`logos.dev`, `logos.test`), else `None`. `None` with `mix=false`.
   mixAllowAllAddresses* {.name: "mix-allow-all-addresses".}: Opt[bool]
     ## Let mix paths use a mix node at a private, a loopback or a circuit relay address. For a
     ## local simulation, a test or a private network.
@@ -196,6 +201,8 @@ proc toWakuNodeConf*(
     conf.kadServiceLookupIntervalSec = self.kadServiceLookupIntervalSec.get()
   if self.maxPureLibp2pPeers.isSome():
     conf.maxPureLibp2pPeers = self.maxPureLibp2pPeers
+  if self.mix.isSome():
+    conf.mix = self.mix
   if self.mixAllowAllAddresses.isSome():
     conf.mixAllowAllAddresses = self.mixAllowAllAddresses.get()
   if self.mixKeyRotation.isSome():
@@ -289,6 +296,16 @@ proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =
     return ok(MessagingClientConf())
   let npc = npcOpt.get()
   return ok(MessagingClientConf(reliabilityEnabled: Opt.some(npc.p2pReliability)))
+
+proc presetAnonymityLevel*(preset: string): AnonymityLevel =
+  ## The level of a node that sets none: `PresetMixAnonymityLevel` on a network
+  ## preset that runs Mix, else `DefaultAnonymityLevel`. An unknown preset fails
+  ## the kernel config elsewhere, so it falls back to the default here.
+  let npc = toNetworkPresetConf(preset, Opt.none(uint16)).valueOr:
+    return DefaultAnonymityLevel
+  if npc.isSome() and npc.get().mix:
+    return PresetMixAnonymityLevel
+  return DefaultAnonymityLevel
 
 proc init*(
     T: type MessagingClientConf, flags: MessagingNodeConf, preset: string

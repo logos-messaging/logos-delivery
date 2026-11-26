@@ -25,9 +25,21 @@ proc init*(
     channelsConf: Opt[ReliableChannelManagerConf],
 ): ConfResult[LogosDeliveryConf] =
   ## A node with the Messaging API. An anonymity level above `None` mounts mix,
-  ## because the send path can use only a mix that the node mounts.
+  ## because the send path can use only a mix that the node mounts. Without a
+  ## level the node takes `presetAnonymityLevel(preset)`, unless it sets
+  ## `mix=false`: then the level is `None`.
   var kernel = WakuNodeConf(kernelConf)
-  let anonymityLevel = messagingConf.anonymityLevel.get(AnonymityLevel.None)
+  if messagingConf.mix.isSome():
+    kernel.mix = messagingConf.mix
+  var messaging = messagingConf
+  let anonymityLevel =
+    if messagingConf.anonymityLevel.isSome():
+      messagingConf.anonymityLevel.get()
+    elif kernel.mix == Opt.some(false):
+      AnonymityLevel.None
+    else:
+      presetAnonymityLevel(kernel.preset)
+  messaging.anonymityLevel = Opt.some(anonymityLevel)
   if anonymityLevel != AnonymityLevel.None:
     if kernel.mix == Opt.some(false):
       return
@@ -50,7 +62,7 @@ proc init*(
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernel),
-      messagingConf: Opt.some(messagingConf),
+      messagingConf: Opt.some(messaging),
       channelsConf: channelsConf,
     )
   )
