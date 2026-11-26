@@ -1,0 +1,20 @@
+name: Release image (quay.io)
+
+# Stopgap while the Jenkins release job cannot push to harbor.status.im:
+# publishes quay.io/wakuorg/nwaku-pr:<tag> without the 30-day expiry.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. v0.40.0"
+        type: string
+        required: true
+
+jobs:
+  build-docker-image:
+    uses: ./.github/workflows/container-image.yml
+    with:
+      ref: ${{ inputs.tag }}
+      image_tag: ${{ inputs.tag }}
+      expires_after: ""
+    secrets: inherit
