@@ -10,7 +10,9 @@ proc getNilPushHandler*(): PushMessageHandler =
   return proc(
       pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
-    return lightpushResultInternalError("no waku relay found")
+    return lightpushResultInternalError(
+      "no waku relay found", LightPushLocalErrorCode.Unavailable
+    )
 
 type RelayPublish = proc(
   w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
@@ -26,15 +28,17 @@ proc relayPushHandler(wakuRelay: WakuRelay, publish: RelayPublish): PushMessageH
         LightPushErrorCode.PAYLOAD_TOO_LARGE,
         "Message size exceeded maximum of: " & $wakuRelay.maxEncodedMessageSize &
           " bytes",
-        LightPushSent.NotSent,
+        LightPushLocalErrorCode.RejectedLocally,
       )
 
     (await wakuRelay.validateMessage(pubSubTopic, message)).isOkOr:
       return lighpushErrorResult(
         LightPushErrorCode.INVALID_MESSAGE,
         $error,
-        LightPushSent.NotSent,
-        rlnOf(LightPushErrorCode.INVALID_MESSAGE, $error),
+        if isRlnValidatorRejection(LightPushErrorCode.INVALID_MESSAGE, $error):
+          LightPushLocalErrorCode.RlnRejectedLocally
+        else:
+          LightPushLocalErrorCode.RejectedLocally,
       )
 
     let published = await publish(wakuRelay, pubsubTopic, message)

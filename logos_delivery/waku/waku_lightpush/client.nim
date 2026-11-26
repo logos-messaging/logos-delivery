@@ -42,7 +42,7 @@ proc sendPushRequest(
       return lighpushErrorResult(
         LightPushErrorCode.NO_PEERS_TO_RELAY,
         dialFailure & ": " & $peer & " is not accessible",
-        LightPushSent.NotSent,
+        LightPushLocalErrorCode.DialFailure,
       )
 
   defer:
@@ -56,13 +56,16 @@ proc sendPushRequest(
   except LPStreamError:
     debug "Failed to read response from peer", error = getCurrentExceptionMsg()
     return lightpushResultInternalError(
-      "Failed to read response from peer: " & getCurrentExceptionMsg()
+      "Failed to read response from peer: " & getCurrentExceptionMsg(),
+      LightPushLocalErrorCode.BadResponse,
     )
 
   let response = LightpushResponse.decode(buffer).valueOr:
     debug "Failed to decode response"
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
-    return lightpushResultInternalError(decodeRpcFailure)
+    return lightpushResultInternalError(
+      decodeRpcFailure, LightPushLocalErrorCode.BadResponse
+    )
 
   # Rate-limited, oversized and undecodable requests are rejected before the
   # requestId is read, so the service answers with the placeholder id "N/A".
@@ -75,7 +78,9 @@ proc sendPushRequest(
       ):
     debug "Response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
-    return lightpushResultInternalError("response failure, requestId mismatch")
+    return lightpushResultInternalError(
+      "response failure, requestId mismatch", LightPushLocalErrorCode.BadResponse
+    )
 
   return toPushResult(response)
 
@@ -120,7 +125,8 @@ proc publishToAny*(
   let peer = wl.peerManager.selectPeer(WakuLightPushCodec).valueOr:
     # TODO: check if it is matches the situation - shall we distinguish client side missing peers from server side?
     return lighpushErrorResult(
-      LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
+      LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers",
+      LightPushLocalErrorCode.NoServicePeer,
     )
   return await wl.publish(Opt.some(pubsubTopic), wakuMessage, peer)
 

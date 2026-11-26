@@ -16,14 +16,13 @@ method send*(
     message: WakuMessage,
     servicePeer: RemotePeerInfo,
 ): Future[Result[void, string]] {.async.} =
-  # when error it must return original error desc due the text is used for distinction between error types in metrics.
+  # The publisher reads this text to pick the metric label and to switch the service peer.
   discard (
     await self.wakuNode.lightpushPublish(
       Opt.some(topic), message, Opt.some(servicePeer)
     )
   ).valueOr:
-    if error.code == LightPushErrorCode.NO_PEERS_TO_RELAY and
-        error.sent == LightPushSent.NotSent:
+    if error.localErrorCode == LightPushLocalErrorCode.DialFailure:
       return err("dial_failure")
     else:
       return err($error.code)

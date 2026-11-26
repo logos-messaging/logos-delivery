@@ -85,7 +85,8 @@ proc publishOverMix*(
     publishFut.cancelSoon()
     debug "Mix lightpush timed out", pubsubTopic = pubsubTopic, timeout = replyTimeout
     return lighpushErrorResult(
-      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush over mix timed out"
+      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush over mix timed out",
+      LightPushLocalErrorCode.TimedOut,
     )
 
   await deadline.cancelAndWait()
@@ -302,6 +303,7 @@ proc lightpushPublishHandler(
           return lighpushErrorResult(
             LightPushErrorCode.SERVICE_NOT_AVAILABLE,
             "Waku lightpush with mix not available",
+            LightPushLocalErrorCode.FailedBeforeSend,
           )
 
         return await node.publishOverMix(conn, pubsubTopic, message)
@@ -317,7 +319,7 @@ proc lightpushPublishHandler(
       debug "Mixify is not supported with self hosted lightpush"
       return lighpushErrorResult(
         LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-        "Waku lightpush with mix not available",
+        "Waku lightpush with mix not available", LightPushLocalErrorCode.Unavailable,
       )
     debug "Publishing message with self hosted lightpush",
       pubsubTopic = pubsubTopic,
@@ -338,12 +340,14 @@ proc lightpushPublish*(
   if node.wakuLightpushClient.isNil() and node.wakuLightPush.isNil():
     debug "Failed to publish message as lightpush not available"
     return lighpushErrorResult(
-      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush not available"
+      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush not available",
+      LightPushLocalErrorCode.Unavailable,
     )
   if mixify and node.wakuMix.isNil():
     debug "Failed to publish message using mix as mix protocol is not mounted"
     return lighpushErrorResult(
-      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush with mix not available"
+      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush with mix not available",
+      LightPushLocalErrorCode.Unavailable,
     )
   let toPeer: RemotePeerInfo = peerOpt.valueOr:
     if not node.wakuLightPush.isNil():
@@ -352,27 +356,38 @@ proc lightpushPublish*(
       node.peerManager.selectPeer(WakuLightPushCodec).valueOr:
         let msg = "no suitable remote peers"
         debug "Failed to publish message", msg = msg
-        return lighpushErrorResult(LightPushErrorCode.NO_PEERS_TO_RELAY, msg)
+        return lighpushErrorResult(
+          LightPushErrorCode.NO_PEERS_TO_RELAY, msg,
+          LightPushLocalErrorCode.NoServicePeer,
+        )
     else:
       return lighpushErrorResult(
-        LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
+        LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers",
+        LightPushLocalErrorCode.NoServicePeer,
       )
 
   let pubsubForPublish = pubsubTopic.valueOr:
     if node.wakuAutoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
       debug "Lightpush publish error", error = msg
-      return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, msg)
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, msg, LightPushLocalErrorCode.RejectedLocally
+      )
 
     let parsedTopic = NsContentTopic.parse(message.contentTopic).valueOr:
       let msg = "Invalid content-topic:" & $error
       debug "Lightpush request handling error", error = msg
-      return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, msg)
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, msg, LightPushLocalErrorCode.RejectedLocally
+      )
 
     node.wakuAutoSharding.get().getShard(parsedTopic).valueOr:
       let msg = "Autosharding error: " & error
       debug "Lightpush publish error", error = msg
-      return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
+      return lighpushErrorResult(
+        LightPushErrorCode.INTERNAL_SERVER_ERROR, msg,
+        LightPushLocalErrorCode.FailedBeforeSend,
+      )
 
   # toRLNSignal hashes the timestamp into the proof, so fix it before proof gen;
   # the downstream ensureTimestampSet then becomes a no-op.
@@ -384,6 +399,7 @@ proc lightpushPublish*(
       return lighpushErrorResult(
         LightPushErrorCode.INTERNAL_SERVER_ERROR,
         "failed to determine RLN proof size: " & $error,
+        LightPushLocalErrorCode.FailedBeforeSend,
       )
     let (size, limit) = mixLightpushSize(pubsubForPublish, sizedMessage)
     if size > limit:
@@ -391,6 +407,7 @@ proc lightpushPublish*(
         LightPushErrorCode.INVALID_MESSAGE,
         "message too large for mix: the request has: " & $size & " bytes, the limit is: " &
           $limit & " bytes",
+        LightPushLocalErrorCode.RejectedLocally,
       )
 
   # A Permanent failure comes from the message itself, such as a timestamp
@@ -398,12 +415,16 @@ proc lightpushPublish*(
   # the relay validator answered before proof generation checked it. Any
   # other failure is the node's: it has no proof to offer right now.
   let msgWithProof = (await attachProof(node.rlnPlugin, message)).valueOr:
-    let code =
-      if error.kind == RlnErrorKind.Permanent:
-        LightPushErrorCode.INVALID_MESSAGE
-      else:
-        LightPushErrorCode.OUT_OF_RLN_PROOF
-    return lighpushErrorResult(code, "failed to attach RLN proof: " & $error)
+    let desc = "failed to attach RLN proof: " & $error
+    if error.kind == RlnErrorKind.Permanent:
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, desc,
+        LightPushLocalErrorCode.RejectedLocally,
+      )
+    return lighpushErrorResult(
+      LightPushErrorCode.OUT_OF_RLN_PROOF, desc,
+      LightPushLocalErrorCode.FailedBeforeSend,
+    )
 
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
@@ -413,9 +434,9 @@ proc lightpushPublish*(
     return firstResult
 
   # Ask the backend to refresh what proofs are built against and return
-  # immediately, normalized to 504 with RlnProofRefreshScheduledMsg so callers
-  # can tell "stale proof, retry" from a permanent rejection. A backend without
-  # a refresh hook gets the result back unchanged.
+  # immediately. The error is a 504 with RlnProofRefreshScheduledMsg and the local
+  # error code `RlnRefreshScheduled`.
+  # A backend without a refresh hook gets the result back unchanged.
   if not node.rlnPlugin.notifyProofRejected():
     return firstResult
   debug "lightpush send rejected as RLN-invalid; RLN proof refresh scheduled",
@@ -424,5 +445,5 @@ proc lightpushPublish*(
     LightPushErrorCode.OUT_OF_RLN_PROOF,
     RlnProofRefreshScheduledMsg & ": " &
       firstResult.error.desc.get($firstResult.error.code),
-    rln = LightPushRln.RefreshScheduled,
+    LightPushLocalErrorCode.RlnRefreshScheduled,
   )

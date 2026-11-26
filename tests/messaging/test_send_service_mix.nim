@@ -20,6 +20,7 @@ import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/node/peer_manager/waku_peer_store,
   logos_delivery/waku/node/waku_node/lightpush,
+  logos_delivery/waku/rln/markers,
   logos_delivery/waku/rln/rln_plugin,
   logos_delivery/waku/rln/types as rln_types,
   logos_delivery/waku/waku_lightpush/common,
@@ -77,6 +78,13 @@ method sendImpl(self: RetryingProcessor, task: DeliveryTask): Future[void] {.asy
   task.tryCount.inc()
   task.state = DeliveryState.NextRoundRetry
   task.errorDesc = self.reason
+
+proc rlnRejectedError(): ErrorStatus =
+  ## The error of a publish whose proof an RLN validator rejected.
+  return lighpushErrorResult(
+    LightPushErrorCode.INVALID_MESSAGE, "rln proof rejected",
+    LightPushLocalErrorCode.RlnRejectedLocally,
+  ).error
 
 proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
@@ -878,13 +886,17 @@ suite "SendService - anonymity level with a mounted mix":
       # With no relay peer, this node's filter service and archive can get the message.
       (
         "relay-no-peer",
-        lighpushErrorResult(LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer"),
+        lighpushErrorResult(
+          LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer",
+          LightPushLocalErrorCode.NoRelayPeer,
+        ),
         true,
       ),
       (
-        "relay-refused",
+        "relay-rejected",
         lighpushErrorResult(
-          LightPushErrorCode.INVALID_MESSAGE, "refused", LightPushSent.NotSent
+          LightPushErrorCode.INVALID_MESSAGE, "rejected",
+          LightPushLocalErrorCode.RejectedLocally,
         ),
         false,
       ),
@@ -894,10 +906,13 @@ suite "SendService - anonymity level with a mounted mix":
       await relayReturning(outcome).process(task)
       check task.deanonymized == deanonymized
 
-  asyncTest "a failed dial or a relay refusal keeps deanonymized from an earlier attempt":
+  asyncTest "a failed dial or a relay rejection keeps deanonymized from an earlier attempt":
     addLightpushServicePeer()
     let relay = relayReturning(
-      lighpushErrorResult(LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer")
+      lighpushErrorResult(
+        LightPushErrorCode.NO_PEERS_TO_RELAY, "no relay peer",
+        LightPushLocalErrorCode.NoRelayPeer,
+      )
     )
     relay.chain(LightpushSendProcessor.new(waku, waku.brokerCtx))
 
@@ -910,7 +925,8 @@ suite "SendService - anonymity level with a mounted mix":
 
     await relayReturning(
       lighpushErrorResult(
-        LightPushErrorCode.INVALID_MESSAGE, "refused", LightPushSent.NotSent
+        LightPushErrorCode.INVALID_MESSAGE, "rejected",
+        LightPushLocalErrorCode.RejectedLocally,
       )
     )
       .process(task)
@@ -933,6 +949,72 @@ suite "SendService - anonymity level with a mounted mix":
     check:
       task.tryCount == 1
       task.deanonymized
+
+  asyncTest "an RLN rejection calls the refresh hook once":
+    let refreshCalls = new int
+    waku.node.rlnPlugin = Opt.some(
+      RlnPlugin(
+        onProofRejected: proc() {.gcsafe, raises: [].} =
+          refreshCalls[].inc()
+      )
+    )
+    let service = await startLightpushService(
+      replyingWith(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg & ": x")
+    )
+    defer:
+      await service.stop()
+    let relayRejection = lighpushErrorResult(
+      LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg,
+      LightPushLocalErrorCode.RlnRejectedLocally,
+    )
+
+    for (id, processor, deanonymized) in [
+      ("relay-rln-rejection", BaseSendProcessor(relayReturning(relayRejection)), false),
+      (
+        "lightpush-rln-rejection",
+        BaseSendProcessor(LightpushSendProcessor.new(waku, waku.brokerCtx)),
+        true,
+      ),
+    ]:
+      checkpoint id
+      refreshCalls[] = 0
+      let task = buildTask(id, ZeroDuration)
+      task.msg.proof = @[1'u8, 2, 3] # the proof that RLN rejects
+      check await processor.process(task).withTimeout(FUTURE_TIMEOUT_MEDIUM)
+      check:
+        refreshCalls[] == 1
+        task.state == DeliveryState.NextRoundRetry
+        task.msg.proof.len == 0
+        task.deanonymized == deanonymized
+
+  asyncTest "a lightpush OUT_OF_RLN_PROOF reply is retried later":
+    ## The service node has no proof for the message, and it rejected no proof.
+    ## So the task keeps its proof, waits for the next round and gets no refresh.
+    let service = await startLightpushService(
+      replyingWith(LightPushErrorCode.OUT_OF_RLN_PROOF, "out of proof")
+    )
+    defer:
+      await service.stop()
+    let refreshCalls = new int
+    let backend = RlnPlugin(
+      onProofRejected: proc() {.gcsafe, raises: [].} =
+        refreshCalls[].inc()
+    )
+
+    for (id, rlnPlugin) in [
+      ("out-of-proof-with-no-rln", Opt.none(RlnPlugin)),
+      ("out-of-proof-with-rln", Opt.some(backend)),
+    ]:
+      checkpoint id
+      waku.node.rlnPlugin = rlnPlugin
+      let task = buildTask(id, ZeroDuration)
+      task.msg.proof = @[1'u8, 2, 3]
+      let attempt = LightpushSendProcessor.new(waku, waku.brokerCtx).process(task)
+      check await attempt.withTimeout(FUTURE_TIMEOUT_MEDIUM)
+      check:
+        task.state == DeliveryState.NextRoundRetry
+        task.msg.proof == @[1'u8, 2, 3]
+        refreshCalls[] == 0
 
   asyncTest "an expired task reports the reason a processor left on it":
     ## A processor that leaves a task for a retry can write why in `errorDesc`.
@@ -1026,7 +1108,7 @@ suite "SendService - anonymity level with a mounted mix":
     task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
 
     # The park clears the proof and `firstAdmittedTime`, and not the window.
-    task.parkForRlnProofRefresh(waku, "rln proof rejected")
+    task.parkForRlnProofRefresh(waku, rlnRejectedError())
     check:
       task.state == DeliveryState.NextRoundRetry
       task.msg.proof.len == 0
@@ -1044,7 +1126,7 @@ suite "SendService - anonymity level with a mounted mix":
     let task = buildTask("rln-no-refresh", chronos.minutes(2))
     task.msg.proof = @[1'u8, 2, 3] # a proof the service would have rejected
 
-    task.parkForRlnProofRefresh(waku, "rln proof rejected")
+    task.parkForRlnProofRefresh(waku, rlnRejectedError())
     check:
       task.state == DeliveryState.FailedToDeliver
       task.errorDesc == "rln proof rejected"

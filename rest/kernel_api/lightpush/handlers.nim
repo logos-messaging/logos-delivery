@@ -76,11 +76,18 @@ proc installLightPushRequestHandler*(
     trace "content body", ROUTE_LIGHTPUSH, contentBody
 
     let req: PushRequest = decodeJsonBody[PushRequest](contentBody).valueOr:
-      return
-        makeRestResponse(lightpushResultBadRequest("Invalid push request! " & $error))
+      return makeRestResponse(
+        lightpushResultBadRequest(
+          "Invalid push request! " & $error, LightPushLocalErrorCode.RejectedLocally
+        )
+      )
 
     let msg = req.message.toWakuMessage().valueOr:
-      return makeRestResponse(lightpushResultBadRequest("Invalid message! " & $error))
+      return makeRestResponse(
+        lightpushResultBadRequest(
+          "Invalid message! " & $error, LightPushLocalErrorCode.RejectedLocally
+        )
+      )
 
     var toPeer = Opt.none(RemotePeerInfo)
     if useSelfHostedLightPush(node):
@@ -88,38 +95,54 @@ proc installLightPushRequestHandler*(
     else:
       let aPeer = node.peerManager.selectPeer(WakuLightPushCodec).valueOr:
         let handler = discHandler.valueOr:
-          return makeRestResponse(lightpushResultServiceUnavailable(NoPeerNoDiscoError))
+          return makeRestResponse(
+            lightpushResultServiceUnavailable(
+              NoPeerNoDiscoError, LightPushLocalErrorCode.NoServicePeer
+            )
+          )
 
         let peerOp = (await handler()).valueOr:
           return makeRestResponse(
-            lightpushResultInternalError("No value in peerOp: " & $error)
+            lightpushResultInternalError(
+              "No value in peerOp: " & $error, LightPushLocalErrorCode.FailedBeforeSend
+            )
           )
 
         peerOp.valueOr:
-          return
-            makeRestResponse(lightpushResultServiceUnavailable(NoPeerNoneFoundError))
+          return makeRestResponse(
+            lightpushResultServiceUnavailable(
+              NoPeerNoneFoundError, LightPushLocalErrorCode.NoServicePeer
+            )
+          )
       toPeer = Opt.some(aPeer)
 
     var pushFut = node.lightpushPublish(req.pubsubTopic, msg, toPeer)
 
     if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
       error "Failed to request a message push due to timeout!"
-      return
-        makeRestResponse(lightpushResultServiceUnavailable("Push request timed out"))
+      return makeRestResponse(
+        lightpushResultServiceUnavailable(
+          "Push request timed out", LightPushLocalErrorCode.TimedOut
+        )
+      )
 
     var pushResult = pushFut.value()
 
-    # An error with `LightPushRln.RefreshScheduled` is a publish rejected on a
+    # An error with `RlnRefreshScheduled` is a publish rejected on a
     # stale merkle root. On this error the kernel scheduled a cache refresh
     # before failing early. This synchronous endpoint has no retry loop of its
     # own, so retry once — the second attempt generates its proof against the
     # refreshed merkle path.
-    if pushResult.isErr() and pushResult.error.rln == LightPushRln.RefreshScheduled:
+    if pushResult.isErr() and
+        pushResult.error.localErrorCode == LightPushLocalErrorCode.RlnRefreshScheduled:
       pushFut = node.lightpushPublish(req.pubsubTopic, msg, toPeer)
       if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
         error "Failed to request a message push due to timeout!"
-        return
-          makeRestResponse(lightpushResultServiceUnavailable("Push request timed out"))
+        return makeRestResponse(
+          lightpushResultServiceUnavailable(
+            "Push request timed out", LightPushLocalErrorCode.TimedOut
+          )
+        )
       pushResult = pushFut.value()
 
     return makeRestResponse(pushResult)

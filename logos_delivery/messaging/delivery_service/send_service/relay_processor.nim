@@ -62,7 +62,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   let wasDeanonymized = task.deanonymized
   task.deanonymized = true
   let published = await self.publishProc(task.pubsubTopic, task.msg)
-  if published.isErr() and published.error.sent == LightPushSent.NotSent:
+  if published.isErr() and published.error.notSent():
     task.deanonymized = wasDeanonymized
   let noOfPublishedPeers = published.valueOr:
     let errorMessage = error.desc.get($error.code)
@@ -70,7 +70,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
       msgHash = task.loggedHash(), error = errorMessage
 
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, errorMessage)
+      task.parkForRlnProofRefresh(self.waku, error)
       return
 
     if error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:

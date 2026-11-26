@@ -28,24 +28,26 @@ func statusLabel*(code: LightPushStatusCode): string =
   return OtherLabel
 
 type
-  LightPushSent* {.pure.} = enum
-    ## Can the message of a failed push have left this node?
-    ## Only this node sets this value, and no lightpush message carries it.
-    Unknown ## This node makes no claim, so a caller acts as if the message left.
-    NotSent ## Nothing left this node.
-
-  LightPushRln* {.pure.} = enum
-    ## What this node knows of an RLN refusal of a failed push.
-    ## Only this node sets this value, and no lightpush message carries it.
-    None ## This node found no RLN refusal.
-    Refused ## An RLN validator refused the proof, on this node or on the service node.
-    RefreshScheduled ## As `Refused`, and this node scheduled a proof refresh.
+  LightPushLocalErrorCode* {.pure.} = enum
+    ## The local reason for a failed push. It is never sent on the wire.
+    None ## No local code. The error is the reply of the service node.
+    Unavailable ## Lightpush, mix or relay is not available on this node.
+    NoServicePeer ## No lightpush service peer.
+    RejectedLocally ## This node rejected the message.
+    RlnRejectedLocally ## The RLN validator of this node rejected the proof.
+    FailedBeforeSend ## This node failed before the send.
+    DialFailure ## The dial to the service node failed.
+    BadResponse ## The request was sent, and the response was missing or invalid.
+    TimedOut ## The push timed out.
+    OtherError ## Any other error of this node.
+    NoRelayPeer ## Relay had no peer for the message.
+    RlnRejectedByService ## The RLN validator of the service node rejected the proof.
+    RlnRefreshScheduled ## As `RlnRejectedByService`, and this node scheduled a refresh.
 
   ErrorStatus* = object
     code*: LightpushStatusCode
     desc*: Opt[string]
-    sent*: LightPushSent
-    rln*: LightPushRln
+    localErrorCode*: LightPushLocalErrorCode
 
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 
@@ -67,21 +69,32 @@ const UnknownRequestId* = "N/A"
 func isSuccess*(response: LightPushResponse): bool =
   return response.statusCode == LightPushSuccessCode.SUCCESS
 
-func rlnOf*(code: LightpushStatusCode, desc: string): LightPushRln =
-  ## `Refused` for an `INVALID_MESSAGE` with the text of the RLN validator.
-  if code == LightPushErrorCode.INVALID_MESSAGE and desc.contains(RlnValidatorErrorMsg):
-    return LightPushRln.Refused
-  return LightPushRln.None
+func isRlnValidatorRejection*(code: LightpushStatusCode, desc: string): bool =
+  return
+    code == LightPushErrorCode.INVALID_MESSAGE and desc.contains(RlnValidatorErrorMsg)
 
 func isRlnRejection*(error: ErrorStatus): bool =
   ## True when a publish failure means "the RLN proof was not accepted", so the
   ## message is worth retrying with a freshly generated proof rather than being
   ## failed outright.
-  ##
-  ## OUT_OF_RLN_PROOF is always RLN.
-  ## INVALID_MESSAGE also covers other refusals, so it needs an `rln` other than `None`.
   return
-    error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or error.rln != LightPushRln.None
+    error.localErrorCode in {
+      LightPushLocalErrorCode.RlnRejectedLocally,
+      LightPushLocalErrorCode.RlnRejectedByService,
+      LightPushLocalErrorCode.RlnRefreshScheduled,
+    }
+
+func notSent*(error: ErrorStatus): bool =
+  ## True when the failed push did not send the message.
+  ## `None` is not in the set, because this node asked the service node.
+  ## The service node got the message, and this node has no local failure to add.
+  return
+    error.localErrorCode in {
+      LightPushLocalErrorCode.Unavailable, LightPushLocalErrorCode.NoServicePeer,
+      LightPushLocalErrorCode.RejectedLocally,
+      LightPushLocalErrorCode.RlnRejectedLocally,
+      LightPushLocalErrorCode.FailedBeforeSend, LightPushLocalErrorCode.DialFailure,
+    }
 
 func toPushResult*(response: LightPushResponse): WakuLightPushResult =
   if isSuccess(response):
@@ -92,7 +105,9 @@ func toPushResult*(response: LightPushResponse): WakuLightPushResult =
         # sent us a "successful" response with zero peers
         err(
           ErrorStatus(
-            code: LightPushErrorCode.NO_PEERS_TO_RELAY, desc: response.statusDesc
+            code: LightPushErrorCode.NO_PEERS_TO_RELAY,
+            desc: response.statusDesc,
+            localErrorCode: LightPushLocalErrorCode.None,
           )
         )
       else:
@@ -103,7 +118,11 @@ func toPushResult*(response: LightPushResponse): WakuLightPushResult =
       ErrorStatus(
         code: response.statusCode,
         desc: response.statusDesc,
-        rln: rlnOf(response.statusCode, response.statusDesc.get("")),
+        localErrorCode:
+          if isRlnValidatorRejection(response.statusCode, response.statusDesc.get("")):
+            LightPushLocalErrorCode.RlnRejectedByService
+          else:
+            LightPushLocalErrorCode.None,
       )
     )
 
@@ -113,19 +132,28 @@ func lightpushSuccessResult*(relayPeerCount: uint32): WakuLightPushResult =
 func lighpushErrorResult*(
     statusCode: LightpushStatusCode,
     desc: string,
-    sent = LightPushSent.Unknown,
-    rln = LightPushRln.None,
+    localErrorCode: LightPushLocalErrorCode,
 ): WakuLightPushResult =
-  return err(ErrorStatus(code: statusCode, desc: Opt.some(desc), sent: sent, rln: rln))
+  return err(
+    ErrorStatus(code: statusCode, desc: Opt.some(desc), localErrorCode: localErrorCode)
+  )
 
-func lightpushResultInternalError*(msg: string): WakuLightPushResult =
-  return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
+func lightpushResultInternalError*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return
+    lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg, localErrorCode)
 
-func lightpushResultBadRequest*(msg: string): WakuLightPushResult =
-  return lighpushErrorResult(LightPushErrorCode.BAD_REQUEST, msg)
+func lightpushResultBadRequest*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return lighpushErrorResult(LightPushErrorCode.BAD_REQUEST, msg, localErrorCode)
 
-func lightpushResultServiceUnavailable*(msg: string): WakuLightPushResult =
-  return lighpushErrorResult(LightPushErrorCode.SERVICE_NOT_AVAILABLE, msg)
+func lightpushResultServiceUnavailable*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return
+    lighpushErrorResult(LightPushErrorCode.SERVICE_NOT_AVAILABLE, msg, localErrorCode)
 
 func mapPubishingErrorToPushResult*(
     publishOutcome: PublishOutcome, maxMessageSize: int
@@ -136,32 +164,32 @@ func mapPubishingErrorToPushResult*(
   of NoTopicSpecified:
     return lighpushErrorResult(
       LightPushErrorCode.INVALID_MESSAGE, "Empty topic, skipping publish",
-      LightPushSent.NotSent,
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of DuplicateMessage:
     return lighpushErrorResult(
       LightPushErrorCode.INVALID_MESSAGE, "Dropping already-seen message",
-      LightPushSent.NotSent,
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of NoPeersToPublish:
-    # This error makes no claim about the message.
-    # This node's filter service and archive can still get it.
     return lighpushErrorResult(
-      LightPushErrorCode.NO_PEERS_TO_RELAY, "No peers for topic, skipping publish"
+      LightPushErrorCode.NO_PEERS_TO_RELAY, "No peers for topic, skipping publish",
+      LightPushLocalErrorCode.NoRelayPeer,
     )
   of CannotGenerateMessageId:
     return lighpushErrorResult(
       LightPushErrorCode.INTERNAL_SERVER_ERROR,
-      "Error generating message id, skipping publish", LightPushSent.NotSent,
+      "Error generating message id, skipping publish",
+      LightPushLocalErrorCode.FailedBeforeSend,
     )
   of InvalidMessage:
     return lighpushErrorResult(
       LightPushErrorCode.INVALID_MESSAGE, "Invalid message, skipping publish",
-      LightPushSent.NotSent,
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of MessageTooLarge:
     return lighpushErrorResult(
       LightPushErrorCode.PAYLOAD_TOO_LARGE,
       "Message size exceeded maximum of: " & $maxMessageSize & " bytes",
-      LightPushSent.NotSent,
+      LightPushLocalErrorCode.RejectedLocally,
     )

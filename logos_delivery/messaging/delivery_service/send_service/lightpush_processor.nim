@@ -61,14 +61,14 @@ method sendImpl*(
   let wasDeanonymized = task.deanonymized
   task.deanonymized = true
   let published = await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
-  if published.isErr() and published.error.sent == LightPushSent.NotSent:
+  if published.isErr() and published.error.notSent():
     task.deanonymized = wasDeanonymized
   let numLightpushServers = published.valueOr:
     error "LightpushSendProcessor.sendImpl failed",
       msgHash = task.loggedHash(), error = error.desc.get($error.code)
 
     if error.isRlnRejection():
-      task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))
+      task.parkForRlnProofRefresh(self.waku, error)
       return
 
     case error.code
