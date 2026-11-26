@@ -4,7 +4,11 @@ import
   std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results, metrics
 import mix_rln_spam_protection/module_api
 import brokers/broker_context
-import libp2p_mix/[curve25519, mix_metrics, pool], libp2p/[peerid, multiaddress]
+import
+  libp2p_mix/[curve25519, mix_metrics, pool],
+  libp2p/[peerid, multiaddress],
+  libp2p/protocols/pubsub/[gossipsub, pubsubpeer],
+  libp2p/protocols/pubsub/rpc/messages
 
 import
   logos_delivery/waku/[
@@ -47,11 +51,16 @@ proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
   else:
     return ph.notReady("mock")
 
-proc startRelayNode(): Future[WakuNode] {.async.} =
+proc startRelayNode(quicEnabled = true): Future[WakuNode] {.async.} =
   ## Starts a node with Relay in a new broker context.
   var node: WakuNode
   lockNewGlobalBrokerContext:
-    node = newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+    node = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("127.0.0.1"),
+      Port(0),
+      quicEnabled = quicEnabled,
+    )
     (await node.mountRelay()).expect("Failed to mount relay")
     await node.start()
   return node
@@ -66,6 +75,18 @@ proc subscribeShard(node: WakuNode, shard: PubsubTopic) =
 
 proc meshSize(node: WakuNode, shard: PubsubTopic): int =
   return node.wakuRelay.getNumPeersInMesh(shard).get(0)
+
+proc shardHealth(node: WakuNode, shard: PubsubTopic): TopicHealth =
+  return node.wakuRelay.topicsHealth.getOrDefault(shard, TopicHealth.UNHEALTHY)
+
+proc sendUnsubscribeWithoutPrune(node: WakuNode, subscribe: Opt[bool]) =
+  # `unsubscribe` of the node also sends a PRUNE.
+  let unsubscribe = SubOpts(subscribe: subscribe, topic: Opt.some(DefaultPubsubTopic))
+  node.wakuRelay.broadcast(
+    node.wakuRelay.mesh.getOrDefault(DefaultPubsubTopic),
+    RPCMsg.withSubscriptions(@[unsubscribe]),
+    MessagePriority.High,
+  )
 
 suite "Health Monitor - health state calculation":
   test "Disconnected, zero peers":
@@ -1012,6 +1033,55 @@ proc mountTestMix(node: WakuNode) {.async.} =
   (await node.mountMix(DefaultClusterId, mixPrivKey, @[], allowAllAddresses = true)).expect(
     "failed to mount mix"
   )
+
+suite "Health Monitor - topic health":
+  var nodeA {.threadvar.}, nodeB {.threadvar.}: WakuNode
+
+  asyncSetup:
+    # The stop of a QUIC transport waits 300 ms.
+    nodeA = await startRelayNode(quicEnabled = false)
+    nodeB = await startRelayNode(quicEnabled = false)
+    nodeA.subscribeShard(DefaultPubsubTopic)
+    nodeB.subscribeShard(DefaultPubsubTopic)
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) == 1
+      nodeB.meshSize(DefaultPubsubTopic) == 1
+      nodeA.shardHealth(DefaultPubsubTopic) == TopicHealth.MINIMALLY_HEALTHY
+
+  asyncTeardown:
+    await allFutures(nodeA.stop(), nodeB.stop())
+
+  asyncTest "topic health follows send-stream closure":
+    ## The peer forwards no more messages of the shard, but it stays connected, so
+    ## no disconnect event makes the relay calculate the health again.
+    for peer in toSeq(nodeA.wakuRelay.mesh.getOrDefault(DefaultPubsubTopic)):
+      if not peer.sendStream.isNil():
+        await peer.sendStream.close()
+
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) == 0
+      nodeA.shardHealth(DefaultPubsubTopic) == TopicHealth.UNHEALTHY
+    check:
+      nodeA.switch.isConnected(nodeB.switch.peerInfo.peerId)
+      nodeB.switch.isConnected(nodeA.switch.peerInfo.peerId)
+
+  asyncTest "topic health follows unsubscribe without PRUNE":
+    ## Gossipsub takes the peer out of the mesh, but the PRUNE that makes the relay
+    ## calculate the health again does not come.
+    nodeB.sendUnsubscribeWithoutPrune(Opt.some(false))
+
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) == 0
+      nodeA.shardHealth(DefaultPubsubTopic) == TopicHealth.UNHEALTHY
+
+  asyncTest "topic health follows unsubscribe with the flag omitted":
+    ## Gossipsub reads a subscription with no `subscribe` flag as an unsubscribe.
+    nodeB.sendUnsubscribeWithoutPrune(Opt.none(bool))
+
+    checkUntilTimeout:
+      nodeA.meshSize(DefaultPubsubTopic) == 0
+      nodeA.shardHealth(DefaultPubsubTopic) == TopicHealth.UNHEALTHY
 
 suite "Health Monitor - mix readiness":
   asyncTest "Mix health follows the pool size":

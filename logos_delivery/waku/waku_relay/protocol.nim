@@ -13,7 +13,7 @@ import
   chronicles,
   metrics,
   libp2p/multihash,
-  libp2p/protocols/pubsub/[floodsub, gossipsub, timedcache],
+  libp2p/protocols/pubsub/[floodsub, gossipsub, pubsubpeer, timedcache],
   libp2p/protocols/pubsub/rpc/[messages, protobuf],
   libp2p/stream/connection,
   libp2p/switch,
@@ -345,6 +345,11 @@ proc initRelayObservers(w: WakuRelay) =
 
   proc recalculateMeshTopics(msgs: RPCMsg) =
     ## A GRAFT or a PRUNE changes the mesh of its topic, whichever side sends it.
+    ## An unsubscribe also removes its sender from the mesh, and can come with no PRUNE.
+    for sub in msgs.subscriptions:
+      if sub.topic.isSome() and not sub.isSubscribe:
+        w.recalculateTopicHealth(sub.topic.get())
+
     if msgs.control.isNone():
       return
     let ctrl = msgs.control.get()
@@ -569,6 +574,16 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
 
+method onPubSubPeerEvent*(
+    w: WakuRelay, peer: PubSubPeer, event: PubSubPeerEvent
+) {.gcsafe.} =
+  ## Gossipsub removes a peer from each mesh when its send stream closes.
+  ## It sends no PRUNE, and the connection to the peer can stay open.
+  procCall GossipSub(w).onPubSubPeerEvent(peer, event)
+  if event.kind == PubSubPeerEventKind.StreamClosed:
+    w.topicHealthCheckAll = true
+    w.topicHealthUpdateEvent.fire()
+
 method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
   info "start"
   await procCall GossipSub(w).start()
@@ -594,7 +609,7 @@ method stop*(w: WakuRelay) {.async: (raises: []).} =
   if not w.topicHealthLoopHandle.isNil():
     await w.topicHealthLoopHandle.cancelAndWait()
 
-  # GossipSub.stop emptied the meshes without waking the health loop
+  # GossipSub.stop emptied the meshes, and the health loop can end before its next pass
   for topic in toSeq(w.topicsHealth.keys):
     let currentHealth = w.calculateTopicHealth(topic)
     if w.topicsHealth.getOrDefault(topic, TopicHealth.UNHEALTHY) != currentHealth:
