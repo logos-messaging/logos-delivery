@@ -51,7 +51,8 @@ suite "LogosDeliveryConf - mode expansion":
       kc.lightpush == Opt.some(true)
       kc.discv5Discovery == Opt.some(true)
       kc.peerExchange == Opt.some(true)
-      kc.rendezvous == Opt.some(true)
+      kc.rendezvous.isNone()
+        # the conf builder decides: on only with relay and without service discovery
 
   test "Edge mode is client-only (no relay/filter/lightpush/store)":
     let kc = kernelOf(LogosDeliveryMode.Edge)
@@ -78,6 +79,83 @@ suite "LogosDeliveryConf - mode expansion":
     check:
       kc.store == Opt.some(true) # Edge defaults store off; the explicit opt-in wins
       kc.relay == Opt.some(false) # unset, so the mode decides
+
+suite "LogosDeliveryConf - mode decides mix":
+  test "Core mode sets mix as CoreModeMix says, unset today":
+    let kc = kernelOf(LogosDeliveryMode.Core)
+    check:
+      kc.mix == CoreModeMix
+      CoreModeMix.isNone()
+
+  test "Edge mode leaves mix to the anonymity level":
+    let kc = kernelOf(LogosDeliveryMode.Edge)
+    check kc.mix.isNone()
+
+  test "an explicit mix=false survives Core mode":
+    var kc = defaultKernelConf().valueOr:
+      raiseAssert error
+    kc.mix = Opt.some(false)
+    applyMode(kc, LogosDeliveryMode.Core)
+    check kc.mix == Opt.some(false)
+
+  test "an Edge node with the Messaging API mounts no mix by default":
+    let conf = LogosDeliveryConf.init(
+      EntryLayer.messaging,
+      LogosDeliveryMode.Edge,
+      "",
+      MessagingClientConf(),
+      ReliableChannelManagerConf(),
+    ).valueOr:
+      raiseAssert error
+    check:
+      conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+      WakuNodeConf(conf.kernelConf).mix.isNone()
+
+  test "a Core node at the kernel entry layer mounts mix as CoreModeMix says":
+    let conf = LogosDeliveryConf.init(
+      EntryLayer.kernel,
+      LogosDeliveryMode.Core,
+      "",
+      MessagingClientConf(),
+      ReliableChannelManagerConf(),
+    ).valueOr:
+      raiseAssert error
+    check:
+      conf.messagingConf.isNone()
+      WakuNodeConf(conf.kernelConf).mix == CoreModeMix
+
+  test "an Edge node at the kernel entry layer does not mount mix":
+    let conf = LogosDeliveryConf.init(
+      EntryLayer.kernel,
+      LogosDeliveryMode.Edge,
+      "",
+      MessagingClientConf(),
+      ReliableChannelManagerConf(),
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(conf.kernelConf).mix.isNone()
+
+suite "LogosDeliveryConf - mix override":
+  test "mix=false in the kernel config turns a Core node's mix off":
+    var kernel = libraryKernel()
+    kernel.mix = Opt.some(false)
+    let conf = LogosDeliveryConf.init(
+      entryLayer = EntryLayer.messaging,
+      mode = LogosDeliveryMode.Core,
+      preset = "",
+      messagingOverrides = MessagingClientConf(),
+      channelsOverrides = ReliableChannelManagerConf(),
+      kernelConfArg = Opt.some(KernelConf(kernel)),
+    ).valueOr:
+      raiseAssert error
+    check:
+      WakuNodeConf(conf.kernelConf).mix == Opt.some(false)
+      conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+
+  test "mix=false is a kernel key":
+    let lc = parseLogosDeliveryConf("""{"mode": "Core", "mix": false}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(lc.kernelConf).mix == Opt.some(false)
 
 suite "LogosDeliveryConf - library kernel defaults":
   test "ephemeral ports, websocket off, quic on":
@@ -118,8 +196,9 @@ suite "LogosDeliveryConf - library kernel defaults":
       kernelConfArg = Opt.some(KernelConf(kernel)),
     ).valueOr:
       raiseAssert error
-    check lc.messagingConf.get() ==
-      merge(resolvePreset("twn").get(), MessagingClientConf())
+    var expected = merge(resolvePreset("twn").get(), MessagingClientConf())
+    expected.anonymityLevel = Opt.some(presetAnonymityLevel("twn"))
+    check lc.messagingConf.get() == expected
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts the messaging fields":
@@ -232,7 +311,8 @@ suite "parseLogosDeliveryConf - JSON parsing":
     let mc = lc.messagingConf.get()
     check:
       mc.reliabilityEnabled == Opt.some(true) # the user's value, kept as given
-      mc.anonymityLevel.isNone() # user didn't set it, so it stays none
+      mc.rateLimitEnabled.isNone() # user didn't set it, so it stays none
+      mc.anonymityLevel == Opt.some(AnonymityLevel.None) # resolved from the preset
 
   test "a preset resolves reliability into the messaging record":
     let lc = parseLogosDeliveryConf("""{"preset": "twn"}""").valueOr:
@@ -342,6 +422,16 @@ suite "parseLogosDeliveryConf - JSON parsing":
         raiseAssert error
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().allowAllAddresses
+
+  test "flat kernel keys set mix key rotation":
+    let lc = parseLogosDeliveryConf(
+      """{"anonymityLevel": "Required", "mix-key-rotation": true}"""
+    ).valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    require wakuConf.mixConf.isSome()
+    check wakuConf.mixConf.get().keyRotation
 
   test "a mix conf does not allow all addresses by default":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
@@ -604,8 +694,28 @@ suite "LogosDeliveryConf - anonymity level":
   test "None leaves mix alone":
     check kernelWithAnonymity(Opt.some(AnonymityLevel.None)).mix.isNone()
 
-  test "an unset anonymity level defaults to None and leaves mix alone":
-    check kernelWithAnonymity(Opt.none(AnonymityLevel)).mix.isNone()
+  test "an unset anonymity level defaults to None and mounts no mix":
+    let conf = LogosDeliveryConf.init(
+      KernelConf(defaultTestWakuNodeConf()),
+      MessagingClientConf(),
+      Opt.none(ReliableChannelManagerConf),
+    ).valueOr:
+      raiseAssert error
+    check:
+      DefaultAnonymityLevel == AnonymityLevel.None
+      conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+      WakuNodeConf(conf.kernelConf).mix.isNone()
+
+  test "an unset anonymity level with mix=false is None, not an error":
+    var kernel = defaultTestWakuNodeConf()
+    kernel.mix = Opt.some(false)
+    let conf = LogosDeliveryConf.init(
+      KernelConf(kernel), MessagingClientConf(), Opt.none(ReliableChannelManagerConf)
+    ).valueOr:
+      raiseAssert error
+    check:
+      conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+      WakuNodeConf(conf.kernelConf).mix == Opt.some(false)
 
   test "an anonymity level above None with mix=false is an error":
     var kernel = defaultTestWakuNodeConf()
@@ -800,3 +910,70 @@ suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
     check:
       plan.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Required)
       WakuNodeConf(plan.kernelConf).toWakuConf().get().mixConf.isSome()
+
+suite "MessagingClientConf - a network preset that runs mix":
+  proc layered(
+      preset: string,
+      overrides = MessagingClientConf(),
+      mode = LogosDeliveryMode.Edge,
+      entryLayer = EntryLayer.messaging,
+  ): LogosDeliveryConf =
+    LogosDeliveryConf.init(
+      entryLayer, mode, preset, overrides, ReliableChannelManagerConf()
+    ).valueOr:
+      raiseAssert error
+
+  test "logos.dev and logos.test run mix, the other presets do not":
+    check:
+      presetAnonymityLevel("logos.dev") == PresetMixAnonymityLevel
+      presetAnonymityLevel("logos.test") == PresetMixAnonymityLevel
+      presetAnonymityLevel("twn") == DefaultAnonymityLevel
+      presetAnonymityLevel("") == DefaultAnonymityLevel
+      PresetMixAnonymityLevel == AnonymityLevel.Preferred
+
+  test "an unset level on logos.dev is Preferred and mounts mix, in both modes":
+    for mode in [LogosDeliveryMode.Edge, LogosDeliveryMode.Core]:
+      let conf = layered("logos.dev", mode = mode)
+      check:
+        conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Preferred)
+        WakuNodeConf(conf.kernelConf).mix == Opt.some(true)
+
+  test "an unset level on logos.test is Preferred":
+    check layered("logos.test").messagingConf.get().anonymityLevel ==
+      Opt.some(AnonymityLevel.Preferred)
+
+  test "an explicit level wins over the preset":
+    for level in [AnonymityLevel.None, AnonymityLevel.Required]:
+      let conf =
+        layered("logos.dev", MessagingClientConf(anonymityLevel: Opt.some(level)))
+      check conf.messagingConf.get().anonymityLevel == Opt.some(level)
+    check WakuNodeConf(
+      layered(
+        "logos.dev", MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.None))
+      ).kernelConf
+    ).mix
+      .isNone()
+
+  test "a kernel config with mix=false on logos.dev is None, not an error":
+    var kernel = defaultTestWakuNodeConf()
+    kernel.preset = "logos.dev"
+    kernel.mix = Opt.some(false)
+    let conf = LogosDeliveryConf.init(
+      KernelConf(kernel), MessagingClientConf(), Opt.none(ReliableChannelManagerConf)
+    ).valueOr:
+      raiseAssert error
+    check conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+
+  test "an unset level on twn stays None":
+    let conf = layered("twn")
+    check:
+      conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
+      WakuNodeConf(conf.kernelConf).mix.isNone()
+
+  test "the kernel entry layer reads no level, so logos.dev mounts no mix there":
+    let conf = layered(
+      "logos.dev", mode = LogosDeliveryMode.Core, entryLayer = EntryLayer.kernel
+    )
+    check:
+      conf.messagingConf.isNone()
+      WakuNodeConf(conf.kernelConf).mix == CoreModeMix

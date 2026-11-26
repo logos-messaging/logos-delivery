@@ -16,6 +16,7 @@ import
   libp2p/[multiaddress, multicodec, peerinfo, wire, address_manager],
   libp2p/nameresolving/nameresolver,
   libp2p/protocols/ping,
+  libp2p/protocols/connectivity/autonat/types as autonat_types,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/builders,
@@ -64,6 +65,7 @@ import
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./delivery_dialer,
@@ -135,6 +137,10 @@ type
     libp2pPing*: Ping
     rng*: crypto.Rng
     brokerCtx*: BrokerContext
+    advertCtx*: BrokerContext
+      ## Where the parts of this node's advertised record meet. A context of
+      ## this node alone: `brokerCtx` is shared by every node of a thread that
+      ## did not set its own, and a node must not collect another node's parts.
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
@@ -168,11 +174,39 @@ type
     subscriptionManager*: SubscriptionManager
     wakuMixRln*: ModuleRlnProtection
     wakuMixRlnListener*: Opt[MessageSeenEventListener]
+    mixMembershipUsable*: bool
+      ## The last known answer to "does this node hold a usable membership in
+      ## the Mix registry". Meaningful only with `wakuMixRln` set.
+    mixMembershipUnknownState*: Opt[string]
+      ## The last membership state the RLN module answered that this node does
+      ## not know, so that it is warned about once. None after a known state.
+    mixMembershipLoop*: Future[void].Raising([CancelledError])
+      ## Re-reads the Mix membership while Mix RLN runs; `nil` otherwise.
+    mixReachability*: NetworkReachability
+      ## The last AutoNAT verdict on this node: `Unknown` until the first.
+    mixNeedsReachability: bool
+      ## Whether this node advertises its mix key only while AutoNAT reports
+      ## it reachable. Set by `mountMix`: false with `allowAllAddresses`.
+    advertListener: Opt[AdvertChangedEventListener]
+      ## Advertises this node's record again when a part of it changed. Held
+      ## from `startRecordAdvertising` until `stop`.
+    advertProviders: seq[GetSelfAdvertProviderHandle]
+      ## The parts of this node's record given with `keepAdvertProvider`.
+    mixAdvertProvider: Opt[GetSelfAdvertProviderHandle]
+      ## Provides the mix key while this node can act as a mix node.
+    advertHold: Future[void].Raising([])
+      ## Runs while a mix node holds its first advert back for its Mix RLN
+      ## membership; `nil` otherwise. See `startRecordAdvertising`.
     wakuMix*: WakuMix
     mixNodeResolution*: Future[void].Raising([CancelledError])
       ## The background lookup of the `dns4` mix node names; `nil` when none.
     mixNodeNames: seq[MixNodeName]
       ## The names without an answer yet; `start` resumes them after a stop.
+    recordAdvertisement: Future[void].Raising([])
+      ## The newest advertisement of this node's record; `nil` before the first.
+    recordVersion: int
+      ## Counts the advertisements of this node's record, so that one in
+      ## progress can tell that a newer one replaced it.
     wakuKademlia*: WakuKademlia
     discoveries*: seq[IPeerDiscovery]
       ## Attached IPeerDiscovery backends; started after the node is up,
@@ -248,15 +282,67 @@ proc getCapabilitiesGetter(node: WakuNode): GetCapabilities =
       return @[]
     return node.enr.getCapabilities()
 
+func mixAdvertReady*(node: WakuNode): bool =
+  ## False while this node mounts mix but cannot prove Mix messages: with Mix
+  ## RLN, while it holds no usable Mix membership.
+  node.wakuMixRln.isNil() or node.mixMembershipUsable
+
+func mixReachable*(node: WakuNode): bool =
+  ## Whether AutoNAT lets this node be a hop, or the node does not wait for it
+  ## (`mountMix` with `allowAllAddresses`).
+  if not node.mixNeedsReachability:
+    return true
+  case node.mixReachability
+  of NetworkReachability.Reachable:
+    true
+  of NetworkReachability.NotReachable:
+    false
+  of NetworkReachability.Unknown:
+    # No verdict is no proof of NAT. A busy node may never get one: AutoNAT
+    # asks only outbound peers, and only while 2 inbound slots are free, and
+    # needs all 3 answers to agree. The hop address policy already keeps a
+    # node with only private addresses off mix paths.
+    true
+
+func mixHopReady*(node: WakuNode): bool =
+  ## Whether this node can act as a mix node for others, and so advertises its
+  ## mix key: it mounts mix and relay, can prove Mix messages
+  ## (`mixAdvertReady`), and is reachable (`mixReachable`). A node without
+  ## relay (Edge) mounts mix to send through it and is no hop for others. A
+  ## node that is not reachable only sends.
+  not node.wakuMix.isNil() and not node.wakuRelay.isNil() and node.mixAdvertReady() and
+    node.mixReachable()
+
+proc advertisedMixKey*(node: WakuNode): Opt[Curve25519Key] =
+  ## The mix key this node advertises: its current one, or none without mix,
+  ## while mix holds no key, and while the node cannot act as a mix node
+  ## (`mixHopReady`).
+  if not node.mixHopReady():
+    return Opt.none(Curve25519Key)
+  return node.wakuMix.currentMixPubKey()
+
+proc rendezvousMixKey*(node: WakuNode): string =
+  ## The mix key of this node's Rendezvous record: empty while the node
+  ## advertises none, so that no peer routes through it.
+  let key = node.advertisedMixKey().valueOr:
+    return ""
+  return key.to0xHex()
+
+proc mixPubKeyHex*(node: WakuNode): Opt[string] =
+  ## This node's current mix public key in hex, or none without mix or while mix
+  ## holds no key.
+  if node.wakuMix.isNil():
+    return Opt.none(string)
+  let key = node.wakuMix.currentMixPubKey().valueOr:
+    return Opt.none(string)
+  return Opt.some(key.to0xHex())
+
 proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
   return proc(): WakuPeerRecord {.closure, gcsafe, raises: [].} =
-    var mixKey: string
-    if not node.wakuMix.isNil():
-      mixKey = node.wakuMix.pubKey.to0xHex()
     return WakuPeerRecord.init(
       peerId = node.switch.peerInfo.peerId,
       addresses = node.announcedAddresses,
-      mixKey = mixKey,
+      mixKey = node.rendezvousMixKey(),
     )
 
 proc onLearnedHost(node: WakuNode, ma: MultiAddress): Opt[MultiAddress] =
@@ -358,8 +444,10 @@ proc copyCommittedAddresses*(node: WakuNode) =
   ## Copy the committed peerInfo addresses into announcedAddresses, update mix's
   ## own hop, and refresh the ENR, once the base mapper has resolved the addresses.
   ## A `Waku` installs its own refresh, which also keeps the live discv5 record.
+  ## Changed addresses change this node's advertised record too.
   if node.baseAnnounced.isNone():
     return
+  let changed = node.announcedAddresses != node.switch.peerInfo.addrs
   node.announcedAddresses = node.switch.peerInfo.addrs
   node.updateMixSelfHop()
   if not node.onCommittedAddresses.isNil():
@@ -369,6 +457,8 @@ proc copyCommittedAddresses*(node: WakuNode) =
       node.switch.peerInfo.privateKey, node.enrAddresses(), node.enrBaseline()
     ).isOkOr:
       error "failed to refresh the ENR addresses", error = error
+  if changed:
+    AdvertChangedEvent.emit(node.advertCtx, AdvertChangedEvent(reason: "addresses"))
 
 proc new*(
     T: type WakuNode,
@@ -391,6 +481,7 @@ proc new*(
     switch: switch,
     rng: rng,
     brokerCtx: brokerCtx,
+    advertCtx: NewBrokerContext(),
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
@@ -445,10 +536,8 @@ proc info*(node: WakuNode): WakuInfo =
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
-  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
-  if not node.wakuMix.isNil():
-    let keyStr = node.wakuMix.pubKey.to0xHex()
-    wakuInfo.mixPubKey = Opt.some(keyStr)
+  let wakuInfo =
+    WakuInfo(listenAddresses: listenStr, enrUri: enrUri, mixPubKey: node.mixPubKeyHex())
   info "node info", wakuInfo
   return wakuInfo
 
@@ -632,9 +721,12 @@ proc mountMix*(
     mixnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
     allowAllAddresses: bool = false,
+    keyRotation: bool = false,
 ): Future[Result[void, string]] {.async.} =
   ## With `allowAllAddresses`, a path can use a mix node at a private, a loopback or
-  ## a circuit relay address. See `WakuMix.new`.
+  ## a circuit relay address. With `keyRotation`, mix rotates this node's mix key,
+  ## and `mixnodes` is ignored: their configured keys are not the keys rotating
+  ## nodes hold, so mix keys come from discovery only. See `WakuMix.new`.
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
@@ -644,13 +736,24 @@ proc mountMix*(
     return err("Failed to convert multiaddress to string.")
   info "local addr", localaddr = localaddrStr
 
-  let (literals, names, dropped) = node.splitMixNodes(mixnodes)
+  if keyRotation and mixnodes.len > 0:
+    warn "Ignoring configured mix nodes: with mix key rotation, mix keys come from discovery",
+      ignored = mixnodes.len
+  let configured =
+    if keyRotation:
+      newSeq[MixNodePubInfo]()
+    else:
+      mixnodes
+  let (literals, names, dropped) = node.splitMixNodes(configured)
 
   node.wakuMix = WakuMix.new(
     localaddrStr, node.peerManager, clusterId, mixPrivKey, literals, spamProtection,
-    allowAllAddresses,
+    allowAllAddresses, keyRotation,
   ).valueOr:
     return err("Waku Mix protocol initialization failed: " & error)
+  # A node of a local simulation, a test or a private network may have no
+  # AutoNAT peers to ask, so with `allowAllAddresses` it does not wait for them.
+  node.mixNeedsReachability = not allowAllAddresses
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
   node.wakuMix.registerDestReadBehavior(
     WakuLightPushCodec, readLp(lightpush_protocol.DefaultMaxPushResponseSize)
@@ -669,6 +772,202 @@ proc mountMix*(
     node.mixNodeResolution = node.resolveMixNodeNames()
   return ok()
 
+proc advertiseRecordAfter(
+    node: WakuNode, previous: Future[void].Raising([]), version: int
+) {.async: (raises: []).} =
+  ## Advertises this node's record once the previous advertisement has stopped,
+  ## so the newest record is the last one published. Cancelling ends the step
+  ## the previous advertisement is in, and its version check stops the rest.
+  ## See: https://lip.logos.co/anoncomms/raw/mix-key-rotation.html#4-key-publication
+  if not previous.isNil():
+    await previous.cancelAndWait()
+  if node.recordVersion != version:
+    return
+  # A record that cannot be put together is not advertised: the one that is
+  # advertised stays.
+  let parts = (await GetSelfAdvert.request(node.advertCtx)).valueOr:
+    error "Failed to collect this node's record; the advertised one stays",
+      error = error
+    return
+  let advert = assembleAdvert(parts).valueOr:
+    error "Failed to put this node's record together; the advertised one stays",
+      error = error
+    return
+  await advertiseSelf(
+    node.discoveries,
+    advert,
+    proc(): bool {.gcsafe, raises: [].} =
+      node.recordVersion == version,
+  )
+
+proc readvertise(node: WakuNode) =
+  ## Advertises this node's record in the background, in place of the
+  ## advertisement in progress.
+  node.recordVersion.inc()
+  node.recordAdvertisement =
+    node.advertiseRecordAfter(node.recordAdvertisement, node.recordVersion)
+
+proc keepAdvertProvider*(node: WakuNode, provider: GetSelfAdvertProviderHandle) =
+  ## Keeps a part of this node's record, provided with `GetSelfAdvert.provideIt`
+  ## on `node.advertCtx`, until `stop` removes it. The provider is asked for
+  ## the part each time the record is advertised.
+  node.advertProviders.add(provider)
+
+proc syncMixAdvertProvider(node: WakuNode) =
+  ## Provides this node's mix key as a part of its record while the node can
+  ## act as a mix node (`mixHopReady`).
+  let wanted = node.advertListener.isSome() and node.mixHopReady()
+  let provided = node.mixAdvertProvider.isSome()
+  if wanted == provided:
+    return
+  if not wanted:
+    GetSelfAdvert.removeProvider(node.advertCtx, node.mixAdvertProvider.get())
+    node.mixAdvertProvider = Opt.none(GetSelfAdvertProviderHandle)
+    return
+  let registered = GetSelfAdvert.provideIt(node.advertCtx):
+    let key = node.wakuMix.currentMixPubKey().valueOr:
+      return err("mix holds no key for this node")
+    return ok(mixAdvertPart(key))
+  let handle = registered.valueOr:
+    error "Failed to provide this node's mix key for its record", error = error
+    return
+  node.mixAdvertProvider = Opt.some(handle)
+
+proc mixAdvertChanged*(node: WakuNode, reason: string) =
+  ## Reports that this node's mix part of the record changed: its mix key, or
+  ## whether the node can act as a mix node.
+  node.syncMixAdvertProvider()
+  AdvertChangedEvent.emit(node.advertCtx, AdvertChangedEvent(reason: reason))
+
+proc setMixReachability*(node: WakuNode, reachability: NetworkReachability) =
+  ## Takes AutoNAT's verdict on this node. A change decides again whether the
+  ## node advertises its mix key: a node that is not reachable is no hop for
+  ## others. The record changes only when that decision does, or when the first
+  ## advert waits for the verdict.
+  if reachability == node.mixReachability:
+    return
+  let before = node.mixReachability
+  let wasHop = node.mixHopReady()
+  node.mixReachability = reachability
+  if not node.wakuMix.isNil():
+    info "Reachability changed", before = $before, now = $reachability
+    if node.mixHopReady() != wasHop or not node.advertHold.isNil():
+      node.mixAdvertChanged("reachability")
+
+const MixMembershipAdvertHold* = 2.minutes
+  ## How long a mix node holds its first advert back for its Mix RLN membership
+  ## and the first AutoNAT verdict.
+
+func mixHopSettled(node: WakuNode): bool =
+  ## Whether a mix node knows if it can be a hop: it can prove Mix messages
+  ## (`mixAdvertReady`), and AutoNAT gave its first verdict, or the node does
+  ## not wait for one.
+  node.mixAdvertReady() and (
+    not node.mixNeedsReachability or node.mixReachability != NetworkReachability.Unknown
+  )
+
+proc holdsFirstAdvert(node: WakuNode): bool =
+  ## Whether the first advert still waits for the Mix RLN membership or the
+  ## first AutoNAT verdict. The hold ends here once both are known.
+  if node.advertHold.isNil():
+    return false
+  if not node.mixHopSettled():
+    return true
+  node.advertHold.cancelSoon()
+  node.advertHold = nil
+  return false
+
+proc endAdvertHoldAfter(node: WakuNode, hold: Duration) {.async: (raises: []).} =
+  try:
+    await sleepAsync(hold)
+  except CancelledError:
+    return
+  if node.mixHopReady():
+    info "No AutoNAT verdict yet; advertising this node as a mix node", waited = hold
+  else:
+    notice "This node cannot act as a mix node yet; advertising it without mix",
+      waited = hold,
+      membershipUsable = node.mixAdvertReady(),
+      reachability = $node.mixReachability
+  node.advertHold = nil
+  node.readvertise()
+
+proc startRecordAdvertising*(
+    node: WakuNode, mixMembershipHold = MixMembershipAdvertHold
+) {.async: (raises: []).} =
+  ## Advertises this node's record and returns once it is advertised. From then
+  ## until `stop`, the record is advertised again in the background each time a
+  ## part of it changed, in place of the advertisement in progress.
+  ##
+  ## With mix key rotation it returns at once, and the first advertisement runs
+  ## in the background too.
+  ##
+  ## A mix node whose Mix RLN membership is not usable yet, or that has no
+  ## AutoNAT verdict yet, holds its first advert back until both are known, for
+  ## `mixMembershipHold` at most, and this returns at once. A registrar makes a second advert from the same address wait for
+  ## up to the advert expiry, so a first advert without the mix key keeps the
+  ## node out of the mix pools for that long. The node registers its interest
+  ## in the delivery network meanwhile, so it finds peers.
+  if node.advertListener.isNone():
+    let listening = AdvertChangedEvent.listenIt(node.advertCtx):
+      if node.holdsFirstAdvert():
+        debug "Holding this node's first advert until it knows if it is a mix node",
+          reason = it.reason
+        return
+      debug "Advertising this node's record again", reason = it.reason
+      node.readvertise()
+    let listener = listening.valueOr:
+      error "Failed to listen for changes of this node's record", error = error
+      return
+    node.advertListener = Opt.some(listener)
+  node.syncMixAdvertProvider()
+
+  if not node.wakuMix.isNil() and not node.wakuRelay.isNil() and not node.mixHopSettled():
+    info "Holding this node's first advert until it knows if it is a mix node",
+      atMost = mixMembershipHold,
+      membershipUsable = node.mixAdvertReady(),
+      reachability = $node.mixReachability
+    node.advertHold = node.endAdvertHoldAfter(mixMembershipHold)
+    node.recordVersion.inc()
+    node.recordAdvertisement = advertiseSelf(node.discoveries, SelfAdvert())
+
+  if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
+    # The handler receives the current key at once, if mix holds one.
+    node.wakuMix.keyRing().get().setKeyHandler(
+      proc(key: Curve25519Key) {.gcsafe, raises: [].} =
+        node.mixAdvertChanged("mix key")
+    )
+    if node.wakuMix.currentMixPubKey().isNone() and node.advertHold.isNil():
+      node.readvertise()
+    return
+  if not node.advertHold.isNil():
+    return
+  node.readvertise()
+  await node.recordAdvertisement
+
+proc stopRecordAdvertising(node: WakuNode) {.async: (raises: []).} =
+  ## Ends the advertisement in progress, advertises no further record, and
+  ## withdraws the advertised one: with key rotation the stop destroys the mix
+  ## key in it, and a backend would publish the record again at the next start.
+  if node.advertListener.isNone():
+    return
+  if not node.wakuMix.isNil() and node.wakuMix.keyRing().isSome():
+    node.wakuMix.keyRing().get().setKeyHandler(nil)
+  await AdvertChangedEvent.dropListener(node.advertCtx, node.advertListener.get())
+  node.advertListener = Opt.none(AdvertChangedEventListener)
+  if not node.advertHold.isNil():
+    await node.advertHold.cancelAndWait()
+    node.advertHold = nil
+  node.syncMixAdvertProvider()
+  for provider in node.advertProviders:
+    GetSelfAdvert.removeProvider(node.advertCtx, provider)
+  node.advertProviders = @[]
+  node.recordVersion.inc()
+  if not node.recordAdvertisement.isNil():
+    await node.recordAdvertisement.cancelAndWait()
+    node.recordAdvertisement = nil
+  await withdrawSelf(node.discoveries)
+
 proc mountKademlia*(
     node: WakuNode, config: KademliaDiscoveryConf
 ): Result[void, string] =
@@ -676,8 +975,8 @@ proc mountKademlia*(
     return err("WakuKademlia already mounted, skipping")
 
   let wk = WakuKademlia.new(
-    node.switch, node.peerManager, config.bootstrapNodes, config.servicesToAdvertise,
-    config.servicesToDiscover, config.randomLookupInterval,
+    node.switch, node.peerManager, config.clusterId, config.bootstrapNodes,
+    config.servicesToAdvertise, config.servicesToDiscover, config.randomLookupInterval,
     config.serviceLookupInterval, node.rng, config.kadDhtConfig, config.discoConfig,
     config.clientMode, config.xprPublishing,
   ).valueOr:
@@ -968,6 +1267,8 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel a mix node name lookup that is still pending.
   if not node.mixNodeResolution.isNil():
     await node.mixNodeResolution.cancelAndWait()
+
+  await node.stopRecordAdvertising()
 
   await node.subscriptionManager.stop()
 

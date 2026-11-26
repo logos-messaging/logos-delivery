@@ -20,6 +20,9 @@ proc defaultTestWakuNodeConf*(
     raiseAssert error
   applyMode(conf, mode)
   applyModeFlags(conf, DefaultKernelModeFlags)
+  # Core mode can turn mix on (`CoreModeMix`). A test node mounts mix only when
+  # its test asks for it, with `mix` or an anonymity level.
+  conf.mix = Opt.none(bool)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

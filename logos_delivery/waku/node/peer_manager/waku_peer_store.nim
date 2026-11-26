@@ -47,8 +47,18 @@ type
   # Keeps track of when a discovery mechanism last vouched for the peer's ENR
   ENRAliveBook* = ref object of PeerBook[Moment]
 
-  # Keeps track of peer shards
+  # Keeps track of peer shards, as the peer's metadata gives them
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+  # Keeps track of the shards the newest discovery record of a peer claims.
+  # Apart from `ShardBook`: a record can be older than the metadata, because a
+  # node signs a new one when its addresses or mix part change, and not when it
+  # subscribes to a shard.
+  AdvertisedShardBook* = ref object of PeerBook[seq[uint16]]
+
+  # Keeps track of the sequence number of the newest record, from service
+  # discovery or rendezvous, that set or removed the peer's mix key
+  MixRecordSeqBook* = ref object of PeerBook[uint64]
 
 const DiscoveredEnrTtl* = chronos.minutes(15)
   ## How long a discovered ENR is trusted without being rediscovered or connected.
@@ -76,6 +86,7 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
         Opt.none(enr.Record),
     protocols: peerStore[ProtoBook][peerId],
     shards: peerStore[ShardBook][peerId],
+    advertisedShards: peerStore[AdvertisedShardBook][peerId],
     agent: peerStore[AgentBook][peerId],
     protoVersion: peerStore[ProtoVersionBook][peerId],
     publicKey: peerStore[KeyBook][peerId],
@@ -107,6 +118,30 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
     .toHashSet()
 
   return allKeys.mapIt(peerStore.getPeer(it))
+
+proc removeMixPubKey*(peerStore: PeerStore, peerId: PeerId) =
+  ## Takes the peer out of the mix pool. For a peer whose delivery record says
+  ## it is no mix node (any more): it lost its Mix RLN membership, or it stopped
+  ## relaying. See `disclaimsMix`.
+  if peerStore[MixPubKeyBook].del(peerId):
+    debug "removed the mix pub key of a peer that advertises none any more",
+      peer_id = $peerId
+
+proc admitMixRecord*(peerStore: PeerStore, peerId: PeerId, seqNo: uint64): bool =
+  ## Whether a discovered record with this sequence number may set or remove
+  ## the peer's mix key: not when a newer record did so before. A registrar
+  ## serves the record it was handed until that expires, so a lookup can return
+  ## a record older than one seen earlier or one that rendezvous delivered, for
+  ## instance the keyless record a mix node advertises until its Mix RLN
+  ## membership is usable. Every sequence number is the Unix time of signing.
+  ##
+  ## Call it only for a record that carries a mix key or disclaims mix. A
+  ## record that says neither, like the one libp2p publishes under a node's own
+  ## peer id, has a sequence of its own and must not outdate the node's advert.
+  if seqNo < peerStore[MixRecordSeqBook][peerId]:
+    return false
+  peerStore[MixRecordSeqBook][peerId] = seqNo
+  return true
 
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new
@@ -152,6 +187,11 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
       protos.add($new_proto)
   peerStore[ProtoBook][peer.peerId] = protos
 
+  ## A discovery record's shards replace the ones an earlier record claimed,
+  ## and leave the metadata's alone.
+  if peer.advertisedShards.len > 0:
+    peerStore[AdvertisedShardBook][peer.peerId] = peer.advertisedShards
+
   ## We don't care whether the item was already present in the table or not. Hence, we always discard the hasKeyOrPut's bool returned value
 
   discard peerStore[AgentBook].book.hasKeyOrPut(peer.peerId, peer.agent)
@@ -189,10 +229,18 @@ proc peers*(peerStore: PeerStore, protocolMatcher: Matcher): seq[RemotePeerInfo]
 proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
 
+func knownShards(metadata, advertised: seq[uint16]): seq[uint16] =
+  ## The metadata's shards once the peer gave them, else its record's.
+  if metadata.len > 0: metadata else: advertised
+
 proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bool =
   return
     peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard) or
-    peerStore[ShardBook].book.getOrDefault(peerId, @[]).contains(shard)
+    knownShards(
+      peerStore[ShardBook].book.getOrDefault(peerId, @[]),
+      peerStore[AdvertisedShardBook].book.getOrDefault(peerId, @[]),
+    )
+    .contains(shard)
 
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
@@ -266,7 +314,7 @@ proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
 proc supportsShard*(peer: RemotePeerInfo, cluster, shard: uint16): bool =
   return
     (peer.enr.isSome() and peer.enr.get().containsShard(cluster, shard)) or
-    peer.shards.contains(shard)
+    knownShards(peer.shards, peer.advertisedShards).contains(shard)
 
 proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16

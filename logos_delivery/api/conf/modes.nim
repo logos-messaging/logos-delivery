@@ -29,6 +29,13 @@ type ModeProtocolFlags* = object
   discv5Discovery*: Opt[bool]
   peerExchange*: Opt[bool]
   rendezvous*: Opt[bool]
+  mix*: Opt[bool]
+
+const CoreModeMix* = Opt.none(bool)
+  ## Whether Core mode turns Mix on by itself. Unset: Mix is off until a level
+  ## above `None`, a preset or `mix=true` turns it on. `Opt.some(true)` makes
+  ## every Core node a mix node, also at the kernel entry, which never reads an
+  ## anonymity level.
 
 proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
   ## The single source of what each mode means.
@@ -40,7 +47,7 @@ proc protocolFlags*(mode: LogosDeliveryMode): ModeProtocolFlags =
       lightpush: Opt.some(true),
       discv5Discovery: Opt.some(true),
       peerExchange: Opt.some(true),
-      rendezvous: Opt.some(true),
+      mix: CoreModeMix,
     )
   of LogosDeliveryMode.Edge:
     ModeProtocolFlags(
@@ -70,6 +77,7 @@ proc applyModeFlags*[T](conf: var T, flags: ModeProtocolFlags) =
   apply(conf.discv5Discovery, flags.discv5Discovery)
   apply(conf.peerExchange, flags.peerExchange)
   apply(conf.rendezvous, flags.rendezvous)
+  apply(conf.mix, flags.mix)
 
 proc applyMode*[T](conf: var T, mode: LogosDeliveryMode) =
   ## Applies the mode's protocol flags (`protocolFlags`) to any config that
@@ -86,3 +94,12 @@ type AnonymityLevel* {.pure.} = enum
     ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
     ## keep trying for a short grace (`MixUnusableGrace`), then fail.
     ## A message that does not fit in one Mix message fails at once.
+
+const DefaultAnonymityLevel* = AnonymityLevel.None
+  ## The level of a node with the Messaging API that sets none and whose network
+  ## preset runs no Mix, in both modes. A level above `None` mounts Mix.
+
+const PresetMixAnonymityLevel* = AnonymityLevel.Preferred
+  ## The level of a node that sets none on a network preset that runs Mix
+  ## (`NetworkPresetConf.mix`, the `logos.dev` and `logos.test` presets).
+  ## An explicit `mix=false` without a level means `None` on any preset.

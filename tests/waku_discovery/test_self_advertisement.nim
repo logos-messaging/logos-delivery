@@ -1,80 +1,23 @@
 {.used.}
 
 import std/[base64, sequtils]
-import chronos, results, testutils/unittests
-import libp2p/crypto/curve25519, libp2p_mix/mix_protocol
-import brokers/broker_implement
+import
+  chronos,
+  results,
+  testutils/unittests,
+  libp2p/crypto/curve25519,
+  libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/self_advertisement,
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
-  logos_delivery/waku/waku_enr/capabilities
+  logos_delivery/waku/waku_enr/capabilities,
+  logos_delivery/waku/discovery/delivery_advert,
+  logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core
 import tools/confutils/cli_args
-
-## A backend that records what it was asked to do, so the fan-out rules can be
-## checked without standing up a DHT.
-type FakeBackend = ref object of IPeerDiscovery
-  id: string
-  kinds: seq[string]
-  advertised: seq[string]
-  advertisedData: seq[seq[byte]]
-  advertisedSecondary: seq[seq[DiscoveredService]]
-  interests: seq[string]
-
-BrokerImplement FakeBackend of IPeerDiscovery:
-  proc new(T: typedesc[FakeBackend], id: string, kinds: seq[string]): FakeBackend =
-    FakeBackend(id: id, kinds: kinds)
-
-  method backendInfo(
-      self: FakeBackend
-  ): Future[Result[DiscoveryBackendInfo, string]] {.async.} =
-    ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
-
-  method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte], secondary: seq[DiscoveredService]
-  ): Future[Result[void, string]] {.async.} =
-    self.advertised.add(key)
-    self.advertisedData.add(data)
-    self.advertisedSecondary.add(secondary)
-    ok()
-
-  method registerInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    self.interests.add(key)
-    ok()
-
-  ## Not exercised here; the interface requires every verb.
-  method startDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method stopDiscovery(self: FakeBackend): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method lookupServicePeers(
-      self: FakeBackend, key: string, limit: int
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method lookupRandom(
-      self: FakeBackend
-  ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
-    ok(newSeq[DiscoveredPeer]())
-
-  method stopAdvertising(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method unregisterInterest(
-      self: FakeBackend, key: string
-  ): Future[Result[void, string]] {.async.} =
-    ok()
-
-  method addBootstrapEntries(
-      self: FakeBackend, entries: seq[string]
-  ): Future[Result[void, string]] {.async.} =
-    ok()
+import ../testlib/[fake_discovery, wakucore]
 
 proc confWith(flags: CapabilitiesBitfield): WakuConf =
   var conf = defaultKernelConf().valueOr:
@@ -97,13 +40,32 @@ proc mixKeyBytes(): seq[byte] =
     b[i] = byte(i + 1)
   b
 
+proc mixKey(): Opt[Curve25519Key] =
+  Opt.some(intoCurve25519Key(mixKeyBytes()))
+
 proc withMix(conf: WakuConf): WakuConf =
   ## The node mounts mix. The builder sets the Mix flag whenever it does.
-  conf.mixConf = Opt.some(MixConf(mixPubKey: intoCurve25519Key(mixKeyBytes())))
+  conf.mixConf = Opt.some(MixConf())
   conf.wakuFlags = CapabilitiesBitfield(
     byte(conf.wakuFlags) or byte(CapabilitiesBitfield.init(mix = true))
   )
   conf
+
+proc advertiseSelf(
+    discoveries: seq[IPeerDiscovery],
+    conf: WakuConf,
+    shards: seq[uint16],
+    mixKey = Opt.none(Curve25519Key),
+) {.async.} =
+  ## Advertises the record of a node with this configuration, as the node puts
+  ## it together: the delivery part when it serves something, and the mix part
+  ## while it has a mix key to advertise.
+  var parts: seq[GetSelfAdvert]
+  if conf.wakuFlags.isServiceNode():
+    parts.add(deliveryAdvertPart(conf, shards))
+  if mixKey.isSome():
+    parts.add(mixAdvertPart(mixKey.get()))
+  await advertiseSelf(discoveries, assembleAdvert(parts).expect("a record"))
 
 proc advertisedCaps(kad: FakeBackend): CapabilitiesBitfield =
   advertisedCapabilities(kad.advertisedData[0]).expect("a delivery payload")
@@ -153,7 +115,7 @@ suite "Self advertisement":
   asyncTest "a relay node that mounts mix lists its mix key in the delivery record":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
-      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards
+      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards, mixKey()
     )
     check:
       ## One registration, and no interest in a mix service of its own.
@@ -167,6 +129,38 @@ suite "Self advertisement":
         @[DiscoveredService(id: LogosDeliveryServiceId, data: kad.advertisedData[0])] &
           kad.advertisedSecondary[0]
       ) == Opt.some(intoCurve25519Key(mixKeyBytes()))
+
+  asyncTest "a mix node that is not ready advertises as a delivery node only":
+    ## With Mix RLN, a node without a usable Mix membership cannot prove a hop.
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
+    await advertiseSelf(
+      @[IPeerDiscovery(kad)], confWith(CoreFlags).withMix(), TestShards
+    )
+    check:
+      kad.advertised == @["service:" & LogosDeliveryServiceId]
+      kad.advertisedSecondary[0].len == 0
+      not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
+      kad.advertisedCaps().supportsCapability(Capabilities.Relay)
+
+  test "a record takes one delivery part":
+    let part = deliveryAdvertPart(confWith(CoreFlags), TestShards)
+    check:
+      assembleAdvert([part, part]).isErr()
+      ## Without a delivery part the node advertises nothing.
+      assembleAdvert([mixAdvertPart(mixKey().get())]) ==
+        Result[SelfAdvert, string].ok(SelfAdvert())
+      assembleAdvert([]) == Result[SelfAdvert, string].ok(SelfAdvert())
+
+  test "a part of another service is listed in the record as it is":
+    let other =
+      GetSelfAdvert(service: DiscoveredService(id: "/other/1.0.0", data: @[7'u8]))
+    let advert = assembleAdvert(
+        [other, deliveryAdvertPart(confWith(CoreFlags), TestShards)]
+      )
+      .expect("a record")
+    check:
+      advert.data == Opt.some(selfAdvertisementData(confWith(CoreFlags), TestShards))
+      advert.secondary == @[other.service]
 
   asyncTest "a relay node without mix lists the delivery service alone":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
@@ -182,6 +176,7 @@ suite "Self advertisement":
       @[IPeerDiscovery(kad)],
       confWith(CapabilitiesBitfield.init(filter = true)).withMix(),
       TestShards,
+      mixKey(),
     )
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
@@ -192,7 +187,7 @@ suite "Self advertisement":
   asyncTest "an edge node that mounts mix advertises nothing":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
-      @[IPeerDiscovery(kad)], confWith(EdgeFlags).withMix(), TestShards
+      @[IPeerDiscovery(kad)], confWith(EdgeFlags).withMix(), TestShards, mixKey()
     )
     check:
       kad.advertised.len == 0
@@ -242,3 +237,102 @@ suite "Self advertisement":
     check:
       raw.len == 5
       raw[4] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
+
+suite "Delivery record into the peer store":
+  let
+    serving = CapabilitiesBitfield.init(relay = true, filter = true, lightpush = true)
+    shardTopic = Opt.some(PubsubTopic("/waku/2/rs/16/3"))
+
+  proc discovered(
+      conf: WakuConf, shards = TestShards, peerId = $newTestSwitch().peerInfo.peerId
+  ): DiscoveredPeer =
+    DiscoveredPeer(
+      peerId: peerId,
+      addrs: @["/ip4/10.0.0.1/tcp/60000"],
+      services: @[
+        DiscoveredService(
+          id: LogosDeliveryServiceId, data: selfAdvertisementData(conf, shards)
+        )
+      ],
+    )
+
+  test "the payload gives back its cluster and shards":
+    check:
+      advertisedShards(selfAdvertisementData(confWith(serving), TestShards)).expect(
+        "a delivery payload"
+      ) == (16'u16, TestShards)
+      advertisedShards(cast[seq[byte]](base64.encode("\x09abc"))).isErr()
+      advertisedShards(cast[seq[byte]](base64.encode("\x01a"))).isErr()
+      advertisedShards(@[byte('!')]).isErr()
+
+  test "a record's codecs and shards make its peer selectable unconnected":
+    let pm = PeerManager.new(newTestSwitch())
+    let info = discovered(confWith(serving)).toRemotePeerInfo(16'u16).valueOr:
+        raiseAssert error
+    pm.addPeer(info, PeerOrigin.Kademlia)
+
+    check:
+      LogosDeliveryServiceId in info.protocols
+      info.advertisedShards == TestShards
+      info.shards.len == 0
+      pm.selectPeer(WakuLightPushCodec, shardTopic).isSome()
+      pm.selectPeer(WakuFilterSubscribeCodec, shardTopic).isSome()
+      pm.switch.peerStore.hasShard(info.peerId, 16'u16, 3'u16)
+      pm.selectPeer(WakuStoreCodec, shardTopic).isNone()
+      pm.selectPeer(WakuLightPushCodec, Opt.some(PubsubTopic("/waku/2/rs/16/1"))).isNone()
+
+  test "a record of another cluster claims nothing":
+    let info = discovered(confWith(serving)).toRemotePeerInfo(7'u16).valueOr:
+        raiseAssert error
+    check:
+      info.protocols == @[LogosDeliveryServiceId]
+      info.advertisedShards.len == 0
+
+  test "a record leaves the shards the peer's metadata gave":
+    ## The record can be older than the metadata: a node signs a new one when
+    ## its addresses or mix part change, and not when it subscribes to a shard.
+    let pm = PeerManager.new(newTestSwitch())
+    let peerStore = pm.switch.peerStore
+    let info = discovered(confWith(serving), shards = @[0'u16])
+      .toRemotePeerInfo(16'u16).valueOr:
+        raiseAssert error
+    peerStore.setShardInfo(info.peerId, @[0'u16, 1])
+    pm.addPeer(info, PeerOrigin.Kademlia)
+
+    check:
+      peerStore[ShardBook][info.peerId] == @[0'u16, 1]
+      peerStore.hasShard(info.peerId, 16'u16, 1'u16)
+      peerStore.getPeer(info.peerId).supportsShard(16'u16, 1'u16)
+      pm
+        .selectPeer(WakuFilterSubscribeCodec, Opt.some(PubsubTopic("/waku/2/rs/16/1")))
+        .isSome()
+
+  test "the peer's metadata wins over the shards its record claims":
+    let pm = PeerManager.new(newTestSwitch())
+    let peerStore = pm.switch.peerStore
+    let info = discovered(confWith(serving)).toRemotePeerInfo(16'u16).valueOr:
+        raiseAssert error
+    pm.addPeer(info, PeerOrigin.Kademlia)
+    peerStore.setShardInfo(info.peerId, @[0'u16])
+
+    check:
+      peerStore.hasShard(info.peerId, 16'u16, 0'u16)
+      not peerStore.hasShard(info.peerId, 16'u16, 3'u16)
+      not peerStore.getPeer(info.peerId).supportsShard(16'u16, 3'u16)
+
+  test "a newer record replaces the shards an older one claimed":
+    let pm = PeerManager.new(newTestSwitch())
+    let peerStore = pm.switch.peerStore
+    let peerId = $newTestSwitch().peerInfo.peerId
+    for shards in [@[0'u16, 3], @[1'u16]]:
+      let info = discovered(confWith(serving), shards, peerId)
+        .toRemotePeerInfo(16'u16).valueOr:
+          raiseAssert error
+      pm.addPeer(info, PeerOrigin.Kademlia)
+
+    let pid = PeerId.init(peerId).expect("a peer id")
+    check:
+      peerStore[AdvertisedShardBook][pid] == @[1'u16]
+      peerStore.hasShard(pid, 16'u16, 1'u16)
+      not peerStore.hasShard(pid, 16'u16, 3'u16)
+      peerStore[ShardBook][pid].len == 0

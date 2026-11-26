@@ -25,7 +25,8 @@ import
   logos_delivery/api/conf/modes,
   logos_delivery/api/conf/messaging_node_conf,
   logos_delivery/waku/net/nat_strategy,
-  logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
+  logos_delivery/waku/factory/
+    [waku_conf, conf_builder/conf_builder, networks_config, preset_registry],
   logos_delivery/waku/factory/conf_builder/rest_server_conf_builder,
   logos_delivery/waku/common/[logging],
   logos_delivery/waku/[
@@ -56,7 +57,6 @@ const NodeEnvvarPrefix* = "logos_delivery_node"
 const
   DefaultCLIRelay* = true
   DefaultCLIPeerExchange* = true
-  DefaultCLIRendezvous* = true
   DefaultCLINat* = "any"
   DefaultCliRestMessagingCacheCapacity* = DefaultRestMessagingCacheCapacity
     ## Exported because confutils expands `defaultValue` where `load` is called.
@@ -71,7 +71,6 @@ const DefaultKernelModeFlags* = ModeProtocolFlags(
   store: Opt.some(false),
   discv5Discovery: Opt.some(true),
   peerExchange: Opt.some(DefaultCLIPeerExchange),
-  rendezvous: Opt.some(DefaultCLIRendezvous),
 )
 
 type ConfResult*[T] = Result[T, string]
@@ -700,7 +699,8 @@ hence would have reachability issues.""",
 
   ## Rendez vous
   rendezvous* {.
-    desc: "Enable waku rendezvous discovery server. Default is true.",
+    desc:
+      "Enable waku rendezvous discovery server. Default is true on a relay node without service discovery (kademlia, in-process or plugin-hosted), false otherwise.",
     defaultValue: Opt.none(bool),
     name: "rendezvous"
   .}: Opt[bool]
@@ -708,7 +708,9 @@ hence would have reachability issues.""",
   #Mix config
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   mix* {.
-    desc: "Enable mix protocol: true|false. Default is " & $DefaultMix & ".",
+    desc:
+      "Enable mix protocol: true|false. Default is true with an anonymity level above None (the default on the logos.dev and logos.test presets), else " &
+      $DefaultMix & ".",
     defaultValue: Opt.none(bool),
     name: "mix"
   .}: Opt[bool]
@@ -732,6 +734,13 @@ hence would have reachability issues.""",
       ". Set it on a node of a local simulation, a test or a private network. (requires --mix)",
     defaultValue: false,
     name: "mix-allow-all-addresses"
+  .}: bool
+
+  mixKeyRotation* {.
+    desc:
+      "Rotate the mix key on a timer, as the Mix Key Rotation spec describes. The node then ignores --mixkey and --mixnode, and takes mix keys from discovery only. Set it on every node of a network, or on none. (requires --mix)",
+    defaultValue: false,
+    name: "mix-key-rotation"
   .}: bool
 
   mixRlnRegistryId* {.
@@ -1156,21 +1165,7 @@ proc toNetworkPresetConf*(
     )
     lcPreset = "twn"
 
-  case lcPreset
-  of "":
-    ok(Opt.none(NetworkPresetConf))
-  of "twn":
-    ok(Opt.some(NetworkPresetConf.TheWakuNetworkConf()))
-  of "logos.dev", "logosdev":
-    ok(Opt.some(NetworkPresetConf.LogosDevConf()))
-  of "logos.test", "logostest":
-    ok(Opt.some(NetworkPresetConf.LogosTestConf()))
-  of "status.prod", "statusprod":
-    ok(Opt.some(NetworkPresetConf.StatusProdConf()))
-  of "status.staging", "statusstaging":
-    ok(Opt.some(NetworkPresetConf.StatusStagingConf()))
-  else:
-    err("Invalid --preset value passed: " & lcPreset)
+  return lookupPreset(lcPreset)
 
 func ignoredFlagWarnings*(
     n: WakuNodeConf, defaults: WakuNodeConf, conf: WakuConf
@@ -1257,6 +1252,7 @@ func ignoredFlagWarnings*(
     ("mixkey", "mix", mix, changed(mixkey)),
     ("mixnode", "mix", mix, n.mixnodes.len > 0),
     ("mix-allow-all-addresses", "mix", mix, changed(mixAllowAllAddresses)),
+    ("mix-key-rotation", "mix", mix, changed(mixKeyRotation)),
     ("kad-bootstrap-node", kadParent, kad, changed(kadBootstrapNodes)),
     ("kad-random-lookup-interval", kadParent, kad, changed(kadRandomLookupIntervalSec)),
     (
@@ -1467,6 +1463,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
   b.mixConf.withAllowAllAddresses(n.mixAllowAllAddresses)
+  b.mixConf.withKeyRotation(n.mixKeyRotation)
 
   if n.filter.isSome():
     b.filterServiceConf.withEnabled(n.filter.get())

@@ -7,6 +7,7 @@ import
   chronos,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
+  libp2p/protocols/connectivity/autonat/types as autonat_types,
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/ping,
@@ -114,7 +115,12 @@ proc setupSwitchServices*(
     ## keeps peerInfo unchanged and the route stays until the next update.
     info "circuit relay reservation change", addrs = $addresses
 
-  let autonatService = getAutonatService(rng)
+  # AutoNAT's verdict decides whether this node advertises its mix key.
+  let autonatService = getAutonatService(
+    rng,
+    proc(reachability: NetworkReachability) {.gcsafe, raises: [].} =
+      node.setMixReachability(reachability),
+  )
   let newService =
     if conf.circuitRelayClient:
       ## The node assumes it is behind NAT.
@@ -251,7 +257,7 @@ proc new*(
   if wakuConf.externalDiscoveryConf.isSome():
     let extConf = wakuConf.externalDiscoveryConf.get()
     waku.externalDiscovery = ExternalServiceDiscovery.create(
-      extConf.serviceLookupInterval, extConf.randomLookupInterval
+      wakuConf.clusterId, extConf.serviceLookupInterval, extConf.randomLookupInterval
     )
     node.attachDiscovery(waku.externalDiscovery)
 
@@ -635,11 +641,19 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Announce ourselves on the delivery network. After the shard subscriptions,
   ## not before: an advertisement is only useful if the shards it claims are
   ## the ones we are actually on.
-  await advertiseSelf(
-    waku.node.discoveries,
-    waku.conf,
-    waku.node.getShardsGetter(waku.conf.subscribeShards)(),
-  )
+  ## The node advertises again when its record changes: a new mix key, or a Mix
+  ## membership that arrives or ends later.
+  if waku.conf.wakuFlags.isServiceNode():
+    let provided = GetSelfAdvert.provideIt(waku.node.advertCtx):
+      return ok(
+        deliveryAdvertPart(
+          waku.conf, waku.node.getShardsGetter(waku.conf.subscribeShards)()
+        )
+      )
+    let provider = provided.valueOr:
+      return err("failed to provide the delivery advertisement: " & error)
+    waku.node.keepAdvertProvider(provider)
+  await waku.node.startRecordAdvertising()
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:

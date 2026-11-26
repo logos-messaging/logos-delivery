@@ -5,7 +5,7 @@
 ## accessible through the debug API.
 
 import std/[json, strutils]
-import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
+import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid
 import logos_delivery/waku/[waku_node, net/bound_ports]
 import logos_delivery/waku/factory/waku_conf
 
@@ -59,10 +59,8 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.MyBoundPorts:
     return $self.node.ports
   of NodeInfoId.MixPubKey, NodeInfoId.MyMixPubKey:
-    ## Empty when the mix protocol is not mounted on this node.
-    if self.node.wakuMix.isNil():
-      return ""
-    return self.node.wakuMix.pubKey.to0xHex()
+    ## Empty when the mix protocol is not mounted on this node, or holds no key.
+    return self.node.mixPubKeyHex().get("")
   of NodeInfoId.MaxMessageSize:
     ## Configured max message size (in bytes) for this node.
     return $self.conf.maxMessageSizeBytes

@@ -1,6 +1,8 @@
 {.used.}
 
-import std/[sequtils, tables], testutils/unittests, chronos, results, metrics
+import
+  std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results, metrics
+import mix_rln_spam_protection/module_api
 import brokers/broker_context
 import libp2p_mix/[curve25519, mix_metrics, pool], libp2p/[peerid, multiaddress]
 
@@ -15,6 +17,7 @@ import
     node/health_monitor/protocol_health,
     node/health_monitor/topic_health,
     node/health_monitor/node_health_monitor,
+    node/waku_node/mix_rln,
     node/waku_node/relay,
     node/waku_node/store,
     node/waku_node/lightpush,
@@ -1102,6 +1105,101 @@ suite "Health Monitor - mix readiness":
       # relay is up, so only the mix gate can be holding the status down
       monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
       lastStatus == ConnectionStatus.Disconnected
+
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
+    await nodeA.stop()
+
+  asyncTest "Required mix status follows the Mix RLN membership":
+    ## The send path refuses mix without a usable membership, so a `Required`
+    ## node without one cannot send, and no other event tells the health loop.
+    var state = "pending"
+    let call = proc(
+        methodName: string, args: JsonNode
+    ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+      return ok(%*{"state": state})
+
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.mountTestMix()
+      await nodeA.start()
+    nodeA.wakuMixRln = ModuleRlnProtection
+      .new(
+        ModuleRlnConfig(
+          registryId: "logos:local:mix",
+          rlnIdentifierHex: repeat("ab", 32),
+          epochSeconds: 10,
+          maxEpochGap: 3,
+          metadataTopic: "/test/1/mix-rln-metadata/proto",
+        ),
+        call,
+      )
+      .expect("a valid Mix RLN config")
+    for i in 0 ..< MinMixPoolSize:
+      nodeA.addMixPeer(64000 + i, lightpush = true)
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    monitorA.adjustConnectionStatus = requireMixReady
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthChangeSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthChangeSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.start()
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node A failed to subscribe"
+    )
+    nodeB.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node B failed to subscribe"
+    )
+
+    proc waitForStatus(expected: ConnectionStatus): Future[bool] {.async.} =
+      let deadline = Moment.now() + TestConnectivityTimeLimit
+      while lastStatus != expected and Moment.now() < deadline:
+        if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
+          healthChangeSignal.clear()
+      return lastStatus == expected
+
+    let relayDeadline = Moment.now() + TestConnectivityTimeLimit
+    while monitorA.getSyncProtocolHealthInfo(RelayProtocol).health != HealthStatus.READY and
+        Moment.now() < relayDeadline:
+      await sleepAsync(100.milliseconds)
+
+    # Let the relay mesh go quiet, so that only a membership change can trigger
+    # the next health recomputation.
+    await sleepAsync(1.seconds)
+    check:
+      monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
+      monitorA.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.NOT_READY
+      lastStatus == ConnectionStatus.Disconnected
+
+    state = "active"
+    await nodeA.refreshMixMembership()
+    check await waitForStatus(ConnectionStatus.PartiallyConnected)
+
+    state = "expired"
+    await nodeA.refreshMixMembership()
+    check await waitForStatus(ConnectionStatus.Disconnected)
 
     await monitorA.stopHealthMonitor()
     await nodeB.stop()

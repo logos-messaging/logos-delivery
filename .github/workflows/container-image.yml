@@ -10,6 +10,14 @@ on:
         description: "If the quay.io push fails, hand the image over as a GitHub artifact instead of failing."
         type: boolean
         default: false
+      ref:
+        description: "Git ref to build; empty builds the ref that triggered the caller."
+        type: string
+        default: ""
+      expires_after:
+        description: "quay.io expiry of the image (e.g. 30d); empty keeps it forever."
+        type: string
+        default: "30d"
     outputs:
       image:
         description: The resulting image link
@@ -48,6 +56,8 @@ jobs:
       - name: Checkout code
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Install nimble deps
         if: ${{ steps.secrets.outcome == 'success' }}
@@ -75,9 +85,11 @@ jobs:
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-          docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
+          EXPIRY_LABEL=$([ "${EXPIRES_AFTER}" == "" ] || echo "--label quay.expires-after=${EXPIRES_AFTER}")
+          docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 ${EXPIRY_LABEL} .
         env:
           PR_NUMBER: ${{ inputs.image_tag}}
+          EXPIRES_AFTER: ${{ inputs.expires_after }}
 
       # A quay.io outage must not fail CI when the caller can take the image as
       # an artifact instead; without artifact_fallback a failed push still fails.

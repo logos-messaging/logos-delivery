@@ -52,8 +52,6 @@ const
   DefaultLightPush: bool = false
   DefaultPeerExchange: bool = false
     # historical confbuilder default; the node CLI deviates (true)
-  DefaultRendezvous: bool = false
-    # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
   DefaultRelayPeerExchange: bool = false
   DefaultRlnDisableValidation: bool = false
@@ -142,6 +140,7 @@ type WakuConfBuilder* = object
 
   staticNodes: seq[string]
   presetStoreNodes: seq[string]
+  presetMix: bool
   configuredStoreNodesOnly: Opt[bool]
 
   remoteStoreNode: Opt[string]
@@ -541,22 +540,27 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   )
 
   # Mounting and the ENR bit read `mixConf`, so the preset's `mix` value only
-  # feeds this `info` line. The user decides whether this node mounts mix.
+  # feeds this `info` line and `presetMix`. The Messaging API turns mix on for
+  # a preset that runs it (`presetAnonymityLevel`); the user's setting wins.
+  builder.presetMix = networkPresetConf.mix
   if builder.mix.isSome() and builder.mix.get() != networkPresetConf.mix:
     info "Mix setting differs from the network conf, the user's setting wins",
       used = builder.mix.get(), preset = networkPresetConf.mix
 
   # The preset's mix nodes seed the pool after the mount, so a preset node can
   # build a path before discovery finds `MinMixPoolSize` peers with a mix key.
-  var presetMixNodes: seq[MixNodePubInfo]
-  for entry in networkPresetConf.mixnodes:
-    let mixNode = parseMixNode(entry).valueOr:
-      # A preset entry is compiled in: a malformed one is the node's own fault.
-      error "Skipping a malformed mix node in the network conf",
-        entry = entry, error = error
-      continue
-    presetMixNodes.add(mixNode)
-  builder.mixConf.withMixNodes(presetMixNodes)
+  # A node that rotates its mix key takes mix keys from discovery only, and the
+  # preset's keys are not the keys rotating nodes hold, so it takes none.
+  if not builder.mixConf.keyRotation():
+    var presetMixNodes: seq[MixNodePubInfo]
+    for entry in networkPresetConf.mixnodes:
+      let mixNode = parseMixNode(entry).valueOr:
+        # A preset entry is compiled in: a malformed one is the node's own fault.
+        error "Skipping a malformed mix node in the network conf",
+          entry = entry, error = error
+        continue
+      presetMixNodes.add(mixNode)
+    builder.mixConf.withMixNodes(presetMixNodes)
 
   # Process entry nodes from network config - classify and distribute
   if networkPresetConf.entryNodes.len > 0:
@@ -676,13 +680,6 @@ proc build*(
       debug "Whether to mount peerExchange is not specified, defaulting to not mounting"
       DefaultPeerExchange
 
-  let rendezvous =
-    if builder.rendezvous.isSome():
-      builder.rendezvous.get()
-    else:
-      debug "Whether to mount rendezvous is not specified, defaulting to not mounting"
-      DefaultRendezvous
-
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
 
   let rlnDisableValidation =
@@ -763,7 +760,7 @@ proc build*(
       builder.kademliaDiscoveryConf.enabled.isNone():
     builder.kademliaDiscoveryConf.enabled = Opt.some(false)
 
-  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
+  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build(clusterId).valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
   let externalDiscoveryConf = builder.externalDiscoveryConf.build(
@@ -788,6 +785,16 @@ proc build*(
         "in-process one: pass --enable-kad-discovery=false alongside " &
         "--plugin-kad-discovery to run the plugin instead."
     )
+
+  ## Rendezvous serves only Mix discovery here, and service discovery covers
+  ## that, so unless it is set, Rendezvous runs only on a relay node without
+  ## service discovery. `mountRendezvous` also mounts the server, which stores
+  ## other peers' registrations, and a node without relay (Edge) serves none.
+  let rendezvous =
+    if builder.rendezvous.isSome():
+      builder.rendezvous.get()
+    else:
+      relay and kademliaDiscoveryConf.isNone() and externalDiscoveryConf.isNone()
 
   # End - Build sub-configs
 
@@ -905,8 +912,9 @@ proc build*(
     relay = relay,
     sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
     # Advertise Mix only when `mixConf` mounts it, so a preset alone does not
-    # make a node claim a capability it does not run.
-    mix = mixConf.isSome(),
+    # make a node claim a capability it does not run, and only with relay: a
+    # node without relay (Edge) mounts mix to send through it and is no hop.
+    mix = mixConf.isSome() and relay,
   )
 
   ## A node that serves nothing has no reason to hold routing state for
@@ -960,6 +968,7 @@ proc build*(
     peerExchangeDiscovery: true,
       # enabling peer exchange client by default for quicker bootstrapping
     presetStoreNodes: builder.presetStoreNodes,
+    presetMix: builder.presetMix,
     configuredStoreNodesOnly: builder.configuredStoreNodesOnly.get(false),
     remoteStoreNode: builder.remoteStoreNode,
     remoteLightPushNode: builder.remoteLightPushNode,

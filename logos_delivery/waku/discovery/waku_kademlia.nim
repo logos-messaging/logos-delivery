@@ -35,6 +35,13 @@ const
   DefaultServiceDiscoveryInterval* = chronos.seconds(60)
   DefaultRandomDiscoveryInterval* = chronos.seconds(60)
 
+type AdvertisedService = object
+  info: ServiceInfo
+  signedRecord: Opt[seq[byte]]
+    ## The record this node signed, published as it is. None for a service of
+    ## `KademliaDiscoveryConf.servicesToAdvertise`: libp2p builds and signs
+    ## the record.
+
 type WakuKademlia* = ref object
   protocol*: ServiceDiscovery
   brokerCtx*: BrokerContext
@@ -46,12 +53,17 @@ type WakuKademlia* = ref object
   randomLookupInterval: Duration
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
-  servicesToAdvertise: Table[ServiceInfo, Opt[seq[byte]]]
-    ## The services this node advertises, each with the record to publish as
-    ## is, or none when libp2p builds the record. `start` advertises them and
-    ## `stop` stops advertising them, so a restart advertises them again.
+  ownClusterId: uint16
+    ## The records of other clusters claim no codecs and shards, see
+    ## `advertisedServing`.
+  servicesToAdvertise: Table[string, AdvertisedService]
+    ## Keyed by service id: libp2p keeps one record per service. In production
+    ## the only key is `/logos/delivery`, whose record also lists the mix key.
+    ## `start` advertises them and `stop` stops advertising them, so a restart
+    ## advertises them again.
 
 type KademliaDiscoveryConf* = object
+  clusterId*: uint16 ## This node's cluster.
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
   servicesToAdvertise*: HashSet[ServiceInfo]
   servicesToDiscover*: HashSet[string]
@@ -62,7 +74,14 @@ type KademliaDiscoveryConf* = object
   clientMode*: bool
   xprPublishing*: bool
 
-proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
+func discoveredServices(record: ExtendedPeerRecord): seq[DiscoveredService] =
+  record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
+
+proc remotePeerInfoFrom*(
+    record: ExtendedPeerRecord, ownClusterId: uint16
+): Opt[RemotePeerInfo] =
+  ## The codecs and shards the record's delivery payload claims are stored
+  ## with the peer, see `advertisedServing`.
   if record.addresses.len == 0:
     trace "Missing addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
@@ -72,11 +91,10 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
     trace "No dialable addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
 
-  let protocols = record.services.mapIt(it.id)
+  let (codecs, shards) = advertisedServing(record.discoveredServices(), ownClusterId)
+  let protocols = deduplicate(record.services.mapIt(it.id) & codecs)
 
-  let mixPubKey = advertisedMixKey(
-    record.services.mapIt(DiscoveredService(id: it.id, data: it.data.get(@[])))
-  )
+  let mixPubKey = advertisedMixKey(record.discoveredServices())
   if mixPubKey.isSome():
     trace "Successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
@@ -86,20 +104,32 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
       record.peerId,
       addrs = addrs,
       protocols = protocols,
+      advertisedShards = shards,
       origin = PeerOrigin.Kademlia,
       mixPubKey = mixPubKey,
     )
   )
 
-proc processRecords(
+proc processRecords*(
     self: WakuKademlia, records: seq[ExtendedPeerRecord], source: string
 ): seq[RemotePeerInfo] =
   var discovered: seq[RemotePeerInfo]
   for record in records:
-    let peerInfo = remotePeerInfoFrom(record).valueOr:
+    let peerInfo = remotePeerInfoFrom(record, self.ownClusterId).valueOr:
       continue
 
+    # An older record than the one that last told this peer's mix key neither
+    # sets nor removes it.
+    let disclaims = disclaimsMix(record.discoveredServices())
+    let admitted =
+      (peerInfo.mixPubKey.isSome() or disclaims) and
+      self.peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, record.seqNo)
+    if not admitted:
+      reset(peerInfo.mixPubKey)
+
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if admitted and disclaims:
+      self.peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via service discovery",
       source,
@@ -214,6 +244,7 @@ proc new*(
     T: type WakuKademlia,
     switch: Switch,
     peerManager: PeerManager,
+    ownClusterId: uint16,
     bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
     servicesToAdvertise: HashSet[ServiceInfo],
     servicesToDiscover: HashSet[string],
@@ -247,19 +278,22 @@ proc new*(
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
     servicesToDiscover: servicesToDiscover,
+    ownClusterId: ownClusterId,
   )
   for service in servicesToAdvertise:
-    self.servicesToAdvertise[service] = Opt.none(seq[byte])
+    self.servicesToAdvertise[service.id] =
+      AdvertisedService(info: service, signedRecord: Opt.none(seq[byte]))
 
   return ok(self)
 
 proc advertiseServices(self: WakuKademlia) =
   ## Advertises the services not advertised yet. A failure keeps the service.
   ## libp2p republishes the self record for each service that it adds.
-  for service, advert in self.servicesToAdvertise:
+  for advertised in self.servicesToAdvertise.values:
+    let service = advertised.info
     if service in self.protocol.services:
       continue
-    self.protocol.startAdvertising(service, advert).isOkOr:
+    self.protocol.startAdvertising(service, advertised.signedRecord).isOkOr:
       notice "Failed to advertise configured service",
         service = service.id, error = error
 
@@ -313,10 +347,13 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
 
   ## Stopped services stay marked as provided upstream and a restart rejects
   ## them, so stop advertising them here. noCancel: a cancelled stop must finish.
-  for service in self.servicesToAdvertise.keys.toSeq():
-    await noCancel self.protocol.stopAdvertising(service.id)
+  for serviceId in self.servicesToAdvertise.keys.toSeq():
+    await noCancel self.protocol.stopAdvertising(serviceId)
 
   info "Kademlia discovery stopped"
+
+func ownClusterId*(self: WakuKademlia): uint16 =
+  self.ownClusterId
 
 proc addServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.containsOrIncl(service):
@@ -325,15 +362,20 @@ proc addServiceToDiscover*(self: WakuKademlia, service: string) =
 
 proc addServiceToAdvertise*(
     self: WakuKademlia, service: ServiceInfo, advert: seq[byte]
-) =
+): Result[void, string] =
   ## `advert` is the signed record to publish verbatim for this service; the
-  ## caller signs it, libp2p only registers it.
-  if service notin self.servicesToAdvertise:
-    self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
-      warn "Failed to advertise service", service = service.id, error = error
-      return
-    self.servicesToAdvertise[service] = Opt.some(advert)
-    debug "Added service to advertise", service = service.id
+  ## caller signs it, libp2p only registers it. A changed record takes the place
+  ## of the one advertised for the service: libp2p 2.5 replaces it in one call,
+  ## and keeps it when it refuses the new one. An unchanged record is left
+  ## alone, because a new registration waits at the registrars again.
+  let wanted = AdvertisedService(info: service, signedRecord: Opt.some(advert))
+  if self.servicesToAdvertise.getOrDefault(service.id) == wanted:
+    return ok()
+  self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
+    return err("failure in addServiceToAdvertise: " & $error)
+  self.servicesToAdvertise[service.id] = wanted
+  debug "Added service to advertise", service = service.id
+  return ok()
 
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.missingOrExcl(service):
@@ -341,20 +383,11 @@ proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
     debug "Removed service to discover", service
 
 proc removeServiceToAdvertise*(
-    self: WakuKademlia, service: ServiceInfo
-) {.async: (raises: [CancelledError]).} =
-  if self.servicesToAdvertise.hasKey(service):
-    self.servicesToAdvertise.del(service)
-    await self.protocol.stopAdvertising(service.id)
-    debug "Removed service to advertise", service = service.id
-
-proc removeServiceToAdvertise*(
     self: WakuKademlia, serviceId: string
 ) {.async: (raises: [CancelledError]).} =
-  ## Id-based variant: looks up the stored ServiceInfo (set equality includes
-  ## the advertised payload, which the caller may not have at hand).
-  for service in self.servicesToAdvertise.keys:
-    if service.id == serviceId:
-      await self.removeServiceToAdvertise(service)
-      return
-  debug "Service to remove not advertised", service = serviceId
+  if serviceId notin self.servicesToAdvertise:
+    debug "Service to remove not advertised", service = serviceId
+    return
+  self.servicesToAdvertise.del(serviceId)
+  await self.protocol.stopAdvertising(serviceId)
+  debug "Removed service to advertise", service = serviceId

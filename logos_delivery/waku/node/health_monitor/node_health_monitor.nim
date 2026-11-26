@@ -27,6 +27,7 @@ import
     node/health_monitor/health_status,
     node/health_monitor/health_report,
     node/health_monitor/connection_status,
+    node/health_monitor/mix_readiness,
     node/health_monitor/protocol_health,
     node/health_monitor/event_loop_monitor,
     requests/health_requests,
@@ -62,6 +63,7 @@ type NodeHealthMonitor* = ref object
   relayObserver: PubSubObserver
   peerEventListener: WakuPeerEventListener
   shardHealthListener: EventShardTopicHealthChangeListener
+  mixMembershipListener: MixMembershipChangedEventListener
   eventLoopLagExceeded: bool
     ## set to true when the chronos event loop lag exceeds the severe threshold,
     ## causing the node health to be reported as EVENT_LOOP_LAGGING until lag recovers.
@@ -319,24 +321,13 @@ proc hasMixExit(hm: NodeHealthMonitor): bool =
 
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.MixProtocol)
+  hm.strength[WakuProtocol.MixProtocol] = hm.node.getMixNodePoolSize()
 
-  if isNil(hm.node.wakuMix):
-    hm.strength[WakuProtocol.MixProtocol] = 0
+  let unusable = hm.node.mixUnusable()
+  if unusable == MixUnusable.NotMounted:
     return p.notMounted()
-
-  let poolSize = hm.node.getMixNodePoolSize()
-  hm.strength[WakuProtocol.MixProtocol] = poolSize
-
-  # Checked before the pool: discovery cannot fix a hop that the encoder
-  # rejects, and every reply path and cover packet fails on it.
-  if not hm.node.wakuMix.selfHopUsable():
-    return p.notReady(
-      "This node's announced address is not one mix can route replies to (IPv4 TCP or QUIC-v1)"
-    )
-
-  # Same threshold as `mixReady`, so health and the send path agree.
-  if poolSize < MinMixPoolSize:
-    return p.notReady("Mix pool too small: " & $poolSize & " < " & $MinMixPoolSize)
+  if unusable != MixUnusable.None:
+    return p.notReady(unusable.reason())
 
   if not hm.hasMixExit():
     return p.notReady("No mix pool member serves lightpush to exit through")
@@ -781,6 +772,13 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   ).valueOr:
     return err("Failed to subscribe to shard health events: " & error)
 
+  hm.mixMembershipListener = MixMembershipChangedEvent.listen(
+    hm.node.brokerCtx,
+    proc(evt: MixMembershipChangedEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      hm.healthUpdateEvent.fire(),
+  ).valueOr:
+    return err("Failed to subscribe to Mix membership events: " & error)
+
   hm.healthUpdateEvent = newAsyncEvent()
   hm.healthUpdateEvent.fire()
 
@@ -812,6 +810,9 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
   await WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
   await EventShardTopicHealthChange.dropListener(
     hm.node.brokerCtx, hm.shardHealthListener
+  )
+  await MixMembershipChangedEvent.dropListener(
+    hm.node.brokerCtx, hm.mixMembershipListener
   )
 
   if not isNil(hm.node.wakuRelay) and not isNil(hm.relayObserver):

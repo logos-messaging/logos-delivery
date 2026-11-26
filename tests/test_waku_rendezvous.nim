@@ -126,7 +126,7 @@ procSuite "Waku Rendezvous":
     check:
       records.len == 1
       records[0].peerId == peerInfo1.peerId
-      #records[0].mixPubKey == $node1.wakuMix.pubKey
+      #records[0].mixKey == node1.mixPubKeyHex().get("")
 
   asyncTest "Rendezvous advertises configured shards before relay is active":
     ## Given: A node with configured shards but no relay subscriptions yet

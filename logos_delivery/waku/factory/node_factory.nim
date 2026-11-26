@@ -182,6 +182,12 @@ proc setupProtocols(
       node.wakuMixRln = ModuleRlnProtection.new(mixConf.mixRlnConfig.get(), rlnMixCall).valueOr:
         return err("failed to create Mix RLN adapter: " & error)
       protection = Opt.some(SpamProtection(node.wakuMixRln))
+    elif conf.presetMix:
+      # The preset turns Mix on for a node that sets no level, and gives it no
+      # Mix RLN. That is how the preset runs, not a fault of this node.
+      notice "Mix runs without Mix RLN, as the network preset does: no hop is rate limited"
+    else:
+      warn "Mix runs without Mix RLN: no hop is rate limited. Set mix-rln-registry-id, or turn mix off with mix=false"
     (
       await node.mountMix(
         conf.clusterId,
@@ -189,6 +195,7 @@ proc setupProtocols(
         mixConf.mixnodes,
         protection,
         allowAllAddresses = mixConf.allowAllAddresses,
+        keyRotation = mixConf.keyRotation,
       )
     ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)

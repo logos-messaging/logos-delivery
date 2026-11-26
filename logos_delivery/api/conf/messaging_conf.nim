@@ -17,6 +17,9 @@ type MessagingClientConf* = object
     ## Enable store-based send reliability.
   anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
     ## Sender anonymity level. A level above `None` mounts and uses mix.
+    ## Default `presetAnonymityLevel`: `Preferred` on a network preset that runs
+    ## Mix (`logos.dev`, `logos.test`), else `None`. `None` with the kernel's
+    ## `mix=false`.
   rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
     ## Enforce the per-epoch send rate limit (default false).
   rateLimitEpochPeriodSec* {.name: "rate-limit-epoch-sec".}: Opt[uint64]
@@ -64,6 +67,16 @@ proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =
     return ok(MessagingClientConf())
   let npc = npcOpt.get()
   return ok(MessagingClientConf(reliabilityEnabled: Opt.some(npc.p2pReliability)))
+
+proc presetAnonymityLevel*(preset: string): AnonymityLevel =
+  ## The level of a node that sets none: `PresetMixAnonymityLevel` on a network
+  ## preset that runs Mix, else `DefaultAnonymityLevel`. An unknown preset fails
+  ## the kernel config elsewhere, so it falls back to the default here.
+  let npc = toNetworkPresetConf(preset, Opt.none(uint16)).valueOr:
+    return DefaultAnonymityLevel
+  if npc.isSome() and npc.get().mix:
+    return PresetMixAnonymityLevel
+  return DefaultAnonymityLevel
 
 proc init*(
     T: type MessagingClientConf, flags: MessagingNodeConf, preset: string

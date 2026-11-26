@@ -10,6 +10,12 @@ import
   ./events/json_message_event,
   ./declare_lib
 
+# --noMain leaves std/cmdline's command line undefined (logos-messaging/nim-ffi#283).
+{.emit: """
+N_LIB_PRIVATE int cmdCount;
+N_LIB_PRIVATE char** cmdLine;
+""".}
+
 ################################################################################
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
 

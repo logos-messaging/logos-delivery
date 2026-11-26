@@ -25,6 +25,7 @@ import libp2p/peerinfo
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/discovery/delivery_advert,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
@@ -93,6 +94,9 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   nodeCtx: BrokerContext
   adverts: Table[string, Advert]
   interests: Table[string, bool] ## key -> taken by the plugin
+  ownClusterId: uint16
+    ## The records of other clusters claim no codecs and shards, see
+    ## `advertisedServing`.
   announceWanted: AsyncEvent
   announceLoop: Future[void]
   observedPeerInfo: PeerInfo
@@ -134,14 +138,28 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
     return
 
   for peer in peers:
-    let peerInfo = peer.toRemotePeerInfo().valueOr:
+    let peerInfo = peer.toRemotePeerInfo(self.ownClusterId).valueOr:
       debug "discarding discovered peer", reason = error
       continue
 
+    # An older record than the one that last told this peer's mix key neither
+    # sets nor removes it.
+    let disclaims = disclaimsMix(peer.services)
+    let admitted =
+      (peerInfo.mixPubKey.isSome() or disclaims) and
+      peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, peer.seqNo)
+    if not admitted:
+      reset(peerInfo.mixPubKey)
+
     peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if admitted and disclaims:
+      peerManager.switch.peerStore.removeMixPubKey(peerInfo.peerId)
 
     debug "Peer added via external service discovery",
       peerId = $peerInfo.peerId,
+      seqNo = peer.seqNo,
+      mixKey = peerInfo.mixPubKey.isSome(),
+      disclaimsMix = disclaims,
       addresses = peerInfo.addrs.mapIt($it),
       protocols = peerInfo.protocols
 
@@ -402,6 +420,7 @@ proc runAnnounceLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
 BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   proc new(
       T: typedesc[ExternalServiceDiscovery],
+      ownClusterId: uint16,
       serviceLookupInterval = DefaultServiceLookupInterval,
       randomLookupInterval = DefaultRandomLookupInterval,
   ): ExternalServiceDiscovery =
@@ -412,6 +431,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       announceWanted: newAsyncEvent(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
+      ownClusterId: ownClusterId,
     )
 
     # Registration stays on the single-thread lane: the vtable is full of

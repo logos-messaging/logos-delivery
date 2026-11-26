@@ -34,11 +34,14 @@ proc toDiscoveredPeer*(record: waku_enr.Record): Result[DiscoveredPeer, string] 
   peer.enr = record.toUri()
   ok(peer)
 
-proc toRemotePeerInfo*(peer: DiscoveredPeer): Result[RemotePeerInfo, string] =
+proc toRemotePeerInfo*(
+    peer: DiscoveredPeer, ownClusterId: uint16
+): Result[RemotePeerInfo, string] =
   ## The DTO back into the node's own peer type, for a backend whose source
   ## speaks the DTO rather than an ENR or a peer record. Mirrors
   ## `remotePeerInfoFrom` in the in-process kademlia backend: a peer with no
-  ## dialable address is refused rather than stored.
+  ## dialable address is refused rather than stored. The codecs and shards its
+  ## delivery payload claims are stored with it, see `advertisedServing`.
   let peerId = PeerId.init(peer.peerId).valueOr:
     return err("unparseable peer id " & peer.peerId & ": " & $error)
 
@@ -50,11 +53,13 @@ proc toRemotePeerInfo*(peer: DiscoveredPeer): Result[RemotePeerInfo, string] =
   if addrs.len == 0:
     return err("no dialable address for peer " & peer.peerId)
 
+  let (codecs, shards) = advertisedServing(peer.services, ownClusterId)
   ok(
     RemotePeerInfo.init(
       peerId,
       addrs = addrs,
-      protocols = peer.services.mapIt(it.id),
+      protocols = deduplicate(peer.services.mapIt(it.id) & codecs),
+      advertisedShards = shards,
       origin = PeerOrigin.Kademlia,
       mixPubKey = advertisedMixKey(peer.services),
     )
