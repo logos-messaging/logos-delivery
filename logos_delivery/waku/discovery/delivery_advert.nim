@@ -90,23 +90,38 @@ func withoutMixClaim*(data: seq[byte]): seq[byte] =
   raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
   cast[seq[byte]](base64.encode(raw))
 
-func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Key] =
+func claimsMixNode(
+    data: openArray[byte], ownClusterId: Opt[uint16]
+): Result[bool, string] =
+  ## Whether a `/logos/delivery` payload claims Relay and Mix on `ownClusterId`.
+  ## An error for a payload that this version does not read.
+  ## Any cluster counts when `ownClusterId` is none.
+  let caps = ?advertisedCapabilities(data)
+  let (cluster, _) = ?advertisedShards(data)
+  ok(
+    (ownClusterId.isNone() or ownClusterId.get() == cluster) and
+      caps.supportsCapability(Capabilities.Relay) and
+      caps.supportsCapability(Capabilities.Mix)
+  )
+
+func advertisedMixKey*(
+    services: openArray[DiscoveredService], ownClusterId = Opt.none(uint16)
+): Opt[Curve25519Key] =
   ## The mix key of a peer whose record lists these services.
   ##
   ## A mix node is a delivery node with relay mounted. Its record is the
   ## delivery record: the payload claims Relay and Mix, and a `/mix/1.0.0`
   ## entry carries the key. A key without that claim is not taken, so the pool
   ## holds no node that does not say it relays for the network.
+  ##
+  ## Only a claim on `ownClusterId` counts, because nodes of two clusters disconnect.
   var
     claimed = false
     key = Opt.none(Curve25519Key)
   for service in services:
     if service.id == LogosDeliveryServiceId:
-      let caps = advertisedCapabilities(service.data).valueOr:
+      claimed = claimsMixNode(service.data, ownClusterId).valueOr:
         continue
-      claimed =
-        caps.supportsCapability(Capabilities.Relay) and
-        caps.supportsCapability(Capabilities.Mix)
     elif key.isNone() and service.id == MixProtocolID and
         service.data.len == Curve25519KeySize:
       key = Opt.some(intoCurve25519Key(service.data))
@@ -114,23 +129,23 @@ func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Ke
     return Opt.none(Curve25519Key)
   key
 
-func disclaimsMix*(services: openArray[DiscoveredService]): bool =
+func disclaimsMix*(
+    services: openArray[DiscoveredService], ownClusterId = Opt.none(uint16)
+): bool =
   ## Whether a record listing these services says that its peer is no mix
-  ## node: its delivery payload is one this version reads and claims not both
-  ## Relay and Mix. Only such a record removes a mix key stored before.
+  ## node of `ownClusterId`: its delivery payload is one this version reads and
+  ## claims not both Relay and Mix on that cluster. Only such a record removes
+  ## a mix key stored before.
   ##
   ## A record without a delivery payload, or with one this version cannot read,
-  ## says nothing. Nor does a payload that claims Mix but comes without a key:
-  ## the record libp2p publishes under a node's own peer id, which a random
-  ## lookup returns, lists the delivery service with its payload but not the
-  ## `/mix/1.0.0` entry of the record the node signs for its advert.
+  ## says nothing. Nor does a payload on `ownClusterId` that claims Mix but comes
+  ## without a key: the record libp2p publishes under a node's own peer id,
+  ## which a random lookup returns, lists the delivery service with its payload
+  ## but not the `/mix/1.0.0` entry of the record the node signs for its advert.
   var disclaimed = false
   for service in services:
     if service.id == LogosDeliveryServiceId:
-      let caps = advertisedCapabilities(service.data).valueOr:
+      let claimed = claimsMixNode(service.data, ownClusterId).valueOr:
         continue
-      disclaimed = not (
-        caps.supportsCapability(Capabilities.Relay) and
-        caps.supportsCapability(Capabilities.Mix)
-      )
+      disclaimed = not claimed
   disclaimed

@@ -95,8 +95,8 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   adverts: Table[string, Advert]
   interests: Table[string, bool] ## key -> taken by the plugin
   ownClusterId: uint16
-    ## The records of other clusters claim no codecs and shards, see
-    ## `advertisedServing`.
+    ## The records of other clusters claim no codecs, shards or mix key, see
+    ## `advertisedServing` and `advertisedMixKey`.
   announceWanted: AsyncEvent
   announceLoop: Future[void]
   observedPeerInfo: PeerInfo
@@ -144,7 +144,7 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
 
     # An older record than the one that last told this peer's mix key neither
     # sets nor removes it.
-    let disclaims = disclaimsMix(peer.services)
+    let disclaims = disclaimsMix(peer.services, Opt.some(self.ownClusterId))
     let admitted =
       (peerInfo.mixPubKey.isSome() or disclaims) and
       peerManager.switch.peerStore.admitMixRecord(peerInfo.peerId, peer.seqNo)
