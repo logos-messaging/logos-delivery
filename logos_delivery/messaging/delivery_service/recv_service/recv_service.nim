@@ -9,7 +9,7 @@
 ## back. With `backfill-enabled`, the records survive a restart, and a
 ## restart is an outage too. An unsubscribe deletes the record.
 
-import results, std/[algorithm, tables]
+import results, std/[algorithm, sets, tables]
 import chronos, chronicles
 import brokers/broker_context
 import
@@ -55,6 +55,7 @@ type BackfillSubscriptionChange = object
   topic: BackfillTopic
   subscribed: bool
   at: Timestamp
+  startTime: Opt[Timestamp]
 
 type BackfillFetchOutcome = object ## The result of one Store query for one topic.
   more: bool ## the topic has more to fetch now
@@ -69,6 +70,8 @@ type BackfillState* = object
   records: Table[BackfillTopic, TopicRecord]
   subscribedSince: Table[BackfillTopic, Timestamp]
     ## the time of the subscribe of each subscribed topic, in this run
+  immediateTries: HashSet[BackfillTopic]
+    ## the topics with a new start time, whose last part gets one early query
   live: bool ## live delivery is ready (see `hasLiveDelivery`)
   liveSince: Timestamp ## the time of the last change of `live`
   started: bool ## the records are read, and a change applies at once
@@ -191,11 +194,15 @@ proc applySubscriptionChange(
     if change.topic in backfill.records:
       return @[]
     let record = newRecord(
-      change.at, backfill.live, backfill.liveSince, backfill.timestampVariance.nanos
+      change.at, backfill.live, backfill.liveSince, backfill.timestampVariance.nanos,
+      change.startTime,
     )
     backfill.records[change.topic] = record
+    if change.startTime.isSome():
+      backfill.immediateTries.incl(change.topic)
     return topicRecordPersistenceOp(change.topic, record)
   backfill.subscribedSince.del(change.topic)
+  backfill.immediateTries.excl(change.topic)
   if change.topic notin backfill.records:
     return @[]
   backfill.records.del(change.topic)
@@ -314,6 +321,7 @@ proc backfillFetchTopic(
   ## waits until `restArchivedAt`, because the archive can lack a message that
   ## a node sent a short time before live delivery came back. A wake of the
   ## worker in that wait sends no query.
+  ## A new start time gets one early query of part 2, because the app waits for it.
   let record = self.backfill.records.getOrDefault(topic)
   let now = getNowInNanosecondTime()
   let stop = coveredFrom(
@@ -335,6 +343,11 @@ proc backfillFetchTopic(
   )
   if record.timestamp >= lastPartStart and now < restArchivedAt:
     # Only the last part is left, and the archive may not have it yet.
+    if not self.backfill.immediateTries.missingOrExcl(topic):
+      # The record stays, so the query at `restArchivedAt` gets what this one misses.
+      discard await fetchPage(
+        topic, record.timestamp, stop, self.backfill.queryTimeout, query, deliver
+      )
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
   let fetchStop = if now >= restArchivedAt: stop else: lastPartStart
   let next = ?await fetchPage(topic, record.timestamp, fetchStop, query, deliver)
@@ -357,13 +370,17 @@ proc backfillFetchTopic(
   self.backfill.records[topic] = after
   await self.backfillWriteRecords(topicRecordPersistenceOp(topic, after))
   let offline = after.state == TopicRecordState.Offline
+  if not offline:
+    # The early query is for this gap, and not for the gap of a later outage.
+    self.backfill.immediateTries.excl(topic)
   # The old part is done, and the last part waits for the archive.
   let readyAt =
     if offline and next >= fetchStop and fetchStop < stop:
       Opt.some(restArchivedAt)
     else:
       Opt.none(Timestamp)
-  return ok(BackfillFetchOutcome(more: offline and next < fetchStop, readyAt: readyAt))
+  let more = offline and (next < fetchStop or topic in self.backfill.immediateTries)
+  return ok(BackfillFetchOutcome(more: more, readyAt: readyAt))
 
 proc backfillFetchAllTopics(
     self: RecvService,
@@ -473,7 +490,10 @@ proc updateLive(self: RecvService) {.async: (raises: []).} =
   await self.backfillLiveChanged(self.hasLiveDelivery())
 
 proc onSubscribed(
-    self: RecvService, shard: PubsubTopic, contentTopic: ContentTopic
+    self: RecvService,
+    shard: PubsubTopic,
+    contentTopic: ContentTopic,
+    startTime: Opt[Timestamp],
 ) {.async: (raises: []).} =
   ## The subscribed shards are an input of live delivery. On Edge, a topic on
   ## a new shard has no filter subscription yet, so the node is in an outage
@@ -481,7 +501,10 @@ proc onSubscribed(
   await self.updateLive()
   await self.backfillSubscriptionChanged(
     BackfillSubscriptionChange(
-      topic: (shard, contentTopic), subscribed: true, at: getNowInNanosecondTime()
+      topic: (shard, contentTopic),
+      subscribed: true,
+      at: getNowInNanosecondTime(),
+      startTime: startTime,
     )
   )
 
@@ -557,6 +580,7 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
 
   self.backfill.records = initTable[BackfillTopic, TopicRecord]()
   self.backfill.subscribedSince = initTable[BackfillTopic, Timestamp]()
+  self.backfill.immediateTries = initHashSet[BackfillTopic]()
   self.backfill.started = false
   self.backfill.pendingSubscriptionChanges = @[]
   self.backfill.wake = newAsyncEvent()
@@ -584,7 +608,7 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
   self.shardHealthListener = self.listenForReadiness(EventShardTopicHealthChange)
   self.peerEventListener = self.listenForReadiness(WakuPeerEvent)
   proc onSubscribedEvent(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
-    await self.onSubscribed(event.shard, event.contentTopic)
+    await self.onSubscribed(event.shard, event.contentTopic, event.startTime)
 
   self.subscribedEventListener = ContentTopicSubscribedEvent.listen(
     self.brokerCtx, onSubscribedEvent

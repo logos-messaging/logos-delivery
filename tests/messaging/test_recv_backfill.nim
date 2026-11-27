@@ -3,13 +3,13 @@
 ## Few multi-phase cases. Each `test` block costs three GC-tracked globals, and
 ## the refc runtime caps the test binary at 3500.
 
-import std/[os, tempfiles, sequtils, strutils, tables]
+import std/[importutils, os, tempfiles, sequtils, strutils, tables]
 import chronos, results, testutils/unittests
 import stew/byteutils
 
 import ../testlib/testasync
 import logos_delivery/messaging/delivery_service/recv_service/backfill
-import logos_delivery/messaging/delivery_service/recv_service/recv_service
+import logos_delivery/messaging/delivery_service/recv_service/recv_service {.all.}
 import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/api/conf/messaging_conf
 import logos_delivery/api/conf/logos_delivery_conf_json
@@ -384,6 +384,164 @@ suite "Receive backfill":
     # the last recovery and the subscribe.
     check lastPartFrom(Base, now) == archivedBefore(now)
     check lastPartFrom(now, Base) == archivedBefore(now)
+
+  test "a start time goes back at most 3 hours":
+    let now = Base + Hour
+    let oldest = now - 3 * Hour
+    for (startTime, since) in [
+      (Base, Base), (now, now), (now + 1, now), (oldest, oldest), (oldest - 1, oldest)
+    ]:
+      let gap =
+        TopicRecord.init(since - MaxMessageTimestampVariance, TopicRecordState.Offline)
+      # With no start time, `true` with `Base` gives a live record.
+      for live in [true, false]:
+        for liveSince in [Base, now + Minute]:
+          check newRecord(now, live, liveSince, startTime = Opt.some(startTime)) == gap
+
+  test "a start time opens the gap of a first subscribe only":
+    ## A topic with a record continues from where it stopped.
+    privateAccess(BackfillState)
+    privateAccess(BackfillSubscriptionChange)
+    let
+      startTime = Base - Minute
+      gap = TopicRecord.init(startTime - Second, TopicRecordState.Offline)
+      saved = TopicRecord.init(Base - Hour, TopicRecordState.Online)
+    proc subscribe(backfill: var BackfillState, startTime: Timestamp): seq[TxOp] =
+      return backfill.applySubscriptionChange(
+        BackfillSubscriptionChange(
+          topic: TestTopic, subscribed: true, at: Base, startTime: Opt.some(startTime)
+        )
+      )
+
+    for live in [true, false]:
+      var backfill = BackfillState.init(MessagingClientConf()).get()
+      backfill.live = live
+      backfill.timestampVariance = chronos.seconds(1) # not the default
+      # Phase 1: a first subscribe saves its record.
+      let writes = backfill.subscribe(startTime)
+      check backfill.records.getOrDefault(TestTopic) == gap
+      check writes.mapIt(it.payload) ==
+        topicRecordPersistenceOp(TestTopic, gap).mapIt(it.payload)
+      # Phase 2: a repeated subscribe.
+      check backfill.subscribe(startTime - Minute).len == 0
+      check backfill.records.getOrDefault(TestTopic) == gap
+      # Phase 3: a subscribe of a topic with a record from the last run.
+      backfill.subscribedSince.clear()
+      backfill.records[TestTopic] = saved
+      check backfill.subscribe(startTime).len == 0
+      check backfill.records.getOrDefault(TestTopic) == saved
+
+  asyncTest "a subscribe before the records are read keeps its start time":
+    ## An app can subscribe right after the start, before the worker reads the records.
+    privateAccess(RecvService)
+    privateAccess(BackfillState)
+    privateAccess(BackfillSubscriptionChange)
+    let startTime = Base - Minute
+    let service = RecvService(backfill: BackfillState.init(MessagingClientConf()).get())
+    service.backfill.wake = newAsyncEvent()
+    service.backfill.caughtUp = newAsyncEvent()
+    # A restart queues the first change, and the app makes the others.
+    for (subscribed, given) in [
+      (true, Opt.none(Timestamp)),
+      (false, Opt.none(Timestamp)),
+      (true, Opt.some(startTime)),
+    ]:
+      await service.backfillSubscriptionChanged(
+        BackfillSubscriptionChange(
+          topic: TestTopic, subscribed: subscribed, at: Base, startTime: given
+        )
+      )
+    check service.backfill.records.len == 0
+    service.backfill.task = service.backfillWorker()
+    let idle = await service.backfillWaitForIdle()
+    await service.backfill.task.cancelAndWait()
+    check idle
+    check service.backfill.records.getOrDefault(TestTopic) ==
+      TopicRecord.init(
+        startTime - MaxMessageTimestampVariance, TopicRecordState.Offline
+      )
+
+  asyncTest "a new start time gets one early query of its last part":
+    ## The app waits for the messages, and the archive may have them already.
+    privateAccess(RecvService)
+    privateAccess(BackfillState)
+    privateAccess(BackfillSubscriptionChange)
+    privateAccess(BackfillFetchOutcome)
+    let
+      now = getNowInNanosecondTime()
+      gapStart = now - MaxMessageTimestampVariance
+      lastPart = archivedBefore(now)
+      gapEnd = coveredFrom(0, now)
+    var ranges: seq[(Timestamp, Timestamp)]
+    let query: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      ranges.add((request.startTime.get(), request.endTime.get()))
+      return page(@[])
+    proc newService(): RecvService =
+      return RecvService(backfill: BackfillState.init(MessagingClientConf()).get())
+
+    proc change(
+        service: RecvService,
+        subscribed = true,
+        at = now,
+        startTime = Opt.none(Timestamp),
+    ) =
+      discard service.backfill.applySubscriptionChange(
+        BackfillSubscriptionChange(
+          topic: TestTopic, subscribed: subscribed, at: at, startTime: startTime
+        )
+      )
+
+    proc takeTurns(service: RecvService): Future[seq[bool]] {.async.} =
+      ## Three turns of the worker, and whether each has more to fetch now.
+      service.backfill.live = true
+      ranges.setLen(0)
+      var more: seq[bool]
+      for _ in 0 ..< 3:
+        let outcome = await service.backfillFetchTopic(TestTopic, query, accept)
+        more.add(outcome.get().more)
+      return more
+
+    # Phase 1: a start time of now, and the record stays for the later query.
+    var service = newService()
+    service.change(startTime = Opt.some(now))
+    var more = await service.takeTurns()
+    check ranges == @[(gapStart, gapEnd)]
+    check more == @[false, false, false]
+    check service.backfill.records.getOrDefault(TestTopic) ==
+      TopicRecord.init(gapStart, TopicRecordState.Offline)
+    # Phase 2: an earlier start time, and the early query follows part 1 at once.
+    service = newService()
+    service.change(startTime = Opt.some(now - Hour))
+    more = await service.takeTurns()
+    check ranges == @[(gapStart - Hour, lastPart), (lastPart, gapEnd)]
+    check more == @[true, false, false]
+    check service.backfill.records.getOrDefault(TestTopic) ==
+      TopicRecord.init(lastPart, TopicRecordState.Offline)
+    # Phase 3: no start time, also after an unsubscribe of a topic with one.
+    service = newService()
+    service.change(startTime = Opt.some(now))
+    service.change(subscribed = false)
+    service.change()
+    more = await service.takeTurns()
+    check ranges.len == 0
+    check more == @[false, false, false]
+    # Phase 4: an outage after the late fill of the gap.
+    let before = now - 2 * Minute
+    service = newService()
+    service.change(at = before, startTime = Opt.some(before))
+    service.backfill.live = true
+    let filled = await service.backfillFetchTopic(TestTopic, query, accept)
+    check filled.isOk()
+    check service.backfill.records.getOrDefault(TestTopic) ==
+      TopicRecord.init(coveredFrom(0, before), TopicRecordState.Online)
+    discard service.backfill.applyLiveChange(false)
+    discard service.backfill.applyLiveChange(true)
+    more = await service.takeTurns()
+    check ranges ==
+      @[(coveredFrom(0, before), archivedBefore(service.backfill.liveSince))]
+    check more == @[false, false, false]
 
   asyncTest "topic records: the codec, the writes and the deletes":
     let root = createTempDir("recv-records-", "")

@@ -1,8 +1,10 @@
+import results
 import brokers/event_broker
 
 import logos_delivery/api/types
 import logos_delivery/waku/waku_core/topics/[pubsub_topic, content_topic]
 import logos_delivery/waku/waku_core/message
+from logos_delivery/waku/waku_core/time import Timestamp
 
 export event_broker, pubsub_topic, content_topic, message
 
@@ -17,6 +19,7 @@ EventBroker:
   type ContentTopicSubscribedEvent* = object
     shard*: PubsubTopic
     contentTopic*: ContentTopic
+    startTime*: Opt[Timestamp] ## the subscriber also wants the messages since then
 
 # Emitted when a content topic stops being subscribed on a shard.
 EventBroker:

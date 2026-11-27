@@ -1,12 +1,14 @@
 import chronos, results
 import brokers/[request_broker, broker_context]
 import logos_delivery/api/types as api_types
+from logos_delivery/waku/waku_core/time import Timestamp
 
-export api_types, request_broker, broker_context
+export api_types, request_broker, broker_context, Timestamp
 
 # Structural API contract for a messaging client (ops in `messaging/api/*`).
 type MessagingApi* = concept c
-  subscribe(c, contentTopic = ContentTopic) is Future[Result[void, string]]
+  subscribe(c, contentTopic = ContentTopic, startTime = Opt[Timestamp]) is
+    Future[Result[void, string]]
   unsubscribe(c, contentTopic = ContentTopic) is Result[void, string]
   send(c, envelope = MessageEnvelope) is Future[Result[WakuMessageHash, SendError]]
 

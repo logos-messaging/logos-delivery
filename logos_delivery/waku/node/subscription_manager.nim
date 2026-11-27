@@ -236,6 +236,7 @@ proc subscribe*(
     shard: PubsubTopic,
     contentTopic: ContentTopic,
     handler: WakuRelayHandler = nil,
+    startTime = Opt.none(Timestamp),
 ): Result[void, string] =
   ## Adds content-topic interest on the shard and joins the relay mesh.
   var added = false
@@ -253,7 +254,9 @@ proc subscribe*(
   if not isNil(self.node.wakuRelay):
     discard self.node.doRelaySubscribe(shard, handler)
   if added:
-    ContentTopicSubscribedEvent.emit(self.node.brokerCtx, shard, contentTopic)
+    ContentTopicSubscribedEvent.emit(
+      self.node.brokerCtx, shard, contentTopic, startTime
+    )
     # A listener learns the health of the shard at each subscribe, and the
     # health loops report each change after it.
     EventShardTopicHealthChange.emit(
@@ -298,14 +301,16 @@ proc topicShards(self: SubscriptionManager, shard: PubsubTopic): seq[PubsubTopic
     if listenShard != shard:
       result.add(listenShard)
 
-proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
+proc subscribe*(
+    self: SubscriptionManager, topic: ContentTopic, startTime = Opt.none(Timestamp)
+): Result[void, string] =
   ## Subscribes to a content topic, resolving its shard via autosharding, and
   ## on every extra listen shard. On failure, drops the subscriptions it added.
   let shard = ?self.getShardForContentTopic(topic)
   var added: seq[PubsubTopic]
   for target in self.topicShards(shard):
     let isNew = not self.hasContentTopic(target, topic)
-    self.subscribe(target, topic).isOkOr:
+    self.subscribe(target, topic, startTime = startTime).isOkOr:
       for prev in added:
         discard self.unsubscribe(prev, topic)
       return err(error)

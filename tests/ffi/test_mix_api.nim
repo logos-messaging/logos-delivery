@@ -8,10 +8,7 @@ import
   logos_delivery,
   logos_delivery/waku/[node/peer_manager, node/waku_node, waku_core],
   library/kernel_api/protocols/mix_api,
-  ../testlib/[wakucore, wakunodeconf]
-
-# A test binary has no NimMain of the library, which declareLibrary imports.
-{.emit: "void liblogosdeliveryNimMain(void) {}".}
+  ../testlib/[wakucore, wakunodeconf, nim_main_stub]
 
 suite "waku_mix_add_peer":
   const

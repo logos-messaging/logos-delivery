@@ -179,6 +179,7 @@ Subscribe to a content topic to receive messages.
 int logosdelivery_ctx_subscribe(
     const LogosDeliveryCtx *ctx,
     const char *contentTopicStr,
+    int64_t startTimeNs,
     LogosDeliverySubscribeReplyFn onReply,
     void *userData
 );
@@ -187,8 +188,13 @@ int logosdelivery_ctx_subscribe(
 **Parameters:**
 - `ctx`: Context handle delivered to the `logosdelivery_ctx_create` callback
 - `contentTopicStr`: Content topic string (e.g., "/myapp/1/chat/proto")
+- `startTimeNs`: Start time in nanoseconds since the Unix epoch, or 0 for no start time
 - `onReply`: Callback function to receive the result
 - `userData`: User data passed to the callback
+
+A subscribe to a new content topic, or to one that was unsubscribed, gets no earlier messages. With a start time, for example the timestamp of an invite to a conversation, the node also gets the topic's messages since that time, at most 3 hours back, if Store nodes (nodes that keep past messages) still have them. These messages come as `onMessageReceived` events with the source `history` (see [MESSAGE_EVENTS.md](MESSAGE_EVENTS.md)), and they can include the app's own messages and some from just before the start time. The node asks Store for them at once. One from around the subscribe, such as the first message of a conversation that just started, can also come with a delay, after newer live messages, because a Store node can get a message late.
+
+The node ignores a start time for a content topic that is subscribed already. With the `backfill-enabled` setting on (the default), it also ignores one for a topic that was still subscribed at a restart, because it continues that topic from where it stopped. To give such a topic a start time, subscribe it, unsubscribe it, and subscribe it again with the start time.
 
 #### `logosdelivery_ctx_unsubscribe`
 Unsubscribe from a content topic.
@@ -377,7 +383,7 @@ int main(void) {
     logosdelivery_ctx_start_node(node, on_reply, NULL);
 
     // Subscribe to a topic
-    logosdelivery_ctx_subscribe(node, "/myapp/1/chat/proto", on_reply, NULL);
+    logosdelivery_ctx_subscribe(node, "/myapp/1/chat/proto", 0, on_reply, NULL);
 
     // Send a message
     const char *msg = "{"

@@ -1,12 +1,13 @@
 {.used.}
 
-import results, std/[sequtils, net, sets, tables]
+import results, std/[importutils, sequtils, net, sets, tables]
 import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, peerstore, multiaddress, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[wakucore, wakunode, wakunodeconf, testasync, short_intervals]
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
+import logos_delivery/messaging/delivery_service/recv_service/[backfill, recv_service]
 
 import
   logos_delivery,
@@ -417,6 +418,49 @@ suite "Messaging API, SubscriptionManager":
 
     check not await eventManager.waitForEvents(NegativeTestTimeout)
     check eventManager.receivedMessages.len == 0
+
+  asyncTest "a first subscribe gives its start time to the gap of each shard":
+    ## A chat app learns of a conversation after its first message.
+    privateAccess(BackfillState)
+    let contentTopic = ContentTopic("/waku/2/start-time/proto")
+    let listenShard = PubsubTopic("/waku/2/rs/3/64")
+    for mode in [LogosDeliveryMode.Core, LogosDeliveryMode.Edge]:
+      var conf = defaultTestWakuNodeConf(mode)
+      conf.quicSupport = false # the close of its transport takes 300 ms
+      let node = await setupSubscriberNode(testNodeConf(conf, mode = mode))
+      defer:
+        (await node.stop()).expect("Failed to stop subscriber node")
+      node.waku.node.subscriptionManager.extraListenShards = @[listenShard]
+      var events: seq[ContentTopicSubscribedEvent]
+      let onSubscribed = proc(
+          event: ContentTopicSubscribedEvent
+      ): Future[void] {.async: (raises: []), gcsafe.} =
+        events.add(event)
+      let listener = ContentTopicSubscribedEvent
+        .listen(node.waku.brokerCtx, onSubscribed)
+        .expect("listen")
+      defer:
+        await ContentTopicSubscribedEvent.dropListener(node.waku.brokerCtx, listener)
+
+      let startTime = now() - chronos.minutes(1).nanos
+      for _ in 0 ..< 2:
+        (await node.messagingClient.subscribe(contentTopic, Opt.some(startTime))).expect(
+          "subscribe"
+        )
+      let recvService = node.messagingClient.recvService
+      let idle = await recvService.backfillWaitForIdle()
+      check idle
+
+      let shards = @[node.waku.node.getRelayShard(contentTopic), listenShard]
+      # An event of the second subscribe would move the end of the gap.
+      check events.mapIt((it.shard, it.startTime)) ==
+        shards.mapIt((it, Opt.some(startTime)))
+      let gap = TopicRecord.init(
+        startTime - recvService.backfill.timestampVariance.nanos,
+        TopicRecordState.Offline,
+      )
+      check shards.mapIt(recvService.backfill.records.getOrDefault((it, contentTopic))) ==
+        @[gap, gap]
 
   asyncTest "Subscription API, resubscribe to an unsubscribed topic":
     let net = await setupNetwork(1)

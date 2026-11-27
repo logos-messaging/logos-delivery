@@ -253,7 +253,7 @@ int main() {
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
-    logosdelivery_ctx_subscribe(ctx, contentTopic, on_reply, (void *)"subscribe");
+    logosdelivery_ctx_subscribe(ctx, contentTopic, 0, on_reply, (void *)"subscribe");
 
     // Wait for subscription
     sleep(1);
