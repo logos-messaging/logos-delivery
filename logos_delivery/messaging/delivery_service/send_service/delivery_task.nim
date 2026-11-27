@@ -43,9 +43,11 @@ type DeliveryTask* = ref object
   propagatedEventEmitted*: bool
     ## Set when the task emits `MessagePropagatedEvent`. After a restart, the send
     ## service does not send the task again.
+  anonymityRequested*: bool
+    ## True at the `Preferred` and `Required` anonymity levels, where mix comes first.
   anonymized*: bool
-    ## Set at the first anonymous send attempt and never cleared; from then on,
-    ## the INFO and ERROR records of this task withhold the hash.
+    ## Set at the first anonymous send attempt and never cleared. While this or
+    ## `anonymityRequested` is set, `loggedHash` withholds the hash.
   deanonymized*: bool
     ## Set by a relay or lightpush attempt, unless nothing left this node.
     ## A stop of the send service during such an attempt leaves it set.
@@ -97,8 +99,9 @@ proc new*(
   return ok(T(pubsubTopic: pubsubTopic, msg: msg, msgHash: msgHash))
 
 proc loggedHash*(task: DeliveryTask): string =
-  ## The hash for INFO and ERROR records, withheld once the task is anonymized.
-  if task.anonymized:
+  ## Use this value for every INFO and ERROR record that names a task.
+  ## At the `Preferred` and `Required` levels, a hash would tie the send to this node.
+  if task.anonymized or task.anonymityRequested:
     "withheld"
   else:
     task.msgHash.to0xHex()

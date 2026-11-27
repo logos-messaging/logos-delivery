@@ -553,7 +553,7 @@ proc waitForStoreValidation(
       MessageSentEvent.emit(self.brokerCtx, task.msgHash.to0xHex())
     else:
       info "Message propagated but not validated by a store node within time window; stop trying.",
-        msgHash = task.msgHash.to0xHex(),
+        msgHash = task.loggedHash(),
         waited = task.storeValidationWaited + (Moment.now() - started)
       recordStoreValidationTimeout()
       self.fail(
@@ -657,6 +657,7 @@ proc enqueue*(
   ## gets the hash first. A refused message gets no event, and the admission comes
   ## last, so a refused message takes none.
   assert(not task.isNil(), "task for enqueue must not be nil")
+  task.anonymityRequested = self.sendProcessor of MixSendProcessor
   # A caller that queues one task twice gets here. So can a send right after the
   # clock steps back, when its stamp and its content match a queued message. It
   # gets the hash of the queued task, as on master.
@@ -670,7 +671,7 @@ proc enqueue*(
     return err(refuse(SendErrorKind.QueueFull, "send queue full, retry later"))
   ?self.admitAtSend(task)
 
-  info "Task added to the send queue", msgHash = task.msgHash.to0xHex()
+  info "Task added to the send queue", msgHash = task.loggedHash()
   self.deliveryTasks[task.msgHash] = task
   self.startDeliverSoon(task)
   return ok(task.msgHash)
