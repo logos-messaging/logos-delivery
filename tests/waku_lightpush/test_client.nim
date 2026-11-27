@@ -10,6 +10,7 @@ import
     waku_lightpush,
     waku_lightpush/client,
     waku_lightpush/protocol_metrics,
+    rln/markers,
   ],
   ../testlib/[assertions, wakucore, testasync, futures],
   ./lightpush_utils,
@@ -39,7 +40,8 @@ suite "Waku Lightpush Client":
       let msgLen = message.encode().len
       if msgLen > int(DefaultMaxWakuMessageSize) + 64 * 1024:
         return lighpushErrorResult(
-          LightPushErrorCode.PAYLOAD_TOO_LARGE, "length greater than maxMessageSize"
+          LightPushErrorCode.PAYLOAD_TOO_LARGE, "length greater than maxMessageSize",
+          LightPushLocalErrorCode.RejectedLocally,
         )
       handlerFuture.complete((pubsubTopic, message))
       # return that we published the message to 1 peer.
@@ -327,7 +329,10 @@ suite "Waku Lightpush Client":
             peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
         ): Future[WakuLightPushResult] {.async.} =
           handlerFuture2.complete()
-          return lighpushErrorResult(LightPushErrorCode.PAYLOAD_TOO_LARGE, handlerError)
+          return lighpushErrorResult(
+            LightPushErrorCode.PAYLOAD_TOO_LARGE, handlerError,
+            LightPushLocalErrorCode.RejectedLocally,
+          )
 
       let
         serverSwitch2 = newTestSwitch()
@@ -414,6 +419,32 @@ suite "Waku Lightpush Client":
         publishResponse.error.desc ==
           Opt.some(dialFailure & ": " & $serverRemotePeerInfo2 & " is not accessible")
 
+    asyncTest "a failed dial is DialFailure and an error reply has no local error code":
+      let unreachable = newTestSwitch() # a node with no lightpush service
+      let failing = newTestSwitch()
+      proc fail(
+          peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        return lighpushErrorResult(
+          LightPushErrorCode.INTERNAL_SERVER_ERROR, "failed",
+          LightPushLocalErrorCode.FailedBeforeSend,
+        )
+
+      discard await newTestWakuLightpushNode(failing, fail)
+      await allFutures(unreachable.start(), failing.start())
+      defer:
+        await allFutures(unreachable.stop(), failing.stop())
+
+      for (peer, localErrorCode) in [
+        (unreachable.peerInfo.toRemotePeerInfo(), LightPushLocalErrorCode.DialFailure),
+        (failing.peerInfo.toRemotePeerInfo(), LightPushLocalErrorCode.None),
+      ]:
+        checkpoint $localErrorCode
+        let publishResponse = await client.publish(Opt.some(pubsubTopic), message, peer)
+        check:
+          publishResponse.isErr()
+          publishResponse.error.localErrorCode == localErrorCode
+
 suite "Waku Lightpush Client - response size":
   asyncTest "a response above the read limit is an error result":
     let
@@ -445,3 +476,34 @@ suite "Waku Lightpush Client - response size":
     check res.isErr()
 
     await allFutures(clientSwitch.stop(), serverSwitch.stop())
+
+suite "Waku Lightpush error status":
+  test "only an INVALID_MESSAGE reply with the RLN validator text is RlnRejectedByService":
+    proc codeOfReply(code: LightPushStatusCode, desc: string): LightPushLocalErrorCode =
+      let reply =
+        LightPushResponse(requestId: "1", statusCode: code, statusDesc: Opt.some(desc))
+      return reply.toPushResult().error.localErrorCode
+
+    check:
+      codeOfReply(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg & ": x") ==
+        LightPushLocalErrorCode.RlnRejectedByService
+      # The service node has no proof for the message, and it rejected no proof.
+      codeOfReply(LightPushErrorCode.OUT_OF_RLN_PROOF, "out of proof") ==
+        LightPushLocalErrorCode.None
+      codeOfReply(LightPushErrorCode.SERVICE_NOT_AVAILABLE, RlnValidatorErrorMsg) ==
+        LightPushLocalErrorCode.None
+      codeOfReply(LightPushErrorCode.INVALID_MESSAGE, "another rejection") ==
+        LightPushLocalErrorCode.None
+
+  test "isRlnRejection is true only for the three RLN local error codes":
+    proc isRejection(localErrorCode: LightPushLocalErrorCode): bool =
+      return ErrorStatus(localErrorCode: localErrorCode).isRlnRejection()
+
+    check:
+      isRejection(LightPushLocalErrorCode.RlnRejectedLocally)
+      isRejection(LightPushLocalErrorCode.RlnRejectedByService)
+      isRejection(LightPushLocalErrorCode.RlnRefreshScheduled)
+      not isRejection(LightPushLocalErrorCode.RejectedLocally)
+      not isRejection(LightPushLocalErrorCode.FailedBeforeSend)
+        # also a proof that this node failed to attach
+      not isRejection(LightPushLocalErrorCode.None) # also an OUT_OF_RLN_PROOF reply

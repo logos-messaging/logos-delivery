@@ -6,7 +6,8 @@ import
   testutils/unittests,
   chronos,
   std/strformat,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  libp2p/protocols/pubsub/pubsub
 
 import
   logos_delivery/api/events/kernel_events,
@@ -237,8 +238,10 @@ suite "RLN Proofs as a Lightpush Service":
           peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
-        return
-          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
+        return lighpushErrorResult(
+          LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg,
+          LightPushLocalErrorCode.RejectedLocally,
+        )
       server.wakuLightPush.pushHandler = stub
 
       let manager = cast[RlnEvmGroupManager](serverRln.groupManager)
@@ -254,6 +257,7 @@ suite "RLN Proofs as a Lightpush Service":
         response.isErr()
         response.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF
         response.error.desc.get("").contains(RlnProofRefreshScheduledMsg)
+        response.error.localErrorCode == LightPushLocalErrorCode.RlnRefreshScheduled
 
       # The refresh runs detached from the publish call: the cache was
       # dropped and a refetch is in flight. Once it settles the path is
@@ -270,7 +274,8 @@ suite "RLN Proofs as a Lightpush Service":
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
-          LightPushErrorCode.OUT_OF_RLN_PROOF, "simulated out-of-proof"
+          LightPushErrorCode.OUT_OF_RLN_PROOF, "simulated out-of-proof",
+          LightPushLocalErrorCode.FailedBeforeSend,
         )
       server.wakuLightPush.pushHandler = stub
 
@@ -289,7 +294,8 @@ suite "RLN Proofs as a Lightpush Service":
         inc callCount
         if callCount == 1:
           return lighpushErrorResult(
-            LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg
+            LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg,
+            LightPushLocalErrorCode.RejectedLocally,
           )
         return lightpushSuccessResult(1)
       server.wakuLightPush.pushHandler = stub
@@ -315,8 +321,10 @@ suite "RLN Proofs as a Lightpush Service":
           peerId: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
-        return
-          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "unrelated rejection")
+        return lighpushErrorResult(
+          LightPushErrorCode.INVALID_MESSAGE, "unrelated rejection",
+          LightPushLocalErrorCode.RejectedLocally,
+        )
       server.wakuLightPush.pushHandler = stub
 
       let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
@@ -333,7 +341,8 @@ suite "RLN Proofs as a Lightpush Service":
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
-          LightPushErrorCode.INTERNAL_SERVER_ERROR, "unrelated failure"
+          LightPushErrorCode.INTERNAL_SERVER_ERROR, "unrelated failure",
+          LightPushLocalErrorCode.FailedBeforeSend,
         )
       server.wakuLightPush.pushHandler = stub
 
@@ -354,7 +363,8 @@ suite "RLN Proofs as a Lightpush Service":
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
-          LightPushErrorCode.INTERNAL_SERVER_ERROR, "must not be published"
+          LightPushErrorCode.INTERNAL_SERVER_ERROR, "must not be published",
+          LightPushLocalErrorCode.FailedBeforeSend,
         )
       server.wakuLightPush.pushHandler = stub
 
@@ -381,7 +391,9 @@ suite "RLN Proofs as a Lightpush Service":
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
         return lighpushErrorResult(
-          LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg & ": simulated"
+          LightPushErrorCode.INVALID_MESSAGE,
+          RlnValidatorErrorMsg & ": simulated",
+          LightPushLocalErrorCode.RejectedLocally,
         )
       server.wakuLightPush.pushHandler = stub
 
@@ -720,6 +732,54 @@ suite "Waku Lightpush message delivery":
       res.error.desc ==
         Opt.some("Pubsub topic must be specified when static sharding is enabled")
 
+  asyncTest "lightpushPublish gives each local failure its local error code":
+    let peer =
+      RemotePeerInfo.init("16Uiu2HAmFccGe5iezmyRDQZuLPRP7FqpqXLjnocmMRk18pmTZs2j")
+    let noLightpush = newTestWakuNode(generateSecp256k1Key())
+    let lightNode = newTestWakuNode(generateSecp256k1Key())
+    lightNode.mountLightPushClient()
+    let message = fakeWakuMessage(contentTopic = DefaultContentTopic)
+
+    for (id, node, pubsubTopic, toPeer, mixify, localErrorCode) in [
+      (
+        "no lightpush",
+        noLightpush,
+        Opt.some(DefaultPubsubTopic),
+        Opt.some(peer),
+        false,
+        LightPushLocalErrorCode.Unavailable,
+      ),
+      (
+        "no mix",
+        lightNode,
+        Opt.some(DefaultPubsubTopic),
+        Opt.some(peer),
+        true,
+        LightPushLocalErrorCode.Unavailable,
+      ),
+      (
+        "no service peer",
+        lightNode,
+        Opt.some(DefaultPubsubTopic),
+        Opt.none(RemotePeerInfo),
+        false,
+        LightPushLocalErrorCode.NoServicePeer,
+      ),
+      (
+        "no pubsub topic",
+        lightNode,
+        Opt.none(PubsubTopic),
+        Opt.some(peer),
+        false,
+        LightPushLocalErrorCode.RejectedLocally,
+      ),
+    ]:
+      checkpoint id
+      let res = await node.lightpushPublish(pubsubTopic, message, toPeer, mixify)
+      check:
+        res.isErr()
+        res.error.localErrorCode == localErrorCode
+
 suite "Waku Lightpush mounting behavior":
   asyncTest "fails to mount when relay is not mounted":
     ## Given a node without Relay mounted
@@ -735,3 +795,40 @@ suite "Waku Lightpush mounting behavior":
     check:
       res.isErr()
       res.error == MountWithoutRelayError
+
+suite "Waku Lightpush relay push handler":
+  proc pushWithNoRelayPeer(
+      rejection = Opt.none(string)
+  ): Future[WakuLightPushResult] {.async.} =
+    ## The result of the push handler of a node with relay and no relay peer.
+    ## With `rejection`, a validator rejects each message with that text.
+    proc reject(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): Future[pubsub.ValidationResult] {.async.} =
+      return pubsub.ValidationResult.Reject
+
+    let node = newTestWakuNode(generateSecp256k1Key())
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    if rejection.isSome():
+      node.wakuRelay.addValidator(reject, rejection.get())
+    return
+      await getRelayPushHandler(node.wakuRelay)(DefaultPubsubTopic, fakeWakuMessage())
+
+  asyncTest "a validator rejection is RlnRejectedLocally or RejectedLocally":
+    for (rejection, localErrorCode) in [
+      (RlnValidatorErrorMsg, LightPushLocalErrorCode.RlnRejectedLocally),
+      ("another rejection", LightPushLocalErrorCode.RejectedLocally),
+    ]:
+      checkpoint rejection
+      let res = await pushWithNoRelayPeer(Opt.some(rejection))
+      check:
+        res.isErr()
+        res.error.localErrorCode == localErrorCode
+
+  asyncTest "a push with no relay peer is NoRelayPeer":
+    let res = await pushWithNoRelayPeer()
+    check:
+      res.isErr()
+      res.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
+      res.error.localErrorCode == LightPushLocalErrorCode.NoRelayPeer

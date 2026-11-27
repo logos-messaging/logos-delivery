@@ -54,17 +54,21 @@ proc resend*(
       return
     currentProcessor = currentProcessor.fallbackProcessor
 
-proc parkForRlnProofRefresh*(task: DeliveryTask, waku: Waku, errorDesc: string) =
+proc parkForRlnProofRefresh*(task: DeliveryTask, waku: Waku, error: ErrorStatus) =
   ## The service refused the task's proof as RLN-invalid: its proof went stale
-  ## against a moved merkle root. Schedules a background merkle-path refresh and
+  ## against a moved merkle root. Schedules a background merkle-path refresh,
+  ## unless `lightpushPublish` already scheduled it (`RlnRefreshScheduled`), and
   ## clears the proof so the next retry regenerates one against the refreshed
   ## path; `attachRlnProof` reuses an existing proof, so without the clear the
   ## rejected bytes would be resent. Resetting admission charges the new nonce
   ## the regenerated proof draws. Without a backend refresh hook a retry would
-  ## be rejected the same way, so the task fails with `errorDesc`.
-  if not waku.onRlnProofRejected():
+  ## be rejected the same way, so the task fails with the text of `error`.
+  let refreshScheduled =
+    error.localErrorCode == LightPushLocalErrorCode.RlnRefreshScheduled or
+    waku.onRlnProofRejected()
+  if not refreshScheduled:
     task.state = DeliveryState.FailedToDeliver
-    task.errorDesc = errorDesc
+    task.errorDesc = error.desc.get($error.code)
     return
   task.msg.proof = @[]
   task.firstAdmittedTime = Opt.none(Moment)

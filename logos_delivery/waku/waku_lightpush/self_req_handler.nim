@@ -32,5 +32,6 @@ proc handleSelfLightPushRequest*(
     return response.toPushResult()
   except Exception:
     return lightPushResultInternalError(
-      "exception in handleSelfLightPushRequest: " & getCurrentExceptionMsg()
+      "exception in handleSelfLightPushRequest: " & getCurrentExceptionMsg(),
+      LightPushLocalErrorCode.OtherError,
     )

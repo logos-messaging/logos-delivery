@@ -7,8 +7,7 @@ import
   testutils/unittests,
   presto,
   presto/client as presto_client,
-  libp2p/crypto/crypto,
-  libp2p/protocols/pubsub/pubsub
+  libp2p/crypto/crypto
 import brokers/broker_context
 import
   rest/message_cache,
@@ -25,8 +24,6 @@ import
     waku_node,
     waku_relay,
     rln,
-    rln/rln_plugin,
-    rln/types as rln_types,
     waku_archive,
     waku_archive/archive_metrics,
   ],
@@ -34,6 +31,7 @@ import
   ../testlib/wakunode,
   ../testlib/testasync,
   ../testlib/rest_requests,
+  ../testlib/stub_rln,
   ../resources/payloads,
   ../waku_archive/archive_utils,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
@@ -46,56 +44,6 @@ proc testWakuNode(): WakuNode =
     port = Port(0)
 
   newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
-
-proc rejectFirstMessageAsRlnInvalid(node: WakuNode) =
-  ## Registers a relay validator that rejects the first message it sees with
-  ## the RLN validator's error marker, then accepts everything.
-  var rejected = false
-  node.wakuRelay.addValidator(
-    proc(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[pubsub.ValidationResult] {.async.} =
-      if rejected:
-        return pubsub.ValidationResult.Accept
-      rejected = true
-      return pubsub.ValidationResult.Reject,
-    RlnValidatorErrorMsg & ": simulated",
-  )
-
-type StubRlnCalls = ref object
-  ## How often the node asked the stub RLN backend for a proof or a refresh.
-  generateCalls: int
-  refreshCalls: int
-
-proc mountStubRln(node: WakuNode, validProof: seq[byte]): StubRlnCalls =
-  ## Mounts an RLN backend that accepts only `validProof` and cannot generate
-  ## proofs, like a node without a usable membership.
-  let calls = StubRlnCalls()
-
-  proc validate(
-      message: WakuMessage
-  ): Future[Result[rln_types.ValidationResult, RlnError]] {.async.} =
-    if message.proof == validProof:
-      return ok(rln_types.ValidationResult(verdict: ProofVerdict.Valid))
-    return ok(rln_types.ValidationResult(verdict: ProofVerdict.Invalid))
-
-  proc generate(message: WakuMessage): Future[Result[seq[byte], RlnError]] {.async.} =
-    calls.generateCalls.inc()
-    return err(RlnError.notReady("no usable RLN membership"))
-
-  proc refresh() {.gcsafe, raises: [].} =
-    calls.refreshCalls.inc()
-
-  node.mountRln(
-    RlnPlugin(
-      name: "stub",
-      validateProof: validate,
-      generateProof: generate,
-      onProofRejected: refresh,
-    ),
-    RlnCommonConf(),
-  )
-  return calls
 
 suite "Waku v2 Rest API - Relay":
   var manager {.threadVar.}: RlnEvmGroupManager

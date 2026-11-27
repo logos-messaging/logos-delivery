@@ -1,7 +1,7 @@
 {.push raises: [].}
 
-import results, chronos, libp2p/peerid
-import ../waku_core, ./rpc, ../waku_relay/protocol
+import std/strutils, results, chronos, libp2p/peerid
+import ../waku_core, ./rpc, ../waku_relay/protocol, ../rln/markers
 
 from ../waku_core/codecs import WakuLightPushCodec
 export WakuLightPushCodec
@@ -27,7 +27,28 @@ func statusLabel*(code: LightPushStatusCode): string =
       return $known
   return OtherLabel
 
-type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Opt[string]]
+type
+  LightPushLocalErrorCode* {.pure.} = enum
+    ## The local reason for a failed push. It is never sent on the wire.
+    None ## No local code. The error is the reply of the service node.
+    Unavailable ## Lightpush, mix or relay is not available on this node.
+    NoServicePeer ## No lightpush service peer.
+    RejectedLocally ## This node rejected the message.
+    RlnRejectedLocally ## The RLN validator of this node rejected the proof.
+    FailedBeforeSend ## This node failed before the send.
+    DialFailure ## The dial to the service node failed.
+    BadResponse ## The request was sent, and the response was missing or invalid.
+    TimedOut ## The push timed out.
+    OtherError ## Any other error of this node.
+    NoRelayPeer ## Relay had no peer for the message.
+    RlnRejectedByService ## The RLN validator of the service node rejected the proof.
+    RlnRefreshScheduled ## As `RlnRejectedByService`, and this node scheduled a refresh.
+
+  ErrorStatus* = object
+    code*: LightpushStatusCode
+    desc*: Opt[string]
+    localErrorCode*: LightPushLocalErrorCode
+
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 
 type PushMessageHandler* = proc(
@@ -48,6 +69,33 @@ const UnknownRequestId* = "N/A"
 func isSuccess*(response: LightPushResponse): bool =
   return response.statusCode == LightPushSuccessCode.SUCCESS
 
+func isRlnValidatorRejection*(code: LightpushStatusCode, desc: string): bool =
+  return
+    code == LightPushErrorCode.INVALID_MESSAGE and desc.contains(RlnValidatorErrorMsg)
+
+func isRlnRejection*(error: ErrorStatus): bool =
+  ## True when a publish failure means "the RLN proof was not accepted", so the
+  ## message is worth retrying with a freshly generated proof rather than being
+  ## failed outright.
+  return
+    error.localErrorCode in {
+      LightPushLocalErrorCode.RlnRejectedLocally,
+      LightPushLocalErrorCode.RlnRejectedByService,
+      LightPushLocalErrorCode.RlnRefreshScheduled,
+    }
+
+func notSent*(error: ErrorStatus): bool =
+  ## True when the failed push did not send the message.
+  ## `None` is not in the set, because this node asked the service node.
+  ## The service node got the message, and this node has no local failure to add.
+  return
+    error.localErrorCode in {
+      LightPushLocalErrorCode.Unavailable, LightPushLocalErrorCode.NoServicePeer,
+      LightPushLocalErrorCode.RejectedLocally,
+      LightPushLocalErrorCode.RlnRejectedLocally,
+      LightPushLocalErrorCode.FailedBeforeSend, LightPushLocalErrorCode.DialFailure,
+    }
+
 func toPushResult*(response: LightPushResponse): WakuLightPushResult =
   if isSuccess(response):
     let relayPeerCount = response.relayPeerCount.get(0)
@@ -55,29 +103,57 @@ func toPushResult*(response: LightPushResponse): WakuLightPushResult =
       if (relayPeerCount == 0):
         # Consider publishing to zero peers an error even if the service node
         # sent us a "successful" response with zero peers
-        err((LightPushErrorCode.NO_PEERS_TO_RELAY, response.statusDesc))
+        err(
+          ErrorStatus(
+            code: LightPushErrorCode.NO_PEERS_TO_RELAY,
+            desc: response.statusDesc,
+            localErrorCode: LightPushLocalErrorCode.None,
+          )
+        )
       else:
         ok(relayPeerCount)
     )
   else:
-    return err((response.statusCode, response.statusDesc))
+    return err(
+      ErrorStatus(
+        code: response.statusCode,
+        desc: response.statusDesc,
+        localErrorCode:
+          if isRlnValidatorRejection(response.statusCode, response.statusDesc.get("")):
+            LightPushLocalErrorCode.RlnRejectedByService
+          else:
+            LightPushLocalErrorCode.None,
+      )
+    )
 
 func lightpushSuccessResult*(relayPeerCount: uint32): WakuLightPushResult =
   return ok(relayPeerCount)
 
-func lightpushResultInternalError*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.INTERNAL_SERVER_ERROR, Opt.some(msg)))
-
-func lightpushResultBadRequest*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.BAD_REQUEST, Opt.some(msg)))
-
-func lightpushResultServiceUnavailable*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.SERVICE_NOT_AVAILABLE, Opt.some(msg)))
-
 func lighpushErrorResult*(
-    statusCode: LightpushStatusCode, desc: string
+    statusCode: LightpushStatusCode,
+    desc: string,
+    localErrorCode: LightPushLocalErrorCode,
 ): WakuLightPushResult =
-  return err((statusCode, Opt.some(desc)))
+  return err(
+    ErrorStatus(code: statusCode, desc: Opt.some(desc), localErrorCode: localErrorCode)
+  )
+
+func lightpushResultInternalError*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return
+    lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg, localErrorCode)
+
+func lightpushResultBadRequest*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return lighpushErrorResult(LightPushErrorCode.BAD_REQUEST, msg, localErrorCode)
+
+func lightpushResultServiceUnavailable*(
+    msg: string, localErrorCode: LightPushLocalErrorCode
+): WakuLightPushResult =
+  return
+    lighpushErrorResult(LightPushErrorCode.SERVICE_NOT_AVAILABLE, msg, localErrorCode)
 
 func mapPubishingErrorToPushResult*(
     publishOutcome: PublishOutcome, maxMessageSize: int
@@ -86,38 +162,34 @@ func mapPubishingErrorToPushResult*(
   ## `MessageTooLarge` text.
   case publishOutcome
   of NoTopicSpecified:
-    return err(
-      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Empty topic, skipping publish"))
+    return lighpushErrorResult(
+      LightPushErrorCode.INVALID_MESSAGE, "Empty topic, skipping publish",
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of DuplicateMessage:
-    return err(
-      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Dropping already-seen message"))
+    return lighpushErrorResult(
+      LightPushErrorCode.INVALID_MESSAGE, "Dropping already-seen message",
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of NoPeersToPublish:
-    return err(
-      (
-        LightPushErrorCode.NO_PEERS_TO_RELAY,
-        Opt.some("No peers for topic, skipping publish"),
-      )
+    return lighpushErrorResult(
+      LightPushErrorCode.NO_PEERS_TO_RELAY, "No peers for topic, skipping publish",
+      LightPushLocalErrorCode.NoRelayPeer,
     )
   of CannotGenerateMessageId:
-    return err(
-      (
-        LightPushErrorCode.INTERNAL_SERVER_ERROR,
-        Opt.some("Error generating message id, skipping publish"),
-      )
+    return lighpushErrorResult(
+      LightPushErrorCode.INTERNAL_SERVER_ERROR,
+      "Error generating message id, skipping publish",
+      LightPushLocalErrorCode.FailedBeforeSend,
     )
   of InvalidMessage:
-    return err(
-      (
-        LightPushErrorCode.INVALID_MESSAGE,
-        Opt.some("Invalid message, skipping publish"),
-      )
+    return lighpushErrorResult(
+      LightPushErrorCode.INVALID_MESSAGE, "Invalid message, skipping publish",
+      LightPushLocalErrorCode.RejectedLocally,
     )
   of MessageTooLarge:
-    return err(
-      (
-        LightPushErrorCode.PAYLOAD_TOO_LARGE,
-        Opt.some("Message size exceeded maximum of: " & $maxMessageSize & " bytes"),
-      )
+    return lighpushErrorResult(
+      LightPushErrorCode.PAYLOAD_TOO_LARGE,
+      "Message size exceeded maximum of: " & $maxMessageSize & " bytes",
+      LightPushLocalErrorCode.RejectedLocally,
     )

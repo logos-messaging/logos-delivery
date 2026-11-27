@@ -7,7 +7,7 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/[tables, strutils]
+import std/tables
 import results, chronos, libp2p/crypto/rng, libp2p_mix/pool
 
 import logos_delivery/waku/waku
@@ -20,9 +20,7 @@ import
     rln/rln_plugin,
     node/waku_node/lightpush,
     node/peer_manager,
-    rln,
     waku_lightpush/common,
-    waku_lightpush/client,
     waku_lightpush/rpc,
     waku_lightpush/callbacks,
   ]
@@ -76,27 +74,6 @@ proc messageForSizeCheck*(
     self: Waku, message: WakuMessage
 ): Result[WakuMessage, RlnError] =
   return self.node.rlnPlugin.messageForSizeCheck(message)
-
-func isDialFailure*(error: ErrorStatus): bool =
-  ## True when the dial of the lightpush service peer failed, so no request was sent.
-  return
-    error.code == LightPushErrorCode.NO_PEERS_TO_RELAY and
-    error.desc.get("").startsWith(DialFailurePrefix)
-
-func isRlnRejection*(error: ErrorStatus): bool =
-  ## True when a publish failure means "the RLN proof was not accepted", so the
-  ## message is worth retrying with a freshly generated proof rather than being
-  ## failed outright.
-  ##
-  ## OUT_OF_RLN_PROOF is always RLN. INVALID_MESSAGE also covers non-RLN
-  ## rejections (an oversized message, say), so it additionally has to carry the
-  ## validator's error marker — this is the same gate the kernel lightpush path
-  ## applies before scheduling a refresh.
-  return
-    error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or (
-      error.code == LightPushErrorCode.INVALID_MESSAGE and
-      error.desc.get("").contains(RlnValidatorErrorMsg)
-    )
 
 proc onRlnProofRejected*(self: Waku): bool =
   ## Tells the mounted RLN backend its proof was rejected. True when the
@@ -170,9 +147,12 @@ proc lightpushPublishToAny*(
   let peer = peerOpt.valueOr:
     if mixify:
       return lightpushResultServiceUnavailable(
-        "no mix-capable lightpush peer available for shard"
+        "no mix-capable lightpush peer available for shard",
+        LightPushLocalErrorCode.NoServicePeer,
       )
-    return lightpushResultServiceUnavailable("no lightpush peer available for shard")
+    return lightpushResultServiceUnavailable(
+      "no lightpush peer available for shard", LightPushLocalErrorCode.NoServicePeer
+    )
   try:
     return
       await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
@@ -181,4 +161,4 @@ proc lightpushPublishToAny*(
     # again, so that `deliver` ends with the cancel and counts no failed attempt.
     raise exc
   except CatchableError as e:
-    return lightpushResultInternalError(e.msg)
+    return lightpushResultInternalError(e.msg, LightPushLocalErrorCode.OtherError)

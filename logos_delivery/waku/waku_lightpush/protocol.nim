@@ -30,30 +30,31 @@ proc handleRequest(
     if wl.autoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
       debug "Lightpush request handling error", error = msg
-      return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, msg, LightPushLocalErrorCode.RejectedLocally
       )
 
     let parsedTopic = NsContentTopic.parse(pushRequest.message.contentTopic).valueOr:
       let msg = "Invalid content-topic:" & $error
       debug "Lightpush request handling error", error = msg
-      return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
+      return lighpushErrorResult(
+        LightPushErrorCode.INVALID_MESSAGE, msg, LightPushLocalErrorCode.RejectedLocally
       )
 
     wl.autoSharding.get().getShard(parsedTopic).valueOr:
       let msg = "Auto-sharding error: " & error
       debug "Lightpush request handling error", error = msg
-      return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INTERNAL_SERVER_ERROR, desc: Opt.some(msg))
+      return lighpushErrorResult(
+        LightPushErrorCode.INTERNAL_SERVER_ERROR, msg,
+        LightPushLocalErrorCode.FailedBeforeSend,
       )
 
   # ensure checking topic will not cause error at gossipsub level
   if pubsubTopic.isEmptyOrWhitespace():
     let msg = "topic must not be empty"
     debug "Lightpush request handling error", error = msg
-    return WakuLightPushResult.err(
-      (code: LightPushErrorCode.BAD_REQUEST, desc: Opt.some(msg))
+    return lighpushErrorResult(
+      LightPushErrorCode.BAD_REQUEST, msg, LightPushLocalErrorCode.RejectedLocally
     )
 
   logos_delivery_lightpush_v3_messages.inc(labelValues = ["PushRequest"])
@@ -69,7 +70,7 @@ proc handleRequest(
     receivedTime = getNowInNanosecondTime()
 
   let res = (await wl.pushHandler(peerId, pubsubTopic, pushRequest.message)).valueOr:
-    return err((code: error.code, desc: error.desc))
+    return err(error)
   return ok(res)
 
 proc handleRequest*(
