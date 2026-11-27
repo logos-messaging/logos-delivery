@@ -33,7 +33,6 @@ type StorePeerFailure = object ## The failed queries to one store peer.
   at: Moment ## the time of the failure that started the backoff
   count: int ## the number of consecutive failures
   error: StoreError ## the error of that failure
-  connected: bool ## the peer had a connection at that failure
 
 type WakuStoreClient* = ref object
   peerManager: PeerManager
@@ -143,11 +142,13 @@ func backoffOf*(self: WakuStoreClient, peerId: PeerId): Duration =
 
 proc inBackoff(self: WakuStoreClient, peerId: PeerId, now: Moment): bool =
   ## True while a peer is in its backoff after a failed query.
-  ## A backoff that began with no connection does not apply while the peer has one.
+  ## The backoff of a failed dial does not apply while the peer has a connection.
   let failure = self.failures.getOrDefault(peerId)
   if failure.count == 0 or now >= failure.at + self.backoffFor(failure.count):
     return false
-  return failure.connected or not self.peerManager.switch.isConnected(peerId)
+  return
+    failure.error.kind != ErrorCode.PEER_DIAL_FAILURE or
+    not self.peerManager.switch.isConnected(peerId)
 
 proc recordFailure(self: WakuStoreClient, peerId: PeerId, error: StoreError) =
   ## The peer gets one more failure.
@@ -159,7 +160,6 @@ proc recordFailure(self: WakuStoreClient, peerId: PeerId, error: StoreError) =
   failure.count.inc()
   failure.at = now
   failure.error = error
-  failure.connected = self.peerManager.switch.isConnected(peerId)
   self.failures[peerId] = failure
   debug "Store peer starts a backoff",
     peerId = peerId,
