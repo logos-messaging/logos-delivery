@@ -71,10 +71,10 @@ proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(RlnConfs())
 
-  # On with no on-chain source at all: the backend is the plugin a host
-  # installs over FFI. Whether one is installed is checked at mount.
-  # The contract address names the on-chain backend; the chain id and client
-  # URLs have CLI defaults, so they tell nothing.
+  # No contract address and no credentials: the on-chain backend was not
+  # chosen, so build none and leave RLN to a plugin the host registers over
+  # FFI (`selectRlnPlugin` fails if there is none). The chain id and client
+  # URLs are not checked: CLI defaults always set them.
   if b.ethContractAddress.get("") == "" and b.credPath.isNone():
     return ok(RlnConfs())
 
