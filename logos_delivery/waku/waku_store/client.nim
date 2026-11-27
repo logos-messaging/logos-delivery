@@ -34,6 +34,11 @@ type StorePeerFailure = object ## The failed queries to one store peer.
   count: int ## the number of consecutive failures
   error: StoreError ## the error of that failure
 
+type DialOutcome {.pure.} = enum ## How a dial ended, for the queries that wait for it.
+  Dialed
+  Failed
+  Cancelled
+
 type WakuStoreClient* = ref object
   peerManager: PeerManager
   rng: crypto.Rng
@@ -47,6 +52,8 @@ type WakuStoreClient* = ref object
     ## see `FailedPeerRankLastPeriod`, shorter in tests
   failedPeerInitialBackoff*: Duration = FailedPeerInitialBackoff
     ## see `FailedPeerInitialBackoff`, shorter in tests
+  dials: Table[PeerId, Future[DialOutcome]]
+    ## The dial in progress to each store peer that had no connection.
 
 proc new*(
     T: type WakuStoreClient,
@@ -101,13 +108,62 @@ proc sendStoreRequest(
 
   return ok(res)
 
+proc dialAndShare(
+    self: WakuStoreClient, peer: RemotePeerInfo | PeerId, peerId: PeerId
+): Future[Opt[Connection]] {.async.} =
+  ## Dials `peer`, and gives the result to the queries that wait for this dial.
+  ## The result is the stream of this query, which has the libp2p type `Connection`.
+  let dial = newFuture[DialOutcome]("store dial")
+  # The caller found no dial in the table, and no `await` came after that.
+  # So only one query at a time has its dial here.
+  self.dials[peerId] = dial
+  var outcome = DialOutcome.Cancelled
+  try:
+    let stream = await self.peerManager.dialPeer(peer, WakuStoreCodec)
+    outcome = if stream.isSome(): DialOutcome.Dialed else: DialOutcome.Failed
+    return stream
+  finally:
+    # The entry goes before the future completes, so no query finds a dial that ended.
+    self.dials.del(peerId)
+    dial.complete(outcome)
+
+proc dialStorePeer(
+    self: WakuStoreClient, peer: RemotePeerInfo | PeerId
+): Future[Opt[Connection]] {.async.} =
+  ## A store stream (`Connection`) to `peer`.
+  ## Only one query at a time dials a peer with no connection, and the others wait.
+  ## When that dial fails, they fail too, and they do not dial.
+  let peerId = when peer is PeerId: peer else: peer.peerId
+  let switch = self.peerManager.switch
+  # A peer with a connection skips this loop, so its query waits for no dial.
+  while not switch.isConnected(peerId):
+    let otherDial = self.dials.getOrDefault(peerId)
+    if otherDial.isNil():
+      # No query dials the peer, so this query dials it.
+      # The dial also opens the stream of this query.
+      let stream = await self.dialAndShare(peer, peerId)
+      if stream.isSome():
+        return stream
+    else:
+      # `join` leaves the dial of the other query as it is when this query ends.
+      await otherDial.join()
+      if otherDial.read() in {DialOutcome.Dialed, DialOutcome.Cancelled}:
+        continue
+    # The dial failed, and a query that waited for it does not dial again.
+    # The peer can connect to this node while the dial to the peer fails.
+    # Then the query uses that connection.
+    if not switch.isConnected(peerId):
+      return Opt.none(Connection)
+  # The peer has a connection, so `dialPeer` only opens a stream on it.
+  return await self.peerManager.dialPeer(peer, WakuStoreCodec)
+
 proc query*(
     self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo | PeerId
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
-  let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
+  let connection = (await self.dialStorePeer(peer)).valueOr:
     logos_delivery_store_errors.inc(labelValues = [DialFailure])
 
     return err(StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer))
