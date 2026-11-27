@@ -132,7 +132,7 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     mixnodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj:ec59ba737011531153965bbb6aae37a987bb9e5e5dfc968304b14b6358fd0734",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t:a0f2e2182582c3a75fb8a84febadab165bdb43a6aa962d9daf98aa0c51436345",
-      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397:fe60e95c50f70db9015525064e1fff962ccc982dde480f8faae30262710ece58",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkwEoBh8ALMQDQbK2augCbpc4Ex8mt4e2JWpP9xnSPetoi:8cc7432685500937e1b2244aad3913aa29b5ae40312551bca5865f246769a16d",
       "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z:6123db2ba92bc9ad4a079fb1f49690835d5a2cd7e9e5e365a7539f4495fb693a",
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq:47cc9b29b7172975bd3fc7424a6a2c10284c1371e1322448080347703d0c392d",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K:921fc5de1082a1df2175710ecabc6c09c282b8f5dc55282d457678ed112e5c60",
@@ -140,7 +140,7 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     kadBootstrapNodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30304/p2p/12D3KooWNupnPMYo87HZjpXoAmRyNP3UbHwk9dAnx82k72j78sdB",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30304/p2p/12D3KooWFsWheSsxBYapbZLXArUEj34Tpne75EobWgtjD2PvobJZ",
-      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmBPzDQQ43Nwr8cTtGF4aCACZq4HoGrHpDj9bQDT7fB5mm",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/12D3KooWKuC4RzyqeyBWXi1ZefZthydoqyrsPMTMf9nHG8BZNCBh",
       "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/12D3KooWA1cq7TLrVMb42SZs8jkNYCFYsHcuYQU75yybDVRuR84U",
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/12D3KooWBxY7nJVg34g2me6fvbNzGsMyfLnf6AKrLW54gHPGq1aB",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/12D3KooWLVvT8GNd9gFatabomXsNoMSPv4ZjV637gQWMWA7YkQ6B",
@@ -153,7 +153,7 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     entryNodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t",
-      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkwEoBh8ALMQDQbK2augCbpc4Ex8mt4e2JWpP9xnSPetoi",
       "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z",
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K",
@@ -161,7 +161,7 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     storeNodes: @[
       "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj",
       "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t",
-      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
+      "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkwEoBh8ALMQDQbK2augCbpc4Ex8mt4e2JWpP9xnSPetoi",
       "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z",
       "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq",
       "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K",
