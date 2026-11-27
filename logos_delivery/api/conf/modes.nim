@@ -90,6 +90,7 @@ type AnonymityLevel* {.pure.} = enum
     ## Try Mix first. Take the plain path at once when Mix cannot attempt the
     ## send, or when the message does not fit in one Mix message. Take it after
     ## the Mix window when Mix gets no answer.
+    ## After a plain path attempt that may have sent the message, never use Mix again.
   Required
     ## Use Mix only. Never use the plain path. When Mix cannot attempt the send,
     ## keep trying for a short grace (`MixUnusableGrace`), then fail.

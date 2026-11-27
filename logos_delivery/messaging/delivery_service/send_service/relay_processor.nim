@@ -58,7 +58,14 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   debug "Trying message delivery via Relay",
     msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
-  let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
+  # A stop of the send service during the publish must leave `deanonymized` set.
+  let wasDeanonymized = task.deanonymized
+  task.deanonymized = true
+  let published = await self.publishProc(task.pubsubTopic, task.msg)
+  # With no relay peer, this node's filter service and archive can get the message.
+  if published.isErr() and published.error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
+    task.deanonymized = wasDeanonymized
+  let noOfPublishedPeers = published.valueOr:
     let errorMessage = error.desc.get($error.code)
     error "Failed to publish message with relay",
       msgHash = task.msgHash.to0xHex(), error = errorMessage

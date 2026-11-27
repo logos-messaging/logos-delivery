@@ -337,9 +337,7 @@ proc backfillFetchTopic(
     # Only the last part is left, and the archive may not have it yet.
     return ok(BackfillFetchOutcome(readyAt: Opt.some(restArchivedAt)))
   let fetchStop = if now >= restArchivedAt: stop else: lastPartStart
-  let next = ?await fetchPage(
-    topic, record.timestamp, fetchStop, self.backfill.queryTimeout, query, deliver
-  )
+  let next = ?await fetchPage(topic, record.timestamp, fetchStop, query, deliver)
   if self.stopping or self.backfill.records.getOrDefault(topic) != record:
     return
       ok(BackfillFetchOutcome()) # an unsubscribe or a new subscribe changed the topic
@@ -424,7 +422,7 @@ proc backfillWorker(self: RecvService) {.async.} =
   ): Future[Result[StoreQueryResponse, string]] {.async.} =
     if self.stopping:
       return err("receive service is stopping")
-    return await self.waku.storeQueryToAny(request)
+    return await self.waku.storeQueryToAny(request, self.backfill.queryTimeout)
   let deliver: BackfillDeliver = proc(
       pubsubTopic: PubsubTopic, message: WakuMessage
   ): bool {.gcsafe, raises: [].} =

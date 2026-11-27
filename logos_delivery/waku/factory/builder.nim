@@ -33,8 +33,8 @@ type
     peerStorageCapacity: Opt[int]
 
     # Peer manager config
-    maxRelayPeers: int
-    maxServicePeers: int
+    maxRelayPeers: Opt[int]
+    maxServicePeers: Opt[int]
     colocationLimit: int
     shardAware: bool
 
@@ -122,8 +122,8 @@ proc withPeerManagerConfig*(
   var relayPeers = int(ceil(float(maxConnections) * relayRatio))
   var servicePeers = int(floor(float(maxConnections) * serviceRatio))
 
-  builder.maxServicePeers = servicePeers
-  builder.maxRelayPeers = relayPeers
+  builder.maxServicePeers = Opt.some(servicePeers)
+  builder.maxRelayPeers = Opt.some(relayPeers)
   builder.shardAware = shardAware
 
 proc withColocationLimit*(builder: var WakuNodeBuilder, colocationLimit: int) =
@@ -210,12 +210,19 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
   let peerManager = PeerManager.new(
     switch = switch,
     storage = builder.peerStorage.get(nil),
-    maxRelayPeers = Opt.some(builder.maxRelayPeers),
-    maxServicePeers = Opt.some(builder.maxServicePeers),
+    maxRelayPeers = builder.maxRelayPeers,
+    maxServicePeers = builder.maxServicePeers,
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
     maxConnections = builder.switchMaxConnections.get(MaxConnections),
   )
+  # PeerManager.new logs the numbers and returns nil for a relay peer limit below
+  # gossipsub's dHigh
+  if peerManager.isNil():
+    return err(
+      "max-connections and relay-service-ratio leave fewer relay peers than gossipsub's dHigh relay peers: " &
+        $builder.maxRelayPeers.get(0)
+    )
 
   var node: WakuNode
   try:
