@@ -502,7 +502,7 @@ suite "Waku Kademlia advertises records this node signs":
           byte(CapabilitiesBitfield.init(relay = true, mix = mix)),
         ]
       ))
-      let secondary =
+      let extraServices =
         if mix:
           @[DiscoveredService(id: MixProtocolID, data: key)]
         else:
@@ -511,7 +511,7 @@ suite "Waku Kademlia advertises records this node signs":
         .addServiceToAdvertise(
           ServiceInfo(id: LogosDeliveryServiceId, data: Opt.some(payload)),
           signedServiceRecord(
-            infoA, infoA.privateKey, LogosDeliveryServiceId, payload, secondary
+            infoA, infoA.privateKey, LogosDeliveryServiceId, payload, extraServices
           )
             .expect("signs"),
         )

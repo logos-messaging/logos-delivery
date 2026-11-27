@@ -10,7 +10,7 @@
 ##
 ## Registrars file a record only under the service key it was REGISTERed with,
 ## and lookups read one shelf: the record is found under `serviceId` alone.
-## `secondary` services are listed in the same record for whoever reads it
+## `extraServices` are listed in the same record for whoever reads it
 ## there, as the mix key of a delivery node is. They cost no registration of
 ## their own, and a second registration is what a registrar makes a node wait
 ## for.
@@ -25,7 +25,7 @@ proc signedServiceRecord*(
     key: crypto.PrivateKey,
     serviceId: string,
     data: seq[byte],
-    secondary: seq[DiscoveredService] = @[],
+    extraServices: seq[DiscoveredService] = @[],
 ): Result[seq[byte], string] =
   if peerInfo.isNil():
     return err("signed record: node has no peer info")
@@ -37,7 +37,7 @@ proc signedServiceRecord*(
     peerInfo.addrs,
     services =
       @[ServiceInfo(id: serviceId, data: Opt.some(data))] &
-      secondary.mapIt(ServiceInfo(id: it.id, data: Opt.some(it.data))),
+      extraServices.mapIt(ServiceInfo(id: it.id, data: Opt.some(it.data))),
   )
   let signed = SignedExtendedPeerRecord.init(key, record).valueOr:
     return err("signed record: cannot sign: " & $error)

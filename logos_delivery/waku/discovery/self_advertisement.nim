@@ -110,7 +110,7 @@ type SelfAdvert* = object
   ## This node's record as it is advertised: the delivery payload, and the
   ## services listed in the same record.
   data*: Opt[seq[byte]] ## None for a node that serves nothing: it advertises nothing.
-  secondary*: seq[DiscoveredService]
+  extraServices*: seq[DiscoveredService]
 
 proc deliveryAdvertPart*(conf: WakuConf, shards: seq[uint16]): GetSelfAdvert =
   ## The record's own service. `shards` is what the node is actually subscribed
@@ -142,7 +142,7 @@ func assembleAdvert*(parts: openArray[GetSelfAdvert]): Result[SelfAdvert, string
   var advert = SelfAdvert()
   for part in parts:
     if part.service.id != LogosDeliveryServiceId:
-      advert.secondary.add(part.service)
+      advert.extraServices.add(part.service)
     elif advert.data.isSome():
       return err("more than one delivery part")
     else:
@@ -154,7 +154,7 @@ func assembleAdvert*(parts: openArray[GetSelfAdvert]): Result[SelfAdvert, string
     .get(CapabilitiesBitfield(0))
     .supportsCapability(Capabilities.Mix)
   var hasMixKey = false
-  for service in advert.secondary:
+  for service in advert.extraServices:
     if service.id == MixProtocolID:
       hasMixKey = true
   if claimsMix and not hasMixKey:
@@ -164,10 +164,10 @@ func assembleAdvert*(parts: openArray[GetSelfAdvert]): Result[SelfAdvert, string
     advert.data = Opt.some(withoutMixClaim(payload))
   elif hasMixKey and not claimsMix:
     var kept: seq[DiscoveredService]
-    for service in advert.secondary:
+    for service in advert.extraServices:
       if service.id != MixProtocolID:
         kept.add(service)
-    advert.secondary = kept
+    advert.extraServices = kept
   return ok(advert)
 
 proc advertiseSelf*(
@@ -190,7 +190,7 @@ proc advertiseSelf*(
 
   let serves = advert.data.isSome()
   let data = advert.data.get(@[])
-  let secondary = advert.secondary
+  let extraServices = advert.extraServices
 
   for discovery in discoveries:
     if not current():
@@ -214,7 +214,7 @@ proc advertiseSelf*(
     if not serves:
       continue
 
-    let advertised = await discovery.startAdvertising(SvcKey, data, secondary)
+    let advertised = await discovery.startAdvertising(SvcKey, data, extraServices)
     if not current():
       return
     advertised.isOkOr:
@@ -225,7 +225,7 @@ proc advertiseSelf*(
     info "advertising this node on the delivery network",
       backend = info.id,
       protocols = advertisedCapabilities(data).get(CapabilitiesBitfield(0)).toCodecs(),
-      listed = secondary.mapIt(it.id)
+      listed = extraServices.mapIt(it.id)
 
 proc withdrawSelf*(discoveries: seq[IPeerDiscovery]) {.async: (raises: []).} =
   ## Stops advertising this node on every service-capable backend. A backend

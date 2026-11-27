@@ -30,7 +30,7 @@ suite "Signed service record":
       decoded.data.services[0].data == Opt.some(@[1'u8, 2, 3])
       decoded.data.seqNo > 0
 
-  asyncTest "lists the secondary services after the one it is filed under":
+  asyncTest "lists the extra services after the one it is filed under":
     let switch = newTestSwitch()
     await switch.start()
     defer:

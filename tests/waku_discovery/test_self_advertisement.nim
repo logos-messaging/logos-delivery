@@ -121,13 +121,13 @@ suite "Self advertisement":
       ## One registration, and no interest in a mix service of its own.
       kad.advertised == @["service:" & LogosDeliveryServiceId]
       kad.interests == @["service:" & LogosDeliveryServiceId]
-      kad.advertisedSecondary[0] ==
+      kad.advertisedExtraServices[0] ==
         @[DiscoveredService(id: MixProtocolID, data: mixKeyBytes())]
       kad.advertisedCaps().supportsCapability(Capabilities.Mix)
       ## What a reader of this record takes.
       advertisedMixKey(
         @[DiscoveredService(id: LogosDeliveryServiceId, data: kad.advertisedData[0])] &
-          kad.advertisedSecondary[0]
+          kad.advertisedExtraServices[0]
       ) == Opt.some(intoCurve25519Key(mixKeyBytes()))
 
   asyncTest "a mix node that is not ready advertises as a delivery node only":
@@ -138,7 +138,7 @@ suite "Self advertisement":
     )
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
-      kad.advertisedSecondary[0].len == 0
+      kad.advertisedExtraServices[0].len == 0
       not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
       kad.advertisedCaps().supportsCapability(Capabilities.Relay)
 
@@ -160,13 +160,13 @@ suite "Self advertisement":
       .expect("a record")
     check:
       advert.data == Opt.some(selfAdvertisementData(confWith(CoreFlags), TestShards))
-      advert.secondary == @[other.service]
+      advert.extraServices == @[other.service]
 
   asyncTest "a relay node without mix lists the delivery service alone":
     let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(@[IPeerDiscovery(kad)], confWith(CoreFlags), TestShards)
     check:
-      kad.advertisedSecondary[0].len == 0
+      kad.advertisedExtraServices[0].len == 0
       not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
 
   asyncTest "a serving node without relay does not advertise its mix key":
@@ -180,7 +180,7 @@ suite "Self advertisement":
     )
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
-      kad.advertisedSecondary[0].len == 0
+      kad.advertisedExtraServices[0].len == 0
       not kad.advertisedCaps().supportsCapability(Capabilities.Mix)
       kad.advertisedCaps().supportsCapability(Capabilities.Filter)
 
