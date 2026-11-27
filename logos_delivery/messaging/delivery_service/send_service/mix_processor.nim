@@ -2,6 +2,7 @@ import chronicles, chronos, results, brokers/broker_context
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku
 import logos_delivery/waku/api/[health, publish]
 import logos_delivery/api/conf/modes
+import logos_delivery/messaging/messaging_metrics
 
 import ./[delivery_task, send_processor]
 
@@ -99,6 +100,7 @@ proc decideWithoutMix(
       reason = unusable.reason()
   debug "Mix cannot attempt the task, handing it to the plain send path",
     msgHash = task.msgHash.to0xHex(), reason = unusable.reason()
+  recordMixFallback(unusable)
   task.errorDesc = "" # the plain path reports its own outcome
   task.state = DeliveryState.FallbackRetry
 
@@ -115,6 +117,7 @@ proc decideTooLarge(self: MixSendProcessor, task: DeliveryTask, size, limit: int
     return
   debug "Message too large for mix, handing it to the plain send path",
     msgHash = task.msgHash.to0xHex(), size, limit
+  recordMixFallback(MixFallbackMsgSize)
   task.errorDesc = "" # the plain path reports its own outcome
   task.state = DeliveryState.FallbackRetry
 
@@ -171,6 +174,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
   if self.fallbackAllowed and self.mixWindowElapsed(task):
     debug "Mix window elapsed, handing the task to the plain send path",
       msgHash = task.msgHash.to0xHex(), messageAge = task.messageAge()
+    recordMixFallback(MixFallbackWindowElapsed)
     task.errorDesc = ""
     task.state = DeliveryState.FallbackRetry
     return
@@ -194,6 +198,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg, mixify = true)
   ).valueOr:
     debug "MixSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+    recordMixAttempt(error.code)
 
     if error.isRlnRejection():
       task.parkForRlnProofRefresh(self.waku, error.desc.get($error.code))
@@ -211,6 +216,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
 
   if numLightpushServers > 0:
     debug "Message propagated via Mix", msgHash = task.msgHash.to0xHex()
+    recordMixAttempt(MixAttemptPropagated)
     task.state = DeliveryState.SuccessfullyPropagated
     task.propagatedAnonymously = true
     if task.firstPropagatedTime.isNone():
@@ -218,6 +224,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
   else:
     debug "Mix publish returned zero peers, the task waits for a retry",
       msgHash = task.loggedHash()
+    recordMixAttempt(MixAttemptExitNoRelayPeers)
     task.state = DeliveryState.NextRoundRetry
 
   return

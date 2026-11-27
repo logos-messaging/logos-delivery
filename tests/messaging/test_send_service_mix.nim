@@ -1,7 +1,7 @@
 {.used.}
 
 import std/[sequtils, sets, strutils]
-import chronos, testutils/unittests, results, stew/byteutils
+import chronos, testutils/unittests, results, stew/byteutils, metrics
 
 import
   libp2p_mix,
@@ -30,6 +30,7 @@ import
   logos_delivery/api/events/messaging_client_events,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
+  logos_delivery/messaging/messaging_metrics,
   logos_delivery/messaging/delivery_service/send_service/[
     send_service, send_processor, mix_processor, relay_processor, lightpush_processor,
     delivery_task,
@@ -677,8 +678,10 @@ suite "SendService - anonymity level with a mounted mix":
     mix.chain(plain)
 
     let task = sizedTask("too-large-preferred", mixLimit() + 1)
+    let fallbacksBefore = logos_delivery_mix_fallbacks.value([MixFallbackMsgSize])
     check await mix.process(task).withTimeout(FUTURE_TIMEOUT)
     check:
+      logos_delivery_mix_fallbacks.value([MixFallbackMsgSize]) == fallbacksBefore + 1
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
       task.tryCount == 1 # the plain attempt, and no mix attempt
@@ -725,8 +728,10 @@ suite "SendService - anonymity level with a mounted mix":
     mix.chain(plain)
 
     let fresh = buildTask("no-exit-preferred", chronos.seconds(5))
+    let fallbacksBefore = logos_delivery_mix_fallbacks.value(["NoExit"])
     await mix.process(fresh)
     check:
+      logos_delivery_mix_fallbacks.value(["NoExit"]) == fallbacksBefore + 1
       plain.calls == 1
       fresh.state == DeliveryState.SuccessfullyPropagated
 
@@ -1002,9 +1007,12 @@ suite "SendService - anonymity level with a mounted mix":
 
     # Mix had the task for its whole window and did not deliver it.
     let task = buildTask("preferred-late", MixWindow + chronos.seconds(1))
+    let fallbacksBefore = logos_delivery_mix_fallbacks.value([MixFallbackWindowElapsed])
     await mix.process(task)
 
     check:
+      logos_delivery_mix_fallbacks.value([MixFallbackWindowElapsed]) ==
+        fallbacksBefore + 1
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
       task.tryCount == 1 # the plain attempt, and no mix attempt
