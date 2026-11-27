@@ -459,6 +459,24 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().keyRotation
 
+  test "a messaging override rln-relay=false is recorded for the node":
+    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"rln-relay": false}}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(false)
+      wakuConf.rlnEvmConf.isNone()
+
+  test "rln-relay=true with no on-chain source leaves the backend to the host":
+    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"rln-relay": true}}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(true)
+      wakuConf.rlnEvmConf.isNone()
+
   test "a mix conf does not allow all addresses by default":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
       raiseAssert error
@@ -763,7 +781,7 @@ suite "MessagingClientConf - mix key rotation":
       LogosDeliveryMode.Core
     ).valueOr:
       raiseAssert error
-    check kc.mixKeyRotation
+    check kc.mixKeyRotation == Opt.some(true)
 
 proc kernelWithAnonymity(level: Opt[AnonymityLevel]): WakuNodeConf =
   ## The kernel config of a Messaging API node with this anonymity level.
@@ -838,7 +856,7 @@ suite "LogosDeliveryConf - anonymity level":
       Opt.none(ReliableChannelManagerConf),
     ).valueOr:
       raiseAssert error
-    check WakuNodeConf(conf.kernelConf).mixKeyRotation
+    check WakuNodeConf(conf.kernelConf).mixKeyRotation == Opt.some(true)
 
   test "the mix protocol config is built, not just the ENR capability bit":
     let wakuConf = kernelWithAnonymity(Opt.some(AnonymityLevel.Preferred))
@@ -1127,6 +1145,31 @@ suite "MessagingClientConf - a network preset that runs mix":
     check:
       conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
       WakuNodeConf(conf.kernelConf).mix.isNone()
+
+  test "logos.dev turns RLN validation off, and a layered config turns it on":
+    proc validationOff(conf: LogosDeliveryConf): bool =
+      let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
+          raiseAssert error
+      wakuConf.rlnDisableValidation
+
+    check validationOff(layered("logos.dev", mode = LogosDeliveryMode.Core))
+    check not validationOff(
+      layered(
+        "logos.dev",
+        MessagingClientConf(rlnDisableValidation: Opt.some(false)),
+        mode = LogosDeliveryMode.Core,
+      )
+    )
+
+    var kernel = defaultTestWakuNodeConf()
+    kernel.preset = "logos.dev"
+    kernel.rlnDisableValidation = Opt.some(false)
+    let kernelEntry = LogosDeliveryConf.init(
+      KernelConf(kernel), MessagingClientConf(), Opt.none(ReliableChannelManagerConf)
+    ).valueOr:
+      raiseAssert error
+    check not validationOff(kernelEntry)
+    check not validationOff(layered("twn", mode = LogosDeliveryMode.Core))
 
   test "the kernel entry layer reads no level, so logos.dev mounts no mix there":
     let conf = layered(

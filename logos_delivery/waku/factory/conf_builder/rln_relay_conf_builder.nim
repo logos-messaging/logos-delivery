@@ -71,6 +71,13 @@ proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(RlnConfs())
 
+  # No contract address and no credentials: the on-chain backend was not
+  # chosen, so build none and leave RLN to a plugin the host registers over
+  # FFI (`selectRlnPlugin` fails if there is none). The chain id and client
+  # URLs are not checked: CLI defaults always set them.
+  if b.ethContractAddress.get("") == "" and b.credPath.isNone():
+    return ok(RlnConfs())
+
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():
       Opt.some(RlnCreds(path: b.credPath.get(), password: b.credPassword.get()))

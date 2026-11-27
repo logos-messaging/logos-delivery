@@ -87,6 +87,9 @@ type MessagingClientConf* = object
     ## Mix's RLN identifier, 32 bytes in hex.
   mixRlnMetadataTopic* {.name: "mix-rln-metadata-topic".}: Opt[string]
     ## Content topic for mix's proof metadata, required with `mix-rln-registry-id`.
+  rlnRelay* {.name: "rln-relay".}: Opt[bool]
+    ## Relay RLN on any backend. `false` mounts none, the host's plugin
+    ## included; `true` requires one. Unset, a configured backend is used.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
   mix* {.name: "mix".}: Opt[bool]
@@ -206,7 +209,7 @@ proc toWakuNodeConf*(
   if self.mixAllowAllAddresses.isSome():
     conf.mixAllowAllAddresses = self.mixAllowAllAddresses.get()
   if self.mixKeyRotation.isSome():
-    conf.mixKeyRotation = self.mixKeyRotation.get()
+    conf.mixKeyRotation = self.mixKeyRotation
   if self.ethRpcEndpoints.isSome():
     conf.ethClientUrls = self.ethRpcEndpoints.get()
   if self.rlnContractAddress.isSome():
@@ -225,7 +228,7 @@ proc toWakuNodeConf*(
   if self.rlnRelayCredIndex.isSome():
     conf.rlnRelayCredIndex = self.rlnRelayCredIndex
   if self.rlnDisableValidation.isSome():
-    conf.rlnDisableValidation = self.rlnDisableValidation.get()
+    conf.rlnDisableValidation = self.rlnDisableValidation
   if self.mixKey.isSome():
     conf.mixkey = self.mixKey
   if self.mixNodes.isSome():
@@ -236,6 +239,8 @@ proc toWakuNodeConf*(
     conf.mixRlnIdentifierHex = self.mixRlnIdentifierHex.get()
   if self.mixRlnMetadataTopic.isSome():
     conf.mixRlnMetadataTopic = self.mixRlnMetadataTopic.get()
+  if self.rlnRelay.isSome():
+    conf.rlnRelay = self.rlnRelay
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():

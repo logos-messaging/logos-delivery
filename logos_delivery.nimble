@@ -92,7 +92,7 @@ requires "https://github.com/status-im/nim-leopard#3a24aa1f4b7ce227e8d30c51357ae
 
 # Pin the Mix and shared RLN adapter integration revisions.
 requires "https://github.com/logos-co/nim-libp2p-mix#ed6a72a990143cfc6b667223c7d0c38e408b348e"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#f1b2430297cad2bc4034fce0207f1d59ded6a47e"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#39014a0ae679f125a8eeea4aa3928c3c67ec59ce"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies

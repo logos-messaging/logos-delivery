@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[sequtils, sets, strutils]
+import std/[json, sequtils, sets, strutils]
 import chronos, testutils/unittests, results, stew/byteutils
 
 import
@@ -1688,17 +1688,33 @@ suite "Mix RLN coordination protection":
   test "the default Mix scope is a 32-byte identifier":
     check defaultTestWakuNodeConf().mixRlnIdentifierHex.hexToSeqByte().len == 32
 
-  asyncTest "a relay node's Mix refuses to start without Relay RLN":
-    # Only the relay matters here, so the relay is never started.
-    let node = WakuNode(
-      ports: BoundPorts.init(),
-      wakuMixRln: ModuleRlnProtection(),
-      wakuRelay: WakuRelay(),
-    )
+  asyncTest "a relay node's Mix RLN does not need Relay RLN":
+    # Only the relay matters here, so the relay is never started. Without Relay
+    # RLN the node coordinates with unproven metadata: start goes on to the
+    # plugin, whose backend here does not answer.
+    proc noBackend(
+        methodName: string, args: JsonNode
+    ): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+      return err("no backend")
+
+    let mixRln = ModuleRlnProtection
+      .new(
+        ModuleRlnConfig(
+          registryId: "mix",
+          rlnIdentifierHex: defaultTestWakuNodeConf().mixRlnIdentifierHex,
+          epochSeconds: 10,
+          maxEpochGap: 3,
+          metadataTopic: "/mix/1/meta/proto",
+        ),
+        noBackend,
+      )
+      .expect("ModuleRlnProtection.new")
+    let node =
+      WakuNode(ports: BoundPorts.init(), wakuMixRln: mixRln, wakuRelay: WakuRelay())
     let started = await node.startMixRln()
     check:
       started.isErr()
-      started.error == "Mix RLN coordination requires Relay RLN"
+      started.error.startsWith("Failed to start Mix RLN plugin")
 
 suite "Lightpush publish results":
   test "isDialFailure needs both the error code and the text of a failed dial":

@@ -547,11 +547,13 @@ suite "Waku Conf - mix nodes from a network preset":
         not preset.mix
         preset.mixnodes.len == 0
 
-  test "a preset's mix nodes reach the built conf":
+  test "without key rotation a preset's mix nodes reach the built conf":
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
     # An anonymity level enables the mix conf, which decides the mount.
     builder.mixConf.withEnabled(true)
+    # logos.dev rotates the mix key unless the node says otherwise.
+    builder.mixConf.withKeyRotation(false)
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
 
     let conf = builder.build().valueOr:
@@ -565,12 +567,13 @@ suite "Waku Conf - mix nodes from a network preset":
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
     builder.mixConf.withEnabled(true)
-    builder.mixConf.withKeyRotation(true)
+    # logos.dev turns rotation on by itself.
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
 
     let conf = builder.build().valueOr:
       raiseAssert "Conf build failed: " & $error
 
+    check conf.mixConf.get().keyRotation
     check conf.mixConf.get().mixnodes.len == 0
 
   test "mix nodes given by the user are kept alongside the preset's":
@@ -588,6 +591,7 @@ suite "Waku Conf - mix nodes from a network preset":
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
     builder.mixConf.withEnabled(true)
+    builder.mixConf.withKeyRotation(false)
     builder.mixConf.withMixNodes(@[extra])
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
 
@@ -879,3 +883,87 @@ suite "Waku Conf - Rendezvous and the Mix capability":
     check:
       conf.mixConf.isSome()
       not conf.wakuFlags.supportsCapability(Capabilities.Mix)
+
+suite "Waku Conf - logos.dev preset":
+  proc devBuilder(relay: bool): WakuConfBuilder =
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(relay)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
+    builder
+
+  test "a relay node runs relay RLN on the host's plugin, an Edge node is left unset":
+    var coreBuilder = devBuilder(relay = true)
+    let core = coreBuilder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check:
+      core.rlnRelay == Opt.some(true)
+      # No contract address: the backend is the plugin a host installs.
+      core.rlnEvmConf.isNone()
+    var edgeBuilder = devBuilder(relay = false)
+    let edge = edgeBuilder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check edge.rlnRelay.isNone()
+
+  test "a relay node without a plugin may turn relay RLN off":
+    var builder = devBuilder(relay = true)
+    builder.rlnRelayConf.withEnabled(false)
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check conf.rlnRelay == Opt.some(false)
+
+  test "RLN validation is off unless the node turns it on":
+    var byDefaultBuilder = devBuilder(relay = true)
+    let byDefault = byDefaultBuilder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check byDefault.rlnDisableValidation
+
+    var builder = devBuilder(relay = true)
+    builder.withRlnDisableValidation(false)
+    let validating = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check not validating.rlnDisableValidation
+
+  test "discv5 and Rendezvous are off, mix key rotation on":
+    var builder = devBuilder(relay = true)
+    builder.mixConf.withEnabled(true)
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check:
+      conf.discv5Conf.isNone()
+      not conf.rendezvous
+      conf.mixConf.get().keyRotation
+
+  test "Rendezvous stays off without service discovery":
+    # Without Kademlia the builder's own rule would turn Rendezvous on.
+    var builder = devBuilder(relay = true)
+    builder.kademliaDiscoveryConf.withEnabled(false)
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check:
+      conf.kademliaDiscoveryConf.isNone()
+      not conf.rendezvous
+
+  test "a node's own Rendezvous and key rotation settings win":
+    var builder = devBuilder(relay = true)
+    builder.withRendezvous(true)
+    builder.mixConf.withEnabled(true)
+    builder.mixConf.withKeyRotation(false)
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check:
+      conf.rendezvous
+      not conf.mixConf.get().keyRotation
+
+  test "the other presets keep validation on and the Rendezvous rule":
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withUdpPort(9000)
+    builder.withRelay(true)
+    builder.withNetworkPresetConf(NetworkPresetConf.LogosTestConf())
+    builder.kademliaDiscoveryConf.withEnabled(false)
+    let conf = builder.build().valueOr:
+      raiseAssert "Conf build failed: " & $error
+    check:
+      not conf.rlnDisableValidation
+      conf.rendezvous
+      conf.mixConf.isNone() or not conf.mixConf.get().keyRotation

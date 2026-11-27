@@ -13,6 +13,7 @@
 import std/[locks, strutils, tables]
 import results, stint, json_serialization
 import json_serialization/std/tables as json_tables
+import json_serialization/pkg/results as json_results
 import
   logos_delivery/waku/factory/networks_config,
   logos_delivery/waku/common/utils/parse_size_units

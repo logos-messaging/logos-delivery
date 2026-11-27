@@ -80,10 +80,14 @@ type
     mount*: proc(): Future[Result[RlnPlugin, string]] {.gcsafe, raises: [].}
 
 proc selectRlnPlugin*(
-    descriptors: openArray[RlnPluginDescriptor]
+    descriptors: openArray[RlnPluginDescriptor], rlnRelay = Opt.none(bool)
 ): Result[Opt[RlnPluginDescriptor], string] =
   ## Picks the single backend whose configuration source is present. More
   ## than one match is a configuration error; none means RLN stays off.
+  ## `rlnRelay` is `rln-relay` as set: `false` selects none, whichever would
+  ## match; `true` makes none an error.
+  if rlnRelay == Opt.some(false):
+    return ok(Opt.none(RlnPluginDescriptor))
   var selected = Opt.none(RlnPluginDescriptor)
   for descriptor in descriptors:
     if not descriptor.matches():
@@ -94,6 +98,8 @@ proc selectRlnPlugin*(
           descriptor.name & "' configuration sources are present"
       )
     selected = Opt.some(descriptor)
+  if selected.isNone() and rlnRelay == Opt.some(true):
+    return err("rln-relay is on, but no RLN backend is configured")
   return ok(selected)
 
 func needsProof*(plugin: Opt[RlnPlugin], message: WakuMessage): bool =
