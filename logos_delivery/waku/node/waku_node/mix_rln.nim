@@ -145,6 +145,13 @@ proc startMixRln*(
   ## others and takes no part in coordination: it publishes nothing and does
   ## not subscribe to the metadata topic. It still checks the proofs it
   ## verifies against its own nullifier log.
+  ##
+  ## Coordination is only as trustworthy as Relay RLN validation on the
+  ## receiving nodes: the plugin checks nothing but the epoch of the metadata
+  ## it applies. Without Relay RLN, or with `rln-disable-validation`, any relay
+  ## peer can publish forged "nullifier seen" metadata, so that honest mix
+  ## packets are refused, or flood the metadata topic. Mix RLN without Relay
+  ## RLN is accepted for testing.
   if node.wakuMixRln.isNil():
     return err("Mix RLN is not configured")
   let coordinates = not node.wakuRelay.isNil()
