@@ -589,7 +589,9 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.wakuDiscv5 = waku.discv5Discovery.inner
 
     if not waku.node.wakuPeerExchange.isNil():
-      waku.node.wakuPeerExchange.startCacheRefresh(waku.wakuDiscv5.randomWalk())
+      waku.node.wakuPeerExchange.startCacheRefresh(
+        waku.wakuDiscv5.randomWalk(), waku.wakuDiscv5.discv5Ping()
+      )
 
     let discoveryInfo = (await waku.discv5Discovery.backendInfo()).valueOr:
       return err("failed to read discv5 backend info: " & error)
