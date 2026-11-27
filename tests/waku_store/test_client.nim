@@ -685,6 +685,7 @@ suite "Store Client":
       check:
         firstAnswer.isErr()
         thirdAnswer.isErr()
+        unresponsiveServer.accepted == 1
 
     asyncTest "a query dials a store peer when the query that dialed it is cancelled":
       ## A service that stops cancels its query, also in a dial.
