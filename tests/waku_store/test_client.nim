@@ -400,13 +400,12 @@ suite "Store Client":
         noShardsStore.queries == 9
         otherShardStore.queries == 0
 
-      # The connected peer does not answer, and the caller cancels the query.
+      # The connected peer does not answer in the timeout of the query.
       # The next queries go to the other connected peer of the shard.
       clientSwitch.addStorePeer(ofShardStore, @[shard])
       noShardsStore.allowAnswer = newFuture[void]("allow answer")
-      check not await client.queryToAny(storeQuery).withTimeout(
-        chronos.milliseconds(300)
-      )
+      let noAnswer = await client.queryToAny(storeQuery, timeout = 300.milliseconds)
+      check noAnswer.isErr()
       noShardsStore.allowAnswer.complete()
       await clientSwitch.connectTo(ofShardStore)
       for _ in 0 ..< 5:
@@ -415,6 +414,63 @@ suite "Store Client":
         noShardsStore.queries == 10
         ofShardStore.queries == 5
         otherShardStore.queries == 0
+
+    asyncTest "queryToAny counts no failure of a store peer when the caller cancels the query":
+      ## A service that stops cancels its Store query.
+      ## The store peer did not fail, so the next queries must still use its connection.
+      let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
+      let connectedStore = await newFakeStore()
+      let notConnectedStore = await newFakeStore()
+      defer:
+        await allFutures(connectedStore.switch.stop(), notConnectedStore.switch.stop())
+      clientSwitch.addStorePeer(connectedStore, @[shard])
+      clientSwitch.addStorePeer(notConnectedStore, @[shard])
+      await clientSwitch.connectTo(connectedStore)
+
+      connectedStore.allowAnswer = newFuture[void]("allow answer")
+      let query = client.queryToAny(storeQuery)
+      checkUntilTimeout:
+        connectedStore.queries == 1
+      await query.cancelAndWait()
+      connectedStore.allowAnswer.complete()
+
+      for _ in 0 ..< 5:
+        check (await client.queryToAny(storeQuery)).isOk()
+      check:
+        connectedStore.queries == 6
+        notConnectedStore.queries == 0
+
+    asyncTest "queryToAny counts no failure of a store peer that did not have the full timeout":
+      ## The first store peer fails after most of the timeout, and the time ends on the
+      ## second store peer. The second store peer did not fail, so the next queries
+      ## must still use its connection.
+      let shard = RelayShard.parse(DefaultPubsubTopic).get().shardId
+      let slowToFailStore = await newFakeStore()
+      let secondStore = await newFakeStore()
+      let notConnectedStore = await newFakeStore()
+      defer:
+        await allFutures(
+          slowToFailStore.switch.stop(),
+          secondStore.switch.stop(),
+          notConnectedStore.switch.stop(),
+        )
+      clientSwitch.addStorePeer(slowToFailStore, @[shard])
+      clientSwitch.addStorePeer(secondStore, @[shard])
+      # Only this store peer is connected, so the query asks it first.
+      await clientSwitch.connectTo(slowToFailStore)
+      slowToFailStore.failing = true
+      slowToFailStore.allowAnswer = sleepAsync(200.milliseconds)
+      secondStore.allowAnswer = newFuture[void]("allow answer")
+      check (await client.queryToAny(storeQuery, timeout = 400.milliseconds)).isErr()
+      secondStore.allowAnswer.complete()
+
+      clientSwitch.addStorePeer(notConnectedStore, @[shard])
+      await clientSwitch.connectTo(secondStore)
+      for _ in 0 ..< 5:
+        check (await client.queryToAny(storeQuery)).isOk()
+      check:
+        slowToFailStore.queries == 1
+        notConnectedStore.queries == 0
 
     asyncTest "queryToAny asks only the exclusive store peers":
       let peerManager = PeerManager.new(clientSwitch)

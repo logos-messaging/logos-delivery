@@ -100,20 +100,68 @@ proc query*(
 
   return await self.sendStoreRequest(request, connection)
 
+func timedOutError(): StoreError =
+  return StoreError(kind: ErrorCode.BAD_RESPONSE, cause: "store query timed out")
+
+proc timeLeft(timeout: Duration, start: Moment): Duration =
+  ## The part of `timeout` that is left now, for a wait that began at `start`.
+  if timeout.isInfinite():
+    return timeout
+  return timeout - (Moment.now() - start)
+
 proc queryAndRecordFailure(
     self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo
 ): Future[StoreQueryResult] {.async.} =
-  ## A query to `peer`. When the query fails, or the caller cancels it, it
-  ## writes the time in `failedAt`.
+  ## A query to `peer`. A query that fails counts as a failure of the peer.
+  ## A cancel of the query counts as no failure.
   var failed = true
   try:
     let response = ?await self.query(request, peer)
     failed = false
     self.failedAt.del(peer.peerId)
     return ok(response)
+  except CancelledError as e:
+    failed = false
+    raise e
   finally:
     if failed:
       self.failedAt[peer.peerId] = Moment.now()
+
+proc queryInOrder(
+    self: WakuStoreClient,
+    request: StoreQueryRequest,
+    peers: seq[RemotePeerInfo],
+    timeout: Duration,
+): Future[StoreQueryResult] {.async.} =
+  ## Asks the store peers in `peers` in their order until one answers, for `timeout`
+  ## at most.
+  ## At first a call of `queryToAny` had no time limit.
+  ## #4227 gave each backfill call one time limit for all the store peers together.
+  ## #4351 gave each Store check of a send one time limit for all the store peers
+  ## together.
+  ## A store peer that has all of `timeout` and does not answer counts as failed.
+  ## A later store peer has only the time that is left, so it does not count as
+  ## failed when the time ends.
+  let start = Moment.now()
+  var left = timeout
+  var lastError: StoreError
+  for peer in peers:
+    if left <= ZeroDuration:
+      return err(timedOutError())
+    let query = self.queryAndRecordFailure(request, peer)
+    if not await query.withTimeout(left): # the end of the time cancels the query
+      if left == timeout:
+        self.failedAt[peer.peerId] = Moment.now()
+      return err(timedOutError())
+    left = timeout.timeLeft(start)
+    let response = query.read().valueOr:
+      debug "Store query failed, trying next peer", peerId = peer.peerId, error = $error
+      lastError = error
+      continue
+
+    return ok(response)
+
+  return err(lastError)
 
 proc storePeers(self: WakuStoreClient): seq[RemotePeerInfo] =
   # Get all available store peers
@@ -190,11 +238,16 @@ proc queryToAny*(
     request: StoreQueryRequest,
     peerId = Opt.none(PeerId),
     shards: seq[PubsubTopic] = @[],
+    timeout = InfiniteDuration,
 ): Future[StoreQueryResult] {.async.} =
   ## we don't specify a particular peer and instead we get it from peer manager.
   ## It will retry with different store peers if the dial fails.
   ## `shards` are the shards of the query. The pubsub topic of the request is
   ## the default.
+  ## `timeout` is the longest time of the query, for all the store peers it asks.
+  ## The first store peer has all of this time, and it counts as failed when it does
+  ## not answer. A later store peer has only the time that is left, so it does not
+  ## count as failed when the time ends.
 
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
@@ -222,14 +275,4 @@ proc queryToAny*(
 
   let ranked = self.rankStorePeers(peers, connectedFirst = canHaveShards)
   let peersToTry = ranked[0 ..< min(ranked.len, MaxQueryRetries)].mapIt(it.peer)
-
-  var lastError: StoreError
-  for peer in peersToTry:
-    let response = (await self.queryAndRecordFailure(request, peer)).valueOr:
-      debug "Store query failed, trying next peer", peerId = peer.peerId, error = $error
-      lastError = error
-      continue
-
-    return ok(response)
-
-  return err(lastError)
+  return await self.queryInOrder(request, peersToTry, timeout)

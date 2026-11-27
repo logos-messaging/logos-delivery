@@ -157,6 +157,9 @@ type WakuConf* {.requiresInit.} = ref object
   filterServiceConf*: Opt[FilterServiceConf]
   storeServiceConf*: Opt[StoreServiceConf]
   rlnEvmConf*: Opt[RlnConf]
+  rlnRelay*: Opt[bool]
+    ## `rln-relay` as set, by the caller or a preset: `false` mounts no RLN
+    ## backend at all, the host's plugin included; `true` requires one.
   rlnDisableValidation*: bool
   restServerConf*: Opt[RestServerConf]
   metricsServerConf*: Opt[MetricsServerConf]

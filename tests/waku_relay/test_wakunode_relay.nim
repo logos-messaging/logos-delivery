@@ -7,6 +7,7 @@ import
   testutils/unittests,
   chronos,
   libp2p/switch,
+  libp2p/stream/connection,
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/mcache
@@ -923,3 +924,77 @@ suite "WakuNode - Relay":
       not node2ReceivedFromNode4.finished()
 
     await allFutures(node1.stop(), node2.stop(), restartedNode3.stop(), node4.stop())
+
+  asyncTest "A relay stream that the receiver closes at once is not reopened during the backoff":
+    let
+      server = newTestWakuNode(generateSecp256k1Key())
+      dialer = newTestWakuNode(generateSecp256k1Key())
+      opened = new int
+
+    await allFutures(server.start(), dialer.start())
+    (await server.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    (await dialer.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+
+    # A stream that the relay peer limit refuses ends for the dialler in the
+    # same way as one that the handler closes, and this handler can count them.
+    proc refusing(
+        stream: Connection, proto: string
+    ) {.async: (raises: [CancelledError]).} =
+      opened[].inc()
+      await stream.close()
+
+    server.wakuRelay.handler = refusing
+
+    require (await dialer.peerManager.connectPeer(server.peerInfo.toRemotePeerInfo()))
+    checkUntilTimeout:
+      opened[] == 1
+    await sleepAsync(500.milliseconds)
+
+    # libp2p waits 1 s with 20 % jitter before the first reopen, so 0.8 s at the least
+    check:
+      opened[] == 1
+      server.switch.isConnected(dialer.peerInfo.peerId)
+
+    await allFutures(server.stop(), dialer.stop())
+
+  asyncTest "A refused relay peer becomes a relay peer once a slot frees":
+    # maxConnections 16 gives a relay peer limit of 8, and relay admits 1 peer above it
+    let
+      server = newTestWakuNode(generateSecp256k1Key(), maxConnections = 16)
+      client = newTestWakuNode(generateSecp256k1Key())
+      others = toSeq(0 ..< 9).mapIt(newTestWakuNode(generateSecp256k1Key()))
+      nodes = @[server, client] & others
+
+    await allFutures(nodes.mapIt(it.start()))
+    for node in nodes:
+      (await node.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      # No relay pruning or dialling: only the relay peer limit is under test
+      node.peerManager.stop()
+
+    let serverPeer = server.peerInfo.toRemotePeerInfo()
+    let clientId = client.peerInfo.peerId
+    proc relayPeers(): seq[PeerId] =
+      let (inPeers, outPeers) = server.peerManager.connectedPeers(WakuRelayCodec)
+      inPeers & outPeers
+
+    # The server admits no more relay peers and it refuses the client
+    for other in others:
+      require await other.peerManager.connectPeer(serverPeer)
+    checkUntilTimeout:
+      relayPeers().len == 9
+    require await client.peerManager.connectPeer(serverPeer)
+    await sleepAsync(300.milliseconds)
+    check clientId notin relayPeers()
+
+    # One relay peer leaves
+    await others[0].stop()
+
+    # libp2p retries a refused relay stream after 1 s, then 2 s, 4 s and so on,
+    # so the next retry can come several seconds after the slot frees.
+    checkUntilTimeoutCustom(20.seconds, 100.milliseconds):
+      clientId in relayPeers()
+
+    await allFutures((@[server, client] & others[1 ..^ 1]).mapIt(it.stop()))

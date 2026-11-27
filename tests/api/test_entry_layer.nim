@@ -9,6 +9,7 @@ import
   rest/messaging_api/client as messaging_rest_client,
   logos_delivery/messaging/delivery_service/send_service/send_service,
   logos_delivery/messaging/delivery_service/send_service/mix_processor,
+  logos_delivery/messaging/delivery_service/send_service/relay_processor,
   logos_delivery/waku/[
     common/base64,
     waku_core,
@@ -98,7 +99,7 @@ suite "LogosDelivery - entry layer selection":
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 
-  asyncTest "messaging: the messaging flags reach the send service":
+  asyncTest "messaging: the Preferred anonymity level reaches the send service":
     var conf = nodeConf(EntryLayer.messaging)
     conf.messaging.anonymityLevel = Opt.some(AnonymityLevel.Preferred)
     var node: LogosDelivery
@@ -106,8 +107,29 @@ suite "LogosDelivery - entry layer selection":
       node = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
     # At `Preferred`, the processor chain of the send service starts with mix.
+    # This node runs in Core mode, so the test expects relay after mix.
     privateAccess(SendService)
-    check node.messagingClient.sendService.sendProcessor of MixSendProcessor
+    privateAccess(MixSendProcessor)
+    let chain = node.messagingClient.sendService.sendProcessor
+    check:
+      chain of MixSendProcessor and MixSendProcessor(chain).fallbackAllowed
+      chain of MixSendProcessor and chain.fallbackProcessor of RelaySendProcessor
+    (await node.stop()).isOkOr:
+      raiseAssert "stop failed: " & error
+
+  asyncTest "messaging: the Required anonymity level reaches the send service":
+    var conf = nodeConf(EntryLayer.messaging)
+    conf.messaging.anonymityLevel = Opt.some(AnonymityLevel.Required)
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+    privateAccess(SendService)
+    privateAccess(MixSendProcessor)
+    let chain = node.messagingClient.sendService.sendProcessor
+    check:
+      chain of MixSendProcessor and not MixSendProcessor(chain).fallbackAllowed
+      chain of MixSendProcessor and chain.fallbackProcessor.isNil()
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 

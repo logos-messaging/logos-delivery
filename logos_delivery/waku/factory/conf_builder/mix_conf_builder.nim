@@ -21,7 +21,7 @@ type MixConfBuilder* = object
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
   allowAllAddresses: bool
-  keyRotation: bool
+  keyRotation: Opt[bool]
   mixRlnConfig: Opt[ModuleRlnConfig]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
@@ -42,10 +42,14 @@ proc withAllowAllAddresses*(b: var MixConfBuilder, allowAllAddresses: bool) =
   b.allowAllAddresses = allowAllAddresses
 
 proc withKeyRotation*(b: var MixConfBuilder, keyRotation: bool) =
-  b.keyRotation = keyRotation
+  b.keyRotation = Opt.some(keyRotation)
 
 func keyRotation*(b: MixConfBuilder): bool =
-  b.keyRotation
+  b.keyRotation.get(false)
+
+func keyRotationSet*(b: MixConfBuilder): bool =
+  ## Whether the node set key rotation, which a network preset then leaves alone.
+  b.keyRotation.isSome()
 
 proc withMixRln*(b: var MixConfBuilder, config: ModuleRlnConfig) =
   b.mixRlnConfig = Opt.some(config)
@@ -58,7 +62,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   else:
     let mixPrivKey =
       if b.mixKey.isSome():
-        if b.keyRotation:
+        if b.keyRotation():
           warn "Ignoring the configured mix key: with mix key rotation, the node generates each mix key"
         intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
       else:
@@ -71,7 +75,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
           mixKey: mixPrivKey,
           mixNodes: b.mixNodes,
           allowAllAddresses: b.allowAllAddresses,
-          keyRotation: b.keyRotation,
+          keyRotation: b.keyRotation(),
           mixRlnConfig: b.mixRlnConfig,
         )
       )

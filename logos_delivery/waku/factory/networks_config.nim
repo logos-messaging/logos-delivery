@@ -29,9 +29,15 @@ type NetworkPresetConf* = object
   rlnRelayDynamic*: bool
   rlnEpochSizeSec*: uint64
   rlnRelayUserMessageLimit*: uint64
+  rlnDisableValidation*: bool
+    ## Received messages pass unchecked, while published ones still carry
+    ## proofs. A node that sets `rln-disable-validation` decides for itself.
   shardingConf*: ShardingConf
   discv5Discovery*: bool
   discv5BootstrapNodes*: seq[string]
+  rendezvous*: Opt[bool]
+    ## Unset leaves the builder's rule: on for a relay node without service
+    ## discovery.
   enableKadDiscovery*: bool
   kadBootstrapNodes*: seq[string]
   entryNodes*: seq[string]
@@ -40,6 +46,9 @@ type NetworkPresetConf* = object
     ## Mix bootstrap nodes as `multiaddr:mixPublicKey`, the `--mixnode` form. The
     ## addresses are `dns4` names, which stay valid when a fleet node moves hosts;
     ## the node resolves them in the background after the mount.
+  mixKeyRotation*: bool
+    ## Rotate the mix key. Every node of the network must do the same, so a node
+    ## then takes mix keys from discovery only and ignores `mixnodes`.
   p2pReliability*: bool
   extraListenShards*: seq[uint16]
     ## Shards every subscribed content topic is also received on. Deprecated:
@@ -106,49 +115,56 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
   return NetworkPresetConf(
     maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 3,
-    rlnRelay: false,
+    # Relay RLN runs on the plugin a host installs (the delivery module's), so
+    # there is no contract address: a relaying node without a plugin turns it
+    # off with rln-relay=false. Received proofs are not checked yet.
+    rlnRelay: true,
     rlnRelayEthContractAddress: "",
     rlnRelayDynamic: false,
     rlnRelayChainId: ZeroChainId,
-    rlnEpochSizeSec: 0,
-    rlnRelayUserMessageLimit: 0,
+    rlnEpochSizeSec: 600,
+    rlnRelayUserMessageLimit: 600,
+    rlnDisableValidation: true,
     shardingConf: ShardingConf.autoSharding(numShards = 8),
     enableKadDiscovery: true,
     mix: true,
+    mixKeyRotation: true,
     mixnodes: @[
-      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby:c288a425a6209c74ec07e2e8b6816e9b6995d1cd59b1ab482317c3dfb3ba200f",
-      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH:9d92279057940efd2e5e98c8922c079c24e45c083b00360c8dc6a298b1661716",
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj:ec59ba737011531153965bbb6aae37a987bb9e5e5dfc968304b14b6358fd0734",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t:a0f2e2182582c3a75fb8a84febadab165bdb43a6aa962d9daf98aa0c51436345",
       "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397:fe60e95c50f70db9015525064e1fff962ccc982dde480f8faae30262710ece58",
-      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH:312335324231ba7963c0c7524e042d1beac2927dbf810513a7fc8d901ab4e812",
-      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP:7d683767f23f5132a79c70587fec877575460122ebd459bb29c887b7b7a32110",
-      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE:0894b2852890d244e045f2ff5875e03a6b18f233ccd2e5297f62f7546e93884d",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z:6123db2ba92bc9ad4a079fb1f49690835d5a2cd7e9e5e365a7539f4495fb693a",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq:47cc9b29b7172975bd3fc7424a6a2c10284c1371e1322448080347703d0c392d",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K:921fc5de1082a1df2175710ecabc6c09c282b8f5dc55282d457678ed112e5c60",
     ],
     kadBootstrapNodes: @[
-      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAm1YeKNp72mcWY3GD2FdkGLk85XVBHMpuGooPNEuzW5Ajc",
-      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAm885xc8JetRzjKpgGTSb2WN7DoS3hFpCDjQhWoieR7dyS",
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30304/p2p/12D3KooWNupnPMYo87HZjpXoAmRyNP3UbHwk9dAnx82k72j78sdB",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30304/p2p/12D3KooWFsWheSsxBYapbZLXArUEj34Tpne75EobWgtjD2PvobJZ",
       "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmBPzDQQ43Nwr8cTtGF4aCACZq4HoGrHpDj9bQDT7fB5mm",
-      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmGRHVRJRUCwng69ynaicTKwtSZZpUdLYEyKcmzaZ936XT",
-      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAkvoH9inWGTmVxL4TDKYFqNZEfoLP3zmeuNSVkiknkTbPF",
-      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/16Uiu2HAmGBJ6wbRC2QGJreX3bA25g5yhMFajNVVKM9483CgcPkSu",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30304/p2p/12D3KooWA1cq7TLrVMb42SZs8jkNYCFYsHcuYQU75yybDVRuR84U",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/12D3KooWBxY7nJVg34g2me6fvbNzGsMyfLnf6AKrLW54gHPGq1aB",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30304/p2p/12D3KooWLVvT8GNd9gFatabomXsNoMSPv4ZjV637gQWMWA7YkQ6B",
     ],
     p2pReliability: true,
-    discv5Discovery: true,
+    discv5Discovery: false,
     discv5BootstrapNodes: @[],
+    # Service discovery carries mix keys; Rendezvous would be a second source.
+    rendezvous: Opt.some(false),
     entryNodes: @[
-      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
-      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t",
       "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
-      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH",
-      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP",
-      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K",
     ],
     storeNodes: @[
-      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
-      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",
+      "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmQabBHENv6kgCHAT8Cic517WQqE6RRtrmKVRCDVfazVNj",
+      "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmHCgyhHbfhoSdWcsU1ka7Dpx9ZEXfi2qDqSGL2RwnNv4t",
       "/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397",
-      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH",
-      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP",
-      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE",
+      "/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm9FDUrL2iGDsEFYntjLAFrZEoENgEYjHvPvM14acFCZ3Z",
+      "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmGrh92YTu2UpCHeY8tWAfUhwCkzt48zcX2jjrimQrbEbq",
+      "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4e3iRT5XumvXDGy2Xa2XybTJsLtqkTiEQacjs2zq661K",
     ],
   )
 

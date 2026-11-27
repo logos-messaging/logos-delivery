@@ -449,32 +449,39 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
 
   # Apply relay parameters
   if builder.relay.get(DefaultRelay) and networkPresetConf.rlnRelay:
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.enabled,
-      networkPresetConf.rlnRelay, # true
-      "RLN Relay was provided alongside a network conf",
-    )
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.ethContractAddress,
-      networkPresetConf.rlnRelayEthContractAddress,
-      "RLN Relay ETH Contract Address was provided alongside a network conf",
-    )
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.chainId, networkPresetConf.rlnRelayChainId,
-      "RLN Relay Chain Id was provided alongside a network conf",
-    )
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.dynamic, networkPresetConf.rlnRelayDynamic,
-      "RLN Relay Dynamic was provided alongside a network conf",
-    )
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.epochSizeSec, networkPresetConf.rlnEpochSizeSec,
-      "RLN Epoch Size in Seconds was provided alongside a network conf",
-    )
-    checkSetPresetValueToField(
-      builder.rlnRelayConf.userMessageLimit, networkPresetConf.rlnRelayUserMessageLimit,
-      "RLN Relay User Message Limit was provided alongside a network conf",
-    )
+    if networkPresetConf.rlnRelayEthContractAddress == "" and
+        builder.rlnRelayConf.enabled == Opt.some(false):
+      # The preset's RLN runs on a host's plugin; a node without one may relay
+      # without RLN.
+      notice "RLN relay is off on this node; the network preset runs it on a host's RLN plugin"
+    else:
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.enabled,
+        networkPresetConf.rlnRelay, # true
+        "RLN Relay was provided alongside a network conf",
+      )
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.ethContractAddress,
+        networkPresetConf.rlnRelayEthContractAddress,
+        "RLN Relay ETH Contract Address was provided alongside a network conf",
+      )
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.chainId, networkPresetConf.rlnRelayChainId,
+        "RLN Relay Chain Id was provided alongside a network conf",
+      )
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.dynamic, networkPresetConf.rlnRelayDynamic,
+        "RLN Relay Dynamic was provided alongside a network conf",
+      )
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.epochSizeSec, networkPresetConf.rlnEpochSizeSec,
+        "RLN Epoch Size in Seconds was provided alongside a network conf",
+      )
+      checkSetPresetValueToField(
+        builder.rlnRelayConf.userMessageLimit,
+        networkPresetConf.rlnRelayUserMessageLimit,
+        "RLN Relay User Message Limit was provided alongside a network conf",
+      )
   # End Apply relay parameters
 
   case builder.maxMessageSize.kind
@@ -526,6 +533,15 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   checkAddPresetValueToField(
     builder.discv5Conf.bootstrapNodes, networkPresetConf.discv5BootstrapNodes
   )
+
+  # A node's own setting of these wins without a warning: overriding them is a
+  # node's choice, not a conflict with the network.
+  if builder.rlnDisableValidation.isNone():
+    builder.rlnDisableValidation = Opt.some(networkPresetConf.rlnDisableValidation)
+  if builder.rendezvous.isNone() and networkPresetConf.rendezvous.isSome():
+    builder.rendezvous = networkPresetConf.rendezvous
+  if not builder.mixConf.keyRotationSet():
+    builder.mixConf.withKeyRotation(networkPresetConf.mixKeyRotation)
 
   ## An explicit plugin request names the host, so the preset's in-process
   ## default yields to it instead of colliding (the messaging layer resolves
@@ -612,6 +628,9 @@ proc enforceSecurityConstraints(builder: WakuConfBuilder): Result[void, string] 
 
     if relayEnabled and preset.rlnRelay:
       if not rlnRelayEnabled:
+        if preset.rlnRelayEthContractAddress == "":
+          # RLN on a host's plugin: a node without one relays without RLN.
+          return ok()
         return
           err("network preset mandates RLN relay: cannot relay with rln-relay disabled")
 
@@ -946,6 +965,7 @@ proc build*(
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
     rlnEvmConf: rlnConfs.evm,
+    rlnRelay: builder.rlnRelayConf.enabled,
     rlnDisableValidation: rlnDisableValidation,
     metricsServerConf: metricsServerConf,
     restServerConf: restServerConf,

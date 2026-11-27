@@ -18,7 +18,9 @@ import logos_delivery/waku/node/health_monitor/health_status
 import logos_delivery/waku/api/health
 import logos_delivery/api/conf/modes
 import logos_delivery/api/conf/logos_delivery_conf
-from logos_delivery/waku/waku_store/common import WakuStoreCodec
+from logos_delivery/waku/waku_store/common import
+  WakuStoreCodec, StoreQueryRequest, StoreQueryResponse, StoreQueryResult
+from ../waku_store/store_utils import newTestWakuStore
 from logos_delivery/waku/waku_store/protocol_metrics import logos_delivery_store_queries
 from logos_delivery/waku/waku_filter_v2/subscriptions import removePeer
 
@@ -867,6 +869,45 @@ suite "Messaging API, Receive Service (backfill)":
     checkUntilTimeoutCustom(IdleTimeout, 100.milliseconds):
       (await root.storedRecords()).getOrDefault((TestShard, topic)).timestamp >
         subscribedAt - net.variance
+
+  asyncTest "a backfill query with no answer ends at its timeout":
+    ## A Store node that does not answer must not keep the worker in one query.
+    let topic = ContentTopic("/waku/2/recv-query-timeout/proto")
+    let net = await setupNetwork(topic, knowStorePeer = false)
+    defer:
+      await net.teardown()
+    let queryStarted = newFuture[void]("query started")
+    let allowAnswer = newFuture[void]("allow answer")
+    let handler = proc(
+        req: StoreQueryRequest
+    ): Future[StoreQueryResult] {.async, gcsafe.} =
+      if not queryStarted.finished():
+        queryStarted.complete()
+      await allowAnswer
+      return ok(StoreQueryResponse())
+    var unresponsiveStore: WakuNode
+    lockNewGlobalBrokerContext:
+      unresponsiveStore = newTestWakuNode(generateSecp256k1Key())
+      unresponsiveStore.mountMetadata(TestClusterId, @[0'u16]).expect("mount metadata")
+      unresponsiveStore.wakuStore =
+        await newTestWakuStore(unresponsiveStore.switch, handler)
+      await unresponsiveStore.start()
+    defer:
+      allowAnswer.complete()
+      await unresponsiveStore.stop()
+    # The subscriber knows only this Store node.
+    # The connection is open before the query, so the timeout does not end a dial.
+    let storePeer = unresponsiveStore.peerInfo.toRemotePeerInfo()
+    let node = net.subscriber.waku.node
+    node.peerManager.addServicePeer(storePeer, WakuStoreCodec)
+    await node.connectToNodes(@[storePeer])
+    net.subscriber.messagingClient.recvService.backfill.queryTimeout = 200.milliseconds
+
+    await net.joinMesh(net.publisher.peerInfo.toRemotePeerInfo())
+    await net.waitLive()
+    check await queryStarted.withTimeout(TestTimeout)
+    checkUntilTimeout:
+      not node.peerManager.hasActiveStoreRequest(storePeer.peerId)
 
   asyncTest "a wake in the wait for the archive sends no Store query":
     ## A node that starts gets many peer events while the last part of its

@@ -762,7 +762,7 @@ suite "Waku external config - ignored dependent flags":
     conf.websocketSecureKeyPath = "/key.pem"
     conf.rlnRelayCredIndex = Opt.some(1'u)
     conf.mixAllowAllAddresses = true
-    conf.mixKeyRotation = true
+    conf.mixKeyRotation = Opt.some(true)
 
     ## When / Then
     check warningsOf(conf) ==

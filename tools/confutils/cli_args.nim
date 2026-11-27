@@ -360,10 +360,11 @@ hence would have reachability issues.""",
   .}: Opt[bool]
 
   rlnDisableValidation* {.
-    desc: "Disable validation RLN proofs of received messages: true|false",
-    defaultValue: false,
+    desc:
+      "Disable validation RLN proofs of received messages: true|false. Default is the network preset's (true on logos.dev), else false.",
+    defaultValue: Opt.none(bool),
     name: "rln-disable-validation"
-  .}: bool
+  .}: Opt[bool]
 
   entryNodes* {.
     desc:
@@ -738,10 +739,10 @@ hence would have reachability issues.""",
 
   mixKeyRotation* {.
     desc:
-      "Rotate the mix key on a timer, as the Mix Key Rotation spec describes. The node then ignores --mixkey and --mixnode, and takes mix keys from discovery only. Set it on every node of a network, or on none. (requires --mix)",
-    defaultValue: false,
+      "Rotate the mix key on a timer, as the Mix Key Rotation spec describes. The node then ignores --mixkey and --mixnode, and takes mix keys from discovery only. Set it on every node of a network, or on none. Default is the network preset's (true on logos.dev), else false. (requires --mix)",
+    defaultValue: Opt.none(bool),
     name: "mix-key-rotation"
-  .}: bool
+  .}: Opt[bool]
 
   mixRlnRegistryId* {.
     desc:
@@ -1333,8 +1334,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.rlnRelayConf.withCredIndex(n.rlnRelayCredIndex.get())
   if n.rlnRelayDynamic.isSome():
     b.rlnRelayConf.withDynamic(n.rlnRelayDynamic.get())
-  if n.rlnDisableValidation:
-    b.withRlnDisableValidation(n.rlnDisableValidation)
+  if n.rlnDisableValidation.isSome():
+    b.withRlnDisableValidation(n.rlnDisableValidation.get())
 
   if n.maxMessageSize != "":
     b.withMaxMessageSize(n.maxMessageSize)
@@ -1463,7 +1464,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
   b.mixConf.withAllowAllAddresses(n.mixAllowAllAddresses)
-  b.mixConf.withKeyRotation(n.mixKeyRotation)
+  if n.mixKeyRotation.isSome():
+    b.mixConf.withKeyRotation(n.mixKeyRotation.get())
 
   if n.filter.isSome():
     b.filterServiceConf.withEnabled(n.filter.get())

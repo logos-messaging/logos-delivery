@@ -433,6 +433,24 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require wakuConf.mixConf.isSome()
     check wakuConf.mixConf.get().keyRotation
 
+  test "the kernel key rln-relay=false is recorded for the node":
+    let lc = parseLogosDeliveryConf("""{"rln-relay": false}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(false)
+      wakuConf.rlnEvmConf.isNone()
+
+  test "rln-relay=true with no on-chain source leaves the backend to the host":
+    let lc = parseLogosDeliveryConf("""{"rln-relay": true}""").valueOr:
+      raiseAssert error
+    let wakuConf = WakuNodeConf(lc.kernelConf).toWakuConf().valueOr:
+        raiseAssert error
+    check:
+      wakuConf.rlnRelay == Opt.some(true)
+      wakuConf.rlnEvmConf.isNone()
+
   test "a mix conf does not allow all addresses by default":
     let lc = parseLogosDeliveryConf("""{"mix": true}""").valueOr:
       raiseAssert error
@@ -969,6 +987,29 @@ suite "MessagingClientConf - a network preset that runs mix":
     check:
       conf.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.None)
       WakuNodeConf(conf.kernelConf).mix.isNone()
+
+  test "logos.dev turns RLN validation off, and the kernel key turns it on":
+    proc validationOff(conf: LogosDeliveryConf): bool =
+      let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
+          raiseAssert error
+      wakuConf.rlnDisableValidation
+
+    check validationOff(layered("logos.dev", mode = LogosDeliveryMode.Core))
+    let flat = parseLogosDeliveryConf(
+      """{"mode": "Core", "preset": "logos.dev", "rln-disable-validation": false}"""
+    ).valueOr:
+      raiseAssert error
+    check not validationOff(flat)
+
+    var kernel = defaultTestWakuNodeConf()
+    kernel.preset = "logos.dev"
+    kernel.rlnDisableValidation = Opt.some(false)
+    let kernelEntry = LogosDeliveryConf.init(
+      KernelConf(kernel), MessagingClientConf(), Opt.none(ReliableChannelManagerConf)
+    ).valueOr:
+      raiseAssert error
+    check not validationOff(kernelEntry)
+    check not validationOff(layered("twn", mode = LogosDeliveryMode.Core))
 
   test "the kernel entry layer reads no level, so logos.dev mounts no mix there":
     let conf = layered(

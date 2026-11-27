@@ -13,6 +13,7 @@ import
   chronicles,
   metrics,
   libp2p/multihash,
+  libp2p/protocols/protocol,
   libp2p/protocols/pubsub/[floodsub, gossipsub, timedcache],
   libp2p/protocols/pubsub/rpc/[messages, protobuf],
   libp2p/stream/connection,
@@ -400,12 +401,26 @@ proc initRelayObservers(w: WakuRelay) =
 
   w.addObserver(administrativeObserver)
 
+method subscribePeer*(w: WakuRelay, peer: PeerId) {.gcsafe.} =
+  ## Opens our relay stream to a peer that we dialled, unless the relay peer limit
+  ## would refuse the peer's own stream. A peer that dialled us opens its stream
+  ## first, and gossipsub opens ours when it handles that stream. The limit then
+  ## admits such a peer before we open a stream to it.
+  let dialled = not w.switch.connManager.selectMuxer(peer, Direction.Out).isNil()
+  if dialled and w.canAcceptIncoming(peer):
+    procCall GossipSub(w).subscribePeer(peer)
+
 proc new*(
-    T: type WakuRelay, switch: Switch, maxMessageSize = int(DefaultMaxWakuMessageSize)
+    T: type WakuRelay,
+    switch: Switch,
+    maxMessageSize = int(DefaultMaxWakuMessageSize),
+    maxRelayPeers = Opt.none(int),
 ): WakuRelayResult[T] =
   ## maxMessageSize: max num bytes that are allowed for the encoded WakuMessage.
   ## Gossipsub gets this limit plus `DefaultSafetyBufferProtocolOverhead` as the
   ## read cap of one RPC message.
+  ## maxRelayPeers: inbound relay streams admitted at once, at most one per peer.
+  ## None admits all.
 
   var w: WakuRelay
   try:
@@ -433,6 +448,10 @@ proc new*(
     w.topicHealthCheckAll = false
     w.initProtocolHandler()
     w.initRelayObservers()
+    if maxRelayPeers.isSome():
+      w.setStreamLimits(
+        maxIncomingStreamsTotal = maxRelayPeers.get(), maxIncomingStreamsPerPeer = 1
+      )
   except InitializationError:
     return err("initialization error: " & getCurrentExceptionMsg())
 

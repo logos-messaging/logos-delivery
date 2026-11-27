@@ -42,6 +42,7 @@ type
   BackfillQuery* = proc(
     request: StoreQueryRequest
   ): Future[Result[StoreQueryResponse, string]] {.gcsafe, raises: [].}
+    ## A Store query that ends at its own timeout.
   BackfillDeliver* =
     proc(pubsubTopic: PubsubTopic, message: WakuMessage): bool {.gcsafe, raises: [].}
     ## True accepts the message, duplicates included. False fails the page.
@@ -305,13 +306,10 @@ proc clearBackfillState*(job: persistency.Job) {.async: (raises: [CancelledError
     warn "Failed to clear the backfill state", error = e.msg
 
 proc queryPage(
-    query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration
+    query: BackfillQuery, request: StoreQueryRequest
 ): Future[Result[StoreQueryResponse, string]] {.async: (raises: [CancelledError]).} =
   try:
-    let pending = query(request)
-    if not await pending.withTimeout(queryTimeout): # cancels the query
-      return err("store query timed out")
-    return pending.read()
+    return await query(request)
   except CancelledError as e:
     raise e
   except CatchableError as e:
@@ -353,7 +351,6 @@ proc acceptPage(
 proc fetchPage*(
     topic: BackfillTopic,
     start, stop: Timestamp,
-    queryTimeout: Duration,
     query: BackfillQuery,
     deliver: BackfillDeliver,
 ): Future[Result[Timestamp, string]] {.async: (raises: [CancelledError]).} =
@@ -371,7 +368,7 @@ proc fetchPage*(
     paginationForward: PagingDirection.FORWARD,
     paginationLimit: Opt.some(MaxPageSize),
   )
-  let response = ?await queryPage(query, request, queryTimeout)
+  let response = ?await queryPage(query, request)
   let next = ?acceptPage(topic, start, windowStop, response, deliver)
   return ok(next.get(windowStop))
 

@@ -231,3 +231,29 @@ proc checkMixTransport() {.async.} =
 suite "Mix RLN transport":
   test "separate lifecycle, first response wins, cancellation and bounded requests":
     waitFor checkMixTransport()
+
+suite "selectRlnPlugin - rln-relay":
+  proc descriptor(name: string, present: bool): RlnPluginDescriptor =
+    RlnPluginDescriptor(
+      name: name,
+      matches: proc(): bool =
+        present,
+      mount: nil,
+    )
+
+  test "unset picks the backend whose source is present":
+    let selected = selectRlnPlugin([descriptor("external", true)]).expect("select")
+    check selected.isSome() and selected.get().name == "external"
+
+  test "rln-relay=false selects none, though a source is present":
+    let selected =
+      selectRlnPlugin([descriptor("external", true)], Opt.some(false)).expect("select")
+    check selected.isNone()
+
+  test "rln-relay=true with no source present is an error":
+    check selectRlnPlugin([descriptor("external", false)], Opt.some(true)).isErr()
+
+  test "rln-relay=true with a source present picks it":
+    let selected =
+      selectRlnPlugin([descriptor("external", true)], Opt.some(true)).expect("select")
+    check selected.isSome()

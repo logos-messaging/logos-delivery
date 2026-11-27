@@ -57,9 +57,13 @@ method sendImpl*(
   debug "Trying message delivery via Lightpush",
     msgHash = task.msgHash.to0xHex(), tryCount = task.tryCount
 
-  let numLightpushServers = (
-    await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
-  ).valueOr:
+  # A stop of the send service during the publish must leave `deanonymized` set.
+  let wasDeanonymized = task.deanonymized
+  task.deanonymized = true
+  let published = await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
+  if published.isErr() and published.error.isDialFailure():
+    task.deanonymized = wasDeanonymized
+  let numLightpushServers = published.valueOr:
     error "LightpushSendProcessor.sendImpl failed",
       msgHash = task.msgHash.to0xHex(), error = error.desc.get($error.code)
 
