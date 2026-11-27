@@ -276,6 +276,41 @@ suite "Node Factory":
     # Then the filter service accepts all of them
     check subscribeResults.allIt(it.isOk())
 
+  asynctest "The relay-service-ratio command line option sets the relay and service peer limits of the peer manager":
+    # Given the configuration of a binary started with
+    # --max-connections=100 --relay-service-ratio=75:25
+    var cliConf = defaultKernelConf().get()
+    cliConf.maxConnections = 100
+    cliConf.relayServiceRatio = "75:25"
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then the peer manager splits the connections 75:25
+    check:
+      node.peerManager.maxRelayPeers == 75
+      node.peerManager.maxServicePeers == 25
+
+  asynctest "A relay-service-ratio that leaves fewer than 8 relay peers makes the node setup return an error":
+    # Given the configuration of a binary started with
+    # --max-connections=50 --relay-service-ratio=10:90, which leaves 5 relay peers
+    var cliConf = defaultKernelConf().get()
+    cliConf.maxConnections = 50
+    cliConf.relayServiceRatio = "10:90"
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let res = await setupNode(conf, relay = Relay.new())
+
+    # Then the setup returns an error that names the relay peers
+    check:
+      res.isErr()
+      res.error.contains("relay peers")
+
   asynctest "The storenode command line option fills the store service slot":
     # Given the configuration of a binary started with --storenode
     let
