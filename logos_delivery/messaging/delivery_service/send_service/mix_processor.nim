@@ -28,12 +28,12 @@ type MixSendProcessor* = ref object of BaseSendProcessor
   fallbackAllowed: bool
   mixWindow: timer.Duration
   fellBackReason: MixUnusable
-    ## Why the last task went to the plain path; `None` once mix can attempt
-    ## a task again. INFO logs each change.
+    ## Why mix could not carry a `Preferred` task at the last `mixUnusable` check.
+    ## It is `None` once mix can carry a task again, and INFO logs each change.
 
 proc fellBackFor*(self: MixSendProcessor): MixUnusable =
-  ## Why the last task went to the plain path, or `None` once mix can attempt a
-  ## task again.
+  ## Why mix could not carry a `Preferred` task at the last `mixUnusable` check.
+  ## It is `None` once mix can carry a task again.
   self.fellBackReason
 
 proc new*(
@@ -142,6 +142,13 @@ method checkBeforeSend*(
   return ok()
 
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
+  if self.fallbackAllowed and task.deanonymized:
+    debug "A plain attempt may have sent the message, so the task stays on the plain send path",
+      msgHash = task.msgHash.to0xHex()
+    task.errorDesc = ""
+    task.state = DeliveryState.FallbackRetry
+    return
+
   # No wait can make the message fit, so check the size before the reasons that
   # a wait can clear. A task that is too large has no mix attempt, so it must not
   # get the `anonymized` mark.
