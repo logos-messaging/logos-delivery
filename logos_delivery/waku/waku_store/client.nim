@@ -34,6 +34,11 @@ type StorePeerFailure = object ## The failed queries to one store peer.
   count: int ## the number of consecutive failures
   error: StoreError ## the error of that failure
 
+type DialOutcome {.pure.} = enum ## How a dial ended, for the queries that wait for it.
+  Dialed
+  Failed
+  Cancelled
+
 type WakuStoreClient* = ref object
   peerManager: PeerManager
   rng: crypto.Rng
@@ -47,9 +52,8 @@ type WakuStoreClient* = ref object
     ## see `FailedPeerRankLastPeriod`, shorter in tests
   failedPeerInitialBackoff*: Duration = FailedPeerInitialBackoff
     ## see `FailedPeerInitialBackoff`, shorter in tests
-  dials: Table[PeerId, Future[bool]]
+  dials: Table[PeerId, Future[DialOutcome]]
     ## The dial in progress to each store peer that had no connection.
-    ## The future gives true when the dial failed.
 
 proc new*(
     T: type WakuStoreClient,
@@ -109,20 +113,19 @@ proc dialAndShare(
 ): Future[Opt[Connection]] {.async.} =
   ## Dials `peer`, and gives the result to the queries that wait for this dial.
   ## The result is the stream of this query, which has the libp2p type `Connection`.
-  let dial = newFuture[bool]("store dial")
+  let dial = newFuture[DialOutcome]("store dial")
   # The caller found no dial in the table, and no `await` came after that.
   # So only one query at a time has its dial here.
   self.dials[peerId] = dial
-  var failed = false
+  var outcome = DialOutcome.Cancelled
   try:
     let stream = await self.peerManager.dialPeer(peer, WakuStoreCodec)
-    failed = stream.isNone()
+    outcome = if stream.isSome(): DialOutcome.Dialed else: DialOutcome.Failed
     return stream
   finally:
-    # A cancel of this query keeps `failed` false, so a query that waits dials the peer.
     # The entry goes before the future completes, so no query finds a dial that ended.
     self.dials.del(peerId)
-    dial.complete(failed)
+    dial.complete(outcome)
 
 proc dialStorePeer(
     self: WakuStoreClient, peer: RemotePeerInfo | PeerId
@@ -144,8 +147,8 @@ proc dialStorePeer(
     else:
       # `join` leaves the dial of the other query as it is when this query ends.
       await otherDial.join()
-      if not otherDial.read():
-        continue # the dial gave a connection, or its query was cancelled
+      if otherDial.read() in {DialOutcome.Dialed, DialOutcome.Cancelled}:
+        continue
     # The dial failed, and a query that waited for it does not dial again.
     # The peer can connect to this node while the dial to the peer fails.
     # Then the query uses that connection.
