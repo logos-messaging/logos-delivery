@@ -169,27 +169,21 @@ proc recordFailure(self: WakuStoreClient, peerId: PeerId, error: StoreError) =
 
 proc queryAndRecordFailure(
     self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo
-): Future[StoreQueryResult] {.async.} =
+): Future[StoreQueryResult] {.async: (raises: [CancelledError]).} =
   ## A query to `peer`. A query that fails counts as a failure of the peer.
   ## A cancel of the query counts as no failure.
-  var failed = true
-  var failure: StoreError # the error that the failure record of the peer keeps
-  try:
-    let response = (await self.query(request, peer)).valueOr:
-      failure = error
-      return err(error)
-    failed = false
+  let response =
+    try:
+      await self.query(request, peer)
+    except CancelledError as e:
+      raise e
+    except CatchableError as e:
+      err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: e.msg))
+  if response.isOk():
     self.failures.del(peer.peerId)
-    return ok(response)
-  except CancelledError as e:
-    failed = false
-    raise e
-  except CatchableError as e:
-    failure = StoreError(kind: ErrorCode.BAD_RESPONSE, cause: e.msg)
-    raise e
-  finally:
-    if failed:
-      self.recordFailure(peer.peerId, failure)
+  else:
+    self.recordFailure(peer.peerId, response.error)
+  return response
 
 proc queryInOrder(
     self: WakuStoreClient,
