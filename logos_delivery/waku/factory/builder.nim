@@ -219,7 +219,10 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
   # PeerManager.new logs the numbers and returns nil for a relay peer limit below
   # gossipsub's dHigh
   if peerManager.isNil():
-    return err("max-connections and relay-service-ratio leave too few relay peers")
+    return err(
+      "max-connections and relay-service-ratio leave fewer relay peers than gossipsub's dHigh relay peers: " &
+        $builder.maxRelayPeers.get(0)
+    )
 
   var node: WakuNode
   try:
