@@ -49,7 +49,7 @@ proc advertise*(
     namespace: string,
     peers: seq[PeerId],
     ttl: timer.Duration = self.config.minDuration,
-): Future[Result[void, string]] {.async: (raises: []).} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   trace "Advertising via waku rendezvous",
     namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
   let se = SignedPayload[WakuPeerRecord].init(
@@ -66,13 +66,13 @@ proc advertise*(
     for peerId in peers:
       self.peerManager.dialPeer(peerId, self.codec)
 
-  let dialCatch = catch:
-    await allFinished(futs)
-
-  if dialCatch.isErr():
-    return err("advertise: " & dialCatch.error.msg)
-
-  futs = dialCatch.get()
+  futs =
+    try:
+      await allFinished(futs)
+    except CancelledError as exc:
+      for fut in futs:
+        fut.cancelSoon()
+      raise exc
 
   let conns = collect(newSeq):
     for fut in futs:
@@ -95,7 +95,7 @@ proc advertise*(
 
   try:
     await self.advertise(namespace, ttl, peers, sprBuff)
-  except Exception as e:
+  except AdvertiseError as e:
     return err("rendezvous advertisement failed: " & e.msg)
   finally:
     for conn in conns:
@@ -104,7 +104,7 @@ proc advertise*(
 
 proc advertiseAll*(
     self: WakuRendezVous
-): Future[Result[void, string]] {.async: (raises: []).} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   trace "Waku rendezvous advertisements started"
 
   let rpi = self.peerManager.selectPeer(self.codec).valueOr:
