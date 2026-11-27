@@ -44,6 +44,14 @@ proc discover*(
   trace "Received Discover", peerId = conn.peerId, ns = d.ns
   await procCall GenericRendezVous[WakuPeerRecord](self).discover(conn, d)
 
+proc abandonDial(dial: Future[Opt[Connection]]) =
+  proc closeDialed(_: pointer) {.gcsafe, raises: [].} =
+    if dial.completed() and dial.value().isSome():
+      asyncSpawn dial.value().get().close()
+
+  dial.addCallback(closeDialed)
+  dial.cancelSoon()
+
 proc advertise*(
     self: WakuRendezVous,
     namespace: string,
@@ -71,7 +79,7 @@ proc advertise*(
       await allFinished(futs)
     except CancelledError as exc:
       for fut in futs:
-        fut.cancelSoon()
+        fut.abandonDial()
       raise exc
 
   let conns = collect(newSeq):
@@ -123,8 +131,7 @@ proc periodicRegistration(self: WakuRendezVous) {.async.} =
   debug "Waku rendezvous periodic registration started",
     interval = self.registrationInterval
 
-  # infinite loop
-  while true:
+  while self.started:
     await sleepAsync(self.registrationInterval)
 
     (await self.advertiseAll()).isOkOr:
@@ -220,6 +227,7 @@ method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   info "Waku rendezvous discovery started"
 
 method stop*(self: WakuRendezVous) {.async: (raises: []).} =
+  self.started = false
   if not self.periodicRegistrationFut.isNil():
     await self.periodicRegistrationFut.cancelAndWait()
 

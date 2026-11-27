@@ -36,7 +36,7 @@ proc addRendezvousPeer(node: WakuNode, listener: StreamServer) =
 
 proc newMuteRendezvousPeer(requested: AsyncEvent, release: AsyncEvent): Switch =
   ## A switch serving the rendezvous codec that reads a request and never answers
-  ## until `release` fires.
+  ## it, holding the stream open until `release` fires.
   proc hold(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
     try:
       discard await conn.readLp(4096)
@@ -229,6 +229,37 @@ procSuite "Waku Rendezvous":
 
     let stopping = node.stop()
     check await stopping.join().withTimeout(5.seconds)
+
+  asyncTest "A cancelled advertisement ends cancelled while the dial has not finished":
+    let
+      clusterId = 10.uint16
+      node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+    await node.mountRendezvous(clusterId)
+
+    let accepted = newAsyncEvent()
+    var held: StreamTransport
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held = client
+      accepted.fire()
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    await node.start()
+    defer:
+      await node.stop()
+      if not held.isNil():
+        await held.closeWait()
+      listener.stop()
+      await listener.closeWait()
+    node.addRendezvousPeer(listener)
+
+    let advertising = node.wakuRendezvous.advertiseAll()
+    check await accepted.wait().withTimeout(5.seconds)
+
+    advertising.cancelSoon()
+    check:
+      await advertising.join().withTimeout(3.seconds)
+      advertising.cancelled()
 
   asyncTest "A cancelled advertisement ends cancelled while the peer has not answered":
     let
