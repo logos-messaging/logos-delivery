@@ -7,7 +7,9 @@ import
   libp2p/protocols/protocol,
   libp2p/stream/connection,
   libp2p/crypto/crypto,
-  eth/p2p/discoveryv5/enr
+  eth/p2p/discoveryv5/enr,
+  eth/p2p/discoveryv5/node as discv5_node,
+  eth/p2p/discoveryv5/protocol as discv5_protocol
 import
   ../common/nimchronos,
   ../node/peer_manager,
@@ -37,9 +39,14 @@ type
     ## One random walk over the discv5 DHT, separate from the walks that feed
     ## the node's own peer store.
 
+  PxPing* =
+    proc(record: enr.Record): Future[bool] {.async: (raises: [CancelledError]), gcsafe.}
+    ## Whether the node behind `record` answers right now.
+
   PxCacheEntry = object
     record: enr.Record
     expiresAt: Moment
+    answered: bool
 
   WakuPeerExchange* = ref object of LPProtocol
     peerManager*: PeerManager
@@ -51,6 +58,9 @@ type
       ## node's peer store, so a response reveals nothing about our own peers
       ## (RFC 34, requester-side neighbourhood surveillance).
     refreshLoopHandle: Future[void].Raising([CancelledError])
+    ping: PxPing
+      ## Set, only entries that answered their last ping are served: a discv5
+      ## walk also returns records of nodes that left long ago.
 
 proc respond(
     wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
@@ -153,16 +163,41 @@ proc getEnrsFromCache*(
     wpx: WakuPeerExchange, numPeers: uint64
 ): seq[enr.Record] {.gcsafe.} =
   wpx.pruneCache(Moment.now())
-  var enrs = toSeq(wpx.enrCache.values).mapIt(it.record)
+  var enrs: seq[enr.Record]
+  for entry in wpx.enrCache.values:
+    if wpx.ping.isNil() or entry.answered:
+      enrs.add(entry.record)
   shuffle(enrs)
   enrs.setLen(int(min(uint64(enrs.len), numPeers)))
   return enrs
+
+proc pingCache(wpx: WakuPeerExchange) {.async: (raises: [CancelledError]).} =
+  ## Keeps the entries that answer and drops the others.
+  let peerIds = toSeq(wpx.enrCache.keys)
+  let pings = peerIds.mapIt(wpx.ping(wpx.enrCache.getOrDefault(it).record))
+  await allFutures(pings)
+  var dropped = 0
+  for i, peerId in peerIds:
+    if peerId notin wpx.enrCache:
+      continue
+    if pings[i].completed() and pings[i].value():
+      var entry = wpx.enrCache.getOrDefault(peerId)
+      entry.answered = true
+      wpx.enrCache[peerId] = entry
+    else:
+      wpx.enrCache.del(peerId)
+      inc dropped
+  if dropped > 0:
+    debug "dropped unreachable peer exchange cache entries",
+      dropped = dropped, kept = wpx.enrCache.len
 
 proc cacheRefreshLoop(
     wpx: WakuPeerExchange, walk: PxRandomWalk
 ) {.async: (raises: [CancelledError]).} =
   while true:
     wpx.addToCache(await walk())
+    if not wpx.ping.isNil():
+      await wpx.pingCache()
     await sleepAsync(CacheRefreshInterval)
 
 proc stopCacheRefresh*(wpx: WakuPeerExchange) {.async: (raises: []).} =
@@ -170,9 +205,10 @@ proc stopCacheRefresh*(wpx: WakuPeerExchange) {.async: (raises: []).} =
     await wpx.refreshLoopHandle.cancelAndWait()
     wpx.refreshLoopHandle = nil
 
-proc startCacheRefresh*(wpx: WakuPeerExchange, walk: PxRandomWalk) =
+proc startCacheRefresh*(wpx: WakuPeerExchange, walk: PxRandomWalk, ping: PxPing = nil) =
   if not wpx.refreshLoopHandle.isNil():
     wpx.refreshLoopHandle.cancelSoon()
+  wpx.ping = ping
   wpx.refreshLoopHandle = wpx.cacheRefreshLoop(walk)
 
 proc randomWalk*(wd: WakuDiscoveryV5): PxRandomWalk =
@@ -187,6 +223,17 @@ proc randomWalk*(wd: WakuDiscoveryV5): PxRandomWalk =
       logos_delivery_px_errors.inc(labelValues = [retrievePeersDiscv5Error])
       debug "peer exchange cache refresh walk failed", error = exc.msg
       return @[]
+
+proc discv5Ping*(wd: WakuDiscoveryV5): PxPing =
+  return proc(record: enr.Record): Future[bool] {.async: (raises: [CancelledError]).} =
+    if wd.isNil() or not wd.listening:
+      return false
+    let node = discv5_node.Node.fromRecord(record)
+    # discv5 asserts on a node with no UDP endpoint to send to.
+    if node.address.isNone():
+      return false
+    let pong = await discv5_protocol.ping(wd.protocol, node)
+    return pong.isOk()
 
 proc initProtocolHandler(wpx: WakuPeerExchange) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
