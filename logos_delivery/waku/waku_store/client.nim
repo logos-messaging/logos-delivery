@@ -24,14 +24,14 @@ const FailedPeerRankLastPeriod* = chronos.minutes(5)
 
 const FailedPeerInitialBackoff = chronos.seconds(2)
   ## After a failed query, `queryToAny` does not ask the store peer for this long.
-  ## The backoff doubles with each failure in a row, up to `FailedPeerMaxBackoff`.
+  ## The backoff doubles with each consecutive failure, up to `FailedPeerMaxBackoff`.
 
 const FailedPeerMaxBackoff* = chronos.seconds(8)
   ## The longest backoff of a store peer after its failed queries.
 
 type StorePeerFailure = object ## The failed queries to one store peer.
   at: Moment ## the time of the failure that started the backoff
-  count: int ## the failures in a row
+  count: int ## the number of consecutive failures
   error: StoreError ## the error of that failure
   connected: bool ## the peer had a connection at that failure
 
@@ -125,7 +125,7 @@ proc timeLeft(timeout: Duration, start: Moment): Duration =
   return timeout - (Moment.now() - start)
 
 func backoffFor(self: WakuStoreClient, count: int): Duration =
-  ## The backoff after `count` failures in a row (see `FailedPeerInitialBackoff`).
+  ## The backoff after `count` consecutive failures (see `FailedPeerInitialBackoff`).
   var backoff = self.failedPeerInitialBackoff
   for _ in 1 ..< count:
     if backoff >= FailedPeerMaxBackoff:
