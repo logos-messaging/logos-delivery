@@ -1,10 +1,31 @@
-## v0.41.0 (unreleased)
+## v0.41.0 (2026-11-27)
+
+### Notes
+
+- **Toolchain**: built with Nim 2.2.12 and the ORC memory manager by default; `make NIM_MM=refc` still builds with refc ([#4753](https://github.com/logos-messaging/logos-delivery/pull/4753)).
+- **libp2p 2.5.1** and updated upstream dependencies ([#4810](https://github.com/logos-messaging/logos-delivery/pull/4810), [#4845](https://github.com/logos-messaging/logos-delivery/pull/4845)).
+- **Store-sync**: syncs only with peers of the same shard set, sends pushes per peer in time-bounded batches, and keeps replies within the frame size limit.
+- **Logging**: new `--log-output` option (`stdout`, `stderr` or a file) ([#4716](https://github.com/logos-messaging/logos-delivery/pull/4716)).
+- **Metrics**: every metric label takes a value from a fixed set; anything else is reported as `other` ([#4731](https://github.com/logos-messaging/logos-delivery/pull/4731)). Dashboards keyed on free-form label values may need adjusting.
+- **Deprecations**: `--max-pure-libp2p-peers` is obsolete, accepted and ignored, and will be removed in v0.42.0 ([#4718](https://github.com/logos-messaging/logos-delivery/pull/4718)).
+
+### Breaking changes
+
+- Library: `send` returns the message hash ([#4800](https://github.com/logos-messaging/logos-delivery/pull/4800)).
+- Messaging: `send` no longer subscribes to the content topic of the message ([#4750](https://github.com/logos-messaging/logos-delivery/pull/4750)).
+- Config: store sync requires at least one shard ([#4769](https://github.com/logos-messaging/logos-delivery/pull/4769)); auto-sharding with zero shards is rejected ([#4710](https://github.com/logos-messaging/logos-delivery/pull/4710)).
+- Metadata: edge nodes advertise no shards ([#4718](https://github.com/logos-messaging/logos-delivery/pull/4718)).
 
 ### Changes
 
-- Filter: reuse the push stream per subscriber, so pushes no longer leak streams and stop after ~100 messages over QUIC ([#4843](https://github.com/logos-messaging/logos-delivery/pull/4843))
-- Build: bump nim-libp2p to 2.5.1, which sets the protocol of write-only streams and stops gossipsub retries to peers without pubsub ([#4845](https://github.com/logos-messaging/logos-delivery/pull/4845))
+- Filter: reuse the push stream per subscriber, so pushes no longer leak streams and stop after ~100 messages over QUIC ([#4843](https://github.com/logos-messaging/logos-delivery/pull/4843)); observe push duration only on successful pushes ([#4708](https://github.com/logos-messaging/logos-delivery/pull/4708))
 - Messaging: wait 5 s between two mix attempts of a message, so a message that mix cannot deliver uses 2 or 3 Mix RLN message ids instead of 10 to 15 ([#4844](https://github.com/logos-messaging/logos-delivery/pull/4844))
+- Store-sync: sync only with peers of the same shard set ([#4747](https://github.com/logos-messaging/logos-delivery/pull/4747)) and show shard set mismatches ([#4764](https://github.com/logos-messaging/logos-delivery/pull/4764)); send pushes per peer, once, in time-bounded batches ([#4782](https://github.com/logos-messaging/logos-delivery/pull/4782)); keep reconciliation replies within the frame size limit ([#4770](https://github.com/logos-messaging/logos-delivery/pull/4770)); keep promises by round and archive a late push ([#4767](https://github.com/logos-messaging/logos-delivery/pull/4767)); accept over transfer only messages a round asked for ([#4735](https://github.com/logos-messaging/logos-delivery/pull/4735)); treat a zero-length sync message as malformed ([#4756](https://github.com/logos-messaging/logos-delivery/pull/4756)); log failed inserts while filling the initial sync storage ([#4811](https://github.com/logos-messaging/logos-delivery/pull/4811)); drop the unused content topic from the sync storage ([#4789](https://github.com/logos-messaging/logos-delivery/pull/4789))
+- Peer manager: keep peers without waku metadata ([#4718](https://github.com/logos-messaging/logos-delivery/pull/4718))
+- Peer exchange: serve from a discv5-fed cache, not the peer store ([#4717](https://github.com/logos-messaging/logos-delivery/pull/4717))
+- Ping: close the ping stream with a plain await ([#4772](https://github.com/logos-messaging/logos-delivery/pull/4772))
+- Library: one owner of start and stop, so concurrent or repeated calls no longer leave a half-started node ([#4734](https://github.com/logos-messaging/logos-delivery/pull/4734)); leave nothing running after a start that fails before the node starts ([#4705](https://github.com/logos-messaging/logos-delivery/pull/4705))
+- Build: let a caller build the library with plain `nim c` ([#4744](https://github.com/logos-messaging/logos-delivery/pull/4744)); link `libsynchronization` on Windows ([#4809](https://github.com/logos-messaging/logos-delivery/pull/4809)); move off deprecated dependency APIs and build without compiler warnings ([#4722](https://github.com/logos-messaging/logos-delivery/pull/4722), [#4723](https://github.com/logos-messaging/logos-delivery/pull/4723))
 
 ## v0.40.0 (2026-11-12)
 
