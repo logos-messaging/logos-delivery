@@ -122,7 +122,11 @@ proc new*(
     previousRecord = record,
     enrIp = Opt.none(IpAddress),
     enrTcpPort = Opt.none(Port),
-    enrUdpPort = Opt.none(Port),
+    enrUdpPort =
+      if conf.port == Port(0):
+        Opt.none(Port)
+      else:
+        Opt.some(conf.port),
   )
 
   let shardPredOp =
