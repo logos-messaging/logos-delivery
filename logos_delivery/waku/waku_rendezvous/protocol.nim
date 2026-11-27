@@ -44,12 +44,20 @@ proc discover*(
   trace "Received Discover", peerId = conn.peerId, ns = d.ns
   await procCall GenericRendezVous[WakuPeerRecord](self).discover(conn, d)
 
+proc abandonDial(dial: Future[Opt[Connection]]) =
+  proc closeDialed(_: pointer) {.gcsafe, raises: [].} =
+    if dial.completed() and dial.value().isSome():
+      asyncSpawn dial.value().get().close()
+
+  dial.addCallback(closeDialed)
+  dial.cancelSoon()
+
 proc advertise*(
     self: WakuRendezVous,
     namespace: string,
     peers: seq[PeerId],
     ttl: timer.Duration = self.config.minDuration,
-): Future[Result[void, string]] {.async: (raises: []).} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   trace "Advertising via waku rendezvous",
     namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
   let se = SignedPayload[WakuPeerRecord].init(
@@ -66,13 +74,13 @@ proc advertise*(
     for peerId in peers:
       self.peerManager.dialPeer(peerId, self.codec)
 
-  let dialCatch = catch:
-    await allFinished(futs)
-
-  if dialCatch.isErr():
-    return err("advertise: " & dialCatch.error.msg)
-
-  futs = dialCatch.get()
+  futs =
+    try:
+      await allFinished(futs)
+    except CancelledError as exc:
+      for fut in futs:
+        fut.abandonDial()
+      raise exc
 
   let conns = collect(newSeq):
     for fut in futs:
@@ -95,7 +103,7 @@ proc advertise*(
 
   try:
     await self.advertise(namespace, ttl, peers, sprBuff)
-  except Exception as e:
+  except AdvertiseError as e:
     return err("rendezvous advertisement failed: " & e.msg)
   finally:
     for conn in conns:
@@ -104,7 +112,7 @@ proc advertise*(
 
 proc advertiseAll*(
     self: WakuRendezVous
-): Future[Result[void, string]] {.async: (raises: []).} =
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   trace "Waku rendezvous advertisements started"
 
   let rpi = self.peerManager.selectPeer(self.codec).valueOr:
@@ -123,8 +131,7 @@ proc periodicRegistration(self: WakuRendezVous) {.async.} =
   debug "Waku rendezvous periodic registration started",
     interval = self.registrationInterval
 
-  # infinite loop
-  while true:
+  while self.started:
     await sleepAsync(self.registrationInterval)
 
     (await self.advertiseAll()).isOkOr:
@@ -220,6 +227,7 @@ method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   info "Waku rendezvous discovery started"
 
 method stop*(self: WakuRendezVous) {.async: (raises: []).} =
+  self.started = false
   if not self.periodicRegistrationFut.isNil():
     await self.periodicRegistrationFut.cancelAndWait()
 

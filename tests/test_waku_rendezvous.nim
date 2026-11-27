@@ -34,6 +34,27 @@ proc addRendezvousPeer(node: WakuNode, listener: StreamServer) =
     )
   )
 
+proc newMuteRendezvousPeer(requested: AsyncEvent, release: AsyncEvent): Switch =
+  ## A switch serving the rendezvous codec that reads a request and never answers
+  ## it, holding the stream open until `release` fires.
+  proc hold(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+    try:
+      discard await conn.readLp(4096)
+    except LPStreamError:
+      return
+    requested.fire()
+    await release.wait()
+    await conn.close()
+
+  let switch = newTestSwitch()
+  switch.mount(LPProtocol.new(codecs = @[WakuRendezVousCodec], handler = hold))
+  return switch
+
+proc addMuteRendezvousPeer(node: WakuNode, peer: Switch) =
+  let peerInfo = peer.peerInfo.toRemotePeerInfo()
+  peerInfo.protocols = @[WakuRendezVousCodec]
+  node.peerManager.addPeer(peerInfo)
+
 suite "mixPubKeyFromHex":
   test "wrong decoded length returns none":
     check:
@@ -205,6 +226,77 @@ procSuite "Waku Rendezvous":
     await node.start()
     node.addRendezvousPeer(listener)
     check await accepted.wait().withTimeout(DefaultRegistrationInterval + 5.seconds)
+
+    let stopping = node.stop()
+    check await stopping.join().withTimeout(5.seconds)
+
+  asyncTest "A cancelled advertisement ends cancelled while the dial has not finished":
+    let
+      clusterId = 10.uint16
+      node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+    await node.mountRendezvous(clusterId)
+
+    let accepted = newAsyncEvent()
+    var held: StreamTransport
+    proc mute(server: StreamServer, client: StreamTransport) {.async: (raises: []).} =
+      held = client
+      accepted.fire()
+
+    let listener = createStreamServer(initTAddress("127.0.0.1:0"), mute, {ReuseAddr})
+    listener.start()
+    await node.start()
+    defer:
+      await node.stop()
+      if not held.isNil():
+        await held.closeWait()
+      listener.stop()
+      await listener.closeWait()
+    node.addRendezvousPeer(listener)
+
+    let advertising = node.wakuRendezvous.advertiseAll()
+    check await accepted.wait().withTimeout(5.seconds)
+
+    advertising.cancelSoon()
+    check:
+      await advertising.join().withTimeout(3.seconds)
+      advertising.cancelled()
+
+  asyncTest "A cancelled advertisement ends cancelled while the peer has not answered":
+    let
+      clusterId = 10.uint16
+      node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      requested = newAsyncEvent()
+      release = newAsyncEvent()
+      peer = newMuteRendezvousPeer(requested, release)
+    await node.mountRendezvous(clusterId)
+    await allFutures(peer.start(), node.start())
+    defer:
+      release.fire()
+      await allFutures(node.stop(), peer.stop())
+    node.addMuteRendezvousPeer(peer)
+
+    let advertising = node.wakuRendezvous.advertiseAll()
+    check await requested.wait().withTimeout(5.seconds)
+
+    advertising.cancelSoon()
+    check:
+      await advertising.join().withTimeout(3.seconds)
+      advertising.cancelled()
+
+  asyncTest "Stop finishes during a registration the peer has not answered":
+    let
+      clusterId = 10.uint16
+      node = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      requested = newAsyncEvent()
+      release = newAsyncEvent()
+      peer = newMuteRendezvousPeer(requested, release)
+    await node.mountRendezvous(clusterId)
+    await allFutures(peer.start(), node.start())
+    defer:
+      release.fire()
+      await peer.stop()
+    node.addMuteRendezvousPeer(peer)
+    check await requested.wait().withTimeout(DefaultRegistrationInterval + 5.seconds)
 
     let stopping = node.stop()
     check await stopping.join().withTimeout(5.seconds)
