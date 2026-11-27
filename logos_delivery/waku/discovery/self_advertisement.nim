@@ -43,7 +43,7 @@ const
   MaxRawLen = 24 ## Base64 of 24 bytes is exactly 32 characters, unpadded.
 
   MaxShardBitmapLen* = MaxRawLen - AdvertHeaderLen
-    ## 20 bytes, so shards 0..159 are representable. Higher indices are dropped
+    ## 19 bytes, so shards 0..151 are representable. Higher indices are dropped
     ## rather than silently aliased onto a lower bit, which would advertise
     ## membership of a shard we are not on.
 
@@ -61,16 +61,20 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   ##
   ##   [0]      format version
   ##   [1..2]   cluster id, big-endian uint16
-  ##   [3]      capabilities bitfield
-  ##   [4..]    shard bitmap, one bit per shard, only as long as it needs to be
+  ##   [3..4]   capabilities bitfield, big-endian uint16
+  ##   [5..]    shard bitmap, one bit per shard, only as long as it needs to be
   ##
   ## Everything a peer needs in order to decide whether to dial us: which
   ## network, what we serve, which shards we are on. `cluster` travels with
   ## `shards` because a shard index is meaningless without it. Capabilities
   ## travel as the bitfield rather than as protocol id strings -- the same
-  ## information, one byte instead of roughly a hundred. The node's version
+  ## information, two bytes instead of roughly a hundred. The node's version
   ## string used to be included and is not: it is the single largest field, it
   ## is not a selection criterion, and it does not fit the budget.
+  ##
+  ## The low byte of the capabilities has the bits of the ENR `waku2` field.
+  ## The high byte is for a capability with no bit there.
+  ## No capability uses it yet.
   ##
   ## The Mix bit is set only when `advertisesMix`: a reader takes this node's
   ## mix key on the strength of it. `assembleAdvert` clears it for a record
@@ -88,9 +92,9 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   raw[0] = AdvertFormatVersion
   raw[1] = byte(conf.clusterId shr 8)
   raw[2] = byte(conf.clusterId and 0xff)
-  raw[3] = byte(conf.wakuFlags)
+  raw[4] = byte(conf.wakuFlags)
   if not conf.advertisesMix():
-    raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
+    raw[4] = raw[4] and not byte(1'u8 shl ord(Capabilities.Mix))
 
   for shard in shards:
     let idx = int(shard)

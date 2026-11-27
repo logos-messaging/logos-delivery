@@ -46,7 +46,7 @@ suite "Waku Kademlia service discovery":
 
   proc deliveryPayload(caps: CapabilitiesBitfield): seq[byte] =
     ## A `/logos/delivery` payload of cluster 0 with no shards.
-    cast[seq[byte]](base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, byte(caps)]))
+    cast[seq[byte]](base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, 0'u8, byte(caps)]))
 
   const MixNodeCaps = CapabilitiesBitfield.init(relay = true, mix = true)
 
@@ -89,7 +89,7 @@ suite "Waku Kademlia service discovery":
 
     test "a delivery payload of another format version gives none":
       let payload = cast[seq[byte]](base64.encode(
-        @[AdvertFormatVersion + 1, 0'u8, 0'u8, byte(MixNodeCaps)]
+        @[AdvertFormatVersion + 1, 0'u8, 0'u8, 0'u8, byte(MixNodeCaps)]
       ))
       check advertisedMixKey(
         @[
@@ -153,7 +153,7 @@ suite "Waku Kademlia service discovery":
             DiscoveredService(
               id: LogosDeliveryServiceId,
               data: cast[seq[byte]](base64.encode(
-                @[AdvertFormatVersion + 1, 0'u8, 0'u8, 0'u8]
+                @[AdvertFormatVersion + 1, 0'u8, 0'u8, 0'u8, 0'u8]
               )),
             )
           ]
@@ -418,6 +418,7 @@ suite "Waku Kademlia advertises records this node signs":
         AdvertFormatVersion,
         0'u8,
         0'u8,
+        0'u8,
         byte(CapabilitiesBitfield.init(relay = true, mix = true)),
       ]
     ))
@@ -497,6 +498,7 @@ suite "Waku Kademlia advertises records this node signs":
       let payload = cast[seq[byte]](base64.encode(
         @[
           AdvertFormatVersion,
+          0'u8,
           0'u8,
           0'u8,
           byte(CapabilitiesBitfield.init(relay = true, mix = mix)),

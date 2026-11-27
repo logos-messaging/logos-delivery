@@ -534,7 +534,7 @@ suite "ExternalServiceDiscovery":
     proc peersJson(caps: CapabilitiesBitfield, withKey: bool, seqNo = 7): string =
       ## Service data travels base64-encoded, and the delivery payload is
       ## base64 text itself.
-      let payload = base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, byte(caps)])
+      let payload = base64.encode(@[AdvertFormatVersion, 0'u8, 0'u8, 0'u8, byte(caps)])
       var services = %*[{"id": LogosDeliveryServiceId, "data": base64.encode(payload)}]
       if withKey:
         services.add(%*{"id": "/mix/1.0.0", "data": base64.encode(newSeq[byte](32))})

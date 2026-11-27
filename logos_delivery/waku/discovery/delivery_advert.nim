@@ -15,26 +15,34 @@ import
   logos_delivery/waku/waku_enr/capabilities
 
 const
-  AdvertFormatVersion* = 1'u8
+  AdvertFormatVersion* = 2'u8
     ## Bumped whenever the layout changes, so a reader can refuse a payload it
     ## does not understand instead of misreading it.
 
-  AdvertHeaderLen* = 4
-    ## [0] format version, [1..2] cluster id, [3] capabilities bitfield. The
+  AdvertHeaderLen* = 5
+    ## [0] format version, [1..2] cluster id, [3..4] capabilities bitfield. The
     ## shard bitmap follows. See `selfAdvertisementData`.
 
 func decodedAdvert(data: openArray[byte]): Result[seq[byte], string] =
-  ## The raw bytes of a `/logos/delivery` payload this version reads.
+  ## The raw bytes of a `/logos/delivery` payload this version reads, in the
+  ## layout of version 2.
   let raw =
     try:
       cast[seq[byte]](base64.decode(cast[string](@data)))
     except ValueError as exc:
       return err("delivery advert is not base64: " & exc.msg)
-  if raw.len < AdvertHeaderLen:
+  # Version 1 has one byte of capabilities.
+  # v0.39.0 is the first release that writes it.
+  let advert =
+    if raw.len >= 4 and raw[0] == 1'u8:
+      @[2'u8] & raw[1 .. 2] & @[0'u8] & raw[3 .. ^1]
+    else:
+      raw
+  if advert.len < AdvertHeaderLen:
     return err("delivery advert shorter than its header: " & $raw.len)
-  if raw[0] != AdvertFormatVersion:
-    return err("unsupported delivery advert version: " & $raw[0])
-  ok(raw)
+  if advert[0] != AdvertFormatVersion:
+    return err("unsupported delivery advert version: " & $advert[0])
+  ok(advert)
 
 func advertisedCapabilities*(
     data: openArray[byte]
@@ -42,7 +50,7 @@ func advertisedCapabilities*(
   ## The capabilities of a `/logos/delivery` payload.
   let raw = decodedAdvert(data).valueOr:
     return err("could not read delivery advert capabilities: " & error)
-  ok(CapabilitiesBitfield(raw[3]))
+  ok(CapabilitiesBitfield(raw[4]))
 
 func advertisedShards*(data: openArray[byte]): Result[(uint16, seq[uint16]), string] =
   ## The cluster id and the shards of a `/logos/delivery` payload. Bit `i` of
@@ -87,7 +95,7 @@ func withoutMixClaim*(data: seq[byte]): seq[byte] =
   ## A payload this version does not read is returned as it is.
   var raw = decodedAdvert(data).valueOr:
     return data
-  raw[3] = raw[3] and not byte(1'u8 shl ord(Capabilities.Mix))
+  raw[4] = raw[4] and not byte(1'u8 shl ord(Capabilities.Mix))
   cast[seq[byte]](base64.encode(raw))
 
 func advertisedMixKey*(services: openArray[DiscoveredService]): Opt[Curve25519Key] =

@@ -198,14 +198,15 @@ suite "Self advertisement":
       cast[string](selfAdvertisementData(confWith(CoreFlags), TestShards))
     ))
     check:
-      raw.len == 5 # 4-byte header + one bitmap byte covering shards 0 and 3
+      raw.len == 6 # 5-byte header + one bitmap byte covering shards 0 and 3
       raw[0] == AdvertFormatVersion
       (uint16(raw[1]) shl 8 or uint16(raw[2])) == 16'u16
-      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Relay)
-      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Store)
-      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Lightpush)
-      not CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Filter)
-      raw[4] == 0b0000_1001'u8 # shards 0 and 3
+      raw[3] == 0'u8
+      CapabilitiesBitfield(raw[4]).supportsCapability(Capabilities.Relay)
+      CapabilitiesBitfield(raw[4]).supportsCapability(Capabilities.Store)
+      CapabilitiesBitfield(raw[4]).supportsCapability(Capabilities.Lightpush)
+      not CapabilitiesBitfield(raw[4]).supportsCapability(Capabilities.Filter)
+      raw[5] == 0b0000_1001'u8 # shards 0 and 3
 
   test "the payload stays within the size libp2p will accept":
     ## The JSON shape this replaced ran to ~188 bytes and could never be
@@ -235,8 +236,14 @@ suite "Self advertisement":
       cast[string](selfAdvertisementData(confWith(CoreFlags), @[0'u16, 9999'u16]))
     ))
     check:
-      raw.len == 5
-      raw[4] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
+      raw.len == 6
+      raw[5] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
+
+  test "the payload holds shard 151 and drops shard 152":
+    let data = selfAdvertisementData(confWith(CoreFlags), @[151'u16, 152'u16])
+    check:
+      data.len == MaxAdvertLen
+      advertisedShards(data).get((0'u16, newSeq[uint16]())) == (16'u16, @[151'u16])
 
 suite "Delivery record into the peer store":
   let
@@ -261,9 +268,70 @@ suite "Delivery record into the peer store":
       advertisedShards(selfAdvertisementData(confWith(serving), TestShards)).expect(
         "a delivery payload"
       ) == (16'u16, TestShards)
-      advertisedShards(cast[seq[byte]](base64.encode("\x09abc"))).isErr()
+      advertisedShards(cast[seq[byte]](base64.encode("\x09abcd"))).isErr()
       advertisedShards(cast[seq[byte]](base64.encode("\x01a"))).isErr()
       advertisedShards(@[byte('!')]).isErr()
+
+  proc payload(raw: seq[byte]): seq[byte] =
+    cast[seq[byte]](base64.encode(raw))
+
+  proc shardsOf(data: seq[byte]): (uint16, seq[uint16]) =
+    ## Cluster 0 with no shards for a payload that this version does not read.
+    advertisedShards(data).get((0'u16, newSeq[uint16]()))
+
+  test "a version 1 payload gives its capabilities and shards":
+    ## Older releases write it, from v0.39.0.
+    let version1 = payload(@[1'u8, 0, 16, byte(serving), 0b0000_1001])
+    check:
+      byte(advertisedCapabilities(version1).get(EdgeFlags)) == byte(serving)
+      shardsOf(version1) == (16'u16, TestShards)
+
+  test "a version 1 payload with no shard bitmap gives its capabilities":
+    ## A node on no shard writes the header alone.
+    let version1 = payload(@[1'u8, 0, 16, byte(serving)])
+    check:
+      byte(advertisedCapabilities(version1).get(EdgeFlags)) == byte(serving)
+      shardsOf(version1) == (16'u16, newSeq[uint16]())
+
+  test "a version 1 payload with a full shard bitmap gives its last shard":
+    let version1 =
+      payload(@[1'u8, 0, 16, byte(serving)] & newSeq[byte](19) & @[0b1000_0000'u8])
+    check shardsOf(version1) == (16'u16, @[159'u16])
+
+  test "a version 1 record still fills the peer store":
+    ## The codecs, the shards, the mix key and the disclaim all come from the
+    ## delivery payload, so each must read version 1.
+    proc delivery(raw: seq[byte]): DiscoveredService =
+      DiscoveredService(id: LogosDeliveryServiceId, data: payload(raw))
+
+    let
+      mixNode = CapabilitiesBitfield.init(relay = true, mix = true)
+      relayOnly = CapabilitiesBitfield.init(relay = true)
+      key = DiscoveredService(id: MixProtocolID, data: mixKeyBytes())
+      servingNode = delivery(@[1'u8, 0, 16, byte(serving), 0b0000_1001])
+    check:
+      advertisedServing([servingNode], 16'u16) == (serving.toCodecs(), TestShards)
+      advertisedMixKey([delivery(@[1'u8, 0, 16, byte(mixNode)]), key]) == mixKey()
+      disclaimsMix([delivery(@[1'u8, 0, 16, byte(relayOnly)])])
+
+  test "a payload shorter than its header gives an error":
+    for raw in [@[1'u8], @[1'u8, 0, 16], @[AdvertFormatVersion, 0, 16, 0]]:
+      check:
+        advertisedCapabilities(payload(raw)).isErr()
+        advertisedShards(payload(raw)).isErr()
+
+  test "the high byte of the capabilities does not change the low byte":
+    let highByteSet = payload(@[AdvertFormatVersion, 0, 16, 0xff, byte(serving)])
+    check byte(advertisedCapabilities(highByteSet).get(EdgeFlags)) == byte(serving)
+
+  test "withoutMixClaim clears only the Mix bit":
+    let
+      relay = CapabilitiesBitfield.init(relay = true)
+      mixNode = CapabilitiesBitfield.init(relay = true, mix = true)
+      header = @[AdvertFormatVersion, 0, 16, 0xff]
+      shards = @[0b0000_1001'u8]
+    check withoutMixClaim(payload(header & @[byte(mixNode)] & shards)) ==
+      payload(header & @[byte(relay)] & shards)
 
   test "a record's codecs and shards make its peer selectable unconnected":
     let pm = PeerManager.new(newTestSwitch())
