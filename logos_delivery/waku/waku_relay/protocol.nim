@@ -13,7 +13,7 @@ import
   chronicles,
   metrics,
   libp2p/multihash,
-  libp2p/protocols/pubsub/[floodsub, gossipsub, timedcache],
+  libp2p/protocols/pubsub/[floodsub, gossipsub, pubsubpeer, timedcache],
   libp2p/protocols/pubsub/rpc/[messages, protobuf],
   libp2p/stream/connection,
   libp2p/switch,
@@ -154,6 +154,12 @@ const GossipsubParameters = GossipSubParams.init(
   disconnectBadPeers = true,
 )
 
+const RelayStreamKeepAliveInterval* = 2.minutes
+  ## How often each gossipsub send stream carries a repeated subscription.
+  ## Must stay below the muxer idle timeout (5 minutes in nim-libp2p): an idle
+  ## send stream is reset, and gossipsub then prunes the peer from every mesh
+  ## with a backoff, leaving the node without relay peers for a minute.
+
 type
   WakuRelayResult*[T] = Result[T, string]
   WakuRelayHandler* = proc(pubsubTopic: PubsubTopic, message: WakuMessage): Future[void] {.
@@ -176,6 +182,9 @@ type
     topicsHealth*: Table[string, TopicHealth]
     onTopicHealthChange*: TopicHealthChangeHandler
     topicHealthLoopHandle*: Future[void]
+    streamKeepAliveInterval*: Duration
+      ## Keepalive period, `RelayStreamKeepAliveInterval` by default; zero disables it.
+    streamKeepAliveHandle: Future[void].Raising([CancelledError])
     topicHealthUpdateEvent: AsyncEvent
     topicHealthDirty: HashSet[string]
       # list of topics that need their health updated in the update event
@@ -431,6 +440,7 @@ proc new*(
     w.topicHealthUpdateEvent = newAsyncEvent()
     w.topicHealthDirty = initHashSet[string]()
     w.topicHealthCheckAll = false
+    w.streamKeepAliveInterval = RelayStreamKeepAliveInterval
     w.initProtocolHandler()
     w.initRelayObservers()
   except InitializationError:
@@ -569,6 +579,21 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
 
+proc streamKeepAliveLoop(w: WakuRelay) {.async: (raises: [CancelledError]).} =
+  ## Re-announces one subscribed topic on every open send stream, so the muxer
+  ## never sees it idle. A repeated subscription is a no-op for the receiver.
+  while true:
+    await sleepAsync(w.streamKeepAliveInterval)
+    var topic: string
+    for t in w.topics.keys:
+      topic = t
+      break
+    if topic.len == 0:
+      continue
+    for peer in w.peers.values:
+      if peer.connected():
+        w.sendSubs(peer, [topic], true)
+
 method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
   info "start"
   await procCall GossipSub(w).start()
@@ -584,6 +609,8 @@ method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
     error "could not listen to peer events", error = error
     WakuPeerEventListener()
   w.topicHealthLoopHandle = w.topicsHealthLoop()
+  if w.streamKeepAliveInterval > ZeroDuration:
+    w.streamKeepAliveHandle = w.streamKeepAliveLoop()
 
 method stop*(w: WakuRelay) {.async: (raises: []).} =
   info "stop"
@@ -593,6 +620,9 @@ method stop*(w: WakuRelay) {.async: (raises: []).} =
 
   if not w.topicHealthLoopHandle.isNil():
     await w.topicHealthLoopHandle.cancelAndWait()
+
+  if not w.streamKeepAliveHandle.isNil():
+    await w.streamKeepAliveHandle.cancelAndWait()
 
   # GossipSub.stop emptied the meshes without waking the health loop
   for topic in toSeq(w.topicsHealth.keys):
