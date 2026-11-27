@@ -155,15 +155,17 @@ proc recordFailure(self: WakuStoreClient, peerId: PeerId, error: StoreError) =
   let now = Moment.now()
   if self.inBackoff(peerId, now):
     return
-  let count = self.failures.getOrDefault(peerId).count + 1
-  self.failures[peerId] = StorePeerFailure(
-    at: now,
-    count: count,
-    error: error,
-    connected: self.peerManager.switch.isConnected(peerId),
-  )
+  var failure = self.failures.getOrDefault(peerId)
+  failure.count.inc()
+  failure.at = now
+  failure.error = error
+  failure.connected = self.peerManager.switch.isConnected(peerId)
+  self.failures[peerId] = failure
   debug "Store peer starts a backoff",
-    peerId = peerId, failures = count, backoff = self.backoffFor(count), error = $error
+    peerId = peerId,
+    failures = failure.count,
+    backoff = self.backoffFor(failure.count),
+    error = $error
 
 proc queryAndRecordFailure(
     self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo
