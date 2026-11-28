@@ -892,13 +892,12 @@ suite "Waku Conf - logos.dev preset":
     builder.withNetworkPresetConf(NetworkPresetConf.LogosDevConf())
     builder
 
-  test "a relay node runs relay RLN on the host's plugin, an Edge node is left unset":
+  test "relay RLN is left unset, for a relay node and an Edge node":
     var coreBuilder = devBuilder(relay = true)
     let core = coreBuilder.build().valueOr:
       raiseAssert "Conf build failed: " & $error
     check:
-      core.rlnRelay == Opt.some(true)
-      # No contract address: the backend is the plugin a host installs.
+      core.rlnRelay.isNone()
       core.rlnEvmConf.isNone()
     var edgeBuilder = devBuilder(relay = false)
     let edge = edgeBuilder.build().valueOr:
