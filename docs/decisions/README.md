@@ -19,5 +19,5 @@ An Architecture Decision Record (ADR) captures an important architecture decisio
 
 ## ADRs
 
-None yet.
+- 0001 — [Let callers build liblogosdelivery with plain `nim c`](0001-let-callers-build-liblogosdelivery-with-plain-nim-c.md) — 2026-11-24
 
