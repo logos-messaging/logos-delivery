@@ -115,15 +115,12 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
   return NetworkPresetConf(
     maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 3,
-    # Relay RLN runs on the plugin a host installs (the delivery module's), so
-    # there is no contract address: a relaying node without a plugin turns it
-    # off with rln-relay=false. Received proofs are not checked yet.
-    rlnRelay: true,
+    rlnRelay: false,
     rlnRelayEthContractAddress: "",
     rlnRelayDynamic: false,
     rlnRelayChainId: ZeroChainId,
-    rlnEpochSizeSec: 600,
-    rlnRelayUserMessageLimit: 600,
+    rlnEpochSizeSec: 0,
+    rlnRelayUserMessageLimit: 0,
     rlnDisableValidation: true,
     shardingConf: ShardingConf.autoSharding(numShards = 8),
     enableKadDiscovery: true,
