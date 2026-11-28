@@ -26,6 +26,3 @@ type ReliableChannelManagerConf* = object
   sdsMaxRetransmissions*: Opt[int]
     ## Maximum retransmission attempts before delivery fails.
   sdsCausalHistorySize*: Opt[int] ## Number of message ids kept in causal history.
-  rateLimitEnabled*: Opt[bool] ## Enable rate limiting.
-  rateLimitEpochPeriodSec*: Opt[int] ## Rate-limit epoch length in seconds.
-  rateLimitMessagesPerEpoch*: Opt[int] ## Messages allowed per rate-limit epoch.

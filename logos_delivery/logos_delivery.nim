@@ -215,17 +215,20 @@ proc new*(
     preset: string = "",
     messagingOverrides: MessagingClientConf = MessagingClientConf(),
     channelsOverrides: ReliableChannelManagerConf = ReliableChannelManagerConf(),
+    kernelConf: Opt[KernelConf] = Opt.none(KernelConf),
     appCallbacks: AppCallbacks = nil,
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Messaging entry point (app dev). Builds the stack from preset, mode and
   ## overrides; `entryLayer` selects how far up the stack to go. `kernel` mounts
-  ## no upper layers but still applies mode/preset.
+  ## no upper layers but still applies mode/preset. Kernel options go in
+  ## `kernelConf`, built from `libraryKernelConf()`.
   let conf = LogosDeliveryConf.init(
     entryLayer = entryLayer,
     mode = mode,
     preset = preset,
     messagingOverrides = messagingOverrides,
     channelsOverrides = channelsOverrides,
+    kernelConfArg = kernelConf,
   ).valueOr:
     return err("failed to synthesize configuration: " & error)
   return await LogosDelivery.new(conf, appCallbacks)

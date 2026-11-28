@@ -270,12 +270,10 @@ int main(int argc, char **argv)
     snprintf(jsonConfig, 2048, "{ \
                                     \"mode\": \"Core\", \
                                     \"preset\": \"status.prod\", \
-                                    \"messagingOverrides\": { \
-                                        \"listen-address\": \"%s\", \
-                                        \"tcp-port\": %d, \
-                                        \"log-level\": \"FATAL\", \
-                                        \"discv5-udp-port\": 9999 \
-                                    } \
+                                    \"listen-address\": \"%s\", \
+                                    \"tcp-port\": %d, \
+                                    \"log-level\": \"FATAL\", \
+                                    \"discv5-udp-port\": 9999 \
                                 }",
              cfgNode.host,
              cfgNode.port);
