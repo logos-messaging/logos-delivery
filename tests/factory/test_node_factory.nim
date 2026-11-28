@@ -811,3 +811,43 @@ suite "Auto-port retry":
     check okRes.isOk()
     if okRes.isOk():
       await okRes.get().stop()
+
+  asynctest "discv5 on an auto port advertises that port in its record":
+    let nodeKey = generateSecp256k1Key()
+    let node = newTestWakuNode(nodeKey)
+    await node.start()
+    defer:
+      await node.stop()
+
+    var enrBuilder = EnrBuilder.init(nodeKey)
+    enrBuilder.withIpAddressAndPorts(
+      ipAddr = Opt.some(parseIpAddress("127.0.0.1")),
+      tcpPort = Opt.some(Port(60000)),
+      udpPort = Opt.none(Port),
+    )
+    let seed = enrBuilder.build().tryGet()
+
+    var confBuilder = Discv5ConfBuilder.init()
+    confBuilder.withEnabled(true)
+    confBuilder.withUdpPort(Port(0))
+    let discv5Conf = confBuilder.build().value.get()
+
+    let wd = (
+      await setupAndStartDiscv5(
+        seed,
+        node.peerManager,
+        discv5Conf,
+        @[],
+        node.rng,
+        nodeKey,
+        parseIpAddress("0.0.0.0"),
+      )
+    ).tryGet()
+    defer:
+      await wd.stop()
+
+    let typed = wd.protocol.localNode.record.toTyped().tryGet()
+    check:
+      wd.udpPort != Port(0)
+      typed.udp.get(0).int == wd.udpPort.int
+      wd.protocol.localNode.address.isSome()
